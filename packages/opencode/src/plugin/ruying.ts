@@ -85,8 +85,14 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+interface OAuthServerStart {
+  promise: Promise<{ port: number }>
+}
+
 let oauthServer: ReturnType<typeof createServer> | undefined
 let oauthServerPort: number | undefined
+let oauthServerGeneration: OAuthServerStart | undefined
+let oauthServerStart: OAuthServerStart | undefined
 let oauthServerOwner: string | undefined
 let pending: Pending | undefined
 
@@ -169,15 +175,35 @@ function endHtml(res: ServerResponse, status: number, html: string) {
   res.end(html)
 }
 
-async function startOAuthServer(
+function startOAuthServer(
   host: string,
   requestedPort: number,
   fallbackToEphemeral: boolean,
 ): Promise<{ port: number }> {
-  if (oauthServer && oauthServerPort !== undefined) return { port: oauthServerPort }
+  if (oauthServer && oauthServerPort !== undefined) return Promise.resolve({ port: oauthServerPort })
+  if (oauthServerStart) return oauthServerStart.promise
 
+  const deferred = Promise.withResolvers<{ port: number }>()
+  const start = { promise: deferred.promise }
+  oauthServerStart = start
+  void listenOAuthServer(host, requestedPort, fallbackToEphemeral, start).then(deferred.resolve, deferred.reject)
+  const clearStart = () => {
+    if (oauthServerStart === start) oauthServerStart = undefined
+  }
+  void deferred.promise.then(clearStart, clearStart)
+  return deferred.promise
+}
+
+function listenOAuthServer(
+  host: string,
+  requestedPort: number,
+  fallbackToEphemeral: boolean,
+  start: OAuthServerStart,
+): Promise<{ port: number }> {
   const server = createServer((req, res) => {
-    const url = new URL(req.url || "/", `http://${req.headers.host ?? `${host}:${oauthServerPort ?? requestedPort}`}`)
+    const address = server.address()
+    const port = address && typeof address !== "string" ? address.port : requestedPort
+    const url = new URL(req.url || "/", `http://${req.headers.host ?? `${host}:${port}`}`)
     const current = pending
     if (!current || url.pathname !== current.path) {
       res.writeHead(404)
@@ -212,13 +238,12 @@ async function startOAuthServer(
     })()
   })
 
-  return await new Promise<{ port: number }>((resolve, reject) => {
+  return new Promise<{ port: number }>((resolve, reject) => {
     const onError = (err: Error) => {
-      oauthServer = undefined
-      oauthServerPort = undefined
+      clearOAuthServer(server, start)
       const occupied = (err as NodeJS.ErrnoException).code === "EADDRINUSE"
       if (occupied && fallbackToEphemeral) {
-        void startOAuthServer(host, 0, false).then(resolve, reject)
+        void listenOAuthServer(host, 0, false, start).then(resolve, reject)
         return
       }
       reject(occupied ? new Error(`端口 ${requestedPort} 已被占用，请关闭占用程序后重试`) : err)
@@ -226,20 +251,36 @@ async function startOAuthServer(
     server.once("error", onError)
     server.listen(requestedPort, host, () => {
       server.removeListener("error", onError)
+      if (oauthServerStart !== start) {
+        server.close()
+        reject(new Error("登录服务器启动已过期"))
+        return
+      }
       const address = server.address()
-      oauthServerPort = address && typeof address !== "string" ? address.port : requestedPort
-      resolve({ port: oauthServerPort })
+      const port = address && typeof address !== "string" ? address.port : requestedPort
+      oauthServer = server
+      oauthServerPort = port
+      oauthServerGeneration = start
+      resolve({ port })
     })
-    oauthServer = server
   })
 }
 
 function stopOAuthServer(owner: string) {
   if (oauthServerOwner !== owner) return
-  oauthServer?.close()
+  const server = oauthServer
+  const generation = oauthServerGeneration
+  server?.close()
+  if (server && generation) clearOAuthServer(server, generation)
+  if (oauthServerOwner !== owner) return
+  oauthServerOwner = undefined
+}
+
+function clearOAuthServer(server: ReturnType<typeof createServer>, generation: OAuthServerStart) {
+  if (oauthServer !== server || oauthServerGeneration !== generation) return
   oauthServer = undefined
   oauthServerPort = undefined
-  oauthServerOwner = undefined
+  oauthServerGeneration = undefined
 }
 
 function setPending(

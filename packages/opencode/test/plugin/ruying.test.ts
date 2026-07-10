@@ -1,5 +1,6 @@
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, mock, spyOn, test } from "bun:test"
 import { existsSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { Server } from "http"
 import { tmpdir } from "os"
 import { join } from "path"
 
@@ -390,6 +391,54 @@ describe("plugin.ruying", () => {
         releaseProvision()
         await firstRequest
         await Promise.allSettled([firstCallback, secondCallback])
+        rmSync(configFile, { force: true })
+      }
+    }, 1_000)
+
+    test("shares one listener across same-tick authorizations and closes every advertised port", async () => {
+      using occupied = Bun.serve({ hostname: "127.0.0.1", port: 9527, fetch: () => new Response("occupied") })
+      using admin = makeServer(() => Response.json({ status: "ready", key: "sk-second", tokenName: "GW002-李四" }))
+      using sso = makeServer(() =>
+        Response.json({ key: "S_0000", result: { user_code: "GW002", user_name: "李四", email: "l@gwm.cn" } }),
+      )
+      using gateway = makeServer(() => Response.json({ data: [] }))
+      const configFile = tmpConfigFile()
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: baseUrl(sso),
+        gatewayApiBase: baseUrl(gateway),
+        callbackTimeoutMs: 100,
+        configFile,
+      })
+      const method = oauthMethod(hooks)
+      const listen = Server.prototype.listen
+      const delayedListen = spyOn(Server.prototype, "listen").mockImplementation(function (this: Server, ...args) {
+        queueMicrotask(() => Reflect.apply(listen, this, args))
+        return this
+      })
+      const probes: Array<ReturnType<typeof Bun.serve>> = []
+      try {
+        const [first, second] = await Promise.all([method.authorize!(), method.authorize!()])
+        const firstRedirect = new URL(first.url).searchParams.get("redirect_url")!
+        const secondRedirect = new URL(second.url).searchParams.get("redirect_url")!
+        const firstCallback = (first as { callback: () => Promise<unknown> }).callback()
+        const secondCallback = (second as { callback: () => Promise<unknown> }).callback()
+
+        await fetch(`${secondRedirect}?access_token=second`)
+        expect(await firstCallback).toEqual({ type: "failed" })
+        expect(await secondCallback).toMatchObject({ type: "success", key: "sk-second" })
+        // One failed bind to the implicit default, then one shared ephemeral fallback.
+        expect(delayedListen).toHaveBeenCalledTimes(2)
+
+        for (const port of new Set([new URL(firstRedirect).port, new URL(secondRedirect).port])) {
+          probes.push(Bun.serve({ port: Number(port), fetch: () => new Response("ok") }))
+        }
+        expect(probes.map((probe) => probe.port)).toEqual([
+          ...new Set([Number(new URL(firstRedirect).port), Number(new URL(secondRedirect).port)]),
+        ])
+      } finally {
+        delayedListen.mockRestore()
+        probes.forEach((probe) => probe.stop(true))
         rmSync(configFile, { force: true })
       }
     }, 1_000)
