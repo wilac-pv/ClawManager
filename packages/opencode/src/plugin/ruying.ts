@@ -56,11 +56,12 @@ export interface RuyingAuthPluginOptions {
   gatewayApiBase?: string
   callbackHost?: string
   callbackPort?: number
+  callbackTimeoutMs?: number
   /** Override the global config file path (tests). Defaults to the xdg config. */
   configFile?: string
 }
 
-export interface SSOUser {
+export interface RuyingUser {
   employeeId: string
   displayName: string
   email: string
@@ -74,7 +75,7 @@ export type ProvisionResult =
 
 // Outcome of exchanging the SSO token, computed inside the loopback handler so
 // the browser page reflects it. callback() maps this to success|failed.
-type Outcome = { ok: true; key: string; user: SSOUser } | { ok: false; title: string; message: string }
+type Outcome = { ok: true; key: string; user: RuyingUser } | { ok: false; title: string; message: string }
 
 interface Pending {
   process: (token: string) => Promise<Outcome>
@@ -112,7 +113,7 @@ export function buildSsoUrl(ssoLoginUrl: string, redirectUri: string): string {
 // Token names follow "{EMPLOYEE_ID}-{display name}" (e.g. "GW00178937-武晓达"),
 // so we can derive the badge user from the provision result when check_token is
 // unavailable.
-export function parseUserFromTokenName(tokenName: string | undefined): SSOUser {
+export function parseUserFromTokenName(tokenName: string | undefined): RuyingUser {
   const name = (tokenName ?? "").trim()
   const idx = name.indexOf("-")
   if (idx <= 0) return { employeeId: name, displayName: "", email: "" }
@@ -165,7 +166,11 @@ function endHtml(res: ServerResponse, status: number, html: string) {
   res.end(html)
 }
 
-async function startOAuthServer(host: string, requestedPort: number): Promise<{ port: number }> {
+async function startOAuthServer(
+  host: string,
+  requestedPort: number,
+  fallbackToEphemeral: boolean,
+): Promise<{ port: number }> {
   if (oauthServer && oauthServerPort !== undefined) return { port: oauthServerPort }
 
   const server = createServer((req, res) => {
@@ -212,9 +217,12 @@ async function startOAuthServer(host: string, requestedPort: number): Promise<{ 
     const onError = (err: Error) => {
       oauthServer = undefined
       oauthServerPort = undefined
-      reject(
-        err.message?.includes("EADDRINUSE") ? new Error(`端口 ${requestedPort} 已被占用，请关闭占用程序后重试`) : err,
-      )
+      const occupied = (err as NodeJS.ErrnoException).code === "EADDRINUSE"
+      if (occupied && fallbackToEphemeral) {
+        void startOAuthServer(host, 0, false).then(resolve, reject)
+        return
+      }
+      reject(occupied ? new Error(`端口 ${requestedPort} 已被占用，请关闭占用程序后重试`) : err)
     }
     server.once("error", onError)
     server.listen(requestedPort, host, () => {
@@ -234,7 +242,10 @@ function stopOAuthServer() {
   oauthServerPort = undefined
 }
 
-function setPending(input: { process: Pending["process"]; resolve: Pending["resolve"]; reject: Pending["reject"] }) {
+function setPending(
+  input: { process: Pending["process"]; resolve: Pending["resolve"]; reject: Pending["reject"] },
+  timeoutMs: number,
+) {
   // Reject any abandoned in-flight attempt so its caller stops waiting.
   if (pending) {
     pending.reject(new Error("被新的登录请求取代"))
@@ -244,9 +255,9 @@ function setPending(input: { process: Pending["process"]; resolve: Pending["reso
     if (pending) {
       const current = pending
       pending = undefined
-      current.reject(new Error("登录超时（5 分钟），请重新发起登录"))
+      current.reject(new Error("登录超时，请重新发起登录"))
     }
-  }, CALLBACK_TIMEOUT_MS)
+  }, timeoutMs)
   pending = {
     process: input.process,
     resolve: (outcome) => {
@@ -282,7 +293,7 @@ export async function verifyAccessToken(
   checkTokenUrl: string,
   platformCode: string,
   accessToken: string,
-): Promise<SSOUser> {
+): Promise<RuyingUser> {
   if (!accessToken) throw new Error("access_token 为空")
   const url = `${checkTokenUrl}?access_token=${encodeURIComponent(accessToken)}&platform_code=${encodeURIComponent(platformCode)}`
   const res = await fetch(url, {
@@ -336,7 +347,7 @@ export function writeGlobalProviderConfig(
   file: string,
   gatewayApiBase: string,
   modelIds: string[],
-  user: SSOUser,
+  user: RuyingUser,
 ): void {
   let config: Record<string, any> = {}
   if (existsSync(file)) {
@@ -376,7 +387,7 @@ export function readExistingRuyingKey(file: string): string | undefined {
   }
 }
 
-export function buildProviderPatch(gatewayApiBase: string, modelIds: string[], user?: SSOUser) {
+export function buildProviderPatch(gatewayApiBase: string, modelIds: string[], user?: RuyingUser) {
   const models: Record<string, { name: string; modalities: { input: Array<"text">; output: Array<"text"> } }> = {}
   for (const id of modelIds) {
     models[id] = { name: id, modalities: { input: ["text"], output: ["text"] } }
@@ -411,6 +422,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
   const gatewayApiBase = stripTrailingSlash(options.gatewayApiBase ?? DEFAULT_GATEWAY_API_BASE)
   const callbackHost = options.callbackHost ?? DEFAULT_CALLBACK_HOST
   const callbackPort = options.callbackPort ?? DEFAULT_CALLBACK_PORT
+  const callbackTimeoutMs = options.callbackTimeoutMs ?? CALLBACK_TIMEOUT_MS
 
   return {
     auth: {
@@ -420,7 +432,11 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
           type: "oauth",
           label: "如影 SSO 登录 (浏览器)",
           async authorize() {
-            const { port } = await startOAuthServer(callbackHost, callbackPort)
+            const { port } = await startOAuthServer(
+              callbackHost,
+              callbackPort,
+              options.callbackPort === undefined && callbackPort === 9527,
+            )
             const redirectUri = `http://${callbackHost}:${port}${OAUTH_REDIRECT_PATH}`
 
             const outcomePromise = new Promise<Outcome>((resolve, reject) => {
@@ -465,7 +481,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                   // login via check_token, then fall back to an existing gateway key in
                   // the config (e.g. one chelper already provisioned) so login still
                   // works while the provisioning service is unavailable.
-                  let user: SSOUser
+                  let user: RuyingUser
                   try {
                     user = await verifyAccessToken(checkTokenUrl, platformCode, ssoToken)
                     debug(`[ruying] fallback check_token ok employeeId=${user.employeeId} name=${user.displayName}`)
@@ -490,7 +506,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                 },
                 resolve,
                 reject,
-              })
+              }, callbackTimeoutMs)
             })
 
             const url = buildSsoUrl(ssoLoginUrl, redirectUri)
@@ -524,7 +540,15 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                     // best-effort
                   }
 
-                  return { type: "success" as const, key: outcome.key }
+                  return {
+                    type: "success" as const,
+                    key: outcome.key,
+                    metadata: {
+                      employeeId: outcome.user.employeeId,
+                      displayName: outcome.user.displayName,
+                      email: outcome.user.email,
+                    },
+                  }
                 } catch {
                   // timeout / superseded / unexpected — fail cleanly so neither
                   // the CLI nor the TUI (Effect.promise) crashes.

@@ -241,6 +241,46 @@ describe("plugin.ruying", () => {
   })
 
   describe("authorize -> callback", () => {
+    test("returns public identity metadata with the api key", async () => {
+      using admin = makeServer(() => Response.json({ status: "ready", key: "sk-test", tokenName: "GW001-张三" }))
+      using sso = makeServer(() =>
+        Response.json({ key: "S_0000", result: { user_code: "GW001", user_name: "张三", email: "z@gwm.cn" } }),
+      )
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: baseUrl(sso),
+        callbackPort: 0,
+        configFile: tmpConfigFile(),
+      })
+      const authorized = await oauthMethod(hooks).authorize!()
+      const redirect = new URL(authorized.url).searchParams.get("redirect_url")!
+      const callback = (authorized as { callback: () => Promise<unknown> }).callback()
+      await fetch(`${redirect}?access_token=token`)
+      expect(await callback).toMatchObject({
+        type: "success",
+        key: "sk-test",
+        metadata: { employeeId: "GW001", displayName: "张三", email: "z@gwm.cn" },
+      })
+    })
+
+    test("releases the callback server after timeout", async () => {
+      const hooks = await RuyingAuthPlugin({} as any, { callbackPort: 0, callbackTimeoutMs: 10 })
+      const authorized = await oauthMethod(hooks).authorize!()
+      const port = Number(new URL(new URL(authorized.url).searchParams.get("redirect_url")!).port)
+      expect(await (authorized as { callback: () => Promise<unknown> }).callback()).toEqual({ type: "failed" })
+      using probe = Bun.serve({ port, fetch: () => new Response("ok") })
+      expect(probe.port).toBe(port)
+    }, 500)
+
+    test("falls back to an ephemeral port when the implicit callback port is occupied", async () => {
+      using occupied = Bun.serve({ hostname: "127.0.0.1", port: 9527, fetch: () => new Response("occupied") })
+      const hooks = await RuyingAuthPlugin({} as any, { callbackTimeoutMs: 10 })
+      const authorized = await oauthMethod(hooks).authorize!()
+      const port = Number(new URL(new URL(authorized.url).searchParams.get("redirect_url")!).port)
+      expect(port).not.toBe(occupied.port)
+      expect(await (authorized as { callback: () => Promise<unknown> }).callback()).toEqual({ type: "failed" })
+    })
+
     test("provisions a key, fetches user + models, writes config to disk, returns success", async () => {
       using admin = makeServer((_, url) => {
         if (url.pathname === "/api/provision/token")
@@ -276,7 +316,11 @@ describe("plugin.ruying", () => {
       const hit = await fetch(`${redirectUri}?access_token=SSO-T`)
       expect(await hit.text()).toContain("登录成功")
 
-      expect(await callbackPromise).toEqual({ type: "success", key: "sk-user-abc" })
+      expect(await callbackPromise).toEqual({
+        type: "success",
+        key: "sk-user-abc",
+        metadata: { employeeId: "GW001", displayName: "张三", email: "z@gwm.cn" },
+      })
 
       const config = JSON.parse(readFileSync(configFile, "utf8"))
       expect(config.enabled_providers).toEqual(["ruying"])
@@ -317,7 +361,11 @@ describe("plugin.ruying", () => {
       const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
       await fetch(`${redirectUri}?access_token=SSO-T`)
 
-      expect(await callbackPromise).toEqual({ type: "success", key: "sk-k" })
+      expect(await callbackPromise).toEqual({
+        type: "success",
+        key: "sk-k",
+        metadata: { employeeId: "GW00178937", displayName: "武晓达", email: "" },
+      })
       const config = JSON.parse(readFileSync(configFile, "utf8"))
       expect(config.provider.ruying.options.ruyingUser).toEqual({
         employeeId: "GW00178937",
@@ -381,7 +429,11 @@ describe("plugin.ruying", () => {
       const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
       expect(await (await fetch(`${redirectUri}?access_token=SSO-T`)).text()).toContain("登录成功")
 
-      expect(await callbackPromise).toEqual({ type: "success", key: "sk-chelper" })
+      expect(await callbackPromise).toEqual({
+        type: "success",
+        key: "sk-chelper",
+        metadata: { employeeId: "GW001", displayName: "张三", email: "z@gwm.cn" },
+      })
       const config = JSON.parse(readFileSync(configFile, "utf8"))
       expect(config.provider.ruying.options.apiKey).toBe("sk-chelper") // preserved
       expect(config.provider.ruying.options.ruyingUser).toEqual({
