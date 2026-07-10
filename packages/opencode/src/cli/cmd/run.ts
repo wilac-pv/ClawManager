@@ -262,12 +262,19 @@ export const RunCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.run")(function* (args) {
     const { Agent } = yield* Effect.promise(() => import("@/agent/agent"))
+    const { Auth } = yield* Effect.promise(() => import("@/auth"))
+    const { requireRuyingLoginEffect } = yield* Effect.promise(() => import("@/auth/ruying-gate"))
     const { RuntimeFlags } = yield* Effect.promise(() => import("@/effect/runtime-flags"))
     const { InstanceRef } = yield* Effect.promise(() => import("@/effect/instance-ref"))
     const { ServerAuth } = yield* Effect.promise(() => import("@/server/auth"))
     const agentSvc = yield* Agent.Service
+    const auth = yield* Auth.Service
     const flags = yield* RuntimeFlags.Service
     const localInstance = yield* InstanceRef
+    if (!args.mini) {
+      const credential = yield* auth.get("ruying").pipe(Effect.orDie)
+      yield* requireRuyingLoginEffect(credential).pipe(Effect.orDie)
+    }
     yield* Effect.promise(async () => {
       const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
       const interactive = args.mini
