@@ -32,3 +32,5 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+.claude/worktrees/flamboyant-herschel-bd6379
