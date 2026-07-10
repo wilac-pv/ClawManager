@@ -1,5 +1,15 @@
 import { describe, expect, mock, spyOn, test } from "bun:test"
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs"
 import { Server } from "http"
 import { tmpdir } from "os"
 import { join } from "path"
@@ -181,6 +191,79 @@ describe("plugin.ruying", () => {
   })
 
   describe("writeGlobalProviderConfig", () => {
+    test.skipIf(process.platform === "win32")("preserves an existing config mode of 0600", async () => {
+      const file = tmpConfigFile()
+      await Bun.write(file, JSON.stringify({ theme: "opencode" }))
+      chmodSync(file, 0o600)
+
+      await writeGlobalProviderConfig(file, "https://gateway/v1", ["model-a"], {
+        employeeId: "GW001",
+        displayName: "张三",
+        email: "",
+      })
+
+      expect(statSync(file).mode & 0o777).toBe(0o600)
+      rmSync(file, { force: true })
+    })
+
+    test.skipIf(process.platform === "win32")("creates a new config with mode 0600", async () => {
+      const file = tmpConfigFile()
+
+      await writeGlobalProviderConfig(file, "https://gateway/v1", ["model-a"], {
+        employeeId: "GW001",
+        displayName: "张三",
+        email: "",
+      })
+
+      expect(statSync(file).mode & 0o777).toBe(0o600)
+      rmSync(file, { force: true })
+    })
+
+    test.skipIf(process.platform === "win32")("preserves a config symlink and updates its backing file", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "ruying-symlink-"))
+      const backing = join(dir, "backing.jsonc")
+      const link = join(dir, "opencode.jsonc")
+      await Bun.write(backing, '{\n  // backing comment\n  "theme": "opencode"\n}\n')
+      symlinkSync(backing, link)
+
+      await writeGlobalProviderConfig(link, "https://gateway/v1", ["model-a"], {
+        employeeId: "GW001",
+        displayName: "张三",
+        email: "",
+      })
+
+      expect(lstatSync(link).isSymbolicLink()).toBe(true)
+      const source = await Bun.file(backing).text()
+      expect(source).toContain("// backing comment")
+      expect(parse(source).provider.ruying.options.baseURL).toBe("https://gateway/v1")
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    test("retains existing models when discovery returns none", async () => {
+      const file = tmpConfigFile()
+      await Bun.write(
+        file,
+        JSON.stringify({
+          provider: {
+            ruying: {
+              models: {
+                existing: { name: "Existing", modalities: { input: ["text"], output: ["text"] } },
+              },
+            },
+          },
+        }),
+      )
+
+      await writeGlobalProviderConfig(file, "https://gateway/v1", [], {
+        employeeId: "GW001",
+        displayName: "张三",
+        email: "",
+      })
+
+      expect(Object.keys(JSON.parse(await Bun.file(file).text()).provider.ruying.models)).toEqual(["existing"])
+      rmSync(file, { force: true })
+    })
+
     test("preserves nested provider and option comments", async () => {
       const file = tmpConfigFile()
       await Bun.write(

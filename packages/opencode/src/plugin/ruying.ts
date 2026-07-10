@@ -1,8 +1,8 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { createServer, type ServerResponse } from "http"
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
-import { rename, rm, writeFile } from "fs/promises"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "fs"
+import { chmod, rename, rm, stat, writeFile } from "fs/promises"
 import { basename, dirname, join, resolve } from "path"
 import { homedir, tmpdir } from "os"
 import open from "open"
@@ -421,7 +421,8 @@ export function writeGlobalProviderConfig(
   modelIds: string[],
   user: RuyingUser,
 ): Promise<void> {
-  const target = resolve(file)
+  const requested = resolve(file)
+  const target = existsSync(requested) ? realpathSync(requested) : requested
   const previous = providerConfigWrites.get(target) ?? Promise.resolve()
   const write = previous.catch(() => undefined).then(() => writeProviderConfig(target, gatewayApiBase, modelIds, user))
   const queued = write.finally(() => {
@@ -432,11 +433,12 @@ export function writeGlobalProviderConfig(
 }
 
 async function writeProviderConfig(file: string, gatewayApiBase: string, modelIds: string[], user: RuyingUser) {
-  const source = existsSync(file) ? await Bun.file(file).text() : "{}"
+  const exists = existsSync(file)
+  const source = exists ? await Bun.file(file).text() : "{}"
   const errors: ParseError[] = []
   const config: unknown = parse(source, errors, { allowTrailingComma: true })
   if (errors.length || !isRecord(config)) return
-  if (!existsSync(file)) mkdirSync(dirname(file), { recursive: true })
+  if (!exists) mkdirSync(dirname(file), { recursive: true })
 
   const provider = buildProviderPatch(gatewayApiBase, modelIds, user).provider[PROVIDER_ID]
   const formatting = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
@@ -444,12 +446,14 @@ async function writeProviderConfig(file: string, gatewayApiBase: string, modelId
     { path: ["enabled_providers"], value: [PROVIDER_ID] },
     { path: ["provider", PROVIDER_ID, "name"], value: provider.name },
     { path: ["provider", PROVIDER_ID, "npm"], value: provider.npm },
-    { path: ["provider", PROVIDER_ID, "models"], value: provider.models },
+    ...(provider.models ? [{ path: ["provider", PROVIDER_ID, "models"], value: provider.models }] : []),
     { path: ["provider", PROVIDER_ID, "options", "baseURL"], value: provider.options.baseURL },
     { path: ["provider", PROVIDER_ID, "options", "ruyingUser"], value: provider.options.ruyingUser },
   ].reduce((result, edit) => applyEdits(result, modify(result, edit.path, edit.value, formatting)), source)
   const temporary = join(dirname(file), `.${basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`)
-  await writeFile(temporary, output, { encoding: "utf8", flag: "wx" })
+  const mode = exists ? (await stat(file)).mode & 0o777 : 0o600
+  await writeFile(temporary, output, { encoding: "utf8", flag: "wx", mode })
+    .then(() => chmod(temporary, mode))
     .then(() => rename(temporary, file))
     .catch(async (error) => {
       await rm(temporary, { force: true }).catch(() => undefined)
