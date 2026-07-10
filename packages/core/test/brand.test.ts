@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "bun:test"
 import { Brand } from "@opencode-ai/core/brand/brand"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { ConfigProvider, Effect } from "effect"
 
 const originalEnv = [
   "RUYING_CODE_CONFIG",
@@ -8,6 +10,10 @@ const originalEnv = [
   "OPENCODE_FEATURE",
   "RUYING_CODE_SERVER_USERNAME",
   "OPENCODE_SERVER_USERNAME",
+  "RUYING_CODE_EXPERIMENTAL_FILEWATCHER",
+  "OPENCODE_EXPERIMENTAL_FILEWATCHER",
+  "RUYING_CODE_EXPERIMENTAL_DISABLE_FILEWATCHER",
+  "OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER",
 ].map((key) => [key, process.env[key]] as const)
 
 afterEach(() => {
@@ -69,4 +75,20 @@ test("legacy flag properties prefer branded variables", async () => {
   process.env.OPENCODE_SERVER_USERNAME = "legacy"
   const { Flag } = await import(`../src/flag/flag.ts?brand=${Date.now()}`)
   expect(Flag.OPENCODE_SERVER_USERNAME).toBe("ruying")
+})
+
+test("file watcher config prefers a branded false value", async () => {
+  process.env.RUYING_CODE_EXPERIMENTAL_FILEWATCHER = "false"
+  process.env.OPENCODE_EXPERIMENTAL_FILEWATCHER = "true"
+  expect(
+    await Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER.parse(ConfigProvider.fromEnv())),
+  ).toBe(false)
+})
+
+test("disable file watcher config accepts a legacy-only value", async () => {
+  delete process.env.RUYING_CODE_EXPERIMENTAL_DISABLE_FILEWATCHER
+  process.env.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER = "true"
+  expect(
+    await Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER.parse(ConfigProvider.fromEnv())),
+  ).toBe(true)
 })

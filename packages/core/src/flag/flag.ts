@@ -5,6 +5,13 @@ function value(key: string) {
   return Brand.env(key.replace(/^OPENCODE_/, ""))
 }
 
+function booleanConfig(key: string) {
+  return Config.boolean(key.replace(/^OPENCODE_/, "RUYING_CODE_")).pipe(
+    Config.orElse(() => Config.boolean(key)),
+    Config.withDefault(false),
+  )
+}
+
 export function truthy(key: string) {
   const current = value(key)?.toLowerCase()
   return current === "true" || current === "1"
@@ -39,12 +46,8 @@ export const Flag = {
   OPENCODE_DISABLE_FFF: fff === undefined ? process.platform === "win32" : truthy("OPENCODE_DISABLE_FFF"),
 
   // Experimental
-  OPENCODE_EXPERIMENTAL_FILEWATCHER: Config.boolean("OPENCODE_EXPERIMENTAL_FILEWATCHER").pipe(
-    Config.withDefault(false),
-  ),
-  OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: Config.boolean("OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER").pipe(
-    Config.withDefault(false),
-  ),
+  OPENCODE_EXPERIMENTAL_FILEWATCHER: booleanConfig("OPENCODE_EXPERIMENTAL_FILEWATCHER"),
+  OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: booleanConfig("OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER"),
   OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT:
     copy === undefined ? process.platform === "win32" : truthy("OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT"),
   OPENCODE_MODELS_URL: value("OPENCODE_MODELS_URL"),
