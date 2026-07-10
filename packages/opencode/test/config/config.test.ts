@@ -308,12 +308,58 @@ it.instance("falls back to generic username when system user info is unavailable
   }),
 )
 
-it.effect("creates global jsonc config with schema when no global configs exist", () =>
+it.effect("ruying global config overrides legacy config", () =>
+  withGlobalConfig({}, ({ dir }) =>
+    Effect.gen(function* () {
+      const directory = yield* tmpdirScoped()
+      yield* writeConfigEffect(dir, schemaConfig({ model: "test/legacy", shell: "bash" }), "opencode.json")
+      yield* writeConfigEffect(dir, schemaConfig({ shell: "zsh" }), "ruying-code.json")
+
+      const config = yield* Config.use.get().pipe(provideInstanceEffect(directory))
+      expect(config.model).toBe("test/legacy")
+      expect(config.shell).toBe("zsh")
+    }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
+  ),
+)
+
+it.effect("ruying project config overrides legacy config", () =>
+  withGlobalConfig({}, () =>
+    Effect.gen(function* () {
+      const directory = yield* tmpdirScoped()
+      yield* writeConfigEffect(directory, schemaConfig({ model: "test/legacy", shell: "bash" }), "opencode.json")
+      yield* writeConfigEffect(directory, schemaConfig({ shell: "zsh" }), "ruying-code.json")
+
+      const config = yield* Config.use.get().pipe(provideInstanceEffect(directory))
+      expect(config.model).toBe("test/legacy")
+      expect(config.shell).toBe("zsh")
+    }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
+  ),
+)
+
+it.effect("ruying project directory config overrides legacy directory config", () =>
+  withGlobalConfig({}, () =>
+    Effect.gen(function* () {
+      const directory = yield* tmpdirScoped()
+      yield* writeConfigEffect(
+        path.join(directory, ".opencode"),
+        schemaConfig({ model: "test/legacy", shell: "bash" }),
+        "opencode.json",
+      )
+      yield* writeConfigEffect(path.join(directory, ".ruying-code"), schemaConfig({ shell: "zsh" }), "ruying-code.json")
+
+      const config = yield* Config.use.get().pipe(provideInstanceEffect(directory))
+      expect(config.model).toBe("test/legacy")
+      expect(config.shell).toBe("zsh")
+    }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
+  ),
+)
+
+it.effect("creates branded global jsonc config with schema when no global configs exist", () =>
   withGlobalConfig({}, ({ dir }) =>
     Effect.gen(function* () {
       yield* Config.use.get().pipe(provideInstanceEffect(dir))
 
-      const content = yield* FSUtil.use.readFileString(path.join(dir, "opencode.jsonc"))
+      const content = yield* FSUtil.use.readFileString(path.join(dir, "ruying-code.jsonc"))
       expect(content).toContain('"$schema": "https://opencode.ai/config.json"')
     }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
   ),
@@ -329,7 +375,7 @@ it.effect("does not create global config when OPENCODE_CONFIG_DIR is set", () =>
         Effect.gen(function* () {
           yield* Config.use.get().pipe(provideInstanceEffect(dir))
 
-          expect(yield* FSUtil.use.existsSafe(path.join(dir, "opencode.jsonc"))).toBe(false)
+          expect(yield* FSUtil.use.existsSafe(path.join(dir, "ruying-code.jsonc"))).toBe(false)
         }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
       ),
     )
@@ -393,6 +439,17 @@ it.effect("updates global config and omits empty shell key in jsonc", () =>
       expect(writtenConfig).not.toContain('"shell"')
       expect(parsed.shell).toBeUndefined()
       expect(parsed.model).toBe("test/model")
+    }),
+  ),
+)
+
+it.effect("updates the branded global config when it exists", () =>
+  withGlobalConfig({ config: { shell: "bash" }, name: "ruying-code.json" }, ({ dir }) =>
+    Effect.gen(function* () {
+      yield* Config.use.updateGlobal({ shell: "zsh" })
+
+      const writtenConfig = yield* FSUtil.use.readJson(path.join(dir, "ruying-code.json"))
+      expect(writtenConfig).toMatchObject({ shell: "zsh" })
     }),
   ),
 )

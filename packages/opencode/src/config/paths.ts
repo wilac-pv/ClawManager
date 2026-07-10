@@ -6,6 +6,10 @@ import { Global } from "@opencode-ai/core/global"
 import { unique } from "remeda"
 import * as Effect from "effect/Effect"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { Brand } from "@opencode-ai/core/brand/brand"
+
+export const projectDirectoryNames = [Brand.profile.legacyProjectDirectory, Brand.profile.projectDirectory]
+export const globalConfigNames = [Brand.profile.legacyStorageName, Brand.profile.storageName]
 
 export const files = Effect.fn("ConfigPaths.projectFiles")(function* (
   name: string,
@@ -26,13 +30,13 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
     Global.Path.config,
     ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
       ? yield* afs.up({
-          targets: [".opencode"],
+          targets: projectDirectoryNames,
           start: directory,
           stop: worktree,
         })
       : []),
     ...(yield* afs.up({
-      targets: [".opencode"],
+      targets: projectDirectoryNames,
       start: Global.Path.home,
       stop: Global.Path.home,
     })),

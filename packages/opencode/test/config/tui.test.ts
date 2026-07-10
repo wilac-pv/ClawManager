@@ -219,6 +219,23 @@ it.instance("migrates tui-specific keys from opencode.json when tui.json does no
   ),
 )
 
+it.instance("prefers ruying config when both config names need tui migration", () =>
+  withCleanState(
+    Effect.gen(function* () {
+      const fs = yield* FSUtil.Service
+      const test = yield* TestInstance
+      yield* fs.writeJson(path.join(test.directory, "opencode.json"), { theme: "legacy-theme" })
+      yield* fs.writeJson(path.join(test.directory, "ruying-code.json"), { theme: "ruying-theme" })
+
+      const config = yield* getTuiConfig(test.directory)
+      expect(config.theme).toBe("ruying-theme")
+      expect(JSON.parse(yield* fs.readFileString(path.join(test.directory, "tui.json")))).toMatchObject({
+        theme: "ruying-theme",
+      })
+    }),
+  ),
+)
+
 it.instance("migrates project legacy tui keys even when global tui.json already exists", () =>
   withCleanState(
     Effect.gen(function* () {
