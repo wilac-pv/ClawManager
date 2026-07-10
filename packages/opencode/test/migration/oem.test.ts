@@ -23,6 +23,26 @@ test("copies missing files and never overwrites the new tree", async () => {
   expect(await Bun.file(marker).exists()).toBe(true)
 })
 
+test("merges existing directories without overwriting nested branded files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-"))
+  const legacy = join(root, "opencode")
+  const current = join(root, "ruying-code")
+  const marker = join(root, "ruying-code-state", ".oem-migration-v1.json")
+  await mkdir(join(legacy, "plugins"), { recursive: true })
+  await mkdir(join(current, "plugins"), { recursive: true })
+  await writeFile(join(legacy, "plugins", "existing.ts"), "legacy")
+  await writeFile(join(legacy, "plugins", "missing.ts"), "missing")
+  await writeFile(join(current, "plugins", "existing.ts"), "current")
+
+  const result = await OemMigration.run({ pairs: [{ legacy, current }], marker })
+
+  expect(await Bun.file(join(current, "plugins", "existing.ts")).text()).toBe("current")
+  expect(await Bun.file(join(current, "plugins", "missing.ts")).text()).toBe("missing")
+  expect(result.copied).toEqual([join(legacy, "plugins", "missing.ts")])
+  expect(result.skipped).toEqual([join(legacy, "plugins", "existing.ts")])
+  expect(await Bun.file(marker).exists()).toBe(true)
+})
+
 test("writes the marker only after every path pair succeeds", async () => {
   const root = await mkdtemp(join(tmpdir(), "ruying-migrate-"))
   const legacy = join(root, "opencode-data")
