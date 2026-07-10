@@ -5,9 +5,9 @@ import path from "path"
 import { Global } from "@opencode-ai/core/global"
 
 describe("global paths", () => {
-  test("tmp path is under the system temp directory", () => {
-    expect(Global.Path.tmp).toBe(path.join(os.tmpdir(), "opencode"))
-    expect(Global.make().tmp).toBe(Global.Path.tmp)
+  test("uses the ruying storage name", () => {
+    expect(Global.Path.tmp).toBe(path.join(os.tmpdir(), "ruying-code"))
+    expect(Global.Path.config.endsWith("ruying-code")).toBe(true)
   })
 
   test("tmp path is created on module load", async () => {

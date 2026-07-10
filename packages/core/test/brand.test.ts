@@ -1,9 +1,14 @@
 import { afterEach, expect, test } from "bun:test"
 import { Brand } from "@opencode-ai/core/brand/brand"
 
-const originalEnv = ["RUYING_CODE_CONFIG", "OPENCODE_CONFIG", "RUYING_CODE_FEATURE", "OPENCODE_FEATURE"].map(
-  (key) => [key, process.env[key]] as const,
-)
+const originalEnv = [
+  "RUYING_CODE_CONFIG",
+  "OPENCODE_CONFIG",
+  "RUYING_CODE_FEATURE",
+  "OPENCODE_FEATURE",
+  "RUYING_CODE_SERVER_USERNAME",
+  "OPENCODE_SERVER_USERNAME",
+].map((key) => [key, process.env[key]] as const)
 
 afterEach(() => {
   originalEnv.forEach((entry) => {
@@ -57,4 +62,11 @@ test("prefers a false RUYING_CODE value over a truthy OPENCODE value", () => {
   process.env.RUYING_CODE_FEATURE = "false"
   process.env.OPENCODE_FEATURE = "true"
   expect(Brand.truthy("FEATURE")).toBe(false)
+})
+
+test("legacy flag properties prefer branded variables", async () => {
+  process.env.RUYING_CODE_SERVER_USERNAME = "ruying"
+  process.env.OPENCODE_SERVER_USERNAME = "legacy"
+  const { Flag } = await import(`../src/flag/flag.ts?brand=${Date.now()}`)
+  expect(Flag.OPENCODE_SERVER_USERNAME).toBe("ruying")
 })
