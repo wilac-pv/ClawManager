@@ -127,6 +127,18 @@ test("writes a regular completion marker after successful migration", async () =
   expect((await lstat(marker)).isFile()).toBe(true)
 })
 
+test("preserves a non-empty marker directory and aborts migration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-"))
+  const marker = join(root, "ruying-code-state", ".oem-migration-v1.json")
+  await mkdir(marker, { recursive: true })
+  await writeFile(join(marker, "keep.txt"), "keep")
+
+  await expect(OemMigration.run({ pairs: [], marker })).rejects.toThrow()
+
+  expect(await Bun.file(join(marker, "keep.txt")).text()).toBe("keep")
+  expect((await lstat(marker)).isDirectory()).toBe(true)
+})
+
 test("migrates all XDG trees before CLI command execution", async () => {
   const root = await mkdtemp(join(tmpdir(), "ruying-cli-migrate-"))
   const bases = {

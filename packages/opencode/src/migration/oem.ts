@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 export async function run(input: { pairs: Array<{ legacy: string; current: string }>; marker: string }) {
   const marker = path.resolve(input.marker)
-  const completion = await fileInfo(marker)
-  if (completion?.isFile()) return { copied: [], skipped: [] }
-  if (completion) await rm(marker, { recursive: true, force: true })
+  if ((await clearMarker(marker)) === "complete") return { copied: [], skipped: [] }
   const copied: string[] = []
   const skipped: string[] = []
   for (const pair of input.pairs) {
@@ -77,11 +75,16 @@ async function writeMarker(marker: string, data: { version: number; copied: stri
   const temporary = path.join(path.dirname(marker), `.${path.basename(marker)}.${process.pid}.${randomUUID()}.tmp`)
   await writeFile(temporary, JSON.stringify(data, null, 2), { flag: "wx" })
     .then(async () => {
-      const target = await fileInfo(marker)
-      if (target && !target.isFile()) await rm(marker, { recursive: true, force: true })
+      if ((await clearMarker(marker)) === "complete") {
+        await rm(temporary, { force: true })
+        return
+      }
       await rename(temporary, marker).catch(async (error) => {
         if (!markerCollision(error)) throw error
-        await rm(marker, { recursive: true, force: true })
+        if ((await clearMarker(marker)) === "complete") {
+          await rm(temporary, { force: true })
+          return
+        }
         await rename(temporary, marker)
       })
     })
@@ -89,6 +92,18 @@ async function writeMarker(marker: string, data: { version: number; copied: stri
       await rm(temporary, { force: true }).catch(() => undefined)
       throw error
     })
+}
+
+async function clearMarker(marker: string) {
+  const target = await fileInfo(marker)
+  if (!target) return "missing" as const
+  if (target.isFile()) return "complete" as const
+  if (target.isDirectory()) {
+    await rmdir(marker)
+    return "cleared" as const
+  }
+  await unlink(marker)
+  return "cleared" as const
 }
 
 function fileInfo(file: string) {
