@@ -443,6 +443,79 @@ describe("plugin.ruying", () => {
       }
     }, 1_000)
 
+    test("does not share an implicit ephemeral binding with an explicit port request", async () => {
+      using occupied = Bun.serve({ hostname: "127.0.0.1", port: 9527, fetch: () => new Response("occupied") })
+      const implicitHooks = await RuyingAuthPlugin({} as any, { callbackTimeoutMs: 100 })
+      const explicitHooks = await RuyingAuthPlugin({} as any, { callbackPort: 9527, callbackTimeoutMs: 100 })
+      const listen = Server.prototype.listen
+      const delayedListen = spyOn(Server.prototype, "listen").mockImplementation(function (this: Server, ...args) {
+        queueMicrotask(() => Reflect.apply(listen, this, args))
+        return this
+      })
+      const probes: Array<ReturnType<typeof Bun.serve>> = []
+      try {
+        const [implicit, explicit] = await Promise.allSettled([
+          oauthMethod(implicitHooks).authorize!(),
+          oauthMethod(explicitHooks).authorize!(),
+        ])
+        if (implicit.status === "rejected") throw implicit.reason
+        const implicitRedirect = new URL(implicit.value.url).searchParams.get("redirect_url")!
+        const implicitCallback = (implicit.value as { callback: () => Promise<unknown> }).callback()
+
+        if (explicit.status === "fulfilled") {
+          const explicitRedirect = new URL(explicit.value.url).searchParams.get("redirect_url")!
+          const explicitCallback = (explicit.value as { callback: () => Promise<unknown> }).callback()
+          await fetch(explicitRedirect)
+          await Promise.all([implicitCallback, explicitCallback])
+        } else {
+          await fetch(implicitRedirect)
+          await implicitCallback
+        }
+
+        expect(explicit.status).toBe("rejected")
+        if (explicit.status === "rejected") expect(String(explicit.reason)).toContain("回调服务器配置不匹配")
+        probes.push(Bun.serve({ port: Number(new URL(implicitRedirect).port), fetch: () => new Response("ok") }))
+      } finally {
+        delayedListen.mockRestore()
+        probes.forEach((probe) => probe.stop(true))
+      }
+    }, 1_000)
+
+    test("does not share an implicit ephemeral binding with an environment port request", async () => {
+      using occupied = Bun.serve({ hostname: "127.0.0.1", port: 9527, fetch: () => new Response("occupied") })
+      const previous = process.env["RUYING_CALLBACK_PORT"]
+      delete process.env["RUYING_CALLBACK_PORT"]
+      const implicitHooks = await RuyingAuthPlugin({} as any, { callbackTimeoutMs: 100 })
+      process.env["RUYING_CALLBACK_PORT"] = "9527"
+      const explicitHooks = await RuyingAuthPlugin({} as any, { callbackTimeoutMs: 100 })
+      if (previous === undefined) delete process.env["RUYING_CALLBACK_PORT"]
+      if (previous !== undefined) process.env["RUYING_CALLBACK_PORT"] = previous
+
+      const probes: Array<ReturnType<typeof Bun.serve>> = []
+      try {
+        const implicit = await oauthMethod(implicitHooks).authorize!()
+        const [explicit] = await Promise.allSettled([oauthMethod(explicitHooks).authorize!()])
+        const implicitRedirect = new URL(implicit.url).searchParams.get("redirect_url")!
+        const implicitCallback = (implicit as { callback: () => Promise<unknown> }).callback()
+
+        if (explicit.status === "fulfilled") {
+          const explicitRedirect = new URL(explicit.value.url).searchParams.get("redirect_url")!
+          const explicitCallback = (explicit.value as { callback: () => Promise<unknown> }).callback()
+          await fetch(explicitRedirect)
+          await Promise.all([implicitCallback, explicitCallback])
+        } else {
+          await fetch(implicitRedirect)
+          await implicitCallback
+        }
+
+        expect(explicit.status).toBe("rejected")
+        if (explicit.status === "rejected") expect(String(explicit.reason)).toContain("回调服务器配置不匹配")
+        probes.push(Bun.serve({ port: Number(new URL(implicitRedirect).port), fetch: () => new Response("ok") }))
+      } finally {
+        probes.forEach((probe) => probe.stop(true))
+      }
+    }, 1_000)
+
     test("does not fall back when the callback port is configured through the environment", async () => {
       using occupied = Bun.serve({ hostname: "127.0.0.1", port: 9527, fetch: () => new Response("occupied") })
       const previous = process.env["RUYING_CALLBACK_PORT"]

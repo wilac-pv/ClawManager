@@ -44,6 +44,7 @@ const DEFAULT_GATEWAY_API_BASE = process.env["RUYING_GATEWAY_API"] ?? "https://a
 const DEFAULT_CALLBACK_HOST = "127.0.0.1"
 const DEFAULT_CALLBACK_PORT = 9527
 const OAUTH_REDIRECT_PATH = "/callback"
+const OAUTH_SERVER_CONFIG_MISMATCH = "如影登录回调服务器配置不匹配，请等待当前登录结束后重试"
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000
 const HTTP_TIMEOUT_MS = 20_000
 const MODELS_FETCH_TIMEOUT_MS = 15_000
@@ -85,7 +86,14 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+interface OAuthServerBinding {
+  host: string
+  requestedPort: number
+  fallbackToEphemeral: boolean
+}
+
 interface OAuthServerStart {
+  binding: OAuthServerBinding
   promise: Promise<{ port: number }>
 }
 
@@ -180,11 +188,20 @@ function startOAuthServer(
   requestedPort: number,
   fallbackToEphemeral: boolean,
 ): Promise<{ port: number }> {
-  if (oauthServer && oauthServerPort !== undefined) return Promise.resolve({ port: oauthServerPort })
-  if (oauthServerStart) return oauthServerStart.promise
+  const binding = { host, requestedPort, fallbackToEphemeral }
+  if (oauthServer && oauthServerPort !== undefined) {
+    if (oauthServerGeneration && sameOAuthServerBinding(oauthServerGeneration.binding, binding)) {
+      return Promise.resolve({ port: oauthServerPort })
+    }
+    return Promise.reject(new Error(OAUTH_SERVER_CONFIG_MISMATCH))
+  }
+  if (oauthServerStart) {
+    if (sameOAuthServerBinding(oauthServerStart.binding, binding)) return oauthServerStart.promise
+    return Promise.reject(new Error(OAUTH_SERVER_CONFIG_MISMATCH))
+  }
 
   const deferred = Promise.withResolvers<{ port: number }>()
-  const start = { promise: deferred.promise }
+  const start = { binding, promise: deferred.promise }
   oauthServerStart = start
   void listenOAuthServer(host, requestedPort, fallbackToEphemeral, start).then(deferred.resolve, deferred.reject)
   const clearStart = () => {
@@ -192,6 +209,14 @@ function startOAuthServer(
   }
   void deferred.promise.then(clearStart, clearStart)
   return deferred.promise
+}
+
+function sameOAuthServerBinding(left: OAuthServerBinding, right: OAuthServerBinding) {
+  return (
+    left.host === right.host &&
+    left.requestedPort === right.requestedPort &&
+    left.fallbackToEphemeral === right.fallbackToEphemeral
+  )
 }
 
 function listenOAuthServer(
