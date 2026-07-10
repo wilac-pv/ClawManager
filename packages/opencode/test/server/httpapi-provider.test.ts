@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Effect, Layer } from "effect"
@@ -8,6 +8,7 @@ import { TestInstance } from "../fixture/fixture"
 import { markPluginDependenciesReady } from "../fixture/plugin"
 import { testEffect } from "../lib/effect"
 import { httpApiLayer, request } from "./httpapi-layer"
+import { visibleProviderIDs } from "../../src/server/routes/instance/httpapi/handlers/provider"
 
 const testStateLayer = Layer.effectDiscard(
   Effect.acquireRelease(
@@ -261,6 +262,10 @@ function setEnvScoped(key: string, value: string) {
 }
 
 describe("provider HttpApi", () => {
+  test("provider list exposes only ruying after login", () => {
+    expect(visibleProviderIDs(["ruying", "openai"], new Set(["ruying"]), new Set())).toEqual(["ruying"])
+  })
+
   it.instance.skip(
     "returns public v2 provider not found errors",
     Effect.gen(function* () {
@@ -370,9 +375,9 @@ describe("provider HttpApi", () => {
 
       const providerBody = yield* providerResponse.json
       const configBody = yield* configResponse.json
+      expect(providerByID(providerBody, "all", "google")).toBeUndefined()
       expect(hasProviderWithFetch(providerBody, "all")).toBe(false)
       expect(hasProviderWithFetch(configBody, "providers")).toBe(false)
-      expect(hasNonZeroModelCost(providerBody, "all", "google")).toBe(true)
       expect(hasNonZeroModelCost(configBody, "providers", "google")).toBe(true)
     }),
     { ...projectOptions, init: writeFunctionOptionsPlugin },
@@ -392,30 +397,31 @@ describe("provider HttpApi", () => {
 
       const providerBody = yield* providerResponse.json
       const configBody = yield* configResponse.json
+      expect(providerByID(providerBody, "all", "google")).toBeUndefined()
       expect(hasProviderMutationMarker(providerBody, "all", "google")).toBe(false)
       expect(hasProviderMutationMarker(configBody, "providers", "google")).toBe(false)
-      expect(hasNonZeroModelCost(providerBody, "all", "google")).toBe(true)
     }),
     { ...projectOptions, init: writeProviderModelsMutationPlugin },
   )
 
   it.instance(
-    "lists plugin-only auth providers (not in models.dev or config) so they are selectable in /connect",
+    "lists only the plugin-only ruying auth provider before login",
     Effect.gen(function* () {
       const directory = (yield* TestInstance).directory
       const headers = { "x-opencode-directory": directory }
       const providerResponse = yield* request("/provider", { headers })
+      const authResponse = yield* request("/provider/auth", { headers })
       expect(providerResponse.status).toBe(200)
+      expect(authResponse.status).toBe(200)
 
       const providerBody = yield* providerResponse.json
-      // "test-oauth-validation" exists only as a plugin auth hook — it is not in
-      // models.dev and not in config, yet it must appear in the list so the TUI
-      // /connect dialog can offer it for login.
-      const provider = providerByID(providerBody, "all", "test-oauth-validation")
+      const authBody = yield* authResponse.json
+      const provider = providerByID(providerBody, "all", "ruying")
       expect(provider).toBeDefined()
       expect(isRecord(provider) && provider.models).toEqual({})
-      // ...but it is not "connected" until the user actually logs in.
-      expect(isRecord(providerBody) && (providerBody.connected as string[])).not.toContain("test-oauth-validation")
+      expect(providerByID(providerBody, "all", "test-oauth-validation")).toBeUndefined()
+      expect(isRecord(authBody) ? Object.keys(authBody) : []).toEqual(["ruying"])
+      expect(isRecord(providerBody) && (providerBody.connected as string[])).not.toContain("ruying")
     }),
     { ...projectOptions, init: writeProviderAuthValidationPlugin },
     30000,

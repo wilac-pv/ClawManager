@@ -180,7 +180,21 @@ describe("plugin.ruying", () => {
   })
 
   describe("writeGlobalProviderConfig", () => {
-    test("merges into existing config, preserving other providers + chelper's apiKey", () => {
+    test("updates jsonc without discarding comments", async () => {
+      const file = tmpConfigFile()
+      await Bun.write(file, '{\n  // keep\n  "theme": "opencode"\n}\n')
+      await writeGlobalProviderConfig(file, "https://gateway/v1", ["model-a"], {
+        employeeId: "GW001",
+        displayName: "张三",
+        email: "",
+      })
+      const source = await Bun.file(file).text()
+      expect(source).toContain("// keep")
+      expect(source).toContain('"enabled_providers": [')
+      rmSync(file, { force: true })
+    })
+
+    test("merges into existing config, preserving other providers + chelper's apiKey", async () => {
       const file = tmpConfigFile()
       writeFileSync(
         file,
@@ -192,7 +206,7 @@ describe("plugin.ruying", () => {
           },
         }),
       )
-      writeGlobalProviderConfig(file, "https://aicoding.gwm.cn/v1", ["GLM-5.1"], {
+      await writeGlobalProviderConfig(file, "https://aicoding.gwm.cn/v1", ["GLM-5.1"], {
         employeeId: "GW001",
         displayName: "张三",
         email: "",
@@ -208,10 +222,10 @@ describe("plugin.ruying", () => {
       rmSync(file, { force: true })
     })
 
-    test("does not clobber a config it cannot parse", () => {
+    test("does not clobber a config it cannot parse", async () => {
       const file = tmpConfigFile()
       writeFileSync(file, "{ not valid json // comment")
-      writeGlobalProviderConfig(file, "https://x/v1", [], { employeeId: "G", displayName: "", email: "" })
+      await writeGlobalProviderConfig(file, "https://x/v1", [], { employeeId: "G", displayName: "", email: "" })
       expect(readFileSync(file, "utf8")).toBe("{ not valid json // comment")
       rmSync(file, { force: true })
     })

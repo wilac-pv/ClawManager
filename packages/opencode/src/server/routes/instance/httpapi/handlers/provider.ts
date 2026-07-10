@@ -10,6 +10,11 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import { ProviderAuthApiError } from "../groups/provider"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Brand } from "@opencode-ai/core/brand/brand"
+
+export function visibleProviderIDs(all: string[], enabled?: Set<string>, disabled = new Set<string>()) {
+  return all.filter((id) => (enabled ? enabled.has(id) : id === Brand.profile.providerID) && !disabled.has(id))
+}
 
 function mapProviderAuthError<A, R>(self: Effect.Effect<A, ProviderAuth.Error, R>) {
   return self.pipe(
@@ -42,11 +47,17 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       const all = yield* ModelsDev.Service.use((s) => s.get())
       const disabled = new Set(config.disabled_providers ?? [])
       const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
-      const filtered: Record<string, (typeof all)[string]> = {}
-      for (const [key, value] of Object.entries(all)) {
-        if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) filtered[key] = value
-      }
-      const connected = yield* provider.list()
+      const connectedAll = yield* provider.list()
+      const methods = yield* svc.methods()
+      const visible = new Set(
+        visibleProviderIDs(
+          [...new Set([...Object.keys(all), ...Object.keys(connectedAll), ...Object.keys(methods)])],
+          enabled,
+          disabled,
+        ),
+      )
+      const filtered = Object.fromEntries(Object.entries(all).filter(([id]) => visible.has(id)))
+      const connected = Object.fromEntries(Object.entries(connectedAll).filter(([id]) => visible.has(id)))
       const providers = Object.assign(
         mapValues(filtered, (item) => Provider.fromModelsDevProvider(item)),
         connected,
@@ -55,10 +66,9 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       // Surface plugin-only auth providers (e.g. SSO providers not in models.dev
       // or config) so they're selectable in /connect before the first login.
       // Kept out of `providers` so they don't break defaultModelIDs (no models yet).
-      const methods = yield* svc.methods()
       const extra: Record<string, Provider.Info> = {}
       for (const id of Object.keys(methods)) {
-        if (providers[id] || disabled.has(id) || (enabled && !enabled.has(id))) continue
+        if (providers[id] || !visible.has(id)) continue
         extra[id] = {
           id: ProviderV2.ID.make(id),
           name: config.provider?.[id]?.name ?? id,
@@ -77,7 +87,16 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     })
 
     const auth = Effect.fn("ProviderHttpApi.auth")(function* () {
-      return yield* svc.methods()
+      const config = yield* cfg.get()
+      const methods = yield* svc.methods()
+      const visible = new Set(
+        visibleProviderIDs(
+          Object.keys(methods),
+          config.enabled_providers ? new Set(config.enabled_providers) : undefined,
+          new Set(config.disabled_providers ?? []),
+        ),
+      )
+      return Object.fromEntries(Object.entries(methods).filter(([id]) => visible.has(id)))
     })
 
     const authorize = Effect.fn("ProviderHttpApi.authorize")(function* (ctx: {

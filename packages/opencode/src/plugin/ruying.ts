@@ -1,11 +1,12 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { createServer, type ServerResponse } from "http"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
 import { dirname, join } from "path"
 import { homedir, tmpdir } from "os"
 import open from "open"
 import { escapeHtml } from "@/util/html"
+import { applyEdits, modify, parse, type ParseError } from "jsonc-parser"
 
 // 如影 (Ruying) coding gateway SSO login. Ported from the chelper CLI
 // (aicoding-helper, src/commands/login.ts + core/gateway.ts). Flow:
@@ -412,33 +413,36 @@ export function globalConfigFile(): string {
 // through updateGlobal → disposeAllInstancesAndEmitGlobalDisposed, which would
 // dispose the instance mid auth-callback and hang the login. The change is read
 // on the gate's post-login re-bootstrap.
-export function writeGlobalProviderConfig(
+export async function writeGlobalProviderConfig(
   file: string,
   gatewayApiBase: string,
   modelIds: string[],
   user: RuyingUser,
-): void {
-  let config: Record<string, any> = {}
-  if (existsSync(file)) {
-    try {
-      config = JSON.parse(readFileSync(file, "utf8"))
-    } catch {
-      return // don't clobber a config we can't parse (e.g. jsonc with comments)
-    }
-  } else {
-    mkdirSync(dirname(file), { recursive: true })
-  }
-  config["enabled_providers"] = [PROVIDER_ID]
-  const patch = buildProviderPatch(gatewayApiBase, modelIds, user).provider[PROVIDER_ID]
-  const providers: Record<string, any> = (config["provider"] ??= {})
-  const existing: Record<string, any> = providers[PROVIDER_ID] ?? {}
-  providers[PROVIDER_ID] = {
+): Promise<void> {
+  const source = existsSync(file) ? await Bun.file(file).text() : "{}"
+  const errors: ParseError[] = []
+  const config: unknown = parse(source, errors, { allowTrailingComma: true })
+  if (errors.length || !isRecord(config)) return
+  if (!existsSync(file)) mkdirSync(dirname(file), { recursive: true })
+
+  const providers = isRecord(config.provider) ? config.provider : {}
+  const existing = isRecord(providers[PROVIDER_ID]) ? providers[PROVIDER_ID] : {}
+  const existingOptions = isRecord(existing.options) ? existing.options : {}
+  const provider = buildProviderPatch(gatewayApiBase, modelIds, user).provider[PROVIDER_ID]
+  const patch = {
     ...existing,
-    ...patch,
+    ...provider,
     // Keep any pre-existing options (e.g. chelper's apiKey) and add ours.
-    options: { ...(existing["options"] ?? {}), ...patch.options },
+    options: { ...existingOptions, ...provider.options },
   }
-  writeFileSync(file, JSON.stringify(config, null, 2))
+  const formatting = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
+  const withProviders = applyEdits(source, modify(source, ["enabled_providers"], [PROVIDER_ID], formatting))
+  const providerEdit = modify(withProviders, ["provider", PROVIDER_ID], patch, formatting)
+  await Bun.write(file, applyEdits(withProviders, providerEdit))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 // Read an already-provisioned ruying key from the config (e.g. one chelper wrote),
@@ -600,7 +604,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                   // logged-in user. Written to disk directly (not via the SDK) so we
                   // don't dispose the instance mid-callback; the gate re-bootstraps.
                   try {
-                    writeGlobalProviderConfig(
+                    await writeGlobalProviderConfig(
                       options.configFile ?? globalConfigFile(),
                       gatewayApiBase,
                       modelIds,
