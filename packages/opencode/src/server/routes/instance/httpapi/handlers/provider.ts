@@ -51,8 +51,26 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
         mapValues(filtered, (item) => Provider.fromModelsDevProvider(item)),
         connected,
       )
+
+      // Surface plugin-only auth providers (e.g. SSO providers not in models.dev
+      // or config) so they're selectable in /connect before the first login.
+      // Kept out of `providers` so they don't break defaultModelIDs (no models yet).
+      const methods = yield* svc.methods()
+      const extra: Record<string, Provider.Info> = {}
+      for (const id of Object.keys(methods)) {
+        if (providers[id] || disabled.has(id) || (enabled && !enabled.has(id))) continue
+        extra[id] = {
+          id: ProviderV2.ID.make(id),
+          name: config.provider?.[id]?.name ?? id,
+          source: "custom",
+          env: [],
+          options: {},
+          models: {},
+        }
+      }
+
       return {
-        all: Object.values(providers).map(Provider.toPublicInfo),
+        all: [...Object.values(providers), ...Object.values(extra)].map(Provider.toPublicInfo),
         default: Provider.defaultModelIDs(providers),
         connected: Object.keys(connected),
       }

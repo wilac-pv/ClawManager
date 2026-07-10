@@ -1,7 +1,8 @@
 import { createEffect, Suspense, type ParentProps } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { DebugBar } from "@/components/debug-bar"
-import { HelpButton, TabsInfoPopup } from "@/components/help-button"
+import { RuyingUser } from "@/components/ruying-user"
+import { HelpButton } from "@/components/help-button"
 import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
 import { usePlatform } from "@/context/platform"
 import { setNavigate } from "@/utils/notification-click"
@@ -38,8 +39,10 @@ export default function NewLayout(props: ParentProps) {
       <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
         <Suspense>{props.children}</Suspense>
       </main>
-      {import.meta.env.DEV && <DebugBar inline />}
-      <TabsInfoPopup />
+      <div class="absolute bottom-3 left-3 z-50">
+        <RuyingUser />
+      </div>
+      {import.meta.env.DEV && <DebugBar />}
       <HelpButton />
       <ToastRegion v2 />
     </div>

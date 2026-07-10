@@ -1,0 +1,205 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1782880777076,
+  "projectRoot": "/Users/gwm/data/gitee/opencode",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "npm test",
+    "lintCommand": "npm run lint",
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "bun run --cwd packages/opencode --conditions=browser src/index.ts",
+      "dev:desktop": "bun --cwd packages/desktop dev",
+      "dev:web": "bun --cwd packages/app dev",
+      "dev:console": "ulimit -n 10240 2>/dev/null; bun run --cwd packages/console/app dev",
+      "dev:stats": "bun sst shell --stage=production -- bun run --cwd packages/stats/app dev",
+      "dev:storybook": "bun --cwd packages/storybook storybook",
+      "lint": "oxlint",
+      "typecheck": "bun turbo typecheck",
+      "upgrade-opentui": "bun run script/upgrade-opentui.ts",
+      "postinstall": "bun run --cwd packages/core fix-node-pty",
+      "prepare": "husky",
+      "random": "echo 'Random script'",
+      "sso": "aws sso login --sso-session=opencode --no-browser",
+      "test": "echo 'do not run tests from root' && exit 1"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": true,
+    "workspaces": [
+      "packages/*",
+      "packages/console/*",
+      "packages/stats/*",
+      "packages/sdk/js",
+      "packages/slack"
+    ],
+    "mainDirectories": [],
+    "gitBranches": {
+      "defaultBranch": "dev",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "github": {
+      "path": "github",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1782880777029,
+      "keyFiles": [
+        "README.md",
+        "action.yml",
+        "bun.lock",
+        "index.ts",
+        "package.json"
+      ]
+    },
+    "infra": {
+      "path": "infra",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1782880777030,
+      "keyFiles": [
+        "app.ts",
+        "console.ts",
+        "enterprise.ts",
+        "lake.ts",
+        "monitoring.ts"
+      ]
+    },
+    "nix": {
+      "path": "nix",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1782880777039,
+      "keyFiles": [
+        "desktop.nix",
+        "hashes.json",
+        "node_modules.nix",
+        "opencode.nix"
+      ]
+    },
+    "packages": {
+      "path": "packages",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782880777040,
+      "keyFiles": []
+    },
+    "patches": {
+      "path": "patches",
+      "purpose": null,
+      "fileCount": 14,
+      "lastAccessed": 1782880777040,
+      "keyFiles": [
+        "@ai-sdk%2Fgoogle@3.0.73.patch",
+        "@ai-sdk%2Fxai@3.0.82.patch",
+        "@ff-labs%2Ffff-bun@0.9.3.patch",
+        "@modelcontextprotocol%2Fsdk@1.29.0.patch",
+        "@npmcli%2Fagent@4.0.2.patch"
+      ]
+    },
+    "perf": {
+      "path": "perf",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782880777041,
+      "keyFiles": [
+        "test-suite.md"
+      ]
+    },
+    "script": {
+      "path": "script",
+      "purpose": null,
+      "fileCount": 13,
+      "lastAccessed": 1782880777042,
+      "keyFiles": [
+        "beta.ts",
+        "changelog.ts",
+        "duplicate-pr.ts",
+        "format.ts",
+        "generate.ts"
+      ]
+    },
+    "sdks": {
+      "path": "sdks",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782880777042,
+      "keyFiles": []
+    },
+    "specs": {
+      "path": "specs",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1782880777043,
+      "keyFiles": [
+        "project.md",
+        "tui-package.md"
+      ]
+    },
+    "nix/scripts": {
+      "path": "nix/scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1782880777044,
+      "keyFiles": [
+        "canonicalize-node-modules.ts",
+        "normalize-bun-binaries.ts"
+      ]
+    },
+    "packages/app": {
+      "path": "packages/app",
+      "purpose": "Application code",
+      "fileCount": 13,
+      "lastAccessed": 1782880777046,
+      "keyFiles": [
+        "AGENTS.md",
+        "README.md",
+        "bunfig.toml"
+      ]
+    },
+    "packages/docs": {
+      "path": "packages/docs",
+      "purpose": "Documentation",
+      "fileCount": 8,
+      "lastAccessed": 1782880777046,
+      "keyFiles": [
+        "LICENSE",
+        "README.md",
+        "development.mdx"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

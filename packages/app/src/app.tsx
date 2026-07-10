@@ -7,6 +7,7 @@ import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { File } from "@opencode-ai/session-ui/file"
 import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
+import { Button } from "@opencode-ai/ui/button"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
 import { type BaseRouterProps, Navigate, Route, Router, useNavigate, useParams, useSearchParams } from "@solidjs/router"
@@ -332,12 +333,121 @@ function LegacyServerScopedShell(props: ServerScopedShellProps) {
   )
 }
 
-function NewAppLayout(props: ParentProps<{ serverScoped?: JSX.Element }>) {
+// 如影 SSO gate: until the user has logged into the ruying gateway, replace the
+// whole app with a full-screen SSO login. Lives inside SelectedServerProviders
+// so it can read the connected-provider list and drive the OAuth flow.
+const RUYING_PROVIDER_ID = "ruying"
+
+function RuyingLogin() {
+  const serverSDK = useServerSDK()
+  const [status, setStatus] = createSignal<"idle" | "pending" | "error">("idle")
+  const [message, setMessage] = createSignal("")
+  const [authUrl, setAuthUrl] = createSignal("")
+
+  async function login() {
+    setStatus("pending")
+    setMessage("")
+    setAuthUrl("")
+    try {
+      const authorized = await serverSDK().client.provider.oauth.authorize(
+        { providerID: RUYING_PROVIDER_ID, method: 0 },
+        { throwOnError: true },
+      )
+      if (authorized.data?.url) setAuthUrl(authorized.data.url)
+      const result = await serverSDK().client.provider.oauth.callback({ providerID: RUYING_PROVIDER_ID, method: 0 })
+      if (result.error) {
+        setStatus("error")
+        setMessage("登录失败，请重试。若提示待管理员开通，请联系管理员开通后再登录。")
+        return
+      }
+      // Success. The callback already wrote provider.ruying + options.ruyingUser
+      // to the global config on disk. Two caches still hold the pre-login state:
+      //   1. the server's per-instance config (cleared by global.dispose → it
+      //      re-reads config from disk on the next bootstrap), and
+      //   2. the client's providers query (a plain bootstrap.refetch reuses the
+      //      cached, stale provider list — which is why the gate never flipped).
+      // A hard reload wipes the client query cache and re-bootstraps from
+      // scratch, so the gate sees ruyingUser and lets the app through.
+      await serverSDK().client.global.dispose().catch(() => {})
+      window.location.reload()
+    } catch (error) {
+      setStatus("error")
+      setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  return (
+    <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6 select-none">
+      <div class="flex flex-col items-center max-w-md text-center gap-4">
+        <Splash class="w-12 h-15" />
+        <div class="text-16-medium text-text-strong">如影编码网关</div>
+        <Show
+          when={status() === "pending"}
+          fallback={
+            <>
+              <p class="text-14-regular text-text-weak">请使用 GWM SSO 登录以继续使用</p>
+              <Button variant="primary" size="large" onClick={login}>
+                SSO 登录
+              </Button>
+              <Show when={status() === "error" && message()}>
+                <p class="text-12-regular text-text-base">{message()}</p>
+              </Show>
+            </>
+          }
+        >
+          <Splash class="w-8 h-10 opacity-50 animate-pulse" />
+          <p class="text-14-regular text-text-base">正在等待浏览器完成 SSO 登录…</p>
+          <Show when={authUrl()}>
+            <a
+              href={authUrl()}
+              target="_blank"
+              rel="noreferrer"
+              class="text-12-regular text-text-weak underline break-all"
+            >
+              {authUrl()}
+            </a>
+          </Show>
+        </Show>
+      </div>
+    </div>
+  )
+}
+
+function RuyingGate(props: ParentProps) {
+  const serverSync = useServerSync()
+  // "Logged in" = OUR SSO login has stamped options.ruyingUser onto the provider
+  // config. We deliberately do NOT use provider.connected: the chelper CLI may
+  // have pre-written a ruying provider (apiKey + baseURL, but no ruyingUser),
+  // which would otherwise make the gate think the user is already logged in.
+  const loggedIn = createMemo(() => {
+    const provider = serverSync().data.provider.all.get(RUYING_PROVIDER_ID)
+    const user = (provider?.options as Record<string, unknown> | undefined)?.["ruyingUser"]
+    return !!user && typeof user === "object"
+  })
+  return (
+    <Show
+      when={serverSync().ready}
+      fallback={
+        <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
+          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+        </div>
+      }
+    >
+      <Show when={loggedIn()} fallback={<RuyingLogin />}>
+        {props.children}
+      </Show>
+    </Show>
+  )
+}
+
+function NewAppLayout(props: ParentProps) {
   return (
     <SelectedServerProviders>
-      <ServerScopedProviders serverScoped={props.serverScoped}>
-        <NewLayout>{props.children}</NewLayout>
-      </ServerScopedProviders>
+      <RuyingGate>
+        <ServerScopedProviders>
+          <NewLayout>{props.children}</NewLayout>
+        </ServerScopedProviders>
+      </RuyingGate>
     </SelectedServerProviders>
   )
 }

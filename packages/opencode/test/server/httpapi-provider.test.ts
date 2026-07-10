@@ -398,4 +398,26 @@ describe("provider HttpApi", () => {
     }),
     { ...projectOptions, init: writeProviderModelsMutationPlugin },
   )
+
+  it.instance(
+    "lists plugin-only auth providers (not in models.dev or config) so they are selectable in /connect",
+    Effect.gen(function* () {
+      const directory = (yield* TestInstance).directory
+      const headers = { "x-opencode-directory": directory }
+      const providerResponse = yield* request("/provider", { headers })
+      expect(providerResponse.status).toBe(200)
+
+      const providerBody = yield* providerResponse.json
+      // "test-oauth-validation" exists only as a plugin auth hook — it is not in
+      // models.dev and not in config, yet it must appear in the list so the TUI
+      // /connect dialog can offer it for login.
+      const provider = providerByID(providerBody, "all", "test-oauth-validation")
+      expect(provider).toBeDefined()
+      expect(isRecord(provider) && provider.models).toEqual({})
+      // ...but it is not "connected" until the user actually logs in.
+      expect(isRecord(providerBody) && (providerBody.connected as string[])).not.toContain("test-oauth-validation")
+    }),
+    { ...projectOptions, init: writeProviderAuthValidationPlugin },
+    30000,
+  )
 })
