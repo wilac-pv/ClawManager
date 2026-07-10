@@ -1,7 +1,6 @@
 import { Brand } from "@opencode-ai/core/brand/brand"
 import { Effect } from "effect"
-import { existsSync, realpathSync } from "node:fs"
-import { chmod, rename, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, lstat, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser"
 import { errorMessage } from "@/util/error"
@@ -39,8 +38,8 @@ export const logoutRuying = Effect.fn("Cli.ruying.logoutProvider")(function* (in
 export function prepareRuyingIdentityRemoval(file: string) {
   return Effect.tryPromise({
     try: async () => {
-      if (!existsSync(file)) return Effect.void
-      const target = realpathSync(resolve(file))
+      const target = await resolveExistingConfig(file)
+      if (!target) return Effect.void
       await identityEdit(target)
       return Effect.tryPromise({
         try: () => removeRuyingIdentity(target),
@@ -53,8 +52,8 @@ export function prepareRuyingIdentityRemoval(file: string) {
 }
 
 export async function removeRuyingIdentity(file: string) {
-  if (!existsSync(file)) return
-  const target = realpathSync(resolve(file))
+  const target = await resolveExistingConfig(file)
+  if (!target) return
   const edit = await identityEdit(target)
   if (!edit) return
   const temporary = join(dirname(target), `.${basename(target)}.${process.pid}.${crypto.randomUUID()}.tmp`)
@@ -65,6 +64,17 @@ export async function removeRuyingIdentity(file: string) {
       await rm(temporary, { force: true }).catch(() => undefined)
       throw error
     })
+}
+
+async function resolveExistingConfig(file: string) {
+  const requested = resolve(file)
+  try {
+    await lstat(requested)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+  return realpath(requested)
 }
 
 async function identityEdit(file: string) {
