@@ -92,3 +92,11 @@ test("disable file watcher config accepts a legacy-only value", async () => {
     await Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER.parse(ConfigProvider.fromEnv())),
   ).toBe(true)
 })
+
+test("file watcher config rejects an invalid branded value", async () => {
+  process.env.RUYING_CODE_EXPERIMENTAL_FILEWATCHER = "invalid"
+  process.env.OPENCODE_EXPERIMENTAL_FILEWATCHER = "true"
+  await expect(
+    Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER.parse(ConfigProvider.fromEnv())),
+  ).rejects.toThrow()
+})

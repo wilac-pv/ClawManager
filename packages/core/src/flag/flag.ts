@@ -1,4 +1,4 @@
-import { Config } from "effect"
+import { Config, Effect, Option } from "effect"
 import { Brand } from "../brand/brand"
 
 function value(key: string) {
@@ -6,9 +6,14 @@ function value(key: string) {
 }
 
 function booleanConfig(key: string) {
-  return Config.boolean(key.replace(/^OPENCODE_/, "RUYING_CODE_")).pipe(
-    Config.orElse(() => Config.boolean(key)),
-    Config.withDefault(false),
+  return Config.make((provider) =>
+    Effect.gen(function* () {
+      const branded = yield* Config.option(
+        Config.boolean(key.replace(/^OPENCODE_/, "RUYING_CODE_")),
+      ).parse(provider)
+      if (Option.isSome(branded)) return branded.value
+      return yield* Config.boolean(key).pipe(Config.withDefault(false)).parse(provider)
+    }),
   )
 }
 
