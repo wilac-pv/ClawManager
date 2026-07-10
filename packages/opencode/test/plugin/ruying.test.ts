@@ -28,6 +28,7 @@ const {
   buildProviderPatch,
   writeGlobalProviderConfig,
   readExistingRuyingKey,
+  globalConfigFile,
 } = await import("../../src/plugin/ruying")
 
 function makeServer(handler: (request: Request, url: URL) => Response | Promise<Response>) {
@@ -53,6 +54,28 @@ function oauthMethod(hooks: Awaited<ReturnType<typeof RuyingAuthPlugin>>) {
 }
 
 describe("plugin.ruying", () => {
+  describe("globalConfigFile", () => {
+    test("uses branded config precedence in the branded config directory", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "ruying-config-path-"))
+      const legacy = join(dir, "opencode.jsonc")
+      const brandedJson = join(dir, "ruying-code.json")
+      const brandedJsonc = join(dir, "ruying-code.jsonc")
+      await Bun.write(legacy, "{}")
+      await Bun.write(brandedJson, "{}")
+      await Bun.write(brandedJsonc, "{}")
+
+      expect(globalConfigFile(dir)).toBe(brandedJsonc)
+
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    test("defaults to the highest-precedence branded config name", () => {
+      const dir = mkdtempSync(join(tmpdir(), "ruying-config-path-"))
+      expect(globalConfigFile(dir)).toBe(join(dir, "ruying-code.jsonc"))
+      rmSync(dir, { recursive: true, force: true })
+    })
+  })
+
   describe("buildSsoUrl", () => {
     test("requests TOKEN mode with the loopback redirect", () => {
       const url = new URL(buildSsoUrl("https://sso.gwm.cn/login", "http://127.0.0.1:9527/callback"))

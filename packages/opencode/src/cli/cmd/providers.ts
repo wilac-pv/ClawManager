@@ -20,6 +20,11 @@ import { Effect, Option } from "effect"
 
 type PluginAuth = NonNullable<Hooks["auth"]>
 
+export function requirePluginAuthSuccess(result: { type: "success" | "failed" }, method: "auto" | "code") {
+  if (result.type === "failed") return fail(`Failed to authorize using ${method} flow`)
+  return Effect.void
+}
+
 const promptValue = <Value>(value: Option.Option<Value>) => {
   if (Option.isNone(value)) return Effect.die(new UI.CancelledError())
   return Effect.succeed(value.value)
@@ -109,6 +114,7 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
       if (result.type === "failed") {
         yield* spinner.stop("Failed to authorize", 1)
       }
+      yield* requirePluginAuthSuccess(result, "auto")
       if (result.type === "success") {
         const saveProvider = result.provider ?? provider
         if ("refresh" in result) {
@@ -142,6 +148,7 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
       if (result.type === "failed") {
         yield* Prompt.log.error("Failed to authorize")
       }
+      yield* requirePluginAuthSuccess(result, "code")
       if (result.type === "success") {
         const saveProvider = result.provider ?? provider
         if ("refresh" in result) {

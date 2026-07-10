@@ -1,7 +1,16 @@
 import { expect, test } from "bun:test"
+import { chmod, lstat, stat, symlink } from "node:fs/promises"
 import path from "node:path"
+import { Effect } from "effect"
 import { parse } from "jsonc-parser"
-import { removeRuyingIdentity, runLogin, runLogout } from "@/cli/cmd/ruying-auth"
+import {
+  logoutRuying,
+  prepareRuyingIdentityRemoval,
+  removeRuyingIdentity,
+  runLogin,
+  runLogout,
+} from "@/cli/cmd/ruying-auth"
+import { requirePluginAuthSuccess } from "@/cli/cmd/providers"
 import { tmpdir } from "../../fixture/fixture"
 
 test("login always selects ruying", async () => {
@@ -53,4 +62,91 @@ test("logout identity cleanup preserves unrelated JSONC content", async () => {
   expect(config.theme).toBe("opencode")
   expect(config.provider.ruying.options).toEqual({ baseURL: "https://gateway/v1" })
   expect(config.provider.other.options.apiKey).toBe("keep")
+})
+
+test.skipIf(process.platform === "win32")("logout identity cleanup preserves config symlink and mode", async () => {
+  await using tmp = await tmpdir()
+  const backing = path.join(tmp.path, "backing.jsonc")
+  const link = path.join(tmp.path, "ruying-code.jsonc")
+  await Bun.write(backing, '{\n  // keep\n  "provider": { "ruying": { "options": { "ruyingUser": {} } } }\n}\n')
+  await chmod(backing, 0o600)
+  await symlink(backing, link)
+
+  await removeRuyingIdentity(link)
+
+  expect((await lstat(link)).isSymbolicLink()).toBe(true)
+  expect((await stat(backing)).mode & 0o777).toBe(0o600)
+  expect(await Bun.file(backing).text()).toContain("// keep")
+  expect(parse(await Bun.file(backing).text()).provider.ruying.options.ruyingUser).toBeUndefined()
+})
+
+test("malformed config fails before logout removes credentials", async () => {
+  await using tmp = await tmpdir()
+  const file = path.join(tmp.path, "ruying-code.jsonc")
+  await Bun.write(file, '{ "provider": ')
+  let removed = false
+
+  await expect(
+    Effect.runPromise(
+      logoutRuying({
+        prepareIdentity: () => prepareRuyingIdentityRemoval(file),
+        get: () => Effect.succeed({ type: "api" as const, key: "secret" }),
+        remove: () => Effect.sync(() => (removed = true)),
+        set: () => Effect.void,
+      }),
+    ),
+  ).rejects.toMatchObject({ _tag: "CliError" })
+  expect(removed).toBe(false)
+})
+
+test("missing config remains a valid logout", async () => {
+  await using tmp = await tmpdir()
+  let removed = false
+
+  await Effect.runPromise(
+    logoutRuying({
+      prepareIdentity: () => prepareRuyingIdentityRemoval(path.join(tmp.path, "missing.jsonc")),
+      get: () => Effect.succeed({ type: "api" as const, key: "secret" }),
+      remove: () => Effect.sync(() => (removed = true)),
+      set: () => Effect.die("unexpected restore"),
+    }),
+  )
+
+  expect(removed).toBe(true)
+})
+
+test.skipIf(process.platform === "win32")("config publication failure restores the removed credential", async () => {
+  await using tmp = await tmpdir()
+  const file = path.join(tmp.path, "ruying-code.jsonc")
+  const credential = { type: "api" as const, key: "secret", metadata: { employeeId: "GW001" } }
+  await Bun.write(file, '{ "provider": { "ruying": { "options": { "ruyingUser": {} } } } }')
+  let restored: typeof credential | undefined
+  let removed = false
+  await chmod(tmp.path, 0o500)
+
+  try {
+    await expect(
+      Effect.runPromise(
+        logoutRuying({
+          prepareIdentity: () => prepareRuyingIdentityRemoval(file),
+          get: () => Effect.succeed(credential),
+          remove: () => Effect.sync(() => (removed = true)),
+          set: (_providerID, info) => Effect.sync(() => (restored = info as typeof credential)),
+        }),
+      ),
+    ).rejects.toMatchObject({ _tag: "CliError" })
+  } finally {
+    await chmod(tmp.path, 0o700)
+  }
+
+  expect(removed).toBe(true)
+  expect(restored).toEqual(credential)
+  expect(parse(await Bun.file(file).text()).provider.ruying.options.ruyingUser).toEqual({})
+})
+
+test.each(["auto", "code"] as const)("%s OAuth failure is a CLI failure", async (method) => {
+  await expect(Effect.runPromise(requirePluginAuthSuccess({ type: "failed" }, method))).rejects.toMatchObject({
+    _tag: "CliError",
+    exitCode: 1,
+  })
 })

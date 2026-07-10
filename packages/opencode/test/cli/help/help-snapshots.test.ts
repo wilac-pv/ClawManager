@@ -48,7 +48,8 @@ const TOP_LEVEL = [
   "attach",
   "run",
   "debug",
-  "providers", // aliased to `auth`
+  "login",
+  "logout",
   "agent",
   "upgrade",
   "uninstall",
@@ -73,9 +74,6 @@ const SUBCOMMANDS = [
   ["mcp", "add"],
   ["mcp", "auth"],
   ["mcp", "logout"],
-  ["providers", "list"],
-  ["providers", "login"],
-  ["providers", "logout"],
   ["agent", "create"],
   ["agent", "list"],
   ["session", "list"],
@@ -105,6 +103,10 @@ describe("opencode CLI help-text snapshots", () => {
         expect(topLevel.stderr).not.toContain("--thinking")
         expect(topLevel.stderr).not.toContain("--variant")
         expect(topLevel.stderr).not.toContain("--demo")
+        expect(topLevel.stderr).toContain("ruying-code login")
+        expect(topLevel.stderr).toContain("ruying-code logout")
+        expect(topLevel.stderr).not.toContain("ruying-code providers")
+        expect(topLevel.stderr).not.toMatch(/^\s*ruying-code auth(?:\s|$)/m)
 
         const argvs: Array<readonly string[]> = [...TOP_LEVEL.map((c) => [c] as const), ...SUBCOMMANDS]
 

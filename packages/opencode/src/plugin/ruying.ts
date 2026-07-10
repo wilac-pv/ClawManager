@@ -4,10 +4,12 @@ import { createServer, type ServerResponse } from "http"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "fs"
 import { chmod, rename, rm, stat, writeFile } from "fs/promises"
 import { basename, dirname, join, resolve } from "path"
-import { homedir, tmpdir } from "os"
+import { tmpdir } from "os"
 import open from "open"
 import { escapeHtml } from "@/util/html"
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser"
+import { Global } from "@opencode-ai/core/global"
+import { ConfigPaths } from "@/config/paths"
 
 // 如影 (Ruying) coding gateway SSO login. Ported from the chelper CLI
 // (aicoding-helper, src/commands/login.ts + core/gateway.ts). Flow:
@@ -399,15 +401,16 @@ export async function fetchModelIds(gatewayApiBase: string, apiKey: string): Pro
   return (body?.data ?? []).map((m) => m?.id).filter((id): id is string => typeof id === "string" && id.length > 0)
 }
 
-// Resolve the global opencode config file (xdg config dir), preferring an
-// existing one among the recognized names.
-export function globalConfigFile(): string {
-  const dir = join(process.env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "opencode")
-  for (const name of ["opencode.jsonc", "opencode.json", "config.json"]) {
-    const file = join(dir, name)
+// Resolve the effective global branded config file, matching Config's load precedence.
+export function globalConfigFile(directory = Global.Path.config): string {
+  const candidates = [
+    ...ConfigPaths.globalConfigNames.toReversed().flatMap((name) => [`${name}.jsonc`, `${name}.json`]),
+    "config.json",
+  ].map((name) => join(directory, name))
+  for (const file of candidates) {
     if (existsSync(file)) return file
   }
-  return join(dir, "opencode.json")
+  return candidates[0]
 }
 
 // Write the ruying provider + logged-in user into the global config FILE directly
