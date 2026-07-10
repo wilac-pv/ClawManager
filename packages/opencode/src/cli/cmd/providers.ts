@@ -236,6 +236,53 @@ export function resolvePluginProviders(input: {
   return result
 }
 
+export const loginProvider = Effect.fn("Cli.providers.loginProvider")(function* (
+  provider: string,
+  methodName?: string,
+) {
+  const authSvc = yield* Auth.Service
+  const pluginSvc = yield* Plugin.Service
+  const hooks = yield* pluginSvc.list()
+  const plugin = hooks.findLast((x) => x.auth?.provider === provider)
+  if (plugin && plugin.auth) {
+    const handled = yield* handlePluginAuth({ auth: plugin.auth }, provider, methodName)
+    if (handled) return
+  }
+
+  if (provider === "amazon-bedrock") {
+    yield* Prompt.log.info(
+      "Amazon Bedrock authentication priority:\n" +
+        "  1. Bearer token (AWS_BEARER_TOKEN_BEDROCK or /connect)\n" +
+        "  2. AWS credential chain (profile, access keys, IAM roles, EKS IRSA)\n\n" +
+        "Configure via opencode.json options (profile, region, endpoint) or\n" +
+        "AWS environment variables (AWS_PROFILE, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_WEB_IDENTITY_TOKEN_FILE).",
+    )
+  }
+
+  if (provider === "opencode") {
+    yield* Prompt.log.info("Create an api key at https://opencode.ai/auth")
+  }
+
+  if (provider === "vercel") {
+    yield* Prompt.log.info("You can create an api key at https://vercel.link/ai-gateway-token")
+  }
+
+  if (["cloudflare", "cloudflare-ai-gateway"].includes(provider)) {
+    yield* Prompt.log.info(
+      "Cloudflare AI Gateway can be configured with CLOUDFLARE_GATEWAY_ID, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_API_TOKEN environment variables. Read more: https://opencode.ai/docs/providers/#cloudflare-ai-gateway",
+    )
+  }
+
+  const key = yield* Prompt.password({
+    message: "Enter your API key",
+    validate: (x) => (x && x.length > 0 ? undefined : "Required"),
+  })
+  const apiKey = yield* promptValue(key)
+  yield* Effect.orDie(authSvc.set(provider, { type: "api", key: apiKey }))
+
+  yield* Prompt.outro("Done")
+})
+
 export const ProvidersCommand = cmd({
   command: "providers",
   aliases: ["auth"],
@@ -428,12 +475,6 @@ export const ProvidersLoginCommand = effectCmd({
       )
     }
 
-    const plugin = hooks.findLast((x) => x.auth?.provider === provider)
-    if (plugin && plugin.auth) {
-      const handled = yield* handlePluginAuth({ auth: plugin.auth! }, provider, args.method)
-      if (handled) return
-    }
-
     if (provider === "other") {
       provider = (yield* promptValue(
         yield* Prompt.text({
@@ -442,49 +483,12 @@ export const ProvidersLoginCommand = effectCmd({
         }),
       )).replace(/^@ai-sdk\//, "")
 
-      const customPlugin = hooks.findLast((x) => x.auth?.provider === provider)
-      if (customPlugin && customPlugin.auth) {
-        const handled = yield* handlePluginAuth({ auth: customPlugin.auth! }, provider, args.method)
-        if (handled) return
-      }
-
       yield* Prompt.log.warn(
         `This only stores a credential for ${provider} - you will need configure it in opencode.json, check the docs for examples.`,
       )
     }
 
-    if (provider === "amazon-bedrock") {
-      yield* Prompt.log.info(
-        "Amazon Bedrock authentication priority:\n" +
-          "  1. Bearer token (AWS_BEARER_TOKEN_BEDROCK or /connect)\n" +
-          "  2. AWS credential chain (profile, access keys, IAM roles, EKS IRSA)\n\n" +
-          "Configure via opencode.json options (profile, region, endpoint) or\n" +
-          "AWS environment variables (AWS_PROFILE, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_WEB_IDENTITY_TOKEN_FILE).",
-      )
-    }
-
-    if (provider === "opencode") {
-      yield* Prompt.log.info("Create an api key at https://opencode.ai/auth")
-    }
-
-    if (provider === "vercel") {
-      yield* Prompt.log.info("You can create an api key at https://vercel.link/ai-gateway-token")
-    }
-
-    if (["cloudflare", "cloudflare-ai-gateway"].includes(provider)) {
-      yield* Prompt.log.info(
-        "Cloudflare AI Gateway can be configured with CLOUDFLARE_GATEWAY_ID, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_API_TOKEN environment variables. Read more: https://opencode.ai/docs/providers/#cloudflare-ai-gateway",
-      )
-    }
-
-    const key = yield* Prompt.password({
-      message: "Enter your API key",
-      validate: (x) => (x && x.length > 0 ? undefined : "Required"),
-    })
-    const apiKey = yield* promptValue(key)
-    yield* Effect.orDie(authSvc.set(provider, { type: "api", key: apiKey }))
-
-    yield* Prompt.outro("Done")
+    yield* loginProvider(provider, args.method)
   }),
 })
 
