@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises"
+import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { OemMigration } from "../../src/migration/oem"
@@ -76,6 +76,55 @@ test("does not mark malformed legacy roots as migrated", async () => {
   await expect(OemMigration.run({ pairs: [{ legacy, current: join(root, "ruying-code") }], marker })).rejects.toThrow()
 
   expect(await Bun.file(marker).exists()).toBe(false)
+})
+
+test("does not copy a legacy marker before later pairs succeed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-"))
+  const legacy = join(root, "opencode-state")
+  const current = join(root, "ruying-code-state")
+  const blocked = join(root, "blocked")
+  const marker = join(current, ".oem-migration-v1.json")
+  await mkdir(legacy, { recursive: true })
+  await writeFile(join(legacy, ".oem-migration-v1.json"), "legacy marker")
+  await writeFile(blocked, "not a directory")
+
+  await expect(
+    OemMigration.run({
+      pairs: [
+        { legacy, current },
+        { legacy, current: blocked },
+      ],
+      marker,
+    }),
+  ).rejects.toThrow()
+
+  expect(await Bun.file(marker).exists()).toBe(false)
+})
+
+test("does not follow a legacy marker symlink when completing migration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-"))
+  const legacy = join(root, "opencode-state")
+  const current = join(root, "ruying-code-state")
+  const marker = join(current, ".oem-migration-v1.json")
+  const external = join(root, "external.json")
+  await mkdir(legacy, { recursive: true })
+  await writeFile(external, "external")
+  await symlink(external, join(legacy, ".oem-migration-v1.json"))
+
+  await OemMigration.run({ pairs: [{ legacy, current }], marker })
+
+  expect(await Bun.file(external).text()).toBe("external")
+  expect((await lstat(marker)).isSymbolicLink()).toBe(false)
+})
+
+test("writes a regular completion marker after successful migration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-"))
+  const marker = join(root, "ruying-code-state", ".oem-migration-v1.json")
+  await mkdir(marker, { recursive: true })
+
+  await OemMigration.run({ pairs: [], marker })
+
+  expect((await lstat(marker)).isFile()).toBe(true)
 })
 
 test("migrates all XDG trees before CLI command execution", async () => {
