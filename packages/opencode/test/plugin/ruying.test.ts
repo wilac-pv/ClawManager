@@ -1,8 +1,9 @@
 import { describe, expect, mock, spyOn, test } from "bun:test"
-import { existsSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { Server } from "http"
 import { tmpdir } from "os"
 import { join } from "path"
+import { parse } from "jsonc-parser"
 
 // Stub the browser launcher so authorize() never spawns a real browser tab.
 mock.module("open", () => ({ default: async () => undefined }))
@@ -180,6 +181,106 @@ describe("plugin.ruying", () => {
   })
 
   describe("writeGlobalProviderConfig", () => {
+    test("preserves nested provider and option comments", async () => {
+      const file = tmpConfigFile()
+      await Bun.write(
+        file,
+        [
+          "{",
+          '  "provider": {',
+          '    "ruying": {',
+          "      // keep provider field comment",
+          '      "customProviderField": true,',
+          '      "options": {',
+          "        // keep api key comment",
+          '        "apiKey": "chelper-key",',
+          "        // keep custom option comment",
+          '        "customOption": "custom-value"',
+          "      }",
+          "    }",
+          "  }",
+          "}",
+          "",
+        ].join("\n"),
+      )
+
+      await writeGlobalProviderConfig(file, "https://gateway/v1", ["model-a"], {
+        employeeId: "GW001",
+        displayName: "张三",
+        email: "",
+      })
+
+      const source = await Bun.file(file).text()
+      const config = parse(source)
+      expect(source).toContain("// keep provider field comment")
+      expect(source).toContain("// keep api key comment")
+      expect(source).toContain("// keep custom option comment")
+      expect(config.provider.ruying.customProviderField).toBe(true)
+      expect(config.provider.ruying.options.apiKey).toBe("chelper-key")
+      expect(config.provider.ruying.options.customOption).toBe("custom-value")
+      rmSync(file, { force: true })
+    })
+
+    test("re-reads after queued writes and preserves unrelated edits", async () => {
+      const file = tmpConfigFile()
+      await Bun.write(file, JSON.stringify({ theme: "opencode", custom: { keep: true } }))
+
+      const first = writeGlobalProviderConfig(file, "https://first/v1", ["first-model"], {
+        employeeId: "GW-FIRST",
+        displayName: "First",
+        email: "first@gwm.cn",
+      })
+      const unrelated = first.then(() => {
+        const config = JSON.parse(readFileSync(file, "utf8"))
+        writeFileSync(file, JSON.stringify({ ...config, externalEdit: { keep: true } }))
+      })
+      const second = writeGlobalProviderConfig(
+        file,
+        "https://second/v1",
+        Array.from({ length: 2_000 }, (_, index) => `second-model-${index}`),
+        {
+          employeeId: "GW-SECOND",
+          displayName: "Second",
+          email: "second@gwm.cn",
+        },
+      )
+      await Promise.all([unrelated, second])
+
+      const config = JSON.parse(await Bun.file(file).text())
+      expect(config.theme).toBe("opencode")
+      expect(config.custom).toEqual({ keep: true })
+      expect(config.externalEdit).toEqual({ keep: true })
+      expect(config.provider.ruying.options.baseURL).toBe("https://second/v1")
+      expect(config.provider.ruying.options.ruyingUser.employeeId).toBe("GW-SECOND")
+      expect(Object.keys(config.provider.ruying.models)).toHaveLength(2_000)
+      rmSync(file, { force: true })
+    })
+
+    test.skipIf(process.platform === "win32")(
+      "preserves the original when atomic publication cannot create a temporary file",
+      async () => {
+        const dir = mkdtempSync(join(tmpdir(), "ruying-atomic-"))
+        const file = join(dir, "config.json")
+        const original = JSON.stringify({ theme: "opencode" })
+        await Bun.write(file, original)
+        chmodSync(dir, 0o500)
+
+        try {
+          await expect(
+            writeGlobalProviderConfig(file, "https://gateway/v1", ["model-a"], {
+              employeeId: "GW001",
+              displayName: "张三",
+              email: "",
+            }),
+          ).rejects.toThrow()
+          expect(await Bun.file(file).text()).toBe(original)
+        } finally {
+          chmodSync(dir, 0o700)
+          rmSync(dir, { recursive: true, force: true })
+        }
+      },
+    )
+
     test("updates jsonc without discarding comments", async () => {
       const file = tmpConfigFile()
       await Bun.write(file, '{\n  // keep\n  "theme": "opencode"\n}\n')

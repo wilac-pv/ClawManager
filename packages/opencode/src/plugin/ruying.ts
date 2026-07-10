@@ -2,7 +2,8 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { createServer, type ServerResponse } from "http"
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
-import { dirname, join } from "path"
+import { rename, rm, writeFile } from "fs/promises"
+import { basename, dirname, join, resolve } from "path"
 import { homedir, tmpdir } from "os"
 import open from "open"
 import { escapeHtml } from "@/util/html"
@@ -104,6 +105,7 @@ let oauthServerGeneration: OAuthServerStart | undefined
 let oauthServerStart: OAuthServerStart | undefined
 let oauthServerOwner: string | undefined
 let pending: Pending | undefined
+const providerConfigWrites = new Map<string, Promise<void>>()
 
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "")
@@ -413,32 +415,46 @@ export function globalConfigFile(): string {
 // through updateGlobal → disposeAllInstancesAndEmitGlobalDisposed, which would
 // dispose the instance mid auth-callback and hang the login. The change is read
 // on the gate's post-login re-bootstrap.
-export async function writeGlobalProviderConfig(
+export function writeGlobalProviderConfig(
   file: string,
   gatewayApiBase: string,
   modelIds: string[],
   user: RuyingUser,
 ): Promise<void> {
+  const target = resolve(file)
+  const previous = providerConfigWrites.get(target) ?? Promise.resolve()
+  const write = previous.catch(() => undefined).then(() => writeProviderConfig(target, gatewayApiBase, modelIds, user))
+  const queued = write.finally(() => {
+    if (providerConfigWrites.get(target) === queued) providerConfigWrites.delete(target)
+  })
+  providerConfigWrites.set(target, queued)
+  return queued
+}
+
+async function writeProviderConfig(file: string, gatewayApiBase: string, modelIds: string[], user: RuyingUser) {
   const source = existsSync(file) ? await Bun.file(file).text() : "{}"
   const errors: ParseError[] = []
   const config: unknown = parse(source, errors, { allowTrailingComma: true })
   if (errors.length || !isRecord(config)) return
   if (!existsSync(file)) mkdirSync(dirname(file), { recursive: true })
 
-  const providers = isRecord(config.provider) ? config.provider : {}
-  const existing = isRecord(providers[PROVIDER_ID]) ? providers[PROVIDER_ID] : {}
-  const existingOptions = isRecord(existing.options) ? existing.options : {}
   const provider = buildProviderPatch(gatewayApiBase, modelIds, user).provider[PROVIDER_ID]
-  const patch = {
-    ...existing,
-    ...provider,
-    // Keep any pre-existing options (e.g. chelper's apiKey) and add ours.
-    options: { ...existingOptions, ...provider.options },
-  }
   const formatting = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
-  const withProviders = applyEdits(source, modify(source, ["enabled_providers"], [PROVIDER_ID], formatting))
-  const providerEdit = modify(withProviders, ["provider", PROVIDER_ID], patch, formatting)
-  await Bun.write(file, applyEdits(withProviders, providerEdit))
+  const output = [
+    { path: ["enabled_providers"], value: [PROVIDER_ID] },
+    { path: ["provider", PROVIDER_ID, "name"], value: provider.name },
+    { path: ["provider", PROVIDER_ID, "npm"], value: provider.npm },
+    { path: ["provider", PROVIDER_ID, "models"], value: provider.models },
+    { path: ["provider", PROVIDER_ID, "options", "baseURL"], value: provider.options.baseURL },
+    { path: ["provider", PROVIDER_ID, "options", "ruyingUser"], value: provider.options.ruyingUser },
+  ].reduce((result, edit) => applyEdits(result, modify(result, edit.path, edit.value, formatting)), source)
+  const temporary = join(dirname(file), `.${basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`)
+  await writeFile(temporary, output, { encoding: "utf8", flag: "wx" })
+    .then(() => rename(temporary, file))
+    .catch(async (error) => {
+      await rm(temporary, { force: true }).catch(() => undefined)
+      throw error
+    })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
