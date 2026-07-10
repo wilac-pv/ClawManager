@@ -42,7 +42,7 @@ const DEFAULT_GATEWAY_API_BASE = process.env["RUYING_GATEWAY_API"] ?? "https://a
 // dynamically), so we bind a short-lived callback server on 127.0.0.1. The port
 // is overridable in case 9527 is taken.
 const DEFAULT_CALLBACK_HOST = "127.0.0.1"
-const DEFAULT_CALLBACK_PORT = Number(process.env["RUYING_CALLBACK_PORT"] ?? 9527)
+const DEFAULT_CALLBACK_PORT = 9527
 const OAUTH_REDIRECT_PATH = "/callback"
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000
 const HTTP_TIMEOUT_MS = 20_000
@@ -78,6 +78,8 @@ export type ProvisionResult =
 type Outcome = { ok: true; key: string; user: RuyingUser } | { ok: false; title: string; message: string }
 
 interface Pending {
+  id: string
+  path: string
   process: (token: string) => Promise<Outcome>
   resolve: (outcome: Outcome) => void
   reject: (error: Error) => void
@@ -85,6 +87,7 @@ interface Pending {
 
 let oauthServer: ReturnType<typeof createServer> | undefined
 let oauthServerPort: number | undefined
+let oauthServerOwner: string | undefined
 let pending: Pending | undefined
 
 function stripTrailingSlash(value: string): string {
@@ -175,17 +178,13 @@ async function startOAuthServer(
 
   const server = createServer((req, res) => {
     const url = new URL(req.url || "/", `http://${req.headers.host ?? `${host}:${oauthServerPort ?? requestedPort}`}`)
-    if (url.pathname !== OAUTH_REDIRECT_PATH) {
+    const current = pending
+    if (!current || url.pathname !== current.path) {
       res.writeHead(404)
       res.end("Not found")
       return
     }
 
-    const current = pending
-    if (!current) {
-      endHtml(res, 409, htmlNotice("登录失败", "没有进行中的登录请求，请在 opencode 中重新发起。"))
-      return
-    }
     pending = undefined
 
     const error = url.searchParams.get("error")
@@ -235,15 +234,16 @@ async function startOAuthServer(
   })
 }
 
-function stopOAuthServer() {
-  if (!oauthServer) return
-  oauthServer.close()
+function stopOAuthServer(owner: string) {
+  if (oauthServerOwner !== owner) return
+  oauthServer?.close()
   oauthServer = undefined
   oauthServerPort = undefined
+  oauthServerOwner = undefined
 }
 
 function setPending(
-  input: { process: Pending["process"]; resolve: Pending["resolve"]; reject: Pending["reject"] },
+  input: Pending,
   timeoutMs: number,
 ) {
   // Reject any abandoned in-flight attempt so its caller stops waiting.
@@ -251,14 +251,17 @@ function setPending(
     pending.reject(new Error("被新的登录请求取代"))
     pending = undefined
   }
+  oauthServerOwner = input.id
   const timeout = setTimeout(() => {
-    if (pending) {
+    if (pending?.id === input.id) {
       const current = pending
       pending = undefined
       current.reject(new Error("登录超时，请重新发起登录"))
     }
   }, timeoutMs)
   pending = {
+    id: input.id,
+    path: input.path,
     process: input.process,
     resolve: (outcome) => {
       clearTimeout(timeout)
@@ -421,7 +424,8 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
   const adminApiBase = stripTrailingSlash(options.adminApiBase ?? DEFAULT_ADMIN_API_BASE)
   const gatewayApiBase = stripTrailingSlash(options.gatewayApiBase ?? DEFAULT_GATEWAY_API_BASE)
   const callbackHost = options.callbackHost ?? DEFAULT_CALLBACK_HOST
-  const callbackPort = options.callbackPort ?? DEFAULT_CALLBACK_PORT
+  const configuredCallbackPort = options.callbackPort ?? process.env["RUYING_CALLBACK_PORT"]
+  const callbackPort = Number(configuredCallbackPort ?? DEFAULT_CALLBACK_PORT)
   const callbackTimeoutMs = options.callbackTimeoutMs ?? CALLBACK_TIMEOUT_MS
 
   return {
@@ -432,15 +436,15 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
           type: "oauth",
           label: "如影 SSO 登录 (浏览器)",
           async authorize() {
-            const { port } = await startOAuthServer(
-              callbackHost,
-              callbackPort,
-              options.callbackPort === undefined && callbackPort === 9527,
-            )
-            const redirectUri = `http://${callbackHost}:${port}${OAUTH_REDIRECT_PATH}`
+            const attemptId = crypto.randomUUID()
+            const callbackPath = `${OAUTH_REDIRECT_PATH}/${attemptId}`
+            const { port } = await startOAuthServer(callbackHost, callbackPort, configuredCallbackPort === undefined)
+            const redirectUri = `http://${callbackHost}:${port}${callbackPath}`
 
             const outcomePromise = new Promise<Outcome>((resolve, reject) => {
               setPending({
+                id: attemptId,
+                path: callbackPath,
                 async process(ssoToken) {
                   // 1. Try to provision a fresh key from the admin service.
                   let result: ProvisionResult | undefined
@@ -554,7 +558,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                   // the CLI nor the TUI (Effect.promise) crashes.
                   return { type: "failed" as const }
                 } finally {
-                  stopOAuthServer()
+                  stopOAuthServer(attemptId)
                 }
               },
             }

@@ -281,6 +281,132 @@ describe("plugin.ruying", () => {
       expect(await (authorized as { callback: () => Promise<unknown> }).callback()).toEqual({ type: "failed" })
     })
 
+    test("rejects a superseded callback URL without closing or consuming the current attempt", async () => {
+      const hooks = await RuyingAuthPlugin({} as any, { callbackPort: 0, callbackTimeoutMs: 20 })
+      const first = await oauthMethod(hooks).authorize!()
+      const firstRedirect = new URL(first.url).searchParams.get("redirect_url")!
+      const firstCallback = (first as { callback: () => Promise<unknown> }).callback()
+      const second = await oauthMethod(hooks).authorize!()
+      const secondRedirect = new URL(second.url).searchParams.get("redirect_url")!
+      const secondCallback = (second as { callback: () => Promise<unknown> }).callback()
+
+      try {
+        expect(await firstCallback).toEqual({ type: "failed" })
+        expect((await fetch(`${new URL(secondRedirect).origin}/callback`)).status).toBe(404)
+        expect((await fetch(firstRedirect)).status).toBe(404)
+        expect((await fetch(secondRedirect)).status).toBe(400)
+        expect(await secondCallback).toEqual({ type: "failed" })
+      } finally {
+        await Promise.allSettled([firstCallback, secondCallback])
+      }
+    }, 500)
+
+    test("keeps a newer attempt listening while the previous callback finishes post-login work", async () => {
+      let markModelsStarted = () => {}
+      let releaseModels = () => {}
+      const modelsStarted = new Promise<void>((resolve) => {
+        markModelsStarted = resolve
+      })
+      const modelsReleased = new Promise<void>((resolve) => {
+        releaseModels = resolve
+      })
+      using admin = makeServer(() => Response.json({ status: "ready", key: "sk-first", tokenName: "GW001-张三" }))
+      using gateway = makeServer(async () => {
+        markModelsStarted()
+        await modelsReleased
+        return Response.json({ data: [] })
+      })
+      const configFile = tmpConfigFile()
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: "http://127.0.0.1:1",
+        gatewayApiBase: baseUrl(gateway),
+        callbackPort: 0,
+        callbackTimeoutMs: 50,
+        configFile,
+      })
+      const first = await oauthMethod(hooks).authorize!()
+      const firstRedirect = new URL(first.url).searchParams.get("redirect_url")!
+      const firstCallback = (first as { callback: () => Promise<unknown> }).callback()
+      await fetch(`${firstRedirect}?access_token=first`)
+      await modelsStarted
+
+      const second = await oauthMethod(hooks).authorize!()
+      const secondRedirect = new URL(second.url).searchParams.get("redirect_url")!
+      const secondCallback = (second as { callback: () => Promise<unknown> }).callback()
+
+      try {
+        releaseModels()
+        expect(await firstCallback).toMatchObject({ type: "success", key: "sk-first" })
+        expect((await fetch(secondRedirect)).status).toBe(400)
+        expect(await secondCallback).toEqual({ type: "failed" })
+      } finally {
+        releaseModels()
+        await Promise.allSettled([firstCallback, secondCallback])
+        rmSync(configFile, { force: true })
+      }
+    }, 1_000)
+
+    test("does not let an older callback timeout reject the current attempt", async () => {
+      let markProvisionStarted = () => {}
+      let releaseProvision = () => {}
+      const provisionStarted = new Promise<void>((resolve) => {
+        markProvisionStarted = resolve
+      })
+      const provisionReleased = new Promise<void>((resolve) => {
+        releaseProvision = resolve
+      })
+      using admin = makeServer(async () => {
+        markProvisionStarted()
+        await provisionReleased
+        return Response.json({ status: "ready", key: "sk-first", tokenName: "GW001-张三" })
+      })
+      using gateway = makeServer(() => Response.json({ data: [] }))
+      const configFile = tmpConfigFile()
+      const firstHooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: "http://127.0.0.1:1",
+        gatewayApiBase: baseUrl(gateway),
+        callbackPort: 0,
+        callbackTimeoutMs: 10,
+        configFile,
+      })
+      const first = await oauthMethod(firstHooks).authorize!()
+      const firstRedirect = new URL(first.url).searchParams.get("redirect_url")!
+      const firstCallback = (first as { callback: () => Promise<unknown> }).callback()
+      const firstRequest = fetch(`${firstRedirect}?access_token=first`)
+      await provisionStarted
+
+      const secondHooks = await RuyingAuthPlugin({} as any, { callbackPort: 0, callbackTimeoutMs: 5_000 })
+      const second = await oauthMethod(secondHooks).authorize!()
+      const secondRedirect = new URL(second.url).searchParams.get("redirect_url")!
+      const secondCallback = (second as { callback: () => Promise<unknown> }).callback()
+
+      try {
+        await Bun.sleep(20)
+        expect((await fetch(secondRedirect)).status).toBe(400)
+        expect(await secondCallback).toEqual({ type: "failed" })
+      } finally {
+        releaseProvision()
+        await firstRequest
+        await Promise.allSettled([firstCallback, secondCallback])
+        rmSync(configFile, { force: true })
+      }
+    }, 1_000)
+
+    test("does not fall back when the callback port is configured through the environment", async () => {
+      using occupied = Bun.serve({ hostname: "127.0.0.1", port: 9527, fetch: () => new Response("occupied") })
+      const previous = process.env["RUYING_CALLBACK_PORT"]
+      process.env["RUYING_CALLBACK_PORT"] = "9527"
+      try {
+        const hooks = await RuyingAuthPlugin({} as any)
+        await expect(oauthMethod(hooks).authorize!()).rejects.toThrow(/端口 9527 已被占用/)
+      } finally {
+        if (previous === undefined) delete process.env["RUYING_CALLBACK_PORT"]
+        if (previous !== undefined) process.env["RUYING_CALLBACK_PORT"] = previous
+      }
+    })
+
     test("provisions a key, fetches user + models, writes config to disk, returns success", async () => {
       using admin = makeServer((_, url) => {
         if (url.pathname === "/api/provision/token")
