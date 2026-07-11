@@ -18,12 +18,15 @@ function mockHttpClient(handler: (request: HttpClientRequest.HttpClientRequest) 
 }
 
 function mockSpawner(
-  handler: (cmd: string, args: readonly string[]) => string | { code: number; stdout?: string; stderr?: string } = () =>
-    "",
+  handler: (
+    cmd: string,
+    args: readonly string[],
+    env: Record<string, string | undefined>,
+  ) => string | { code: number; stdout?: string; stderr?: string } = () => "",
 ) {
   const spawner = ChildProcessSpawner.make((command) => {
     const std = ChildProcess.isStandardCommand(command) ? command : undefined
-    const result = handler(std?.command ?? "", std?.args ?? [])
+    const result = handler(std?.command ?? "", std?.args ?? [], std?.options.env ?? {})
     const output = typeof result === "string" ? { code: 0, stdout: result, stderr: "" } : result
     return Effect.succeed(
       ChildProcessSpawner.makeHandle({
@@ -53,7 +56,11 @@ function jsonResponse(body: unknown) {
 
 function testLayer(
   httpHandler: (request: HttpClientRequest.HttpClientRequest) => Response,
-  spawnHandler?: (cmd: string, args: readonly string[]) => string | { code: number; stdout?: string; stderr?: string },
+  spawnHandler?: (
+    cmd: string,
+    args: readonly string[],
+    env: Record<string, string | undefined>,
+  ) => string | { code: number; stdout?: string; stderr?: string },
 ) {
   const spawnerNode = makeGlobalNode({
     service: ChildProcessSpawner.ChildProcessSpawner,
@@ -67,121 +74,168 @@ function testLayer(
 }
 
 describe("installation", () => {
+  describe("method", () => {
+    testEffect(
+      testLayer(
+        () => jsonResponse({}),
+        (cmd) => (cmd === "npm" ? "@ruying/ruying-code@1.2.3" : ""),
+      ),
+    ).effect("detects the scoped npm package", () =>
+      Effect.gen(function* () {
+        expect(yield* Installation.use.method()).toBe("npm")
+      }),
+    )
+
+    testEffect(
+      testLayer(
+        () => jsonResponse({}),
+        (cmd) => (cmd === "npm" ? "opencode-ai@1.2.3" : ""),
+      ),
+    ).effect("keeps detecting the legacy npm package", () =>
+      Effect.gen(function* () {
+        expect(yield* Installation.use.method()).toBe("npm")
+      }),
+    )
+  })
+
   describe("latest", () => {
-    testEffect(testLayer(() => jsonResponse({ tag_name: "v1.2.3" }))).effect(
-      "reads release version from GitHub releases",
-      () =>
-        Effect.gen(function* () {
-          const result = yield* Installation.use.latest("unknown")
-          expect(result).toBe("1.2.3")
-        }),
-    )
-
-    testEffect(testLayer(() => jsonResponse({ tag_name: "v4.0.0-beta.1" }))).effect(
-      "strips v prefix from GitHub release tag",
-      () =>
-        Effect.gen(function* () {
-          const result = yield* Installation.use.latest("curl")
-          expect(result).toBe("4.0.0-beta.1")
-        }),
-    )
-
-    const npmCalls: string[] = []
+    const nexusCalls: string[] = []
     testEffect(
       testLayer((request) => {
-        npmCalls.push(request.url)
-        return jsonResponse({ version: "1.5.0" })
+        nexusCalls.push(request.url)
+        return jsonResponse({ version: "1.2.3" })
       }),
-    ).effect("reads npm versions via registry", () =>
+    ).effect("checks the ruying package in the configured nexus registry", () =>
       Effect.gen(function* () {
-        const result = yield* Installation.use.latest("npm")
-        expect(result).toBe("1.5.0")
-        expect(npmCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
+        const version = yield* Installation.use.latest("npm")
+        expect(version).toBe("1.2.3")
+        expect(nexusCalls[0]).toContain("%40ruying%2Fruying-code")
       }),
     )
 
-    const bunCalls: string[] = []
+    const methodCalls: string[] = []
     testEffect(
       testLayer((request) => {
-        bunCalls.push(request.url)
-        return jsonResponse({ version: "1.6.0" })
+        methodCalls.push(request.url)
+        return jsonResponse({ version: "2.3.4" })
       }),
-    ).effect("reads bun versions via registry", () =>
+    ).effect("uses the nexus package for every detected installation method", () =>
       Effect.gen(function* () {
-        const result = yield* Installation.use.latest("bun")
-        expect(result).toBe("1.6.0")
-        expect(bunCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
-      }),
-    )
-
-    const pnpmCalls: string[] = []
-    testEffect(
-      testLayer((request) => {
-        pnpmCalls.push(request.url)
-        return jsonResponse({ version: "1.7.0" })
-      }),
-    ).effect("reads pnpm versions via registry", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("pnpm")
-        expect(result).toBe("1.7.0")
-        expect(pnpmCalls).toContain(`https://registry.npmjs.org/opencode-ai/${InstallationChannel}`)
-      }),
-    )
-
-    testEffect(testLayer(() => jsonResponse({ version: "2.3.4" }))).effect("reads scoop manifest versions", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("scoop")
-        expect(result).toBe("2.3.4")
-      }),
-    )
-
-    testEffect(testLayer(() => jsonResponse({ d: { results: [{ Version: "3.4.5" }] } }))).effect(
-      "reads chocolatey feed versions",
-      () =>
-        Effect.gen(function* () {
-          const result = yield* Installation.use.latest("choco")
-          expect(result).toBe("3.4.5")
-        }),
-    )
-
-    testEffect(
-      testLayer(
-        () => jsonResponse({ versions: { stable: "2.0.0" } }),
-        (cmd, args) => {
-          // getBrewFormula: return core formula (no tap)
-          if (cmd === "brew" && args.includes("--formula") && args.includes("anomalyco/tap/opencode")) return ""
-          if (cmd === "brew" && args.includes("--formula") && args.includes("opencode")) return "opencode"
-          return ""
-        },
-      ),
-    ).effect("reads brew formulae API versions", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("brew")
-        expect(result).toBe("2.0.0")
-      }),
-    )
-
-    const brewInfoJson = JSON.stringify({
-      formulae: [{ versions: { stable: "2.1.0" } }],
-    })
-    testEffect(
-      testLayer(
-        () => jsonResponse({}), // HTTP not used for tap formula
-        (cmd, args) => {
-          if (cmd === "brew" && args.includes("anomalyco/tap/opencode") && args.includes("--formula")) return "opencode"
-          if (cmd === "brew" && args.includes("--json=v2")) return brewInfoJson
-          return ""
-        },
-      ),
-    ).effect("reads brew tap info JSON via CLI", () =>
-      Effect.gen(function* () {
-        const result = yield* Installation.use.latest("brew")
-        expect(result).toBe("2.1.0")
+        const methods: Installation.Method[] = [
+          "curl",
+          "npm",
+          "yarn",
+          "pnpm",
+          "bun",
+          "brew",
+          "scoop",
+          "choco",
+          "unknown",
+        ]
+        yield* Effect.forEach(methods, (method) => Installation.use.latest(method))
+        expect(methodCalls).toHaveLength(methods.length)
+        expect(methodCalls).toEqual(
+          methods.map(() => `https://nexus.gwm.cn/repository/npm-group/%40ruying%2Fruying-code/${InstallationChannel}`),
+        )
       }),
     )
   })
 
   describe("upgrade", () => {
+    const registries: Array<string | undefined> = []
+    testEffect(
+      testLayer(
+        () => jsonResponse({}),
+        (cmd, _args, env) => {
+          if (["npm", "pnpm", "bun", "yarn"].includes(cmd)) registries.push(env.NPM_CONFIG_REGISTRY)
+          return ""
+        },
+      ),
+    ).effect("pins package manager upgrades to the nexus group", () =>
+      Effect.gen(function* () {
+        yield* Installation.use.upgrade("npm", "1.2.3")
+        yield* Installation.use.upgrade("pnpm", "1.2.3")
+        yield* Installation.use.upgrade("bun", "1.2.3")
+        yield* Installation.use.upgrade("yarn", "1.2.3")
+        expect(registries).toEqual(Array(4).fill("https://nexus.gwm.cn/repository/npm-group/"))
+      }),
+    )
+
+    const commands: Array<[string, readonly string[]]> = []
+    testEffect(
+      testLayer(
+        () => jsonResponse({}),
+        (cmd, args) => {
+          commands.push([cmd, args])
+          return ""
+        },
+      ),
+    ).effect("upgrades the scoped package", () =>
+      Effect.gen(function* () {
+        yield* Installation.use.upgrade("npm", "1.2.3")
+        expect(commands).toContainEqual(["npm", ["install", "-g", "@ruying/ruying-code@1.2.3"]])
+      }),
+    )
+
+    const packageCommands: Array<[string, readonly string[]]> = []
+    testEffect(
+      testLayer(
+        () => jsonResponse({}),
+        (cmd, args) => {
+          packageCommands.push([cmd, args])
+          return ""
+        },
+      ),
+    ).effect("upgrades with every supported package manager", () =>
+      Effect.gen(function* () {
+        yield* Installation.use.upgrade("npm", "1.2.3")
+        yield* Installation.use.upgrade("pnpm", "1.2.3")
+        yield* Installation.use.upgrade("bun", "1.2.3")
+        yield* Installation.use.upgrade("yarn", "1.2.3")
+        expect(packageCommands).toEqual([
+          ["npm", ["install", "-g", "@ruying/ruying-code@1.2.3"]],
+          [process.execPath, ["--version"]],
+          ["pnpm", ["install", "-g", "@ruying/ruying-code@1.2.3"]],
+          [process.execPath, ["--version"]],
+          ["bun", ["install", "-g", "@ruying/ruying-code@1.2.3"]],
+          [process.execPath, ["--version"]],
+          ["yarn", ["global", "add", "@ruying/ruying-code@1.2.3"]],
+          [process.execPath, ["--version"]],
+        ])
+      }),
+    )
+
+    const legacyCommands: Array<[string, readonly string[]]> = []
+    const legacyRequests: string[] = []
+    testEffect(
+      testLayer(
+        (request) => {
+          legacyRequests.push(request.url)
+          return new Response("legacy installer", { status: 200 })
+        },
+        (cmd, args) => {
+          legacyCommands.push([cmd, args])
+          return ""
+        },
+      ),
+    ).effect("returns branded nexus instructions for unsupported legacy methods", () =>
+      Effect.gen(function* () {
+        const methods: Installation.Method[] = ["curl", "brew", "scoop", "choco", "unknown"]
+        const errors = yield* Effect.forEach(methods, (method) =>
+          Effect.flip(Installation.use.upgrade(method, "1.2.3")),
+        )
+        expect(errors.every((error) => error instanceof Installation.UpgradeFailedError)).toBe(true)
+        expect(errors.map((error) => error.stderr)).toEqual(
+          methods.map(
+            (method) =>
+              `Ruying Code does not support upgrades from ${method}. Run: npm install -g @ruying/ruying-code@1.2.3 --registry=https://nexus.gwm.cn/repository/npm-group/`,
+          ),
+        )
+        expect(legacyRequests).toEqual([])
+        expect(legacyCommands).toEqual([])
+      }),
+    )
+
     testEffect(
       testLayer(
         () => jsonResponse({}),
@@ -198,42 +252,6 @@ describe("installation", () => {
         expect(error.message).toBe(error.stderr)
         expect(error.stderr).not.toContain("secret")
         expect(error.stderr).not.toContain("command output")
-      }),
-    )
-
-    testEffect(
-      testLayer(
-        () => new Response("install script with token=secret", { status: 200 }),
-        (cmd, args) => {
-          if (cmd === "bash" && args[0] === "--version") return "GNU bash"
-          if (cmd === "bash" || cmd === "sh") return { code: 1, stderr: "script output with token=secret" }
-          return ""
-        },
-      ),
-    ).effect("returns sanitized typed errors when the curl install script fails", () =>
-      Effect.gen(function* () {
-        const error = yield* Effect.flip(Installation.use.upgrade("curl", "9.9.9"))
-        expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
-        expect(error.stderr).toBe("Upgrade failed for curl (exit code 1).")
-        expect(error.message).toBe(error.stderr)
-        expect(error.stderr).not.toContain("secret")
-        expect(error.stderr).not.toContain("script output")
-      }),
-    )
-
-    testEffect(
-      testLayer(
-        () => new Response("install script", { status: 200 }),
-        (cmd, args) => {
-          if (cmd === "bash" && args[0] === "--version") return { code: 1, stderr: "missing" }
-          if (cmd === "bash") return { code: 1, stderr: "should not execute installer with bash" }
-          if (cmd === "sh") return "ok"
-          return ""
-        },
-      ),
-    ).effect("falls back to sh when bash is unavailable during curl upgrade", () =>
-      Effect.gen(function* () {
-        yield* Installation.use.upgrade("curl", "9.9.9")
       }),
     )
   })
