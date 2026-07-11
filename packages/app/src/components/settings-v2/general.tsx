@@ -29,6 +29,7 @@ import { Link } from "../link"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import "./settings-v2.css"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -429,10 +430,17 @@ export const SettingsGeneralV2: Component<{
           title={language.t("settings.general.row.theme.title")}
           description={
             <>
-              {language.t("settings.general.row.theme.description")}{" "}
-              <Link class="settings-v2-link" href="https://opencode.ai/docs/themes/">
-                {language.t("common.learnMore")}
-              </Link>
+              {language.t("settings.general.row.theme.description")}
+              <Show when={Brand.docsURL()}>
+                {(url) => (
+                  <>
+                    {" "}
+                    <Link class="settings-v2-link" href={url()}>
+                      {language.t("common.learnMore")}
+                    </Link>
+                  </>
+                )}
+              </Show>
             </>
           }
         >

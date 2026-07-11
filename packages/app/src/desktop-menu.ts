@@ -1,3 +1,5 @@
+import { Brand } from "@opencode-ai/core/brand/brand"
+
 export type DesktopMenuPlatform = "macos" | "windows"
 
 export type DesktopMenuAction =
@@ -69,10 +71,10 @@ export type DesktopMenu = {
   platforms?: DesktopMenuPlatform[]
 }
 
-export const DESKTOP_MENU: DesktopMenu[] = [
+const BASE_DESKTOP_MENU: DesktopMenu[] = [
   {
     id: "app",
-    label: "OpenCode",
+    label: Brand.profile.displayName,
     platforms: ["macos"],
     items: [
       { type: "item", role: "about" },
@@ -156,7 +158,13 @@ export const DESKTOP_MENU: DesktopMenu[] = [
         accelerator: { windows: "Ctrl+0" },
       },
       { type: "item", label: "Zoom In", action: "view.zoomIn", role: "zoomIn", accelerator: { windows: "Ctrl++" } },
-      { type: "item", label: "Zoom Out", action: "view.zoomOut", role: "zoomOut", accelerator: { windows: "Ctrl+-" } },
+      {
+        type: "item",
+        label: "Zoom Out",
+        action: "view.zoomOut",
+        role: "zoomOut",
+        accelerator: { windows: "Ctrl+-" },
+      },
       { type: "separator" },
       { type: "item", label: "Toggle Full Screen", action: "view.toggleFullscreen", role: "togglefullscreen" },
     ],
@@ -199,24 +207,27 @@ export const DESKTOP_MENU: DesktopMenu[] = [
   {
     id: "help",
     label: "Help",
-    items: [
-      { type: "item", label: "OpenCode Documentation", href: "https://opencode.ai/docs" },
-      { type: "item", label: "Support Forum", href: "https://discord.com/invite/opencode" },
-      { type: "item", label: "Export Logs...", command: "logs.export" },
-      { type: "separator" },
-      {
-        type: "item",
-        label: "Share Feedback",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml",
-      },
-      {
-        type: "item",
-        label: "Report a Bug",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml",
-      },
-    ],
+    items: [{ type: "item", label: "Export Logs...", command: "logs.export" }],
   },
 ]
+
+export function createDesktopMenu(
+  urls: { docs?: string; support?: string } = { docs: Brand.docsURL(), support: Brand.supportURL() },
+): DesktopMenu[] {
+  return BASE_DESKTOP_MENU.map((menu) => {
+    if (menu.id !== "help") return menu
+    return {
+      ...menu,
+      items: [
+        ...(urls.docs ? [{ type: "item" as const, label: "Internal Documentation", href: urls.docs }] : []),
+        ...(urls.support ? [{ type: "item" as const, label: "Internal Support", href: urls.support }] : []),
+        ...(menu.items ?? []),
+      ],
+    }
+  })
+}
+
+export const DESKTOP_MENU = createDesktopMenu()
 
 export function desktopMenuVisible(item: { platforms?: DesktopMenuPlatform[] }, platform: DesktopMenuPlatform) {
   return !item.platforms || item.platforms.includes(platform)

@@ -30,6 +30,7 @@ import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -451,8 +452,15 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.general.row.theme.title")}
           description={
             <>
-              {language.t("settings.general.row.theme.description")}{" "}
-              <Link href="https://opencode.ai/docs/themes/">{language.t("common.learnMore")}</Link>
+              {language.t("settings.general.row.theme.description")}
+              <Show when={Brand.docsURL()}>
+                {(url) => (
+                  <>
+                    {" "}
+                    <Link href={url()}>{language.t("common.learnMore")}</Link>
+                  </>
+                )}
+              </Show>
             </>
           }
         >

@@ -6,6 +6,7 @@ import { Drawer, DrawerClose, DrawerContent } from "@/components/ui/drawer"
 import { usePlatform } from "@/context/platform"
 import introducingTabsVideo from "@/assets/help/introducing-tabs.mp4"
 import { Persist, persisted } from "@/utils/persist"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 const helpIcon = (
   <svg
@@ -31,14 +32,15 @@ const triggerClass =
 const showPopover = () => true
 
 export function HelpButton() {
-  if (import.meta.env.VITE_OPENCODE_CHANNEL !== "dev") return null
+  const url = Brand.supportURL() ?? Brand.docsURL()
+  if (import.meta.env.VITE_OPENCODE_CHANNEL !== "dev" || !url) return null
 
   const platform = usePlatform()
 
   return (
     <a
-      href="https://opencode.ai"
-      aria-label="Open the OpenCode website"
+      href={url}
+      aria-label="Open internal Ruying Code help"
       data-component="icon-button-v2"
       data-size="large"
       class={`${triggerClass} fixed bottom-5 right-5 z-50 flex items-center justify-center`}
