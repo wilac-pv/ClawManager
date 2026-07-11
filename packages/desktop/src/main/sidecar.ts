@@ -1,5 +1,6 @@
 import * as http from "node:http"
 import * as tls from "node:tls"
+import { parseSidecarCommand, sidecarListenOptions, type SidecarStartCommand } from "./sidecar-contract"
 
 type NodeHttpWithEnvProxy = typeof http & {
   setGlobalProxyFromEnv: () => void
@@ -9,18 +10,6 @@ type NodeTlsWithSystemCertificates = typeof tls & {
   getCACertificates: (type: "default" | "system") => string[]
   setDefaultCACertificates: (certificates: string[]) => void
 }
-
-type StartCommand = {
-  type: "start"
-  hostname: string
-  port: number
-  password: string
-  userDataPath: string
-  legacyUserDataPath: string
-}
-
-type StopCommand = { type: "stop" }
-type SidecarCommand = StartCommand | StopCommand
 
 type SidecarMessage =
   | { type: "ready" }
@@ -40,7 +29,7 @@ const parentPort = getParentPort()
 let listener: Listener | undefined
 
 parentPort.on("message", (event) => {
-  const command = parseCommand(event.data)
+  const command = parseSidecarCommand(event.data)
   if (!command) return
   if (command.type === "stop") {
     void stop()
@@ -49,7 +38,7 @@ parentPort.on("message", (event) => {
   void start(command)
 })
 
-async function start(command: StartCommand) {
+async function start(command: SidecarStartCommand) {
   try {
     prepareSidecarEnv(command.password, command.userDataPath)
     ensureLoopbackNoProxy()
@@ -57,14 +46,7 @@ async function start(command: StartCommand) {
     useEnvProxy()
     const { Server } = await import("virtual:opencode-server")
 
-    listener = await Server.listen({
-      port: command.port,
-      hostname: command.hostname,
-      username: "opencode",
-      password: command.password,
-      cors: ["oc://renderer"],
-      legacyStateRoot: command.legacyUserDataPath,
-    })
+    listener = await Server.listen(sidecarListenOptions(command))
     parentPort.postMessage({ type: "ready" })
   } catch (error) {
     parentPort.postMessage({ type: "error", error: serializeError(error) })
@@ -126,26 +108,6 @@ function useEnvProxy() {
     ;(http as NodeHttpWithEnvProxy).setGlobalProxyFromEnv()
   } catch (error) {
     console.warn("failed to load proxy environment", error)
-  }
-}
-
-function parseCommand(value: unknown): SidecarCommand | undefined {
-  if (!value || typeof value !== "object") return
-  const command = value as Partial<StartCommand | StopCommand>
-  if (command.type === "stop") return { type: "stop" }
-  if (command.type !== "start") return
-  if (typeof command.hostname !== "string") return
-  if (typeof command.port !== "number") return
-  if (typeof command.password !== "string") return
-  if (typeof command.userDataPath !== "string") return
-  if (typeof command.legacyUserDataPath !== "string") return
-  return {
-    type: "start",
-    hostname: command.hostname,
-    port: command.port,
-    password: command.password,
-    userDataPath: command.userDataPath,
-    legacyUserDataPath: command.legacyUserDataPath,
   }
 }
 

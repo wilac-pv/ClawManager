@@ -56,9 +56,13 @@ class ListenerServerService extends Context.Service<ListenerServerService, Liste
 ) {}
 
 export const Default = lazy(() => {
-  const handler = HttpApiApp.webHandler().handler
+  let handler: ReturnType<typeof HttpApiApp.webHandler>["handler"] | undefined
   const app: ServerApp = {
-    fetch: (request: Request) => handler(request, HttpApiApp.context),
+    async fetch(request: Request) {
+      await bootstrap()
+      handler ??= HttpApiApp.webHandler().handler
+      return handler(request, HttpApiApp.context)
+    },
     request(input, init) {
       return app.fetch(input instanceof Request ? input : new Request(new URL(input, "http://localhost"), init))
     },
@@ -73,7 +77,7 @@ export async function openapi() {
 export let url: URL | undefined
 
 export async function listen(opts: ListenOptions): Promise<Listener> {
-  await OemMigration.runDefault({ legacyStateRoot: opts.legacyStateRoot })
+  await bootstrap({ legacyStateRoot: opts.legacyStateRoot })
   const listener = await Effect.runPromise(listenEffect(opts))
   return {
     hostname: listener.hostname,
@@ -81,6 +85,20 @@ export async function listen(opts: ListenOptions): Promise<Listener> {
     url: listener.url,
     stop: (close?: boolean) => Effect.runPromiseExit(listener.stop(close)).then(() => undefined),
   }
+}
+
+const bootstraps = new Map<string, Promise<unknown>>()
+
+function bootstrap(input: { legacyStateRoot?: string } = {}) {
+  const key = input.legacyStateRoot ? `desktop:${input.legacyStateRoot}` : "default"
+  const existing = bootstraps.get(key)
+  if (existing) return existing
+  const current = OemMigration.runDefault(input).catch((error) => {
+    if (bootstraps.get(key) === current) bootstraps.delete(key)
+    throw error
+  })
+  bootstraps.set(key, current)
+  return current
 }
 
 const listenEffect: (opts: ListenOptions) => Effect.Effect<EffectListener, unknown> = Effect.fn("Server.listen")(

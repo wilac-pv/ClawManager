@@ -1,47 +1,69 @@
 import { randomUUID } from "node:crypto"
-import { cp, lstat, mkdir, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, open, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { Global } from "@opencode-ai/core/global"
 import { Brand } from "@opencode-ai/core/brand/brand"
 
-export function runDefault(input: { legacyStateRoot?: string } = {}) {
-  const pairs = [Global.Path.config, Global.Path.data, Global.Path.cache, Global.Path.state].map((current) => ({
-    legacy: path.join(path.dirname(current), Brand.profile.legacyStorageName),
-    current,
-  }))
-  if (input.legacyStateRoot) {
-    pairs.push({
-      legacy: path.join(input.legacyStateRoot, Brand.profile.legacyStorageName),
-      current: Global.Path.state,
-    })
+type MigrationResult = { copied: string[]; skipped: string[] }
+
+export async function runDefault(input: { legacyStateRoot?: string } = {}) {
+  const lock = path.join(Global.Path.state, ".oem-migration-v1.lock")
+  const defaults = await run({
+    pairs: [Global.Path.config, Global.Path.data, Global.Path.cache, Global.Path.state].map((current) => ({
+      legacy: path.join(path.dirname(current), Brand.profile.legacyStorageName),
+      current,
+    })),
+    marker: path.join(Global.Path.state, ".oem-migration-v1.json"),
+    lock,
+  })
+  if (!input.legacyStateRoot) return defaults
+  const desktop = await run({
+    pairs: [
+      {
+        legacy: path.join(input.legacyStateRoot, Brand.profile.legacyStorageName),
+        current: Global.Path.state,
+      },
+    ],
+    marker: path.join(Global.Path.state, ".oem-desktop-state-migration-v1.json"),
+    lock,
+  })
+  return {
+    copied: [...defaults.copied, ...desktop.copied],
+    skipped: [...defaults.skipped, ...desktop.skipped],
   }
-  return run({ pairs, marker: path.join(Global.Path.state, ".oem-migration-v1.json") })
 }
 
-export async function run(input: { pairs: Array<{ legacy: string; current: string }>; marker: string }) {
+export function run(input: {
+  pairs: Array<{ legacy: string; current: string }>
+  marker: string
+  lock?: string
+}): Promise<MigrationResult> {
   const marker = path.resolve(input.marker)
-  if ((await clearMarker(marker)) === "complete") return { copied: [], skipped: [] }
-  const copied: string[] = []
-  const skipped: string[] = []
-  for (const pair of input.pairs) {
-    await mkdir(pair.current, { recursive: true })
-    const entries = await readdir(pair.legacy, { withFileTypes: true }).catch((error) => {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return []
-      throw error
-    })
-    for (const entry of entries) {
-      await copyMissing(
-        path.join(pair.legacy, entry.name),
-        path.join(pair.current, entry.name),
-        entry.isDirectory(),
-        copied,
-        skipped,
-        marker,
-      )
+  const lock = path.resolve(input.lock ?? `${marker}.lock`)
+  return withMigrationLock(lock, async () => {
+    if ((await clearMarker(marker)) === "complete") return { copied: [], skipped: [] }
+    const copied: string[] = []
+    const skipped: string[] = []
+    for (const pair of input.pairs) {
+      await mkdir(pair.current, { recursive: true })
+      const entries = await readdir(pair.legacy, { withFileTypes: true }).catch((error) => {
+        if (errorCode(error) === "ENOENT") return []
+        throw error
+      })
+      for (const entry of entries) {
+        await copyMissing(
+          path.join(pair.legacy, entry.name),
+          path.join(pair.current, entry.name),
+          entry.isDirectory(),
+          copied,
+          skipped,
+          new Set([marker, lock]),
+        )
+      }
     }
-  }
-  await writeMarker(marker, { version: 1, copied, skipped })
-  return { copied, skipped }
+    await writeMarker(marker, { version: 1, copied, skipped })
+    return { copied, skipped }
+  })
 }
 
 async function copyMissing(
@@ -50,9 +72,9 @@ async function copyMissing(
   directory: boolean,
   copied: string[],
   skipped: string[],
-  marker: string,
+  reserved: Set<string>,
 ) {
-  if (path.resolve(current) === marker) {
+  if (reserved.has(path.resolve(current))) {
     skipped.push(legacy)
     return
   }
@@ -62,12 +84,13 @@ async function copyMissing(
       skipped.push(legacy)
       return
     }
-    await cp(legacy, current, { force: false, errorOnExist: true }).catch(async (error) => {
-      if (!copyCollision(error) || !(await fileInfo(current))) throw error
-      skipped.push(legacy)
-    })
-    if (skipped.at(-1) === legacy) return
-    copied.push(legacy)
+    const temporary = temporaryPath(current)
+    await cp(legacy, temporary, { force: false, errorOnExist: true })
+      .then(() => publishTemporary(temporary, current, legacy, copied, skipped))
+      .catch(async (error) => {
+        await rm(temporary, { recursive: true, force: true }).catch(() => undefined)
+        throw error
+      })
     return
   }
   if (target && !target.isDirectory()) {
@@ -75,8 +98,14 @@ async function copyMissing(
     return
   }
   if (!target) {
-    await mkdir(current, { recursive: true })
-    copied.push(legacy)
+    const temporary = temporaryPath(current)
+    const published = await cp(legacy, temporary, { recursive: true, force: false, errorOnExist: true })
+      .then(() => publishTemporary(temporary, current, legacy, copied, skipped))
+      .catch(async (error) => {
+        await rm(temporary, { recursive: true, force: true }).catch(() => undefined)
+        throw error
+      })
+    if (published) return
   }
   for (const entry of await readdir(legacy, { withFileTypes: true })) {
     await copyMissing(
@@ -85,28 +114,118 @@ async function copyMissing(
       entry.isDirectory(),
       copied,
       skipped,
-      marker,
+      reserved,
     )
   }
 }
 
+async function publishTemporary(
+  temporary: string,
+  current: string,
+  legacy: string,
+  copied: string[],
+  skipped: string[],
+) {
+  return rename(temporary, current)
+    .then(() => {
+      copied.push(legacy)
+      return true
+    })
+    .catch(async (error) => {
+      if (!copyCollision(error) || !(await fileInfo(current))) throw error
+      await rm(temporary, { recursive: true, force: true })
+      skipped.push(legacy)
+      return false
+    })
+}
+
+async function withMigrationLock<A>(lock: string, task: () => Promise<A>) {
+  await mkdir(path.dirname(lock), { recursive: true })
+  const owner = { pid: process.pid, token: randomUUID(), createdAt: Date.now() }
+  const deadline = Date.now() + 60_000
+  while (!(await claimLock(lock, owner))) {
+    if (await recoverAbandonedLock(lock)) continue
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for OEM migration lock: ${lock}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  return task().finally(() => releaseLock(lock, owner.token))
+}
+
+async function claimLock(lock: string, owner: { pid: number; token: string; createdAt: number }) {
+  const handle = await open(lock, "wx", 0o600).catch((error) => {
+    if (errorCode(error) === "EEXIST") return
+    throw error
+  })
+  if (!handle) return false
+  await handle
+    .writeFile(JSON.stringify(owner))
+    .finally(() => handle.close())
+    .catch(async (error) => {
+      await unlink(lock).catch(() => undefined)
+      throw error
+    })
+  return true
+}
+
+async function recoverAbandonedLock(lock: string) {
+  const info = await fileInfo(lock)
+  if (!info) return true
+  if (!info.isFile()) {
+    if (info.isDirectory()) await rmdir(lock)
+    else await unlink(lock)
+    return true
+  }
+  const owner = await readFile(lock, "utf8")
+    .then((value) => JSON.parse(value) as unknown)
+    .catch(() => undefined)
+  if (isLockOwner(owner) && processAlive(owner.pid)) return false
+  if (!isLockOwner(owner) && Date.now() - info.mtimeMs < 60_000) return false
+  await unlink(lock).catch((error) => {
+    if (errorCode(error) !== "ENOENT") throw error
+  })
+  return true
+}
+
+async function releaseLock(lock: string, token: string) {
+  const owner = await readFile(lock, "utf8")
+    .then((value) => JSON.parse(value) as unknown)
+    .catch(() => undefined)
+  if (!isLockOwner(owner) || owner.token !== token) return
+  await unlink(lock).catch((error) => {
+    if (errorCode(error) !== "ENOENT") throw error
+  })
+}
+
+function processAlive(pid: number) {
+  if (pid === process.pid) return true
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return errorCode(error) === "EPERM"
+  }
+}
+
+function isLockOwner(value: unknown): value is { pid: number; token: string; createdAt: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "pid" in value &&
+    typeof value.pid === "number" &&
+    "token" in value &&
+    typeof value.token === "string" &&
+    "createdAt" in value &&
+    typeof value.createdAt === "number"
+  )
+}
+
 async function writeMarker(marker: string, data: { version: number; copied: string[]; skipped: string[] }) {
   await mkdir(path.dirname(marker), { recursive: true })
-  const temporary = path.join(path.dirname(marker), `.${path.basename(marker)}.${process.pid}.${randomUUID()}.tmp`)
-  await writeFile(temporary, JSON.stringify(data, null, 2), { flag: "wx" })
+  const temporary = temporaryPath(marker)
+  await writeFile(temporary, JSON.stringify(data, null, 2), { flag: "wx", mode: 0o600 })
     .then(async () => {
-      if ((await clearMarker(marker)) === "complete") {
-        await rm(temporary, { force: true })
-        return
-      }
-      await rename(temporary, marker).catch(async (error) => {
-        if (!markerCollision(error)) throw error
-        if ((await clearMarker(marker)) === "complete") {
-          await rm(temporary, { force: true })
-          return
-        }
-        await rename(temporary, marker)
-      })
+      await clearMarker(marker)
+      await rename(temporary, marker)
     })
     .catch(async (error) => {
       await rm(temporary, { force: true }).catch(() => undefined)
@@ -128,19 +247,23 @@ async function clearMarker(marker: string) {
 
 function fileInfo(file: string) {
   return lstat(file).catch((error) => {
-    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return
+    if (errorCode(error) === "ENOENT") return
     throw error
   })
 }
 
-function markerCollision(error: unknown) {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false
-  return error.code === "EEXIST" || error.code === "EISDIR" || error.code === "ENOTEMPTY" || error.code === "EPERM"
+function temporaryPath(file: string) {
+  return path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`)
 }
 
 function copyCollision(error: unknown) {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false
-  return error.code === "EEXIST" || error.code === "EISDIR" || error.code === "ENOTEMPTY" || error.code === "EPERM"
+  const code = errorCode(error)
+  return code === "EEXIST" || code === "EISDIR" || code === "ENOTEMPTY" || code === "EPERM"
+}
+
+function errorCode(error: unknown) {
+  if (typeof error !== "object" || error === null || !("code" in error)) return
+  return error.code
 }
 
 export * as OemMigration from "./oem"

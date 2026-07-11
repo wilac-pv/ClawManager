@@ -6,6 +6,7 @@ import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
+import { createSidecarStartCommand } from "./sidecar-contract"
 
 export type HealthCheck = { wait: Promise<void> }
 
@@ -128,14 +129,15 @@ export async function spawnLocalServer(
     child.on("message", onMessage)
     child.on("exit", onExit)
     refreshTimeout()
-    child.postMessage({
-      type: "start",
-      hostname,
-      port,
-      password,
-      userDataPath: options.userDataPath,
-      legacyUserDataPath: options.legacyUserDataPath,
-    })
+    child.postMessage(
+      createSidecarStartCommand({
+        hostname,
+        port,
+        password,
+        userDataPath: options.userDataPath,
+        legacyUserDataPath: options.legacyUserDataPath,
+      }),
+    )
   }).catch((error) => {
     if (!exited) child.kill()
     throw error

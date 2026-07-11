@@ -53,6 +53,28 @@ test("resolves the old Bundle-ID data root for sidecar migration", async () => {
   expect(legacyElectronDataPath("C:\\AppData", "beta")).toBe(join("C:\\AppData", "ai.opencode.desktop.beta"))
 })
 
+test("hands the legacy Bundle-ID state root from Desktop startup through the sidecar listen contract", async () => {
+  const { createSidecarStartCommand, parseSidecarCommand, sidecarListenOptions } = await import("./sidecar-contract")
+  const { legacyElectronDataPath } = await import("./migrate")
+  const legacy = legacyElectronDataPath("/app-data", "prod")
+  const command = createSidecarStartCommand({
+    hostname: "127.0.0.1",
+    port: 4096,
+    password: "secret",
+    userDataPath: "/app-data/cn.gwm.ruying-code",
+    legacyUserDataPath: legacy,
+  })
+  const parsed = parseSidecarCommand(command)
+  if (!parsed || parsed.type !== "start") throw new Error("expected start command")
+
+  expect(parsed.legacyUserDataPath).toBe(join("/app-data", "ai.opencode.desktop"))
+  expect(sidecarListenOptions(parsed)).toMatchObject({
+    hostname: "127.0.0.1",
+    port: 4096,
+    legacyStateRoot: join("/app-data", "ai.opencode.desktop"),
+  })
+})
+
 test("imports prototype-named own keys while preserving current own keys", async () => {
   const root = join(tmpdir(), `ruying-desktop-migrate-${crypto.randomUUID()}`)
   const legacy = join(root, "ai.opencode.desktop")

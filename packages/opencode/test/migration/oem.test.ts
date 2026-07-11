@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises"
+import { lstat, mkdtemp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { OemMigration } from "../../src/migration/oem"
@@ -31,12 +31,101 @@ test("coalesces simultaneous first-launch copies", async () => {
   await mkdir(legacy, { recursive: true })
   await writeFile(join(legacy, "auth.json"), "x".repeat(2_000_000))
 
-  await Promise.all(
-    Array.from({ length: 16 }, () => OemMigration.run({ pairs: [{ legacy, current }], marker })),
-  )
+  await Promise.all(Array.from({ length: 16 }, () => OemMigration.run({ pairs: [{ legacy, current }], marker })))
 
   expect((await readFile(join(current, "auth.json"), "utf8")).length).toBe(2_000_000)
   expect(await Bun.file(marker).exists()).toBe(true)
+})
+
+test("does not expose a partially copied directory before migration publishes it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-atomic-"))
+  const legacy = join(root, "opencode")
+  const current = join(root, "ruying-code")
+  const source = join(legacy, "workspace")
+  const target = join(current, "workspace")
+  const marker = join(root, "state", ".oem-migration-v1.json")
+  await mkdir(source, { recursive: true })
+  await Promise.all(
+    Array.from({ length: 800 }, (_, index) => writeFile(join(source, `${index.toString().padStart(4, "0")}.txt`), "x")),
+  )
+
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--eval",
+      'const { OemMigration } = await import("./src/migration/oem.ts"); await OemMigration.run({ pairs: [{ legacy: process.env.LEGACY, current: process.env.CURRENT }], marker: process.env.MARKER })',
+    ],
+    {
+      cwd: join(import.meta.dir, "../.."),
+      env: { ...Bun.env, LEGACY: legacy, CURRENT: current, MARKER: marker },
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  )
+  let complete = false
+  let partial = false
+  void child.exited.then(() => (complete = true))
+  while (!complete) {
+    const count = await readdir(target)
+      .then((entries) => entries.length)
+      .catch(() => 0)
+    if (count > 0 && count < 800) partial = true
+    await Bun.sleep(1)
+  }
+
+  expect(await child.exited, await new Response(child.stderr).text()).toBe(0)
+  expect(partial).toBe(false)
+  expect((await readdir(target)).length).toBe(800)
+})
+
+test("recovers an abandoned process lock after a crashed migration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-crash-"))
+  const legacy = join(root, "opencode")
+  const current = join(root, "ruying-code")
+  const marker = join(root, "state", ".oem-migration-v1.json")
+  const lock = `${marker}.lock`
+  await mkdir(legacy, { recursive: true })
+  await mkdir(join(root, "state"), { recursive: true })
+  await writeFile(join(legacy, "auth.json"), "legacy")
+  await writeFile(lock, JSON.stringify({ pid: 2_147_483_647, token: "dead", createdAt: Date.now() }))
+
+  await OemMigration.run({ pairs: [{ legacy, current }], marker })
+
+  expect(await Bun.file(join(current, "auth.json")).text()).toBe("legacy")
+  expect(await Bun.file(lock).exists()).toBe(false)
+})
+
+test("serializes migration across independent processes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-processes-"))
+  const legacy = join(root, "opencode")
+  const current = join(root, "ruying-code")
+  const marker = join(root, "state", ".oem-migration-v1.json")
+  await mkdir(join(legacy, "workspace"), { recursive: true })
+  await Promise.all(
+    Array.from({ length: 300 }, (_, index) => writeFile(join(legacy, "workspace", `${index}.txt`), `${index}`)),
+  )
+
+  const children = Array.from({ length: 8 }, () =>
+    Bun.spawn(
+      [
+        process.execPath,
+        "--eval",
+        'const { OemMigration } = await import("./src/migration/oem.ts"); await OemMigration.run({ pairs: [{ legacy: process.env.LEGACY, current: process.env.CURRENT }], marker: process.env.MARKER })',
+      ],
+      {
+        cwd: join(import.meta.dir, "../.."),
+        env: { ...Bun.env, LEGACY: legacy, CURRENT: current, MARKER: marker },
+        stdout: "ignore",
+        stderr: "pipe",
+      },
+    ),
+  )
+  const exits = await Promise.all(children.map((child) => child.exited))
+
+  expect(exits).toEqual(Array(8).fill(0))
+  expect((await readdir(join(current, "workspace"))).length).toBe(300)
+  expect(await Bun.file(`${marker}.lock`).exists()).toBe(false)
+  expect((await readdir(current)).filter((entry) => entry.endsWith(".tmp"))).toEqual([])
 })
 
 test("merges existing directories without overwriting nested branded files", async () => {
@@ -215,4 +304,54 @@ test("migrates before direct Server.listen and accepts an explicit desktop legac
 
   expect(await child.exited, await new Response(child.stderr).text()).toBe(0)
   expect(await Bun.file(join(state, "ruying-code", "session.db")).text()).toBe("legacy desktop session")
+})
+
+test("runs Desktop legacy-state migration after the default migration already completed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-desktop-state-migrate-"))
+  const state = join(root, "state")
+  const legacyDesktop = join(root, "legacy-electron")
+  await mkdir(join(legacyDesktop, "opencode"), { recursive: true })
+  await writeFile(join(legacyDesktop, "opencode", "session.db"), "legacy desktop session")
+
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--eval",
+      'const { OemMigration } = await import("./src/migration/oem.ts"); await OemMigration.runDefault(); await OemMigration.runDefault({ legacyStateRoot: process.env.LEGACY_ROOT })',
+    ],
+    {
+      cwd: join(import.meta.dir, "../.."),
+      env: { ...Bun.env, XDG_STATE_HOME: state, LEGACY_ROOT: legacyDesktop },
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  )
+
+  expect(await child.exited, await new Response(child.stderr).text()).toBe(0)
+  expect(await Bun.file(join(state, "ruying-code", "session.db")).text()).toBe("legacy desktop session")
+  expect(await Bun.file(join(state, "ruying-code", ".oem-desktop-state-migration-v1.json")).exists()).toBe(true)
+})
+
+test("migrates before the first in-process Server.Default request", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-default-app-migrate-"))
+  const config = join(root, "config")
+  await mkdir(join(config, "opencode"), { recursive: true })
+  await writeFile(join(config, "opencode", "legacy.json"), "legacy config")
+
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--eval",
+      'const { Server } = await import("./src/node.ts"); await Server.Default().app.fetch(new Request("http://localhost/global/health")); process.exit(0)',
+    ],
+    {
+      cwd: join(import.meta.dir, "../.."),
+      env: { ...Bun.env, XDG_CONFIG_HOME: config, XDG_STATE_HOME: join(root, "state") },
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  )
+
+  expect(await child.exited, await new Response(child.stderr).text()).toBe(0)
+  expect(await Bun.file(join(config, "ruying-code", "legacy.json")).text()).toBe("legacy config")
 })
