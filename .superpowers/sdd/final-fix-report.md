@@ -715,9 +715,9 @@ Date: 2026-07-12
 ## Wave 14 corrections and dispositions
 
 - Brand URL admission now rejects raw `U+0000..U+0020`, `U+007F`, `U+2028`, and `U+2029` code points before WHATWG parsing. This blocks silently stripped LF, CR, and tab plus prompt-breaking line and paragraph separators. Percent-encoded representations such as `%0A` remain accepted. HTTPS-only, no-credentials, 512 UTF-8 byte, and exact original-string requirements remain unchanged.
-- Current Chelper coordinator and transaction owner records are version 2. Current transaction WAL is also version 2. Owner parsing is an exact discriminated union for v1/v2 coordinator and transaction shapes; extra, missing, or cross-version fields are invalid.
-- Historical v1 transaction targets are retained without semantic validation until immutable PID fencing. A live v1 PID blocks contenders even when targets are relative or otherwise invalid, and the owner is never classified or retired as legacy.
-- A dead v1 transaction has no trustworthy parent identity. It now throws `v1 事务需要手动恢复` before WAL read, resource-temp cleanup, anchor creation, restore, journal removal, or retirement. Canonical main, owner, WAL, auth, and config remain for administrator inspection. A dead v1 coordinator contains no resource transaction and remains safely retireable.
+- Current Chelper coordinator and transaction owner records are version 2. Current transaction WAL is also version 2. Owner parsing is an exact discriminated union for v1/v2 coordinator and transaction shapes; extra, missing, or cross-version fields are invalid. **Wave 15 correction:** Wave 13 also shipped a version-1 owner containing both targets and parents, so the historical union must recognize that exact shape as well as targets-only v1.
+- Historical v1 transaction targets are retained without semantic validation until immutable PID fencing. A live v1 PID blocks contenders even when targets are relative or otherwise invalid, and the owner is never classified or retired as legacy. **Wave 15 correction:** current CLI now refuses this cross-version overlap immediately with wait-for-old-process guidance instead of allowing a normal same-version wait.
+- A dead v1 transaction has no trustworthy versioned parent-identity contract. It now throws `v1 事务需要手动恢复` before WAL read, resource-temp cleanup, anchor creation, restore, journal removal, or retirement. Canonical main, owner, WAL, auth, and config remain for administrator inspection. A dead v1 coordinator contains no resource transaction and remains safely retireable.
 - Automatic WAL recovery is restricted to strict v2 owner/WAL records with exact matching targets and parent identities. Current crafted fixtures explicitly use v2; the live/dead compatibility fixtures and coordinator fixture explicitly preserve v1.
 - Chelper operator documentation now names v2 as current and documents live-v1 fencing, dead-v1 manual recovery, artifact retention, and the safe dead-v1 coordinator exception.
 
@@ -784,6 +784,85 @@ Documentation:
 - Auth/config files larger than 16 MiB cannot enter the recoverable publication protocol; owner metadata larger than 64 KiB and WAL larger than 48 MiB retain the documented bounded behavior.
 - A live or PID-reused owner remains safety-first and can cause a conservative 30-second timeout.
 - Node still has no portable `openat`/`renameat`; held descriptors and identity revalidation are defense-in-depth rather than an atomic namespace-relative rename primitive. Windows directory fsync and power-loss behavior remain unverified.
+- App build retains its pre-existing dynamic-import, duplicate sourcemap, and large-chunk warnings.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
+# Wave 15 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 15 corrections and dispositions
+
+- Brand URL admission now rejects all raw Unicode general categories `Cc`, `Cf`, and `Z` before WHATWG parsing. This covers the Wave 14 list plus U+0085, U+00A0, U+2000, U+200B, U+2066, U+FEFF, and future code points in those categories. Percent-encoded equivalents remain accepted; HTTPS-only, no-credentials, 512 UTF-8 byte, and exact-string rules remain unchanged.
+- The exact owner union now recognizes both published v1 transaction shapes: identity plus targets, and Wave 13 identity plus targets and parents. Values remain semantically untrusted until version/PID disposition; extra, missing, or mixed shapes reject.
+- A live v1 transaction of either shape causes current Chelper to reject immediately with `不同版本不得并行，请等待旧进程退出后重试`. The code does not enter the 30-second same-version wait, validate targets/parents, retire the owner, create a tombstone, or alter canonical owner bytes.
+- A dead v1 transaction of either shape enters the same manual-recovery path before WAL read. Tests compare raw owner, WAL, auth, and config buffers before and after and require exact equality plus a retained canonical main.
+- Supported upgrades are version-isolated: stop every older Chelper login/configuration process, install the current package, then retry using only that installed version. The current reader can reject a live v1 owner, but cannot make an already-running old reader understand v2. No unsafe dual write or v2-to-v1 downgrade is implemented.
+- The package manifest distributes only `dist` and `scripts/postinstall.mjs`; both CLI bins point to the same current `dist/index.js`. Fresh build output contains one executable reader plus its source map, with no side-by-side legacy reader.
+
+## Wave 15 RED and diagnostic evidence
+
+- Raw U+0085, U+00A0, U+2000, U+200B, U+2066, and U+FEFF values passed the finite Wave 14 predicate through both Brand accessors. Every unique marker entered model-visible docs/support prompt text. All tested percent-encoded equivalents were already accepted unchanged.
+- For a live targets-only v1 owner, current CLI remained pending during the 500 ms observation instead of giving upgrade guidance. For a live Wave13 targets+parents v1 owner, the record was not recognized and the contender resolved after legacy retirement.
+- Dead targets-only v1 already reached manual recovery and preserved bytes. Dead Wave13 targets+parents v1 was classified as missing-owner legacy state and returned the wrong error, demonstrating the historical shape gap.
+- No production implementation attempt failed. The exact-union addition and live-v1 branch made all focused cases GREEN on the first implementation run.
+
+## Wave 15 GREEN verification
+
+```text
+packages/core$ bun test test/brand.test.ts
+35 pass, 0 fail, 66 expects
+packages/core$ bun typecheck
+pass
+
+packages/opencode$ bun test test/session/system.test.ts
+25 pass, 0 fail, 68 expects
+packages/opencode$ bun typecheck
+pass
+packages/opencode$ bun run build --single --skip-install
+pass; smoke test 0.0.0-ruying-code-oem-202607112251
+
+chelper$ npm test
+5 files, 94 pass, 0 fail
+  configurer: 83 pass, 0 fail
+chelper$ npm run build
+pass; tsup ESM 136.43 KiB
+```
+
+The two live-shape tests use real process PIDs and assert the clear error, exact owner buffer, retained canonical main, and no dead tombstone. The two dead-shape tests assert zero WAL reads, exact owner/WAL/auth/config buffers, retained main, and manual-recovery error. Existing v2 recovery, replacement-directory, bounded-growth, crash-state, and coordinator matrices remain GREEN.
+
+Package audit confirms `package.json.files` equals `dist` plus `scripts/postinstall.mjs`, both bins resolve to the same `dist/index.js`, and fresh `dist` contains only `index.js` and `index.js.map`. This establishes the contents of the current package; operational no-overlap remains required because an already-running old binary is outside the current package's control.
+
+Changed-file credential-pattern scans returned zero matching files in both Primary and Chelper. Both repository diff checks passed; Chelper's unrelated `.serena/` remained excluded and untouched.
+
+Filesystem integration ran on macOS. No Windows OS execution or power-loss durability is claimed. Production resolver evidence remains limited to artifact-free OS-account path selection, not live acquisition at the actual user root.
+
+No npm publish, production request, public-share request, dependency installation, push, PR, or other real external network action was performed.
+
+## Wave 15 commits
+
+Primary:
+
+- `0b044698d` — `docs: design Wave 15 compatibility`
+- `abd3c44f5` — `docs: plan Wave 15 compatibility`
+- `1658d4f80` — `fix(core): reject Unicode branded URL separators`
+
+Chelper:
+
+- `695adae` — `fix(config): enforce version-isolated upgrades`
+
+Documentation:
+
+- This report commit — `docs: record Wave 15 verification`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, scans, Unicode admission, version isolation, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- Operators must stop all old Chelper login/configuration processes before upgrading. The current process refuses a visible live v1 transaction, but cannot prevent an already-running old reader from misinterpreting a newer v2 owner.
+- A dead v1 transaction deliberately requires administrator inspection and manual recovery; automatic mutation would lack a trustworthy versioned parent-identity contract.
+- Auth/config files larger than 16 MiB, owner metadata larger than 64 KiB, and WAL larger than 48 MiB retain the documented bounded availability behavior.
+- A live or PID-reused current-version owner remains safety-first and can cause a conservative 30-second timeout.
+- Node still has no portable `openat`/`renameat`; Windows directory fsync and power-loss behavior remain unverified.
 - App build retains its pre-existing dynamic-import, duplicate sourcemap, and large-chunk warnings.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
 
