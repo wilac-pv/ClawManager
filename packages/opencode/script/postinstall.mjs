@@ -23,8 +23,6 @@ const archMap = {
 
 const platform = platformMap[os.platform()] ?? os.platform()
 const arch = archMap[os.arch()] ?? os.arch()
-const sourceBinary = platform === "windows" ? "opencode.exe" : "opencode"
-const targetBinary = path.join(__dirname, "bin", "ruying-code")
 
 function supportsAvx2() {
   if (arch !== "x64") return false
@@ -114,6 +112,19 @@ export function packageNames(platform, arch, baseline, musl) {
   return [base]
 }
 
+export function launcherPlan(directory, runtimePlatform, runtimeArch, baseline, musl) {
+  const selectedPlatform = platformMap[runtimePlatform] ?? runtimePlatform
+  return {
+    native: path.join(
+      directory,
+      "bin",
+      selectedPlatform === "windows" ? "ruying-code-native.exe" : "ruying-code-native",
+    ),
+    source: selectedPlatform === "windows" ? "opencode.exe" : "opencode",
+    packages: packageNames(selectedPlatform, archMap[runtimeArch] ?? runtimeArch, baseline, musl),
+  }
+}
+
 export function installArguments(name, version) {
   return [
     "install",
@@ -125,14 +136,14 @@ export function installArguments(name, version) {
   ]
 }
 
-function resolveBinary(name) {
+function resolveBinary(name, source) {
   const packageJsonPath = require.resolve(`${name}/package.json`)
-  const binaryPath = path.join(path.dirname(packageJsonPath), "bin", sourceBinary)
+  const binaryPath = path.join(path.dirname(packageJsonPath), "bin", source)
   if (!fs.existsSync(binaryPath)) throw new Error(`Binary not found at ${binaryPath}`)
   return binaryPath
 }
 
-function installPackage(name) {
+function installPackage(name, plan) {
   const version = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).optionalDependencies?.[name]
   if (!version) return
 
@@ -144,7 +155,7 @@ function installPackage(name) {
     })
     if (result.status !== 0) return
     const packageDir = path.join(temp, "node_modules", name)
-    copyBinary(path.join(packageDir, "bin", sourceBinary), targetBinary)
+    copyBinary(path.join(packageDir, "bin", plan.source), plan.native)
     return true
   } finally {
     fs.rmSync(temp, { recursive: true, force: true })
@@ -163,8 +174,8 @@ function copyBinary(source, target) {
   fs.chmodSync(target, 0o755)
 }
 
-function verifyBinary() {
-  const result = childProcess.spawnSync(targetBinary, ["--version"], {
+function verifyBinary(binary) {
+  const result = childProcess.spawnSync(binary, ["--version"], {
     encoding: "utf8",
     stdio: "ignore",
     windowsHide: true,
@@ -173,21 +184,60 @@ function verifyBinary() {
 }
 
 function main() {
-  const names = packageNames(platform, arch, arch === "x64" && !supportsAvx2(), isMusl())
-  for (const name of names) {
+  const plan = launcherPlan(__dirname, platform, arch, arch === "x64" && !supportsAvx2(), isMusl())
+  for (const name of plan.packages) {
     try {
-      copyBinary(resolveBinary(name), targetBinary)
-      if (verifyBinary()) return
+      copyBinary(resolveBinary(name, plan.source), plan.native)
+      if (verifyBinary(plan.native)) return
     } catch {
-      if (installPackage(name) && verifyBinary()) return
+      if (installPackage(name, plan) && verifyBinary(plan.native)) return
     }
   }
 
   throw new Error(
-    `It seems your package manager failed to install the right Ruying Code CLI package. Try manually installing ${names
+    `It seems your package manager failed to install the right Ruying Code CLI package. Try manually installing ${plan.packages
       .map((name) => JSON.stringify(name))
       .join(" or ")}.`,
   )
+}
+
+export async function launch(args) {
+  const plan = launcherPlan(__dirname, platform, arch, arch === "x64" && !supportsAvx2(), isMusl())
+  const binary = fs.existsSync(plan.native)
+    ? plan.native
+    : plan.packages
+        .map((name) => {
+          try {
+            return resolveBinary(name, plan.source)
+          } catch {
+            return
+          }
+        })
+        .find((candidate) => candidate !== undefined)
+  if (!binary) {
+    throw new Error(
+      `Ruying Code native binary is unavailable. Run node node_modules/@ruying/ruying-code/postinstall.mjs or install ${plan.packages
+        .map((name) => JSON.stringify(name))
+        .join(" or ")}.`,
+    )
+  }
+
+  const child = childProcess.spawn(binary, args, { stdio: "inherit", windowsHide: true })
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
+  const forward = (signal) => {
+    if (!child.killed) child.kill(signal)
+  }
+  signals.forEach((signal) => process.on(signal, forward))
+  const result = await new Promise((resolve, reject) => {
+    child.once("error", reject)
+    child.once("exit", (code, signal) => resolve({ code, signal }))
+  })
+  signals.forEach((signal) => process.off(signal, forward))
+  if (result.signal) {
+    process.kill(process.pid, result.signal)
+    return
+  }
+  process.exitCode = result.code ?? 1
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
