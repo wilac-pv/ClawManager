@@ -53,8 +53,8 @@ test("rejects only remote and Windows network paths before filesystem service ac
   expect(isNetworkImportPath("\\\\?\\Volume{not-a-guid}\\session.json", "win32")).toBe(true)
   expect(isNetworkImportPath("\\/?\\C:\\sessions\\session.json", "win32")).toBe(true)
   expect(isNetworkImportPath("//?\\C:/sessions/session.json", "win32")).toBe(true)
-  expect(isNetworkImportPath("C://sessions/session.json", "win32")).toBe(true)
-  expect(isNetworkImportPath("C:\\sessions/session.json", "win32")).toBe(true)
+  expect(isNetworkImportPath("C://sessions/session.json", "win32")).toBe(false)
+  expect(isNetworkImportPath("C:\\sessions/session.json", "win32")).toBe(false)
   expect(isNetworkImportPath("\\\\?\\C:\\sessions/session.json", "win32")).toBe(true)
   expect(isNetworkImportPath(`//?/${volume}/sessions\\session.json`, "win32")).toBe(true)
 

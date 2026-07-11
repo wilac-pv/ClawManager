@@ -45,12 +45,7 @@ export function isNetworkImportPath(file: string, platform: NodeJS.Platform = pr
     )
     return !drive.test(file) && !volume.test(file)
   }
-  if (platform === "win32" && /^[a-z]:[\\/]/i.test(file)) {
-    const separator = file[2]
-    const rest = file.slice(2)
-    if (rest.startsWith("//") || rest.startsWith("\\\\")) return true
-    return rest.includes(separator === "\\" ? "/" : "\\")
-  }
+  if (platform === "win32" && /^[a-z]:[\\/]/i.test(file)) return false
   const normalized = file.replaceAll("\\", "/")
   return file.startsWith("\\\\") && /^\/\//.test(normalized)
 }
