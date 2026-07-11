@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { cp, lstat, mkdir, open, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { Global } from "@opencode-ai/core/global"
 import { Brand } from "@opencode-ai/core/brand/brand"
+import { Flock } from "@opencode-ai/core/util/flock"
 
 type MigrationResult = { copied: string[]; skipped: string[] }
 
@@ -37,33 +38,45 @@ export function run(input: {
   pairs: Array<{ legacy: string; current: string }>
   marker: string
   lock?: string
+  lockOptions?: Flock.Options
 }): Promise<MigrationResult> {
   const marker = path.resolve(input.marker)
   const lock = path.resolve(input.lock ?? `${marker}.lock`)
-  return withMigrationLock(lock, async () => {
-    if ((await clearMarker(marker)) === "complete") return { copied: [], skipped: [] }
-    const copied: string[] = []
-    const skipped: string[] = []
-    for (const pair of input.pairs) {
-      await mkdir(pair.current, { recursive: true })
-      const entries = await readdir(pair.legacy, { withFileTypes: true }).catch((error) => {
-        if (errorCode(error) === "ENOENT") return []
-        throw error
-      })
-      for (const entry of entries) {
-        await copyMissing(
-          path.join(pair.legacy, entry.name),
-          path.join(pair.current, entry.name),
-          entry.isDirectory(),
-          copied,
-          skipped,
-          new Set([marker, lock]),
-        )
+  const lockRoot = `${lock}.d`
+  return Flock.withLock(
+    lock,
+    async () => {
+      if ((await clearMarker(marker)) === "complete") return { copied: [], skipped: [] }
+      const reserved = new Set([marker, lock, lockRoot].map((item) => path.resolve(item)))
+      await Promise.all(
+        [...new Set([...input.pairs.map((pair) => pair.current), path.dirname(marker)])].map((root) =>
+          clearOrphanTemporaries(root, reserved),
+        ),
+      )
+      const copied: string[] = []
+      const skipped: string[] = []
+      for (const pair of input.pairs) {
+        await mkdir(pair.current, { recursive: true })
+        const entries = await readdir(pair.legacy, { withFileTypes: true }).catch((error) => {
+          if (errorCode(error) === "ENOENT") return []
+          throw error
+        })
+        for (const entry of entries) {
+          await copyMissing(
+            path.join(pair.legacy, entry.name),
+            path.join(pair.current, entry.name),
+            entry.isDirectory(),
+            copied,
+            skipped,
+            reserved,
+          )
+        }
       }
-    }
-    await writeMarker(marker, { version: 1, copied, skipped })
-    return { copied, skipped }
-  })
+      await writeMarker(marker, { version: 1, copied, skipped })
+      return { copied, skipped }
+    },
+    { ...input.lockOptions, dir: lockRoot },
+  )
 }
 
 async function copyMissing(
@@ -139,86 +152,6 @@ async function publishTemporary(
     })
 }
 
-async function withMigrationLock<A>(lock: string, task: () => Promise<A>) {
-  await mkdir(path.dirname(lock), { recursive: true })
-  const owner = { pid: process.pid, token: randomUUID(), createdAt: Date.now() }
-  const deadline = Date.now() + 60_000
-  while (!(await claimLock(lock, owner))) {
-    if (await recoverAbandonedLock(lock)) continue
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for OEM migration lock: ${lock}`)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-  }
-  return task().finally(() => releaseLock(lock, owner.token))
-}
-
-async function claimLock(lock: string, owner: { pid: number; token: string; createdAt: number }) {
-  const handle = await open(lock, "wx", 0o600).catch((error) => {
-    if (errorCode(error) === "EEXIST") return
-    throw error
-  })
-  if (!handle) return false
-  await handle
-    .writeFile(JSON.stringify(owner))
-    .finally(() => handle.close())
-    .catch(async (error) => {
-      await unlink(lock).catch(() => undefined)
-      throw error
-    })
-  return true
-}
-
-async function recoverAbandonedLock(lock: string) {
-  const info = await fileInfo(lock)
-  if (!info) return true
-  if (!info.isFile()) {
-    if (info.isDirectory()) await rmdir(lock)
-    else await unlink(lock)
-    return true
-  }
-  const owner = await readFile(lock, "utf8")
-    .then((value) => JSON.parse(value) as unknown)
-    .catch(() => undefined)
-  if (isLockOwner(owner) && processAlive(owner.pid)) return false
-  if (!isLockOwner(owner) && Date.now() - info.mtimeMs < 60_000) return false
-  await unlink(lock).catch((error) => {
-    if (errorCode(error) !== "ENOENT") throw error
-  })
-  return true
-}
-
-async function releaseLock(lock: string, token: string) {
-  const owner = await readFile(lock, "utf8")
-    .then((value) => JSON.parse(value) as unknown)
-    .catch(() => undefined)
-  if (!isLockOwner(owner) || owner.token !== token) return
-  await unlink(lock).catch((error) => {
-    if (errorCode(error) !== "ENOENT") throw error
-  })
-}
-
-function processAlive(pid: number) {
-  if (pid === process.pid) return true
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return errorCode(error) === "EPERM"
-  }
-}
-
-function isLockOwner(value: unknown): value is { pid: number; token: string; createdAt: number } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "pid" in value &&
-    typeof value.pid === "number" &&
-    "token" in value &&
-    typeof value.token === "string" &&
-    "createdAt" in value &&
-    typeof value.createdAt === "number"
-  )
-}
-
 async function writeMarker(marker: string, data: { version: number; copied: string[]; skipped: string[] }) {
   await mkdir(path.dirname(marker), { recursive: true })
   const temporary = temporaryPath(marker)
@@ -236,13 +169,55 @@ async function writeMarker(marker: string, data: { version: number; copied: stri
 async function clearMarker(marker: string) {
   const target = await fileInfo(marker)
   if (!target) return "missing" as const
-  if (target.isFile()) return "complete" as const
+  if (target.isFile()) {
+    const value = await readFile(marker, "utf8")
+      .then((content) => JSON.parse(content) as unknown)
+      .catch(() => undefined)
+    if (isMarker(value)) return "complete" as const
+    await unlink(marker)
+    return "cleared" as const
+  }
   if (target.isDirectory()) {
     await rmdir(marker)
     return "cleared" as const
   }
   await unlink(marker)
   return "cleared" as const
+}
+
+async function clearOrphanTemporaries(root: string, reserved: Set<string>) {
+  const target = await fileInfo(root)
+  if (!target?.isDirectory()) return
+  await Promise.all(
+    (await readdir(root, { withFileTypes: true })).map(async (entry) => {
+      const current = path.join(root, entry.name)
+      if (reserved.has(path.resolve(current))) return
+      if (isTemporaryName(entry.name)) {
+        await rm(current, { recursive: true, force: true })
+        return
+      }
+      if (entry.isDirectory()) await clearOrphanTemporaries(current, reserved)
+    }),
+  )
+}
+
+function isMarker(value: unknown): value is { version: 1; copied: string[]; skipped: string[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "version" in value &&
+    value.version === 1 &&
+    "copied" in value &&
+    Array.isArray(value.copied) &&
+    value.copied.every((item) => typeof item === "string") &&
+    "skipped" in value &&
+    Array.isArray(value.skipped) &&
+    value.skipped.every((item) => typeof item === "string")
+  )
+}
+
+function isTemporaryName(name: string) {
+  return /^\..+\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/i.test(name)
 }
 
 function fileInfo(file: string) {

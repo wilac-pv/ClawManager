@@ -23,6 +23,47 @@ test("copies missing files and never overwrites the new tree", async () => {
   expect(await Bun.file(marker).exists()).toBe(true)
 })
 
+test.each(["", "{}", JSON.stringify({ version: 2, copied: [], skipped: [] })])(
+  "retries migration when the completion marker is invalid: %s",
+  async (content) => {
+    const root = await mkdtemp(join(tmpdir(), "ruying-migrate-marker-"))
+    const legacy = join(root, "opencode")
+    const current = join(root, "ruying-code")
+    const marker = join(root, "state", ".oem-migration-v1.json")
+    await mkdir(legacy, { recursive: true })
+    await mkdir(join(root, "state"), { recursive: true })
+    await writeFile(join(legacy, "auth.json"), "legacy")
+    await writeFile(marker, content)
+
+    await OemMigration.run({ pairs: [{ legacy, current }], marker })
+
+    expect(await Bun.file(join(current, "auth.json")).text()).toBe("legacy")
+    expect(JSON.parse(await Bun.file(marker).text())).toEqual({
+      version: 1,
+      copied: [join(legacy, "auth.json")],
+      skipped: [],
+    })
+  },
+)
+
+test("removes only recognized orphan migration temporary files after acquiring the lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-orphan-"))
+  const legacy = join(root, "opencode")
+  const current = join(root, "ruying-code")
+  const marker = join(root, "state", ".oem-migration-v1.json")
+  const orphan = join(current, ".workspace.123.123e4567-e89b-12d3-a456-426614174000.tmp")
+  const unrelated = join(current, ".workspace.tmp")
+  await mkdir(legacy, { recursive: true })
+  await mkdir(current, { recursive: true })
+  await writeFile(orphan, "partial")
+  await writeFile(unrelated, "keep")
+
+  await OemMigration.run({ pairs: [{ legacy, current }], marker })
+
+  expect(await Bun.file(orphan).exists()).toBe(false)
+  expect(await Bun.file(unrelated).text()).toBe("keep")
+})
+
 test("coalesces simultaneous first-launch copies", async () => {
   const root = await mkdtemp(join(tmpdir(), "ruying-migrate-race-"))
   const legacy = join(root, "opencode")
@@ -78,22 +119,65 @@ test("does not expose a partially copied directory before migration publishes it
   expect((await readdir(target)).length).toBe(800)
 })
 
-test("recovers an abandoned process lock after a crashed migration", async () => {
+test("recovers the Flock lease and orphan temporary after a process is killed mid-copy", async () => {
   const root = await mkdtemp(join(tmpdir(), "ruying-migrate-crash-"))
   const legacy = join(root, "opencode")
   const current = join(root, "ruying-code")
   const marker = join(root, "state", ".oem-migration-v1.json")
-  const lock = `${marker}.lock`
-  await mkdir(legacy, { recursive: true })
-  await mkdir(join(root, "state"), { recursive: true })
-  await writeFile(join(legacy, "auth.json"), "legacy")
-  await writeFile(lock, JSON.stringify({ pid: 2_147_483_647, token: "dead", createdAt: Date.now() }))
+  const ready = join(root, "copy-started")
+  await mkdir(join(legacy, "workspace"), { recursive: true })
+  await mkdir(current, { recursive: true })
+  await Promise.all(
+    Array.from({ length: 800 }, (_, index) => writeFile(join(legacy, "workspace", `${index}.txt`), `${index}`)),
+  )
 
-  await OemMigration.run({ pairs: [{ legacy, current }], marker })
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--eval",
+      'const fs = await import("node:fs/promises"); const copy = fs.cp; const { mock } = await import("bun:test"); mock.module("node:fs/promises", () => ({ ...fs, cp: async (...args) => { const copying = copy(...args); await fs.writeFile(process.env.READY, "ready"); await new Promise(() => undefined); return copying } })); const { OemMigration } = await import("./src/migration/oem.ts"); await OemMigration.run({ pairs: [{ legacy: process.env.LEGACY, current: process.env.CURRENT }], marker: process.env.MARKER, lockOptions: { staleMs: 300, timeoutMs: 10_000, baseDelayMs: 10, maxDelayMs: 20 } })',
+    ],
+    {
+      cwd: join(import.meta.dir, "../.."),
+      env: { ...Bun.env, LEGACY: legacy, CURRENT: current, MARKER: marker, READY: ready },
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  )
+  await waitForFile(ready)
+  const orphan = await waitForTemporary(current)
+  child.kill(9)
+  expect(await child.exited).not.toBe(0)
+  expect((await lstat(orphan)).isDirectory()).toBe(true)
 
-  expect(await Bun.file(join(current, "auth.json")).text()).toBe("legacy")
-  expect(await Bun.file(lock).exists()).toBe(false)
+  await Bun.sleep(350)
+  await OemMigration.run({
+    pairs: [{ legacy, current }],
+    marker,
+    lockOptions: { staleMs: 300, timeoutMs: 10_000, baseDelayMs: 10, maxDelayMs: 20 },
+  })
+
+  expect((await readdir(join(current, "workspace"))).length).toBe(800)
+  expect((await readdir(current)).filter((entry) => entry.endsWith(".tmp"))).toEqual([])
+  expect(await readdir(`${marker}.lock.d`)).toEqual([])
 })
+
+async function waitForFile(file: string) {
+  for (let attempt = 0; attempt < 5_000; attempt++) {
+    if (await Bun.file(file).exists()) return
+    await Bun.sleep(1)
+  }
+  throw new Error(`Timed out waiting for ${file}`)
+}
+
+async function waitForTemporary(current: string) {
+  for (let attempt = 0; attempt < 5_000; attempt++) {
+    const temporary = (await readdir(current)).find((entry) => entry.endsWith(".tmp"))
+    if (temporary) return join(current, temporary)
+    await Bun.sleep(1)
+  }
+  throw new Error("Timed out waiting for migration temporary")
+}
 
 test("serializes migration across independent processes", async () => {
   const root = await mkdtemp(join(tmpdir(), "ruying-migrate-processes-"))
