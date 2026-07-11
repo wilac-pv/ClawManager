@@ -25,7 +25,7 @@ import {
   probeWslDistro,
   probeWslRuntime,
   readWslCommandVersion,
-  resolveWslOpencode,
+  resolveWslRuyingCode,
   summarize,
 } from "./runtime"
 
@@ -48,7 +48,7 @@ type WslServersControllerOptions = {
   readServers?: () => WslServerConfig[]
   writeServers?: (servers: WslServerConfig[]) => void
   probeDistro?: typeof probeWslDistro
-  resolveOpencode?: typeof resolveWslOpencode
+  resolveOpencode?: typeof resolveWslRuyingCode
   readCommandVersion?: typeof readWslCommandVersion
 }
 
@@ -131,7 +131,7 @@ export function createWslServersController(
   }
 
   const checkOpencode = async (distro: string, opts?: { signal?: AbortSignal }) => {
-    const resolved = await (options?.resolveOpencode ?? resolveWslOpencode)(distro, opts)
+    const resolved = await (options?.resolveOpencode ?? resolveWslRuyingCode)(distro, opts)
     const version = resolved
       ? await (options?.readCommandVersion ?? readWslCommandVersion)(resolved, distro, opts)
       : null
@@ -499,7 +499,7 @@ function opencodeCheck(
 }
 
 function distroProbeReady(probe: WslDistroProbe | undefined) {
-  return !!probe?.canExecute && probe.hasBash && probe.hasCurl
+  return !!probe?.canExecute && probe.hasBash && probe.hasNpm
 }
 
 function startupFailure(code: number | null, signal: NodeJS.Signals | null) {

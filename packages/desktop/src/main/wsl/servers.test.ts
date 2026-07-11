@@ -51,7 +51,7 @@ test("restarts an existing distro server after updating OpenCode", () => {
 test("clears cached distro probes when removing a WSL server", () => {
   expect(
     clearWslDistroState(
-      { Debian: { name: "Debian", canExecute: true, hasBash: true, hasCurl: true, error: null } },
+      { Debian: { name: "Debian", canExecute: true, hasBash: true, hasNpm: true, error: null } },
       {
         Debian: {
           distro: "Debian",
@@ -160,7 +160,7 @@ test("probes addable distros in parallel before checking OpenCode", async () => 
     probeDistro: async (distro) => {
       started.push(distro)
       await new Promise<void>((resolve) => release.set(distro, resolve))
-      return { name: distro, canExecute: true, hasBash: true, hasCurl: true, error: null }
+      return { name: distro, canExecute: true, hasBash: true, hasNpm: true, error: null }
     },
     resolveOpencode: async (distro) => {
       opencode.push(distro)
@@ -190,7 +190,7 @@ test("does not check OpenCode in addable distros that cannot execute commands", 
       name: distro,
       canExecute: distro === "Debian",
       hasBash: distro === "Debian",
-      hasCurl: distro === "Debian",
+      hasNpm: distro === "Debian",
       error: distro === "Debian" ? null : "Open Ubuntu once to finish setup",
     }),
     resolveOpencode: async (distro) => {

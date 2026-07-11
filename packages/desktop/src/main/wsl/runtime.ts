@@ -32,6 +32,8 @@ export type RunWslOptions = {
 
 const DEFAULT_WSL_TIMEOUT_MS = 20_000
 const DEFAULT_WSL_INSTALL_TIMEOUT_MS = 15 * 60_000
+const RUYING_PACKAGE = "@ruying/ruying-code"
+const RUYING_REGISTRY = "https://nexus.gwm.cn/repository/npm-group/"
 
 export function wslArgs(args: string[], distro?: string | null, user?: string | null) {
   return [...(distro ? ["-d", distro] : []), ...(user ? ["--user", user] : []), "--", ...args]
@@ -263,7 +265,11 @@ export async function installWslOpencode(version: string, distro: string, opts?:
   return runInteractiveCommand(
     resolveSystem32Command("wsl.exe"),
     wslArgs(
-      ["bash", "-lc", `curl -fsSL https://opencode.ai/install | bash -s -- --version ${shellEscape(version)}`],
+      [
+        "bash",
+        "-lc",
+        `npm install --global --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
+      ],
       distro,
     ),
     withTimeout(opts, DEFAULT_WSL_INSTALL_TIMEOUT_MS),
@@ -283,30 +289,30 @@ export async function probeWslDistro(name: string, opts?: RunWslOptions): Promis
       name,
       canExecute: false,
       hasBash: false,
-      hasCurl: false,
+      hasNpm: false,
       error: summarize(executable.stderr || executable.stdout) || "Cannot execute commands in distro",
     }
   }
 
-  const [bash, curl] = await Promise.all([
+  const [bash, npm] = await Promise.all([
     runWslSh("command -v bash >/dev/null && printf yes || printf no", name, opts),
-    runWslSh("command -v curl >/dev/null && printf yes || printf no", name, opts),
+    runWslSh("command -v npm >/dev/null && printf yes || printf no", name, opts),
   ])
 
   return {
     name,
     canExecute: true,
     hasBash: bash.code === 0 && summarize(bash.stdout) === "yes",
-    hasCurl: curl.code === 0 && summarize(curl.stdout) === "yes",
+    hasNpm: npm.code === 0 && summarize(npm.stdout) === "yes",
     error: null,
   }
 }
 
-export async function resolveWslOpencode(distro: string, opts?: RunWslOptions) {
+export async function resolveWslRuyingCode(distro: string, opts?: RunWslOptions) {
   return firstLine(
     (
       await runWslSh(
-        'if [ -x "$HOME/.opencode/bin/opencode" ]; then printf "%s\\n" "$HOME/.opencode/bin/opencode"; fi',
+        'command -v ruying-code 2>/dev/null || { [ -x "$HOME/.local/bin/ruying-code" ] && printf "%s\\n" "$HOME/.local/bin/ruying-code"; }',
         distro,
         opts,
       )

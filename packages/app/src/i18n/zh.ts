@@ -415,7 +415,7 @@ export const dict = {
   "wsl.onboarding.distroStatus.ready": "已就绪",
   "wsl.onboarding.distroStatus.checking": "检查中...",
   "wsl.onboarding.distroStatus.opencodeMissing": "未安装 OpenCode",
-  "wsl.onboarding.distroStatus.missingTools": "缺少 bash、curl",
+  "wsl.onboarding.distroStatus.missingTools": "缺少 bash、npm",
   "wsl.onboarding.distroStatus.unsupported": "不支持 · 请使用 WSL 2",
   "wsl.onboarding.needAnotherDistro": "需要其他发行版？",
   "wsl.onboarding.needAnotherDistroHint": "从 WSL 目录安装 Linux 发行版",

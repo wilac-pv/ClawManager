@@ -148,7 +148,7 @@ describe("WSL server settings presentation", () => {
         ],
         online: [{ name: "Alpine", label: "Alpine Linux" }],
         distroProbes: {
-          Ubuntu: { name: "Ubuntu", canExecute: true, hasBash: true, hasCurl: true, error: null },
+          Ubuntu: { name: "Ubuntu", canExecute: true, hasBash: true, hasNpm: true, error: null },
         },
       },
       view: "main",
@@ -186,7 +186,7 @@ describe("WSL server settings presentation", () => {
         installed: [{ name: "Debian", version: 2, isDefault: true }],
         online: [{ name: "Ubuntu", label: "Ubuntu" }],
         distroProbes: {
-          Debian: { name: "Debian", canExecute: true, hasBash: true, hasCurl: true, error: null },
+          Debian: { name: "Debian", canExecute: true, hasBash: true, hasNpm: true, error: null },
         },
         opencodeChecks: {
           Debian: {

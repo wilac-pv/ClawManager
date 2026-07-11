@@ -404,7 +404,7 @@ export const dict = {
   "wsl.onboarding.distroStatus.ready": "Ready",
   "wsl.onboarding.distroStatus.checking": "Checking...",
   "wsl.onboarding.distroStatus.opencodeMissing": "OpenCode not installed",
-  "wsl.onboarding.distroStatus.missingTools": "Missing bash, curl",
+  "wsl.onboarding.distroStatus.missingTools": "Missing bash, npm",
   "wsl.onboarding.distroStatus.unsupported": "Unsupported · Use WSL 2",
   "wsl.onboarding.needAnotherDistro": "Need another distro?",
   "wsl.onboarding.needAnotherDistroHint": "Install a Linux distribution from the WSL catalog",
