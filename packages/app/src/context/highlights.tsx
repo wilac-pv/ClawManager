@@ -6,8 +6,7 @@ import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
-
-const CHANGELOG_URL = "https://opencode.ai/changelog.json"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 type Store = {
   version?: string
@@ -170,6 +169,12 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
         return
       }
 
+      const changelog = Brand.changelogURL()
+      if (!changelog) {
+        markSeen()
+        return
+      }
+
       const fetcher = platform.fetch ?? fetch
       const controller = new AbortController()
       onCleanup(() => {
@@ -177,7 +182,7 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
         clearTimer()
       })
 
-      fetcher(CHANGELOG_URL, {
+      fetcher(changelog, {
         signal: controller.signal,
         headers: { Accept: "application/json" },
       })

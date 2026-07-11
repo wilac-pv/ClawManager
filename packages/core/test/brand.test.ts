@@ -18,6 +18,8 @@ const originalEnv = [
   "OPENCODE_DOCS_URL",
   "RUYING_CODE_SUPPORT_URL",
   "OPENCODE_SUPPORT_URL",
+  "RUYING_CODE_CHANGELOG_URL",
+  "OPENCODE_CHANGELOG_URL",
 ].map((key) => [key, process.env[key]] as const)
 
 afterEach(() => {
@@ -66,6 +68,14 @@ test("keeps docs and support URLs optional with branded-first aliases", () => {
   expect(Brand.supportURL()).toBeUndefined()
 })
 
+test("keeps changelog fetching disabled unless an OEM URL is configured", () => {
+  delete process.env.RUYING_CODE_CHANGELOG_URL
+  delete process.env.OPENCODE_CHANGELOG_URL
+  expect(Brand.changelogURL()).toBeUndefined()
+  process.env.RUYING_CODE_CHANGELOG_URL = "https://internal.example/changelog.json"
+  expect(Brand.changelogURL()).toBe("https://internal.example/changelog.json")
+})
+
 test("recognizes true and 1 environment values", () => {
   process.env.RUYING_CODE_FEATURE = "TRUE"
   expect(Brand.truthy("FEATURE")).toBe(true)
@@ -97,17 +107,15 @@ test("legacy flag properties prefer branded variables", async () => {
 test("file watcher config prefers a branded false value", async () => {
   process.env.RUYING_CODE_EXPERIMENTAL_FILEWATCHER = "false"
   process.env.OPENCODE_EXPERIMENTAL_FILEWATCHER = "true"
-  expect(
-    await Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER.parse(ConfigProvider.fromEnv())),
-  ).toBe(false)
+  expect(await Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER.parse(ConfigProvider.fromEnv()))).toBe(false)
 })
 
 test("disable file watcher config accepts a legacy-only value", async () => {
   delete process.env.RUYING_CODE_EXPERIMENTAL_DISABLE_FILEWATCHER
   process.env.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER = "true"
-  expect(
-    await Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER.parse(ConfigProvider.fromEnv())),
-  ).toBe(true)
+  expect(await Effect.runPromise(Flag.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER.parse(ConfigProvider.fromEnv()))).toBe(
+    true,
+  )
 })
 
 test("file watcher config rejects an invalid branded value", async () => {

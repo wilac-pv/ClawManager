@@ -41,4 +41,8 @@ export function supportURL() {
   return env("SUPPORT_URL")
 }
 
+export function changelogURL() {
+  return env("CHANGELOG_URL")
+}
+
 export * as Brand from "./brand"

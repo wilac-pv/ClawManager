@@ -84,6 +84,25 @@ const it = testEffect(
 )
 
 describe("session.system", () => {
+  test.each([
+    "meta/muse-spark-preview",
+    "gpt-4.1",
+    "gpt-5-codex",
+    "gpt-5",
+    "gemini-2.5-pro",
+    "claude-sonnet-4-5",
+    "trinity-large",
+    "kimi-k2",
+    "other-model",
+  ])("brands every provider system-prompt branch for %s", (id) => {
+    const output = SystemPrompt.provider({ api: { id } } as Provider.Model).join("\n")
+
+    expect(output).toContain("Ruying Code")
+    expect(output).not.toContain("OpenCode")
+    expect(output).not.toContain("opencode.ai")
+    expect(output).not.toContain("github.com/anomalyco/opencode")
+  })
+
   test("selects the Meta prompt for Muse Spark model IDs", () => {
     expect(SystemPrompt.provider({ api: { id: "meta/muse-spark-preview" } } as Provider.Model)[0]).toContain(
       "Meta Muse Spark",

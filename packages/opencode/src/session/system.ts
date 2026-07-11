@@ -23,22 +23,42 @@ import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/l
 import { Reference } from "@opencode-ai/core/reference"
 import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 export function provider(model: Provider.Model) {
-  if (model.api.id.includes("muse-spark")) return [PROMPT_META]
+  if (model.api.id.includes("muse-spark")) return [brand(PROMPT_META)]
   if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
-    return [PROMPT_BEAST]
+    return [brand(PROMPT_BEAST)]
   if (model.api.id.includes("gpt")) {
     if (model.api.id.includes("codex")) {
-      return [PROMPT_CODEX]
+      return [brand(PROMPT_CODEX)]
     }
-    return [PROMPT_GPT]
+    return [brand(PROMPT_GPT)]
   }
-  if (model.api.id.includes("gemini-")) return [PROMPT_GEMINI]
-  if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
-  if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
-  if (model.api.id.toLowerCase().includes("kimi")) return [PROMPT_KIMI]
-  return [PROMPT_DEFAULT]
+  if (model.api.id.includes("gemini-")) return [brand(PROMPT_GEMINI)]
+  if (model.api.id.includes("claude")) return [brand(PROMPT_ANTHROPIC)]
+  if (model.api.id.toLowerCase().includes("trinity")) return [brand(PROMPT_TRINITY)]
+  if (model.api.id.toLowerCase().includes("kimi")) return [brand(PROMPT_KIMI)]
+  return [brand(PROMPT_DEFAULT)]
+}
+
+function brand(prompt: string) {
+  const upstream = ["opencode.ai", "github.com/anomalyco/opencode"]
+  return [
+    `You are ${Brand.profile.englishName}, an internal coding agent.`,
+    prompt
+      .split("\n")
+      .filter((line) => !upstream.some((value) => line.toLowerCase().includes(value)))
+      .join("\n")
+      .replaceAll("OpenCode", Brand.profile.englishName)
+      .replaceAll("opencode", Brand.profile.cliName),
+    Brand.docsURL()
+      ? `Use the internal product documentation at ${Brand.docsURL()} when product guidance is needed.`
+      : "",
+    Brand.supportURL() ? `Direct product support requests to ${Brand.supportURL()}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
 }
 
 export interface Interface {
