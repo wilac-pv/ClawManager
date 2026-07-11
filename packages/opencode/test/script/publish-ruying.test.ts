@@ -10,12 +10,61 @@ import {
   platformManifest,
   PUBLISH_REGISTRY,
   releaseArtifact,
+  releaseMetadata,
   removeTarballs,
   SUPPORTED_TARGETS,
   wrapperManifest,
 } from "../../script/publish-ruying"
 import { installArguments, launcherPlan, packageNames } from "../../script/postinstall.mjs"
 import { tmpdir } from "../fixture/fixture"
+
+test("imports the OEM publisher without public network or Script evaluation", async () => {
+  const source = await Bun.file(`${import.meta.dir}/../../script/publish-ruying.ts`).text()
+
+  expect(source).not.toContain("@opencode-ai/script")
+  expect(source).not.toContain("registry.npmjs.org")
+
+  const probe = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      [
+        'globalThis.fetch = () => { throw new Error("public fetch attempted") }',
+        `await import(${JSON.stringify(new URL("../../script/publish-ruying.ts", import.meta.url).href)})`,
+        'process.stdout.write("clean import")',
+      ].join(";"),
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  )
+
+  expect(await new Response(probe.stdout).text()).toBe("clean import")
+  expect(await new Response(probe.stderr).text()).toBe("")
+  expect(await probe.exited).toBe(0)
+})
+
+test("requires explicit valid release metadata before real publishing", () => {
+  expect(() => releaseMetadata([], {}, "1.2.3", false)).toThrow("explicit release version and tag")
+  expect(releaseMetadata(["--version", "1.2.3", "--tag=beta"], {}, "1.2.3", false)).toEqual({
+    version: "1.2.3",
+    tag: "beta",
+  })
+  expect(() => releaseMetadata(["--version", "2.0.0", "--tag", "latest"], {}, "1.2.3", false)).toThrow(
+    "does not match built package version",
+  )
+  expect(() => releaseMetadata(["--version", "invalid", "--tag", "latest"], {}, "1.2.3", false)).toThrow(
+    "Invalid release version",
+  )
+  expect(() => releaseMetadata(["--version", "1.2.3", "--tag="], {}, "1.2.3", false)).toThrow(
+    "explicit release version and tag",
+  )
+})
+
+test("uses deterministic local metadata for pack-only rehearsals", () => {
+  expect(releaseMetadata([], {}, "1.2.3-local.1", true)).toEqual({ version: "1.2.3-local.1", tag: "" })
+  expect(
+    releaseMetadata([], { RUYING_CODE_RELEASE_VERSION: "1.2.3", RUYING_CODE_RELEASE_TAG: "next" }, "1.2.3", false),
+  ).toEqual({ version: "1.2.3", tag: "next" })
+})
 
 test("creates a dual-bin scoped wrapper", () => {
   const manifest = wrapperManifest("1.2.3", { "@ruying/ruying-code-darwin-arm64": "1.2.3" })

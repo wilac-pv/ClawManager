@@ -2,6 +2,7 @@
 
 import { $ } from "bun"
 import path from "path"
+import semver from "semver"
 import { fileURLToPath } from "url"
 
 export const INSTALL_REGISTRY = "https://nexus.gwm.cn/repository/npm-group/"
@@ -152,6 +153,38 @@ export function npmPublishArguments(tarball: string, tag: string) {
   return ["publish", tarball, `--registry=${PUBLISH_REGISTRY}`, "--tag", tag]
 }
 
+export function releaseMetadata(
+  args: string[],
+  env: Record<string, string | undefined>,
+  builtVersion: string,
+  packOnly: boolean,
+) {
+  const version =
+    argument(args, "--version") ?? env.RUYING_CODE_RELEASE_VERSION ?? (packOnly ? builtVersion : undefined)
+  const tag = argument(args, "--tag") ?? env.RUYING_CODE_RELEASE_TAG ?? (packOnly ? "" : undefined)
+  if (!version || tag === undefined || (!packOnly && !tag)) {
+    throw new Error(
+      "Real publishing requires an explicit release version and tag via --version/--tag or RUYING_CODE_RELEASE_VERSION/RUYING_CODE_RELEASE_TAG",
+    )
+  }
+  if (!semver.valid(version)) throw new Error(`Invalid release version: ${version}`)
+  if (version !== builtVersion) {
+    throw new Error(`Release version ${version} does not match built package version ${builtVersion}`)
+  }
+  if (tag && (!/^[a-z0-9][a-z0-9._-]*$/.test(tag) || semver.valid(tag))) {
+    throw new Error(`Invalid release tag: ${tag}`)
+  }
+  return { version, tag }
+}
+
+function argument(args: string[], name: string) {
+  const inline = args.find((value) => value.startsWith(`${name}=`))
+  if (inline) return inline.slice(name.length + 1)
+  const index = args.indexOf(name)
+  if (index === -1) return
+  return args[index + 1]
+}
+
 export async function removeTarballs(directory: string) {
   await Promise.all(
     Array.from(new Bun.Glob("*.tgz").scanSync({ cwd: directory })).map((tarball) =>
@@ -207,6 +240,7 @@ async function main() {
     packages.map((entry) => entry.manifest),
     packOnly,
   )
+  const metadata = releaseMetadata(process.argv.slice(2), process.env, plan.version, packOnly)
 
   const wrapper = path.join(dist, "ruying-code")
   await $`rm -rf ${wrapper}`
@@ -215,14 +249,13 @@ async function main() {
   await Bun.file(path.join(wrapper, "LICENSE")).write(await Bun.file(path.join(dir, "..", "..", "LICENSE")).text())
   await Bun.file(path.join(wrapper, "bin", "ruying-code")).write(launcherSource())
   await Bun.file(path.join(wrapper, "package.json")).write(
-    JSON.stringify(wrapperManifest(plan.version, plan.optionalDependencies, plan), null, 2),
+    JSON.stringify(wrapperManifest(metadata.version, plan.optionalDependencies, plan), null, 2),
   )
 
-  const tag = packOnly ? "" : (await import("@opencode-ai/script")).Script.channel
   for (const entry of packages) {
-    await publish(entry.directory, entry.manifest.name, entry.manifest.version, tag, packOnly)
+    await publish(entry.directory, entry.manifest.name, entry.manifest.version, metadata.tag, packOnly)
   }
-  await publish(wrapper, "@ruying/ruying-code", plan.version, tag, packOnly)
+  await publish(wrapper, "@ruying/ruying-code", metadata.version, metadata.tag, packOnly)
 }
 
 if (import.meta.main) await main()
