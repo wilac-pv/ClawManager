@@ -724,8 +724,8 @@ Date: 2026-07-12
 
 ## Wave 8 dispositions
 
-- Replaced Chelper's single-file compare/unlink lock with generation directories. A release or stale breaker must win the generation's atomic `transition/` directory, revalidate its reason for transition, rename the entire canonical generation to a unique quarantine, and delete only that quarantine. The canonical lock name becomes available for a successor only after the generation rename, so a stale observer cannot unlink a successor generation.
-- A 500 ms heartbeat renews the owner record under a 2 second lease. Staleness no longer depends on PID liveness, so PID reuse cannot keep an expired owner alive. A freshly partial owner record recovers in about one lease and within the 30 second acquisition budget.
+- Wave 8 replaced Chelper's single-file compare/unlink lock with generation directories and an atomic `transition/` claimant before renaming a generation to quarantine. Re-review found this was still incomplete: the lease was unfenced against a paused owner, transition-claim crash recovery was not complete, and deleting quarantine allowed a sufficiently delayed observer to target a successor. Wave 9 removes this design rather than extending it.
+- Wave 8 added a 500 ms heartbeat under a 2 second lease. This handled the tested routine waits and partial-owner case, but it did not make PID reuse or a live process pause safe: a process paused beyond the lease could resume after another owner. Wave 9 replaces elapsed-time eviction with conservative PID liveness and fenced publication.
 - Canonical auth targets now resolve their deepest existing ancestor with `realpathSync` and append missing components. Existing target symlinks and missing targets under symlinked parent aliases therefore share one transaction identity and adjacent filesystem lock.
 - Moved the real process worker from `src/tools` to `test/fixtures`; production packaging no longer carries a test entrypoint.
 - Narrowed local-import rejection to true backslash UNC and extended UNC device forms. `\\server`, `\\?\UNC`, and `\\.\UNC` are rejected before `FSUtil.Service`; extended local drives such as `\\?\C:\...`, POSIX `//tmp/...`, `C://...`, ordinary drive paths, and relative paths remain accepted unchanged. Remote URI schemes remain disabled.
@@ -796,4 +796,82 @@ Chelper:
 - **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, clean scans, lock hardening, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
 - App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
 - The Linux-only WSL symlink-to-`/mnt` test remains skipped on this macOS host. Wave 8's Chelper symlink-parent tests did execute on macOS; Windows execution was not available and is not claimed.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
+# Wave 9 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 9 dispositions
+
+- Inspected Chelper's direct/transitive dependencies, installed modules, and local npm cache before designing another lock. No `proper-lockfile`, `lockfile`, `fs-ext`, or equivalent cross-platform primitive is available. Node 18 has no cross-platform advisory filesystem lock. Primary Core's internal `Flock` also uses an unfenced heartbeat/stale-breaker design, so it was not copied into Chelper.
+- Removed Chelper's elapsed-time lease, heartbeat, transition directory, and deletable quarantine. The short commit mutex is now claimed by fully writing `{pid, token}` in a unique candidate directory and atomically renaming that complete candidate to the canonical lock name.
+- A currently existing PID is always treated as live, regardless of age. A PID-reuse collision therefore causes a conservative timeout instead of unsafe eviction. A clearly absent PID's complete canonical generation is atomically renamed to a deterministic, non-empty path keyed by the observed owner token. That dead-generation tombstone is deliberately permanent: every delayed observer of the same generation collides with the same occupied destination and cannot rename a successor. This leaves at most one small tombstone per real canonical-owner crash; normal releases leave no mutex artifact.
+- Dead unique candidates are safe to remove because they were never canonical. A real child killed after publishing a complete candidate is cleaned by its successor without creating a dead-generation tombstone.
+- The mutex covers only canonical auth snapshot/publication plus its adjacent ownership marker, or rollback compare-and-restore. The possibly paused config callback runs outside it. Each auth publication writes a unique transaction token, canonical target, and SHA-256 fingerprint to the marker. A failed obsolete transaction restores only when all three still match under the short mutex, so a successor is distinguished even when it writes identical auth bytes.
+- Canonical target identity is re-established before the initial commit boundary. Snapshot, auth mutation, fingerprinting, marker publication, comparison, and rollback all use the fixed canonical target, never the mutable symlink alias. A symlink retarget sends the successor to its new target while the obsolete transaction can only restore its owned original target.
+- Added a platform-aware network-path classifier. Backslash UNC remains rejected on every platform. Windows classification also rejects `//server`, `//?/UNC`, and `//./UNC`; non-Windows classification preserves POSIX double-slash roots such as `//tmp`. Extended local drives remain accepted. The command still validates before acquiring `FSUtil.Service`.
+
+## Wave 9 RED and diagnostic evidence
+
+- Dependency/cache inspection found no established cross-platform file-lock package. The adjacent Primary Core lock was rejected because its heartbeat/stale deletion is also unfenced for this resource protocol.
+- The identical-byte successor test observed `successorProgressed=false`: Wave 8 held its lease lock across the paused config callback, so B could not commit until obsolete A resumed.
+- The candidate-crash test reached the config callback (`ready`) rather than the required complete-candidate boundary (`candidate`), proving Wave 8 had no candidate publication phase.
+- Two delayed dead-owner observers plus a held successor could not observe a stable successor canonical owner under the Wave 8 transition design, and no deterministic token tombstone existed.
+- The source audit found the Wave 8 lease, heartbeat, transition, and quarantine machinery still present.
+- The symlink-retarget behavior already passed under Wave 8's tested POSIX spelling, so it is retained as stronger fixed-canonical coverage and is not misreported as a pre-fix failure.
+- The first symlink test run had a test-harness-only missing `unlinkSync` import. It was corrected before the valid behavior run and is not counted as product RED. No production implementation attempt failed.
+- The import platform matrix found no exported platform classifier; the Wave 8 runtime rule on this macOS host accepted Windows forward-slash UNC spellings.
+
+## Wave 9 GREEN verification
+
+```text
+chelper$ npm test
+5 files, 40 pass, 0 fail
+chelper$ npm run build
+pass
+chelper$ npx tsc --noEmit
+pass
+
+packages/opencode$ bun test test/cli/import.test.ts
+2 pass, 0 fail, 26 expects
+packages/opencode$ bun typecheck
+pass
+
+packages/opencode$ bun run build --single --skip-install
+pass; Smoke test passed: 0.0.0-ruying-code-oem-202607111853
+packages/desktop$ bun run build
+pass in the required sequential order
+```
+
+The Chelper suite uses real child processes for an identical-byte successor that commits while obsolete A is paused; a killed complete candidate followed by successful cleanup; two delayed observers of one dead token; a successor holding the canonical mutex longer than the former lease; one deterministic non-empty tombstone; normal release without a mutex artifact; and auth-symlink retargeting between publication and rollback. These filesystem tests ran on macOS. They use Node APIs intended to be cross-platform, but no Windows filesystem execution is claimed.
+
+The import classifier's Windows matrix is pure and executed on macOS by passing `win32` explicitly. It proves the classification logic but is not a Windows OS integration run.
+
+Exact-value credential verification did not print the credential:
+
+```text
+Chelper tracked and full local tree excluding preserved .serena/node_modules: clean
+Chelper current dist and fresh npm pack: clean
+Primary tracked and full local tree excluding node_modules: clean
+Primary and Chelper git diff checks: clean
+```
+
+No npm publish, production request, public-share request, dependency installation, or other real external network action was performed.
+
+## Wave 9 commits
+
+Primary:
+
+- `4adf9c06f` — `fix(opencode): classify platform UNC paths`
+
+Chelper:
+
+- `2939c3c` — `fix(config): fence cross-process rollback`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, clean scans, fenced rollback, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- A real dead canonical mutex generation leaves one permanent small non-empty tombstone by design. This bounded disk cost is the fencing mechanism that prevents arbitrarily delayed observers from renaming a successor. PID reuse is handled conservatively by timing out while that PID exists.
+- App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
