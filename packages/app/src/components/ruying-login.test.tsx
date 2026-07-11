@@ -117,6 +117,23 @@ test("status error response remains an error until a status-only retry succeeds"
   await verifyStatusRetry(async () => ({ error: new Error("unavailable") }))
 })
 
+test("retry click ignores the Solid event and invokes authoritative status", async () => {
+  let calls = 0
+  const gate = createRuyingGateState(async () => {
+    calls++
+    if (calls === 1) return { error: new Error("offline") }
+    return { data: { loggedIn: true } }
+  })
+  await gate.check()
+  expect(gate.state.status).toBe("error")
+
+  Reflect.apply(gate.retry, undefined, [{ type: "click" }])
+  await Promise.resolve()
+
+  expect(calls).toBe(2)
+  expect(gate.state.status).toBe("loggedIn")
+})
+
 test("authorize failure returns to a retryable login state", async () => {
   const login = createRuyingLoginState({
     authorize: () => Promise.reject(new Error("authorize failed")),

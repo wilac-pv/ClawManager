@@ -55,6 +55,10 @@ export function createRuyingGateState(
     }
   }
 
+  function retry() {
+    void check()
+  }
+
   function activate(runtime: NonNullable<typeof active>) {
     request++
     unsubscribe?.()
@@ -74,7 +78,7 @@ export function createRuyingGateState(
     }
   }
 
-  return { state, check, activate }
+  return { state, check, retry, activate }
 }
 
 export function createRuyingLoginState(input: {
@@ -197,7 +201,7 @@ export function RuyingGate(props: ParentProps) {
           <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-4 p-6">
             <Splash class="w-12 h-15" />
             <p class="text-14-regular text-text-base">{gate.state.message}</p>
-            <Button variant="primary" size="large" onClick={gate.check}>
+            <Button variant="primary" size="large" onClick={gate.retry}>
               重试检查登录状态
             </Button>
           </div>

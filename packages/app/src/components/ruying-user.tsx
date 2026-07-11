@@ -79,6 +79,7 @@ export function createRuyingUserController(input: { runtime: Accessor<RuyingUser
     const result = await logoutRuying({
       remove: async () => {
         await runtime.logout()
+        request++
         if (activeRuntime !== runtime) return
         setState({ status: "loggedOut", user: undefined, message: "" })
       },

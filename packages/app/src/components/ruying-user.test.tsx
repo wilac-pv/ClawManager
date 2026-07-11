@@ -303,3 +303,48 @@ test("late pre-logout status cannot restore identity after successful logout", a
     }),
   )
 })
+
+test("status started during logout cannot restore identity after logout succeeds", async () => {
+  const logout = deferred<void>()
+  const refresh = deferred<{ data: { loggedIn: boolean; user?: unknown } }>()
+  let statuses = 0
+  let listener: ((event: { type: string }) => void) | undefined
+  const runtime = {
+    status: async () => {
+      statuses++
+      if (statuses === 1) {
+        return { data: { loggedIn: true, user: { employeeId: "GW001", displayName: "张三", email: "" } } }
+      }
+      return refresh.promise
+    },
+    logout: () => logout.promise,
+    subscribe: (next: (event: { type: string }) => void) => {
+      listener = next
+      return () => undefined
+    },
+  }
+
+  await new Promise<void>((resolve) =>
+    createRoot((dispose) => {
+      const user = createRuyingUserController({ runtime: () => runtime, reload: () => undefined })
+      queueMicrotask(async () => {
+        const loggingOut = user.logout()
+        listener?.({ type: "global.disposed" })
+        await Promise.resolve()
+        logout.resolve()
+        await loggingOut
+        expect(user.state.status).toBe("loggedOut")
+
+        refresh.resolve({
+          data: { loggedIn: true, user: { employeeId: "STALE", displayName: "旧", email: "" } },
+        })
+        await refresh.promise
+        await Promise.resolve()
+        expect(user.state.status).toBe("loggedOut")
+        expect(user.state.user).toBeUndefined()
+        dispose()
+        resolve()
+      })
+    }),
+  )
+})
