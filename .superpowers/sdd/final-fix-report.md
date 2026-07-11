@@ -627,6 +627,7 @@ Chelper:
 - The post-commit parallel build verification reproduced the known shared-artifact race: Desktop observed `ENOENT` while the simultaneous Opencode build replaced `packages/opencode/dist/node`. The required sequential Desktop rerun passed. This is recorded as a build-order constraint, not hidden as a parallel pass.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
 
+
 ---
 
 # Wave 7 Re-review Fixes
@@ -1048,4 +1049,94 @@ Documentation:
 - A valid in-progress journal temporarily contains recoverable auth/config snapshots and can contain credentials. It is confined to mode-`0700` transaction storage in mode-`0600` files and removed before retirement. Invalid state stays canonical and fail-closed for administrator inspection. Permanent tombstones are fresh metadata only.
 - Parent descriptor/fingerprint verification is defense-in-depth, not a portable substitute for `renameat`. Windows directory fsync/power-loss behavior and Windows filesystem execution remain unverified limitations.
 - App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
+# Wave 12 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 12 corrections and dispositions
+
+- Corrected the Wave 11 global-root claim. `homedir()` can follow mutable process environment on supported platforms, so two processes sharing resources could select different locks. Production now resolves the stable account home through `os.userInfo()`, never `HOME`, `USERPROFILE`, XDG, or the resource pair. Lookup failure is fail-closed. The mode-`0700` root must be a real directory and, where UIDs exist, owned by the effective UID. The explicit root override is an internal test hook only.
+- Every auth/config publication temporary name now contains the already-durable WAL generation and token: `.<base>.ruying-txn.<generation>.<token>.<uuid>.tmp`. Coordinated dead recovery validates the entire owner/WAL first, then inspects only the two approved parents and deletes only regular files matching that exact generation/token/UUID form. Wrong generation, wrong token, partial suffix, symlink, and directory entries are never followed or removed.
+- Resource-temp cleanup runs before and after recovery restore. Real children are stopped after auth-temp and config-temp fsync but before rename, then killed. Successor recovery removes the exact secret-bearing temp, restores the correct pair, preserves unrelated neighbor artifacts, and leaves zero resource-directory matches for the injected secret.
+- Split immutable owner identity/PID parsing from target semantics. A structurally complete live owner remains owned even when its targets are malformed, unresolvable, or retargeted, so PID liveness fences it before semantic checks. Only dead recovery validates target shape and fixed-canonical meaning. A live parent-swap contender stays waiting without a tombstone; after the owner dies, recovery fails explicitly and retains the canonical main.
+- Bounded legacy inspection no longer reads an arbitrary owner file. Files through 64 KiB use verified no-follow reads; oversized metadata contributes size and filesystem identity without reading its body. Empty, malformed, and 1 MiB owner cases retain the 25/50/100 ms bounded reread contract.
+- Renamed the positional publication seam type and parameter to exported `ConfigPublicationHook` and `beforeConfigPublication`. Its call position and arguments remain compatible, but the name now states that it schedules or injects failure; internal verified code owns resource I/O.
+- Transaction release now sits inside an outer `finally`, with config-anchor and auth-anchor closes nested in another `finally`. Both descriptors close even if release or the first close throws.
+- Corrected Wave 11's Windows separator policy. Unsafe UNC/device/named-pipe/`GLOBALROOT`/redirector/invalid extended namespaces remain rejected. Ordinary drive-local paths allow Windows' normal separator normalization, including `C:\\dir/file` and `C://dir`. Extended drive and Volume GUID namespace spellings remain allowlisted only with a consistent namespace separator. Validation still precedes `FSUtil.Service`.
+- The 16 MiB decoded per-snapshot and 48 MiB journal caps from Wave 11 remain unchanged and are now called out explicitly as availability limits for unusually large auth/config files.
+
+## Wave 12 RED and diagnostic evidence
+
+- Two real children used the same canonical auth/config and the same intended test lock root but divergent `HOME`, `USERPROFILE`, and XDG values. Wave 11 ignored the override and B reached its callback while A was paused (`blocked=false`).
+- The production `resolveGlobalLockRoot` entry point did not exist, so the OS-user/environment-independence test failed before implementation.
+- The real resource-temp crash mode timed out waiting for its fsync boundary because Wave 11 had no `onResourceTemp` boundary and its temp names did not contain WAL identity.
+- The Windows matrix rejected `C://sessions/session.json`; ordinary drive normalization was too strict.
+- A 500 ms live-parent observation initially passed under Wave 11. It was expanded to 1.2 seconds to cover all malformed-owner rereads and retirement work. Temporarily reintroducing Wave 11's combined target validation still did not produce unsafe retirement under the existing deterministic-tombstone guard, so this is retained as GREEN structural/liveness coverage and is not claimed as a product RED.
+- The first GREEN fixture run omitted the new internal root argument for default workers. Four waits timed out and the children created a test transaction under the actual OS-account root. The directory contained only artifacts timestamped from that run; those test artifacts were removed immediately and every worker now receives an isolated temp root. This was a test-harness wiring error, not a production implementation failure. No production implementation attempt failed.
+
+## Wave 12 GREEN verification
+
+```text
+chelper$ npm test
+5 files, 78 pass, 0 fail
+  configurer: 67 pass, 0 fail
+chelper$ npm run build
+pass
+chelper$ npx tsc --noEmit
+pass
+chelper$ git diff --check
+pass
+
+packages/opencode$ bun test test/cli/import.test.ts
+2 pass, 0 fail, 50 expects
+packages/opencode$ bun typecheck
+pass
+
+packages/opencode$ bun run build --single --skip-install
+pass; Smoke test passed: 0.0.0-ruying-code-oem-202607112023
+packages/desktop$ bun run build
+pass in the required sequential order; pre-existing Vite warnings remain
+```
+
+The real-process matrix covers divergent environments with shared resources, a live owner whose approved parent is swapped, auth and config resource-temp death after fsync, exact dead-generation cleanup, and the earlier journal/recovery boundaries. Exact-prefix symlink and directory artifacts fail closed with the main retained and no victim mutation. Unit coverage proves environment changes do not affect the production resolver, OS-user lookup failure rejects, and a foreign expected UID rejects on UID platforms.
+
+These filesystem tests ran on macOS. The production root uses the OS account home, mode and UID checks there. Windows has no UID check in Node and the existing directory-fsync/power-loss limitation remains. Windows path results are pure classifier tests executed on macOS, not Windows OS integration.
+
+Exact-value credential verification did not print the credential:
+
+```text
+Chelper tracked and full local tree excluding preserved .serena/node_modules: clean
+Chelper current dist and fresh npm pack: clean
+Primary tracked and full local tree excluding node_modules: clean
+Primary and Chelper git diff checks: clean
+```
+
+No npm publish, production request, public-share request, dependency installation, push, PR, or other real external network action was performed.
+
+## Wave 12 commits
+
+Primary:
+
+- `b49b135d3` — `docs: design Wave 12 recovery`
+- `948197128` — `fix(opencode): normalize local drive imports`
+
+Chelper:
+
+- `2544209` — `fix(config): bind recovery artifacts`
+
+Documentation:
+
+- This report commit — `docs: record Wave 12 verification`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, exact scans, WAL-bound temps, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- Auth/config files larger than 16 MiB cannot enter this recoverable publication protocol, and a journal larger than 48 MiB fails closed. This is a deliberate bounded-memory availability tradeoff.
+- The production root trusts the OS account lookup. Failure, symlink/non-directory roots, and foreign UID ownership fail closed. Windows exposes no equivalent UID check through this Node surface.
+- A live or PID-reused owner still causes conservative waiting and can time out after 30 seconds. It is never evicted based on age or invalid target semantics.
+- Exact dead-generation cleanup deliberately leaves wrong-generation/token/partial artifacts for administrator inspection. An exact-prefix symlink or directory blocks recovery rather than being removed.
+- Node still has no portable `openat`/`renameat`; parent descriptor checks are not an absolute namespace anchor. Windows directory fsync and power-loss behavior remain unverified.
+- App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
