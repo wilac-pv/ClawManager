@@ -130,6 +130,33 @@ describe("session.system", () => {
     }
   })
 
+  test.each([
+    ["line feed", "\n"],
+    ["carriage return", "\r"],
+    ["tab", "\t"],
+    ["line separator", "\u2028"],
+    ["paragraph separator", "\u2029"],
+  ])("omits branded URL prompt injection after a raw %s", (_name, separator) => {
+    const originalDocs = process.env.RUYING_CODE_DOCS_URL
+    const originalSupport = process.env.RUYING_CODE_SUPPORT_URL
+    const baseline = SystemPrompt.provider({ api: { id: "gpt-5" } } as Provider.Model).join("\n")
+    const marker = "RAW_CONTROL_PROMPT_INJECTION"
+    const attack = `https://internal.example/docs${separator}${marker}`
+    try {
+      process.env.RUYING_CODE_DOCS_URL = attack
+      process.env.RUYING_CODE_SUPPORT_URL = attack
+      const output = SystemPrompt.provider({ api: { id: "gpt-5" } } as Provider.Model).join("\n")
+
+      expect(output).not.toContain(marker)
+      expect(Buffer.byteLength(output)).toBeLessThanOrEqual(Buffer.byteLength(baseline) + 1_024)
+    } finally {
+      if (originalDocs === undefined) delete process.env.RUYING_CODE_DOCS_URL
+      else process.env.RUYING_CODE_DOCS_URL = originalDocs
+      if (originalSupport === undefined) delete process.env.RUYING_CODE_SUPPORT_URL
+      else process.env.RUYING_CODE_SUPPORT_URL = originalSupport
+    }
+  })
+
   it.effect("skills output is sorted by name and stable across calls", () =>
     Effect.gen(function* () {
       const prompt = yield* SystemPrompt.Service

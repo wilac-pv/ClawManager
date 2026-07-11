@@ -36,6 +36,7 @@ export function truthy(suffix: string) {
 function url(suffix: string) {
   const value = env(suffix)
   if (!value || Buffer.byteLength(value, "utf8") > 512) return
+  if (/[\u0000-\u0020\u007f\u2028\u2029]/u.test(value)) return
   try {
     const parsed = new URL(value)
     if (parsed.protocol !== "https:" || parsed.username || parsed.password) return

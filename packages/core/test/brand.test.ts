@@ -99,6 +99,30 @@ test.each([
   expect(Brand.supportURL()).toBeUndefined()
 })
 
+test.each([
+  ["line feed", "\n"],
+  ["carriage return", "\r"],
+  ["tab", "\t"],
+  ["line separator", "\u2028"],
+  ["paragraph separator", "\u2029"],
+])("omits docs and support URLs containing raw %s", (_name, separator) => {
+  const value = `https://internal.example/docs${separator}PROMPT_INJECTION`
+  process.env.RUYING_CODE_DOCS_URL = value
+  process.env.RUYING_CODE_SUPPORT_URL = value
+
+  expect(Brand.docsURL()).toBeUndefined()
+  expect(Brand.supportURL()).toBeUndefined()
+})
+
+test("accepts percent-encoded URL controls without rewriting the original value", () => {
+  const value = "https://internal.example/docs%0Asection"
+  process.env.RUYING_CODE_DOCS_URL = value
+  process.env.RUYING_CODE_SUPPORT_URL = value
+
+  expect(Brand.docsURL()).toBe(value)
+  expect(Brand.supportURL()).toBe(value)
+})
+
 test("keeps changelog fetching disabled unless an OEM URL is configured", () => {
   delete process.env.RUYING_CODE_CHANGELOG_URL
   delete process.env.OPENCODE_CHANGELOG_URL
