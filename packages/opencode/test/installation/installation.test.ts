@@ -2,7 +2,8 @@ import { describe, expect } from "bun:test"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
-import { Effect, Layer, Stream } from "effect"
+import { Duration, Effect, Fiber, Layer, Stream } from "effect"
+import { TestClock } from "effect/testing"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { Installation } from "../../src/installation"
@@ -12,8 +13,13 @@ import { testEffect } from "../lib/effect"
 
 const encoder = new TextEncoder()
 
-function mockHttpClient(handler: (request: HttpClientRequest.HttpClientRequest) => Response) {
-  const client = HttpClient.make((request) => Effect.succeed(HttpClientResponse.fromWeb(request, handler(request))))
+function mockHttpClient(handler: (request: HttpClientRequest.HttpClientRequest) => Response | Effect.Effect<Response>) {
+  const client = HttpClient.make((request) => {
+    const result = handler(request)
+    return (Effect.isEffect(result) ? result : Effect.succeed(result)).pipe(
+      Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
+    )
+  })
   return Layer.succeed(HttpClient.HttpClient, client)
 }
 
@@ -55,19 +61,20 @@ function jsonResponse(body: unknown) {
 }
 
 function testLayer(
-  httpHandler: (request: HttpClientRequest.HttpClientRequest) => Response,
+  httpHandler: (request: HttpClientRequest.HttpClientRequest) => Response | Effect.Effect<Response>,
   spawnHandler?: (
     cmd: string,
     args: readonly string[],
     env: Record<string, string | undefined>,
   ) => string | { code: number; stdout?: string; stderr?: string },
+  options?: { latestTimeout?: Duration.Input },
 ) {
   const spawnerNode = makeGlobalNode({
     service: ChildProcessSpawner.ChildProcessSpawner,
     layer: mockSpawner(spawnHandler),
     deps: [],
   })
-  return LayerNode.compile(Installation.node, [
+  return LayerNode.compile(Installation.makeNode(options), [
     [httpClient, mockHttpClient(httpHandler)],
     [CrossSpawnSpawner.node, spawnerNode],
   ])
@@ -99,6 +106,39 @@ describe("installation", () => {
   })
 
   describe("latest", () => {
+    const interruptions: boolean[] = []
+    testEffect(
+      testLayer(
+        () =>
+          Effect.never.pipe(
+            Effect.onInterrupt(() =>
+              Effect.sync(() => {
+                interruptions.push(true)
+              }),
+            ),
+          ),
+        undefined,
+        { latestTimeout: "10 millis" },
+      ),
+    ).effect("times out and interrupts a never-completing nexus request", () =>
+      Effect.gen(function* () {
+        const fiber = yield* Installation.use.latest("npm").pipe(Effect.forkChild)
+        yield* TestClock.adjust("10 millis")
+        const result = fiber.pollUnsafe()
+        if (!result) {
+          yield* Fiber.interrupt(fiber)
+          expect(result).toBeDefined()
+          return
+        }
+        const error = yield* Fiber.join(fiber).pipe(Effect.flip)
+        expect(error).toBeInstanceOf(Installation.UpgradeFailedError)
+        expect(error.stderr).toBe(
+          "Ruying Code could not check Nexus for updates in time. Check Nexus access and retry, or run ruying-code upgrade 1.2.3 with an exact version.",
+        )
+        expect(interruptions).toEqual([true])
+      }),
+    )
+
     const nexusCalls: string[] = []
     testEffect(
       testLayer((request) => {
@@ -139,9 +179,64 @@ describe("installation", () => {
         )
       }),
     )
+
+    const invalidLatest = [
+      "https://example.test/tool.tgz",
+      "file:../tool",
+      "npm:other@1.2.3",
+      "^1.2.3",
+      "latest",
+      " 1.2.3 ",
+      "v1.2.3",
+    ]
+    testEffect(testLayer(() => jsonResponse({ version: invalidLatest.shift() }))).effect(
+      "rejects non-canonical nexus versions",
+      () =>
+        Effect.gen(function* () {
+          const errors = yield* Effect.forEach(Array(7), () => Effect.flip(Installation.use.latest("npm")))
+          expect(errors.every((error) => error instanceof Installation.UpgradeFailedError)).toBe(true)
+          expect(errors.map((error) => error.stderr)).toEqual(
+            Array(7).fill("Ruying Code received an invalid version from Nexus. Retry with an exact semantic version."),
+          )
+        }),
+    )
   })
 
   describe("upgrade", () => {
+    const invalidVersionCommands: string[] = []
+    testEffect(
+      testLayer(
+        () => jsonResponse({}),
+        (cmd) => {
+          invalidVersionCommands.push(cmd)
+          return ""
+        },
+      ),
+    ).effect("rejects non-canonical versions before spawning a package manager", () =>
+      Effect.gen(function* () {
+        const versions = [
+          "https://example.test/tool.tgz",
+          "file:../tool",
+          "npm:other@1.2.3",
+          "^1.2.3",
+          "latest",
+          " 1.2.3 ",
+          "v1.2.3",
+        ]
+        const errors = yield* Effect.forEach(versions, (version) =>
+          Effect.flip(Installation.use.upgrade("npm", version)),
+        )
+        expect(errors.every((error) => error instanceof Installation.UpgradeFailedError)).toBe(true)
+        expect(errors.map((error) => error.stderr)).toEqual(
+          versions.map(
+            (version) =>
+              `Ruying Code refused invalid version "${version}". Use an exact semantic version such as 1.2.3.`,
+          ),
+        )
+        expect(invalidVersionCommands).toEqual([])
+      }),
+    )
+
     const registries: Array<string | undefined> = []
     testEffect(
       testLayer(

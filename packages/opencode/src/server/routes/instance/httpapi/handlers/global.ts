@@ -102,9 +102,11 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
           body: { success: false as const, error: "Unknown installation method" },
         }
       }
-      const target = ctx.payload.target || (yield* installation.latest(method))
-      const result = yield* installation.upgrade(method, target).pipe(
-        Effect.as({ status: 200, body: { success: true as const, version: target } }),
+      const result = yield* Effect.gen(function* () {
+        const target = ctx.payload.target || (yield* installation.latest(method))
+        yield* installation.upgrade(method, target)
+        return { status: 200, body: { success: true as const, version: target } }
+      }).pipe(
         Effect.catch((err) =>
           Effect.succeed({
             status: 500,
@@ -120,7 +122,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
         directory: "global",
         payload: {
           type: Installation.Event.Updated.type,
-          properties: { version: target },
+          properties: { version: result.body.version },
         },
       })
       return result
