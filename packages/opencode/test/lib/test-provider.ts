@@ -12,7 +12,7 @@ export function testProviderConfig(llmUrl: string) {
     lsp: false,
     provider: {
       ruying: {
-        options: { ruyingUser: {} },
+        options: { ruyingUser: { employeeId: "GW-TEST", displayName: "Test User", email: "" } },
       },
       test: {
         name: "Test",

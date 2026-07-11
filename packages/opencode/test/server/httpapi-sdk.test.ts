@@ -1,7 +1,7 @@
 import { afterEach, describe, expect } from "bun:test"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import { Deferred, Effect, Layer } from "effect"
+import { Deferred, Effect, Layer, Semaphore } from "effect"
 import type * as Scope from "effect/Scope"
 import { HttpServer } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process"
@@ -42,6 +42,7 @@ const appLayer = AppNodeBuilder.build(
   [[InstanceStore.bootstrapNode, noopBootstrapLayer]],
 )
 const it = testEffect(Layer.mergeAll(appLayer, httpApiLayer))
+const httpApiTestLock = Semaphore.makeUnsafe(1)
 
 const original = {
   OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
@@ -199,7 +200,7 @@ function resetState() {
 }
 
 function httpapi<A, E>(name: string, effect: Effect.Effect<A, E, TestScope>) {
-  it.live(name, effect)
+  it.live(name, httpApiTestLock.withPermits(1)(effect))
 }
 
 function httpapiInstance<A, E>(
@@ -214,17 +215,17 @@ function httpapiInstance<A, E>(
 ) {
   it.instance(
     name,
-    Effect.gen(function* () {
+    httpApiTestLock.withPermits(1)(Effect.gen(function* () {
       const instance = yield* TestInstance
       yield* options.setup?.(instance.directory) ?? Effect.void
       return yield* run({ sdk: yield* client(options.serverPath, instance.directory), directory: instance.directory })
-    }),
+    })),
     { git: options.git ?? true, config: { formatter: false, lsp: false, ...options.config } },
   )
 }
 
 function serverPathParity<A, E>(name: string, scenario: (serverPath: ServerPath) => Effect.Effect<A, E, TestScope>) {
-  it.live(name, scenario("raw"))
+  it.live(name, httpApiTestLock.withPermits(1)(scenario("raw")))
 }
 
 function withProject<A, E, E2 = never>(
@@ -876,6 +877,21 @@ describe("HttpApi SDK", () => {
     "returns declared ruying error when credential removal fails",
     withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
       Effect.gen(function* () {
+        const configFile = globalConfigFile()
+        const existed = yield* Effect.promise(() => Bun.file(configFile).exists())
+        const previous = existed ? yield* Effect.promise(() => Bun.file(configFile).text()) : undefined
+        yield* Effect.promise(() =>
+          Bun.write(
+            configFile,
+            '{ "provider": { "ruying": { "options": { "ruyingUser": { "employeeId": "GW001" } } } } }',
+          ),
+        )
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            if (previous !== undefined) return void (await Bun.write(configFile, previous))
+            await Bun.file(configFile).delete()
+          }),
+        )
         yield* setRuyingCredential(sdk)
         const authFile = path.join(Global.Path.data, "auth.json")
         yield* Effect.promise(() => chmod(authFile, 0o600))
@@ -1010,12 +1026,20 @@ describe("HttpApi SDK", () => {
   )
 
   httpapi(
-    "accepts an empty identity marker and rejects prompt async after credential revocation",
-    withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
+    "rejects an empty identity marker",
+    withProject(
+      "raw",
+      {
+        config: {
+          ...ruyingIdentityConfig,
+          provider: { ...ruyingIdentityConfig.provider, ruying: { options: { ruyingUser: {} } } },
+        },
+      },
+      ({ sdk }) =>
       Effect.gen(function* () {
         yield* setRuyingCredential(sdk)
         const session = yield* call(() => sdk.session.create({ title: "fresh gate" }))
-        const accepted = yield* capture(() =>
+        const rejected = yield* capture(() =>
           sdk.session.prompt({
             sessionID: session.data!.id,
             agent: "build",
@@ -1024,23 +1048,33 @@ describe("HttpApi SDK", () => {
             parts: [{ type: "text", text: "accepted" }],
           }),
         )
-        expect(accepted.status).toBe(200)
+        expect(rejected.status).toBe(400)
+        expect(rejected.error).toEqual(loginRequired)
+      }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
+    ),
+  )
 
-        yield* removeRuyingCredential(sdk)
+  httpapi(
+    "rejects a configured secondary provider after ruying login",
+    withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
+      Effect.gen(function* () {
+        yield* setRuyingCredential(sdk)
+        const session = yield* call(() => sdk.session.create({ title: "provider isolation" }))
         const rejected = yield* capture(() =>
-          sdk.session.promptAsync({
+          sdk.session.prompt({
             sessionID: session.data!.id,
             agent: "build",
             model: { providerID: "test", modelID: "test-model" },
             noReply: true,
-            parts: [{ type: "text", text: "must not fork" }],
+            parts: [{ type: "text", text: "blocked" }],
           }),
         )
-        const messages = yield* call(() => sdk.session.messages({ sessionID: session.data!.id }))
 
         expect(rejected.status).toBe(400)
-        expect(rejected.error).toEqual(loginRequired)
-        expect(JSON.stringify(messages.data)).not.toContain("must not fork")
+        expect(rejected.error).toMatchObject({
+          name: "ProviderAuthValidationFailed",
+          data: { providerID: "test", field: "providerID" },
+        })
       }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
     ),
   )

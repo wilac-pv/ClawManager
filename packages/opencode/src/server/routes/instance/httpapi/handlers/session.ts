@@ -39,7 +39,7 @@ import {
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
-import { message as ruyingLoginMessage, requireRuyingLogin } from "@/auth/ruying-gate"
+import { message as ruyingLoginMessage, requireRuyingLogin, requireRuyingProvider } from "@/auth/ruying-gate"
 import { ProviderAuthApiError } from "../groups/provider"
 
 const tryParseJson = (text: string) =>
@@ -96,6 +96,19 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                 kind: "login-required",
                 message: ruyingLoginMessage,
               },
+            }),
+        ),
+      )
+    })
+
+    const requireProvider = Effect.fn("SessionHttpApi.requireRuyingProvider")(function* (providerID?: string) {
+      if (!providerID) return
+      yield* requireRuyingProvider(providerID).pipe(
+        Effect.mapError(
+          (error) =>
+            new ProviderAuthApiError({
+              name: "ProviderAuthValidationFailed",
+              data: { providerID: ProviderV2.ID.make(error.providerID), field: "providerID", message: error.message },
             }),
         ),
       )
@@ -259,6 +272,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       yield* requireLogin()
+      yield* requireProvider(ctx.payload.providerID)
       yield* promptSvc
         .command({
           sessionID: ctx.params.sessionID,
@@ -296,6 +310,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       const current = yield* requireSession(ctx.params.sessionID)
       yield* requireLogin()
+      yield* requireProvider(ctx.payload.providerID)
       yield* revertSvc.cleanup(current)
       const messages = yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
       const defaultAgent = yield* agentSvc.defaultAgent()
@@ -320,6 +335,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       yield* requireLogin()
+      yield* requireProvider(ctx.payload.model?.providerID)
       const message = yield* promptSvc
         .prompt({
           ...ctx.payload,
@@ -337,6 +353,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       yield* requireLogin()
+      yield* requireProvider(ctx.payload.model?.providerID)
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
@@ -358,6 +375,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       yield* requireLogin()
+      yield* requireProvider(ctx.payload.model?.split("/")[0])
       return yield* promptSvc
         .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
         .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))

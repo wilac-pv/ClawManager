@@ -4,6 +4,7 @@ import { Context, Effect, Layer, Record, Result, Schema, Semaphore } from "effec
 import { NonNegativeInt } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 
@@ -62,9 +63,10 @@ const layer = Layer.effect(
     const semaphore = Semaphore.makeUnsafe(1)
 
     const read = Effect.fn("Auth.read")(function* () {
-      if (process.env.OPENCODE_AUTH_CONTENT) {
+      const inline = Brand.env("AUTH_CONTENT")
+      if (inline) {
         try {
-          return JSON.parse(process.env.OPENCODE_AUTH_CONTENT)
+          return JSON.parse(inline)
         } catch (err) {}
       }
 

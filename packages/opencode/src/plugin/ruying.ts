@@ -488,7 +488,7 @@ function createRuyingConfigPublication(
     canceled = true
     if (cancellation) return cancellation
     cancellation = (async () => {
-      await publication
+      await publication?.catch(() => undefined)
       if (!published || !snapshot) return
       await queueProviderConfigWrite(target, async () => {
         if (!published || !snapshot) return
@@ -587,12 +587,16 @@ async function restoreOwnedConfig(file: string, snapshot: OwnedConfigSnapshot) {
         applyEdits(result, modify(result, item.path, item.present ? item.value : undefined, formatting)),
       applyEdits(source, modify(source, ["enabled_providers"], restoredEnabled, formatting)),
     )
-  const parsed = parse(restored) as Record<string, unknown>
-  const provider = isRecord(parsed.provider) ? parsed.provider : undefined
-  const ruying = provider && isRecord(provider[PROVIDER_ID]) ? provider[PROVIDER_ID] : undefined
-  const compacted = ruying && Object.keys(ruying).length === 0
-    ? applyEdits(restored, modify(restored, ["provider", PROVIDER_ID], undefined, formatting))
-    : restored
+  const compacted = [
+    ["provider", PROVIDER_ID, "options"],
+    ["provider", PROVIDER_ID],
+    ["provider"],
+  ].reduce((result, path) => {
+    const parsed = parse(result) as Record<string, unknown>
+    const value = path.reduce<unknown>((current, key) => (isRecord(current) ? current[key] : undefined), parsed)
+    if (!isRecord(value) || Object.keys(value).length) return result
+    return applyEdits(result, modify(result, path, undefined, formatting))
+  }, restored)
   const finalConfig = parse(compacted) as Record<string, unknown>
   if (!snapshot.fileExisted && Object.keys(finalConfig).length === 0) {
     await rm(file, { force: true })
@@ -640,7 +644,7 @@ export function buildProviderPatch(gatewayApiBase: string, modelIds: string[], u
   // SSO login happened. Always write it when a user object is provided (even with
   // empty fields) — its presence is the "logged in" marker; the badge shows the
   // name only when the fields are populated.
-  const ruyingUser = user
+  const ruyingUser = user?.employeeId.trim()
     ? { ruyingUser: { employeeId: user.employeeId, displayName: user.displayName, email: user.email } }
     : {}
   // No apiKey here — opencode injects the credential stored in auth.json into
@@ -785,6 +789,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                   debug(`[ruying] callback outcome ok=${outcome.ok}`)
                   if (!outcome.ok) return { type: "failed" as const }
                   if (canceled) return { type: "failed" as const }
+                  if (!outcome.user.employeeId.trim()) return { type: "failed" as const }
 
                   const modelIds = await fetchModelIds(gatewayApiBase, outcome.key).catch(() => [] as string[])
                   if (canceled) return { type: "failed" as const }
@@ -794,18 +799,17 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                   // Restrict the app to only the 如影 gateway, and register it + the
                   // logged-in user. Written to disk directly (not via the SDK) so we
                   // don't dispose the instance mid-callback; the gate re-bootstraps.
-                  try {
-                    publication = createRuyingConfigPublication(
-                      options.configFile ?? globalConfigFile(),
-                      gatewayApiBase,
-                      modelIds,
-                      outcome.user,
-                      options.configPublicationHooks,
-                    )
-                    await publication.publish()
-                  } catch {
-                    // best-effort
-                  }
+                  publication = createRuyingConfigPublication(
+                    options.configFile ?? globalConfigFile(),
+                    gatewayApiBase,
+                    modelIds,
+                    outcome.user,
+                    options.configPublicationHooks,
+                  )
+                  await publication.publish().catch(async () => {
+                    await publication?.cancel()
+                    throw new Error("Failed to publish Ruying provider config")
+                  })
                   if (canceled) return { type: "failed" as const }
 
                   return {

@@ -7,6 +7,26 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(LayerNode.compile(Auth.node))
 
 describe("Auth", () => {
+  it.instance("prefers branded inline auth with legacy fallback", () =>
+    Effect.gen(function* () {
+      const previousBranded = process.env.RUYING_CODE_AUTH_CONTENT
+      const previousLegacy = process.env.OPENCODE_AUTH_CONTENT
+      process.env.RUYING_CODE_AUTH_CONTENT = JSON.stringify({ ruying: { type: "api", key: "branded" } })
+      process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({ ruying: { type: "api", key: "legacy" } })
+      try {
+        const auth = yield* Auth.Service
+        expect(yield* auth.get("ruying")).toMatchObject({ key: "branded" })
+        delete process.env.RUYING_CODE_AUTH_CONTENT
+        expect(yield* auth.get("ruying")).toMatchObject({ key: "legacy" })
+      } finally {
+        if (previousBranded === undefined) delete process.env.RUYING_CODE_AUTH_CONTENT
+        else process.env.RUYING_CODE_AUTH_CONTENT = previousBranded
+        if (previousLegacy === undefined) delete process.env.OPENCODE_AUTH_CONTENT
+        else process.env.OPENCODE_AUTH_CONTENT = previousLegacy
+      }
+    }),
+  )
+
   it.instance("set normalizes trailing slashes in keys", () =>
     Effect.gen(function* () {
       const auth = yield* Auth.Service

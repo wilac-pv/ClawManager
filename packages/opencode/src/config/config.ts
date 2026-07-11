@@ -6,6 +6,7 @@ import { pathToFileURL } from "url"
 import os from "os"
 import { mergeDeep } from "remeda"
 import { Global } from "@opencode-ai/core/global"
+import { Brand } from "@opencode-ai/core/brand/brand"
 import fsNode from "fs/promises"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Auth } from "../auth"
@@ -475,14 +476,15 @@ const layer = Layer.effect(
           yield* mergePluginOrigins(dir, list)
         }
 
-        if (process.env.OPENCODE_CONFIG_CONTENT) {
-          const source = "OPENCODE_CONFIG_CONTENT"
-          const next = yield* loadConfig(process.env.OPENCODE_CONFIG_CONTENT, {
+        const inline = Brand.env("CONFIG_CONTENT")
+        if (inline) {
+          const source = process.env.RUYING_CODE_CONFIG_CONTENT ? "RUYING_CODE_CONFIG_CONTENT" : "OPENCODE_CONFIG_CONTENT"
+          const next = yield* loadConfig(inline, {
             dir: ctx.directory,
             source,
           })
           yield* merge(source, next, "local")
-          yield* Effect.logDebug("loaded custom config from OPENCODE_CONFIG_CONTENT")
+          yield* Effect.logDebug(`loaded custom config from ${source}`)
         }
 
         const activeAccount = Option.getOrUndefined(

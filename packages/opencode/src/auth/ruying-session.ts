@@ -20,19 +20,21 @@ export const getRuyingSessionStatus = Effect.fn("Auth.ruyingSessionStatus")(func
     config.get(),
   ])
   const marker = current.provider?.[Brand.profile.providerID]?.options?.ruyingUser
+  const employeeId =
+    typeof marker === "object" && marker !== null && !Array.isArray(marker) && typeof marker.employeeId === "string"
+      ? marker.employeeId.trim()
+      : ""
   if (
     credential?.type !== "api" ||
     !credential.key ||
-    typeof marker !== "object" ||
-    marker === null ||
-    Array.isArray(marker)
+    !employeeId
   ) {
     return { loggedIn: false as const }
   }
   return {
     loggedIn: true as const,
     user: {
-      ...(typeof marker.employeeId === "string" ? { employeeId: marker.employeeId } : {}),
+      employeeId,
       ...(typeof marker.displayName === "string" ? { displayName: marker.displayName } : {}),
       ...(typeof marker.email === "string" ? { email: marker.email } : {}),
     },

@@ -197,19 +197,13 @@ describe("plugin.ruying", () => {
       expect((provider.options as Record<string, unknown>).ruyingUser).toBeUndefined()
     })
 
-    test("writes the ruyingUser marker even when the user fields are empty (gate detection)", () => {
-      // check_token / tokenName can return nothing, but login still succeeded —
-      // the presence of ruyingUser is what flips the startup gate.
+    test("omits an empty identity marker", () => {
       const provider = buildProviderPatch("https://aicoding.gwm.cn/v1", [], {
         employeeId: "",
         displayName: "",
         email: "",
       }).provider.ruying
-      expect((provider.options as Record<string, unknown>).ruyingUser).toEqual({
-        employeeId: "",
-        displayName: "",
-        email: "",
-      })
+      expect((provider.options as Record<string, unknown>).ruyingUser).toBeUndefined()
     })
   })
 
@@ -991,6 +985,58 @@ describe("plugin.ruying", () => {
         displayName: "张三",
         email: "z@gwm.cn",
       })
+      rmSync(configFile, { force: true })
+    })
+
+    test("fails without committing config when employee identity is empty", async () => {
+      using admin = makeServer(() => Response.json({ status: "ready", key: "sk-user-abc", tokenName: "" }))
+      using sso = makeServer(() => new Response("down", { status: 500 }))
+      const configFile = tmpConfigFile()
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: baseUrl(sso),
+        configFile,
+        callbackHost: "127.0.0.1",
+        callbackPort: 0,
+      })
+
+      const authorized = await oauthMethod(hooks).authorize!()
+      const redirectUri = new URL(authorized.url).searchParams.get("redirect_url")!
+      const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
+      await fetch(`${redirectUri}?access_token=SSO-T`)
+
+      expect(await callbackPromise).toEqual({ type: "failed" })
+      expect(existsSync(configFile)).toBe(false)
+    })
+
+    test("fails and restores config when publication reports an error", async () => {
+      using admin = makeServer(() =>
+        Response.json({ status: "ready", key: "sk-user-abc", tokenName: "GW001-张三" }),
+      )
+      using gw = makeServer(() => Response.json({ data: [] }))
+      const configFile = tmpConfigFile()
+      const original = JSON.stringify({ theme: "dark" })
+      writeFileSync(configFile, original)
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        gatewayApiBase: `${baseUrl(gw)}/v1`,
+        configFile,
+        callbackHost: "127.0.0.1",
+        callbackPort: 0,
+        configPublicationHooks: {
+          afterRename: async () => {
+            throw new Error("publication failed")
+          },
+        },
+      })
+
+      const authorized = await oauthMethod(hooks).authorize!()
+      const redirectUri = new URL(authorized.url).searchParams.get("redirect_url")!
+      const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
+      await fetch(`${redirectUri}?access_token=SSO-T`)
+
+      expect(await callbackPromise).toEqual({ type: "failed" })
+      expect(JSON.parse(readFileSync(configFile, "utf8"))).toEqual(JSON.parse(original))
       rmSync(configFile, { force: true })
     })
 

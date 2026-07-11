@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { requireRuyingLogin } from "@/auth/ruying-gate"
+import { requireRuyingLogin, requireRuyingProvider } from "@/auth/ruying-gate"
 import { getRuyingSessionStatus } from "@/auth/ruying-session"
 import { Auth } from "@/auth"
 import { Config } from "@/config/config"
@@ -26,7 +26,16 @@ function run(auth: Auth.Info | undefined, marker?: unknown) {
 test("requires both a ruying key and persisted identity marker", async () => {
   await expect(run(undefined, {})).rejects.toThrow("ruying-code login")
   await expect(run({ type: "api", key: "sk", metadata: { employeeId: "GW001" } })).rejects.toThrow("ruying-code login")
-  await expect(run({ type: "api", key: "sk" }, {})).resolves.toBeUndefined()
+  await expect(run({ type: "api", key: "sk" }, {})).rejects.toThrow("ruying-code login")
+  await expect(run({ type: "api", key: "sk" }, { employeeId: "GW001" })).resolves.toBeUndefined()
+})
+
+test("model execution accepts only the Ruying provider", async () => {
+  await expect(Effect.runPromise(requireRuyingProvider("ruying"))).resolves.toBeUndefined()
+  await expect(Effect.runPromise(requireRuyingProvider("test"))).rejects.toMatchObject({
+    _tag: "RuyingProviderRequiredError",
+    providerID: "test",
+  })
 })
 
 test("reports the authoritative user only when credential and marker are both present", async () => {

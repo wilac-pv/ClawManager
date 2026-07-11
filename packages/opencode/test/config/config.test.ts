@@ -1962,6 +1962,18 @@ describe("OPENCODE_PERMISSION env var", () => {
 })
 
 describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
+  it.instance("prefers RUYING_CODE_CONFIG_CONTENT over the legacy alias", () =>
+    withProcessEnvs(
+      {
+        RUYING_CODE_CONFIG_CONTENT: JSON.stringify({ username: "branded" }),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({ username: "legacy" }),
+      },
+      Effect.gen(function* () {
+        expect((yield* Config.use.get()).username).toBe("branded")
+      }),
+    ),
+  )
+
   it.instance("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", () =>
     withProcessEnv(
       "TEST_CONFIG_VAR",
