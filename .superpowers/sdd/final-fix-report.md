@@ -627,6 +627,87 @@ Chelper:
 - The post-commit parallel build verification reproduced the known shared-artifact race: Desktop observed `ENOENT` while the simultaneous Opencode build replaced `packages/opencode/dist/node`. The required sequential Desktop rerun passed. This is recorded as a build-order constraint, not hidden as a parallel pass.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
 
+# Wave 13 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 13 corrections and dispositions
+
+- `Brand.docsURL()` and `Brand.supportURL()` now share one admission boundary before UI or prompt use. An accepted value must parse as an absolute HTTPS URL, contain no username or password, and occupy at most 512 UTF-8 bytes. The original accepted string is preserved; invalid or oversized values are omitted. Changelog behavior is unchanged.
+- Owner, WAL, and snapshot reads no longer rely on a pre-read size followed by `readFileSync` to EOF. Verified descriptors use one reader that allocates at most the configured maximum plus one byte and stops at that boundary. A post-open overflow is rejected. A file already oversized during legacy inspection retains Wave 12's bounded, metadata-only legacy recovery behavior.
+- Transaction owner and WAL now persist exact `parents.auth/config.dev/ino` values from bigint filesystem metadata as canonical nonnegative decimal strings. Owner and WAL shapes require exact keys and exact identity equality.
+- Auth/config parent anchors are opened and held before publishing the owner. Dead recovery validates the complete owner and WAL, opens current no-follow parent anchors, and compares both recorded identities before resource-temp cleanup, snapshot restore, or target publication. A same-path real directory replacement therefore fails closed with the canonical main retained.
+- Production root selection is factored into the pure `resolveGlobalLockRootPath()` entry point used by the creating/validating resolver. Two real children with divergent `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME`, and no injected lock root, select the same OS-account-derived path. This is evidence for production path selection only; no live acquisition in the actual user directory is claimed.
+- Chelper `docs/config-publication.md` documents the positional publication callback as a scheduling/failure hook that never owns resource I/O, the synchronous verified-open/read test hook and exception propagation, the 64 KiB owner, 48 MiB WAL, and 16 MiB decoded per-snapshot caps, and parent-identity recovery behavior.
+- Corrected the recovery wording: approved targets are exact absolute fixed-canonical path strings, while replacement protection comes from separately persisted and revalidated parent filesystem identities. Path strings alone are not described as descriptor anchors.
+
+## Wave 13 RED and diagnostic evidence
+
+- Exact 513-byte, HTTP, credential-bearing, and malformed docs/support values were returned raw before the Brand validator. A 20,000-character HTTPS-prefixed value placed `PROMPT_INJECTION_DO_NOT_FOLLOW` directly in the model-visible system prompt.
+- The production selector child exited with a missing-export error before `resolveGlobalLockRootPath()` existed.
+- Deterministic verified-open callbacks showed owner and 16 MiB snapshot growth were not rejected because the callback/bounded reader did not exist. The WAL concurrent-growth case was added after the shared bounded reader and is recorded as GREEN coverage, not separately claimed as test-first RED evidence.
+- Before durable parent identities, a killed child left owner/WAL records with no `parents` field. After renaming the original parent and creating a real replacement directory at the same pathname, recovery exited successfully and operated through the replacement path rather than failing closed.
+- The first bounded-reader GREEN attempt rejected the snapshot overflow but not the owner overflow. `inspectLock` caught the distinct post-open owner overflow during malformed-owner retries and eventually classified the now-oversized record as legacy. The correction propagates only `BoundedReadOverflowError` while preserving pre-existing oversized legacy-owner recovery. No further production implementation attempt failed.
+- The first full-suite run after parent identity had 83 passes and one fixture failure: a manually constructed durability owner omitted the new required parent metadata and therefore retired under a legacy identity. Adding the actual bigint parent identity to that fixture restored its intended generation-tombstone assertion; this was a fixture-schema update, not a production failure.
+
+## Wave 13 GREEN verification
+
+```text
+packages/core$ bun test test/brand.test.ts
+17 pass, 0 fail, 30 expects
+packages/core$ bun typecheck
+pass
+
+packages/opencode$ bun test test/session/system.test.ts
+14 pass, 0 fail, 46 expects
+packages/opencode$ bun typecheck
+pass
+packages/opencode$ bun run build --single --skip-install
+pass; smoke test 0.0.0-ruying-code-oem-202607112051
+
+chelper$ npm test
+5 files, 88 pass, 0 fail
+  configurer: 77 pass, 0 fail
+chelper$ npm run build
+pass; tsup ESM 135.21 KiB
+
+Primary and Chelper git diff checks
+pass
+```
+
+The bounded-growth matrix starts owner, WAL, and snapshot files at exactly 64 KiB, 48 MiB, and 16 MiB respectively, grows each by one byte after verified open, and observes rejection before auth/config mutation. The parent codec matrix rejects leading-zero, signed, extra-field, and owner/WAL-mismatched identities. A real child killed at `auth-published`, followed by rename and a real replacement directory, exits recovery with status 1; the replacement directory listing and every victim byte remain identical, and the canonical transaction lock remains for inspection.
+
+The production selector child test does not pass an injected root and invokes only the pure production selector, so it creates no user-home lock artifact. It deliberately does not prove real-user-root acquisition. Filesystem integration ran on macOS. Windows still has no POSIX UID-equivalent owner check through this Node surface; bigint `dev`/`ino`, directory type, symlink, and identity checks remain in the shared implementation, but no Windows OS execution is claimed.
+
+Generic credential-pattern scans produced zero Chelper matches. Primary matches were limited to three pre-existing example/test fixture files (`github/README.md`, HTTP recorder redaction tests, and a Bedrock test access-key fixture); no Wave 13 changed file matched. No credential value was printed by the scan.
+
+No npm publish, production request, public-share request, dependency installation, push, PR, or other real external network action was performed.
+
+## Wave 13 commits
+
+Primary:
+
+- `445752f75` — `docs: design Wave 13 hardening`
+- `82cee2b2f` — `docs: plan Wave 13 hardening`
+- `5461b8b14` — `fix(core): bound branded support URLs`
+
+Chelper:
+
+- `edb3fa6` — `fix(config): bind recovery to parent identity`
+
+Documentation:
+
+- This report commit — `docs: record Wave 13 verification`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, scans, bounded reads, parent identity, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- Auth/config files larger than 16 MiB cannot enter the recoverable publication protocol; owner metadata larger than 64 KiB and WAL larger than 48 MiB fail closed or enter the documented bounded legacy path. These are deliberate bounded-memory availability tradeoffs.
+- A live or PID-reused owner still causes conservative waiting and can time out after 30 seconds. It is never evicted based on age or invalid target semantics.
+- Node still has no portable `openat`/`renameat`. Held descriptors plus bigint identity revalidation detect pathname replacement but are not an atomic namespace-relative rename primitive. Windows directory fsync and power-loss behavior remain unverified.
+- App build retains its pre-existing dynamic-import, duplicate sourcemap, and large-chunk warnings.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
 
 ---
 
