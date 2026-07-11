@@ -112,3 +112,14 @@ test("keeps a hidden prod launcher for old Linux pins", async () => {
   expect(desktop).toContain("StartupWMClass=cn.gwm.ruying-code")
   expect(desktop).toContain("NoDisplay=true")
 })
+
+test("brands Windows menu accessibility text and the native startup title", async () => {
+  const appMenu = await Bun.file(join(import.meta.dir, "../app/src/components/windows-app-menu.tsx")).text()
+  const windows = await Bun.file(join(import.meta.dir, "src/main/windows.ts")).text()
+
+  expect(appMenu).toContain('aria-label="如影 Code menu"')
+  expect(appMenu).toContain(">如影 Code</DropdownMenu.GroupLabel>")
+  expect(appMenu).not.toContain('aria-label="OpenCode menu"')
+  expect(windows).toContain('title: "如影 Code"')
+  expect(windows).not.toContain('title: "OpenCode"')
+})

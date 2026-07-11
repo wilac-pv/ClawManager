@@ -1,13 +1,28 @@
 import { app } from "electron"
 import log from "electron-log/main.js"
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { CHANNEL } from "./constants"
 import { getStore } from "./store"
 
 const TAURI_MIGRATED_KEY = "tauriMigrated"
 const LEGACY_ELECTRON_MIGRATED_FILE = ".legacy-electron-migrated"
+const LEGACY_ELECTRON_MIGRATION_VERSION = 1
 
 const LEGACY_APP_IDS = {
   dev: "ai.opencode.desktop.dev",
@@ -46,7 +61,7 @@ function tauriAppId() {
 
 export function migrateLegacyElectronData(legacyDir: string, currentDir: string) {
   const marker = join(currentDir, LEGACY_ELECTRON_MIGRATED_FILE)
-  if (existsSync(marker)) return
+  if (validMarkerOrRemove(marker)) return
 
   mkdirSync(currentDir, { recursive: true })
   if (existsSync(legacyDir)) {
@@ -55,7 +70,48 @@ export function migrateLegacyElectronData(legacyDir: string, currentDir: string)
       .forEach((entry) => migrateLegacyElectronStore(join(legacyDir, entry.name), join(currentDir, entry.name)))
   }
 
-  writeJsonAtomically(marker, { migratedAt: new Date().toISOString() })
+  writeJsonAtomically(marker, {
+    version: LEGACY_ELECTRON_MIGRATION_VERSION,
+    migratedAt: new Date().toISOString(),
+  })
+}
+
+function validMarkerOrRemove(marker: string) {
+  const stats = lstatSync(marker, { throwIfNoEntry: false })
+  if (!stats) return false
+  if (stats.isSymbolicLink()) {
+    unlinkSync(marker)
+    return false
+  }
+  if (stats.isDirectory()) {
+    if (readdirSync(marker).length > 0)
+      throw new Error(`legacy electron migration: marker directory is not empty ${marker}`)
+    rmdirSync(marker)
+    return false
+  }
+  if (!stats.isFile()) throw new Error(`legacy electron migration: unsupported marker type ${marker}`)
+
+  if (isMarker(readMarker(marker))) return true
+  unlinkSync(marker)
+  return false
+}
+
+function readMarker(marker: string): unknown {
+  let handle: number | undefined
+  try {
+    handle = openSync(marker, constants.O_RDONLY | constants.O_NOFOLLOW)
+    if (!fstatSync(handle).isFile()) return undefined
+    return JSON.parse(readFileSync(handle, "utf8")) as unknown
+  } catch {
+    return undefined
+  } finally {
+    if (handle !== undefined) closeSync(handle)
+  }
+}
+
+function isMarker(value: unknown): value is { version: number; migratedAt: string } {
+  if (!isRecord(value)) return false
+  return value.version === LEGACY_ELECTRON_MIGRATION_VERSION && typeof value.migratedAt === "string"
 }
 
 function migrateLegacyElectronStore(legacyFile: string, currentFile: string) {
@@ -80,9 +136,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function writeJsonAtomically(file: string, value: Record<string, unknown>) {
-  const temporary = `${file}.${crypto.randomUUID()}.tmp`
-  writeFileSync(temporary, JSON.stringify(value, null, 2))
-  renameSync(temporary, file)
+  const temporary = join(dirname(file), `.${basename(file)}.${crypto.randomUUID()}.tmp`)
+  try {
+    writeFileSync(temporary, JSON.stringify(value, null, 2), { flag: "wx" })
+    renameSync(temporary, file)
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary)
+  }
 }
 
 // Migrate a single Tauri .dat file into the corresponding electron-store.
