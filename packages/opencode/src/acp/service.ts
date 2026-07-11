@@ -30,6 +30,7 @@ import {
   type SetSessionModeResponse,
 } from "@agentclientprotocol/sdk"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { Brand } from "@opencode-ai/core/brand/brand"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import type { AssistantMessage, Message, OpencodeClient, SessionMessageResponse } from "@opencode-ai/sdk/v2"
 import { Context, Effect, Layer, ManagedRuntime } from "effect"
@@ -92,17 +93,17 @@ export function make(input: {
   const initialize = Effect.fn("ACP.initialize")(function* (params: InitializeRequest) {
     const started = performance.now()
     const authMethod: AuthMethod = {
-      description: "Run `opencode auth login` in the terminal",
-      name: "Login with opencode",
+      description: `Run \`${Brand.profile.cliName} login\` in the terminal`,
+      name: `Login with ${Brand.profile.englishName}`,
       id: AuthMethodID,
     }
 
     if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
       authMethod._meta = {
         "terminal-auth": {
-          command: "opencode",
-          args: ["auth", "login"],
-          label: "OpenCode Login",
+          command: Brand.profile.cliName,
+          args: ["login"],
+          label: `${Brand.profile.englishName} Login`,
         },
       }
     }
@@ -128,7 +129,7 @@ export function make(input: {
       },
       authMethods: [authMethod],
       agentInfo: {
-        name: "OpenCode",
+        name: Brand.profile.englishName,
         version: InstallationVersion,
       },
     }

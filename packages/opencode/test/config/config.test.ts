@@ -354,13 +354,12 @@ it.effect("ruying project directory config overrides legacy directory config", (
   ),
 )
 
-it.effect("creates branded global jsonc config with schema when no global configs exist", () =>
+it.effect("does not inject a public schema into a new branded global config", () =>
   withGlobalConfig({}, ({ dir }) =>
     Effect.gen(function* () {
       yield* Config.use.get().pipe(provideInstanceEffect(dir))
 
-      const content = yield* FSUtil.use.readFileString(path.join(dir, "ruying-code.jsonc"))
-      expect(content).toContain('"$schema": "https://opencode.ai/config.json"')
+      expect(yield* FSUtil.use.existsSafe(path.join(dir, "ruying-code.jsonc"))).toBe(false)
     }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
   ),
 )
@@ -562,13 +561,12 @@ it.instance("handles environment variable substitution", () =>
   ),
 )
 
-it.instance("preserves env variables when adding $schema to config", () =>
+it.instance("preserves env variables without adding a public schema", () =>
   withProcessEnv(
     "PRESERVE_VAR",
     "secret_value",
     Effect.gen(function* () {
       const test = yield* TestInstance
-      // Config without $schema - should trigger auto-add
       yield* FSUtil.use.writeWithDirs(
         path.join(test.directory, "opencode.json"),
         JSON.stringify({ username: "{env:PRESERVE_VAR}" }),
@@ -580,7 +578,7 @@ it.instance("preserves env variables when adding $schema to config", () =>
       const content = yield* FSUtil.use.readFileString(path.join(test.directory, "opencode.json"))
       expect(content).toContain("{env:PRESERVE_VAR}")
       expect(content).not.toContain("secret_value")
-      expect(content).toContain("$schema")
+      expect(content).not.toContain("$schema")
     }),
   ),
 )
@@ -647,10 +645,10 @@ const accountTokenIt = configIt({
   }),
 })
 
-accountTokenIt.instance("resolves env templates in account config with account token", () =>
+accountTokenIt.instance("ignores migrated account config and tokens", () =>
   Effect.gen(function* () {
     const config = yield* Config.use.get()
-    expect(config.provider?.["opencode"]?.options?.apiKey).toBe("st_test_token")
+    expect(config.provider?.["opencode"]).toBeUndefined()
   }),
 )
 
@@ -745,7 +743,7 @@ it.instance("handles command configuration", () =>
   }),
 )
 
-it.instance("migrates autoshare to share field", () =>
+it.instance("neutralizes migrated autoshare", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
     yield* writeConfigEffect(test.directory, {
@@ -753,7 +751,7 @@ it.instance("migrates autoshare to share field", () =>
       autoshare: true,
     })
     const config = yield* Config.use.get()
-    expect(config.share).toBe("auto")
+    expect(config.share).toBe("disabled")
     expect(config.autoshare).toBe(true)
   }),
 )

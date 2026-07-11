@@ -8,6 +8,7 @@ test("OEM public surfaces contain no upstream docs, Discord, or GitHub exits", a
       "components/settings-general.tsx",
       "components/help-button.tsx",
       "pages/error.tsx",
+      "pages/layout/helpers.ts",
     ].map((file) => Bun.file(new URL(file, import.meta.url)).text()),
   )
   const publicSource = sources.join("\n")
@@ -16,6 +17,12 @@ test("OEM public surfaces contain no upstream docs, Discord, or GitHub exits", a
   expect(publicSource).not.toContain("https://discord.com/invite/opencode")
   expect(publicSource).not.toContain("https://github.com/anomalyco/opencode")
   expect(publicSource).not.toContain("Open the OpenCode website")
+})
+
+test("primary WSL locales use Ruying Code branding", async () => {
+  const sources = await Promise.all(["i18n/en.ts", "i18n/zh.ts"].map((file) => Bun.file(new URL(file, import.meta.url)).text()))
+  const wsl = sources.flatMap((source) => source.split("\n").filter((line) => line.includes('"wsl.') || line.includes('"settings.desktop.wsl')))
+  expect(wsl.join("\n")).not.toContain("OpenCode")
 })
 
 test("OEM resource paths contain no upstream fetching or notification icons", async () => {
