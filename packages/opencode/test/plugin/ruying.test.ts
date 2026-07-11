@@ -13,7 +13,7 @@ import {
 import { Server } from "http"
 import { tmpdir } from "os"
 import { join } from "path"
-import { parse } from "jsonc-parser"
+import { applyEdits, modify, parse } from "jsonc-parser"
 
 // Stub the browser launcher so authorize() never spawns a real browser tab.
 mock.module("open", () => ({ default: async () => undefined }))
@@ -463,6 +463,163 @@ describe("plugin.ruying", () => {
   })
 
   describe("authorize -> callback", () => {
+    test("cancel completes when callback publication never started", async () => {
+      const hooks = await RuyingAuthPlugin({} as any, { callbackPort: 0 })
+      const authorized = await oauthMethod(hooks).authorize!()
+
+      await expect(
+        Promise.race([
+          (authorized as { cancel: () => Promise<void> }).cancel(),
+          Bun.sleep(100).then(() => Promise.reject(new Error("cancel timed out"))),
+        ]),
+      ).resolves.toBeUndefined()
+      expect(await (authorized as { callback: () => Promise<unknown> }).callback()).toEqual({ type: "failed" })
+    })
+
+    test("cancel immediately before config rename prevents publication", async () => {
+      const beforeRename = Promise.withResolvers<void>()
+      const releaseRename = Promise.withResolvers<void>()
+      using admin = makeServer(() => Response.json({ status: "ready", key: "sk-new", tokenName: "GW001-张三" }))
+      using gateway = makeServer(() => Response.json({ data: [{ id: "new-model" }] }))
+      const dir = mkdtempSync(join(tmpdir(), "ruying-cancel-before-"))
+      const target = join(dir, "target.jsonc")
+      const link = join(dir, "ruying-code.jsonc")
+      const original = [
+        "{",
+        "  // preserve top-level comment",
+        '  "enabled_providers": ["other"],',
+        '  "theme": "opencode",',
+        '  "provider": {',
+        '    "ruying": {',
+        '      "custom": true,',
+        '      "options": {',
+        '        "apiKey": "sk-old",',
+        '        "ruyingUser": { "employeeId": "GW-OLD" }',
+        "      }",
+        "    }",
+        "  }",
+        "}",
+        "",
+      ].join("\n")
+      writeFileSync(target, original)
+      chmodSync(target, 0o640)
+      symlinkSync(target, link)
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: "http://127.0.0.1:1",
+        gatewayApiBase: baseUrl(gateway),
+        callbackPort: 0,
+        configFile: link,
+        configPublicationHooks: {
+          async beforeRename() {
+            beforeRename.resolve()
+            await releaseRename.promise
+          },
+        },
+      })
+      const authorized = await oauthMethod(hooks).authorize!()
+      const redirect = new URL(authorized.url).searchParams.get("redirect_url")!
+      const callback = (authorized as { callback: () => Promise<unknown> }).callback()
+      const browser = fetch(`${redirect}?access_token=token`)
+      await beforeRename.promise
+
+      let canceled = false
+      const cancel = (authorized as { cancel: () => Promise<void> }).cancel().then(() => {
+        canceled = true
+      })
+      await Bun.sleep(10)
+      expect(canceled).toBe(false)
+      releaseRename.resolve()
+      await cancel
+
+      expect(await callback).toEqual({ type: "failed" })
+      await browser
+      expect(readFileSync(target, "utf8")).toBe(original)
+      expect(lstatSync(link).isSymbolicLink()).toBe(true)
+      expect(statSync(target).mode & 0o777).toBe(0o640)
+      rmSync(dir, { recursive: true, force: true })
+    })
+
+    test("cancel immediately after config rename rolls back owned state and preserves concurrent edits", async () => {
+      const afterRename = Promise.withResolvers<void>()
+      const releaseCallback = Promise.withResolvers<void>()
+      using admin = makeServer(() => Response.json({ status: "ready", key: "sk-new", tokenName: "GW001-张三" }))
+      using gateway = makeServer(() => Response.json({ data: [{ id: "new-model" }] }))
+      const file = tmpConfigFile()
+      const original = [
+        "{",
+        "  // preserve top-level comment",
+        '  "enabled_providers": ["other"],',
+        '  "theme": "opencode",',
+        '  "provider": {',
+        '    "ruying": {',
+        '      "custom": true,',
+        '      "options": {',
+        '        "apiKey": "sk-old",',
+        '        "ruyingUser": { "employeeId": "GW-OLD" }',
+        "      }",
+        "    }",
+        "  }",
+        "}",
+        "",
+      ].join("\n")
+      writeFileSync(file, original)
+      chmodSync(file, 0o640)
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: "http://127.0.0.1:1",
+        gatewayApiBase: baseUrl(gateway),
+        callbackPort: 0,
+        configFile: file,
+        configPublicationHooks: {
+          async afterRename() {
+            afterRename.resolve()
+            await releaseCallback.promise
+          },
+        },
+      })
+      const authorized = await oauthMethod(hooks).authorize!()
+      const redirect = new URL(authorized.url).searchParams.get("redirect_url")!
+      const callback = (authorized as { callback: () => Promise<unknown> }).callback()
+      const browser = fetch(`${redirect}?access_token=token`)
+      await afterRename.promise
+
+      const published = readFileSync(file, "utf8")
+      expect(parse(published).enabled_providers).toEqual(["ruying"])
+      expect(parse(published).provider.ruying.options.ruyingUser.employeeId).toBe("GW001")
+      const external = applyEdits(
+        published,
+        modify(published, ["externalEdit"], { keep: true }, { formattingOptions: { insertSpaces: true, tabSize: 2 } }),
+      )
+      writeFileSync(
+        file,
+        applyEdits(
+          external,
+          modify(external, ["enabled_providers"], ["ruying", "third"], {
+            formattingOptions: { insertSpaces: true, tabSize: 2 },
+          }),
+        ),
+      )
+      const cancel = (authorized as { cancel: () => Promise<void> }).cancel()
+      releaseCallback.resolve()
+      await cancel
+
+      expect(await callback).toEqual({ type: "failed" })
+      await browser
+      const source = readFileSync(file, "utf8")
+      const config = parse(source)
+      expect(source).toContain("// preserve top-level comment")
+      expect(config.enabled_providers).toEqual(["other", "third"])
+      expect(config.theme).toBe("opencode")
+      expect(config.externalEdit).toEqual({ keep: true })
+      expect(config.provider.ruying).toEqual({
+        custom: true,
+        options: { apiKey: "sk-old", ruyingUser: { employeeId: "GW-OLD" } },
+      })
+      expect(statSync(file).mode & 0o777).toBe(0o640)
+      rmSync(file, { force: true })
+    })
+
     test("cancel during provisioning prevents config persistence", async () => {
       const started = Promise.withResolvers<void>()
       const released = Promise.withResolvers<void>()
@@ -808,11 +965,16 @@ describe("plugin.ruying", () => {
 
       const authorized = await oauthMethod(hooks).authorize!()
       expect(authorized.method).toBe("auto")
+      expect(authorized.instructions).toContain("如影 Code")
+      expect(authorized.instructions).not.toContain("opencode")
       const redirectUri = new URL(authorized.url).searchParams.get("redirect_url")!
 
       const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
       const hit = await fetch(`${redirectUri}?access_token=SSO-T`)
-      expect(await hit.text()).toContain("登录成功")
+      const html = await hit.text()
+      expect(html).toContain("登录成功")
+      expect(html).toContain("如影 Code")
+      expect(html).not.toContain("opencode")
 
       expect(await callbackPromise).toEqual({
         type: "success",
@@ -972,7 +1134,10 @@ describe("plugin.ruying", () => {
       const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
       const hit = await fetch(redirectUri)
       expect(hit.status).toBe(400)
-      expect(await hit.text()).toContain("access_token")
+      const html = await hit.text()
+      expect(html).toContain("access_token")
+      expect(html).toContain("如影 Code")
+      expect(html).not.toContain("opencode")
       expect(await callbackPromise).toEqual({ type: "failed" })
     })
   })

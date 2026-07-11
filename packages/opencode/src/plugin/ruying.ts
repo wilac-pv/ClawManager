@@ -64,6 +64,10 @@ export interface RuyingAuthPluginOptions {
   callbackTimeoutMs?: number
   /** Override the global config file path (tests). Defaults to the xdg config. */
   configFile?: string
+  configPublicationHooks?: {
+    beforeRename?(): Promise<void>
+    afterRename?(): Promise<void>
+  }
 }
 
 export interface RuyingUser {
@@ -110,6 +114,18 @@ let oauthServerOwner: string | undefined
 let pending: Pending | undefined
 const providerConfigWrites = new Map<string, Promise<void>>()
 
+interface OwnedConfigValue {
+  path: string[]
+  present: boolean
+  value?: unknown
+}
+
+interface OwnedConfigSnapshot {
+  fileExisted: boolean
+  enabled: OwnedConfigValue
+  values: OwnedConfigValue[]
+}
+
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "")
 }
@@ -147,7 +163,7 @@ const HTML_SUCCESS = `<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>opencode - 如影 SSO 登录成功</title>
+    <title>如影 Code - SSO 登录成功</title>
     <style>
       body { font-family: system-ui, -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0b1220; color: #e8eef9; }
       .container { text-align: center; padding: 2rem; }
@@ -158,7 +174,7 @@ const HTML_SUCCESS = `<!doctype html>
   <body>
     <div class="container">
       <h1>登录成功</h1>
-      <p>可以关闭此窗口并返回 opencode。</p>
+      <p>可以关闭此窗口并返回 如影 Code。</p>
     </div>
     <script>setTimeout(() => window.close(), 2000)</script>
   </body>
@@ -168,7 +184,7 @@ const htmlNotice = (title: string, message: string) => `<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>opencode - ${escapeHtml(title)}</title>
+    <title>如影 Code - ${escapeHtml(title)}</title>
     <style>
       body { font-family: system-ui, -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0b1220; color: #e8eef9; }
       .container { text-align: center; padding: 2rem; max-width: 36rem; }
@@ -426,14 +442,69 @@ export function writeGlobalProviderConfig(
   gatewayApiBase: string,
   modelIds: string[],
   user: RuyingUser,
-  canPublish = () => true,
 ): Promise<void> {
+  return createRuyingConfigPublication(file, gatewayApiBase, modelIds, user).publish()
+}
+
+function createRuyingConfigPublication(
+  file: string,
+  gatewayApiBase: string,
+  modelIds: string[],
+  user: RuyingUser,
+  hooks: RuyingAuthPluginOptions["configPublicationHooks"] = {},
+) {
   const requested = resolve(file)
   const target = existsSync(requested) ? realpathSync(requested) : requested
+  let canceled = false
+  let published = false
+  let snapshot: OwnedConfigSnapshot | undefined
+  let publication: Promise<void> | undefined
+  let cancellation: Promise<void> | undefined
+
+  function publish() {
+    if (publication) return publication
+    publication = queueProviderConfigWrite(target, async () => {
+      if (canceled) return
+      const edit = await providerConfigEdit(target, gatewayApiBase, modelIds, user)
+      if (!edit) return
+      snapshot = edit.snapshot
+      const temporary = await writeTemporaryConfig(target, edit.output, edit.mode)
+      await hooks.beforeRename?.()
+      if (canceled) {
+        await rm(temporary, { force: true })
+        return
+      }
+      await rename(temporary, target)
+      published = true
+      await hooks.afterRename?.()
+      if (!canceled) return
+      await restoreOwnedConfig(target, edit.snapshot)
+      published = false
+    })
+    return publication
+  }
+
+  function cancel() {
+    canceled = true
+    if (cancellation) return cancellation
+    cancellation = (async () => {
+      await publication
+      if (!published || !snapshot) return
+      await queueProviderConfigWrite(target, async () => {
+        if (!published || !snapshot) return
+        await restoreOwnedConfig(target, snapshot)
+        published = false
+      })
+    })()
+    return cancellation
+  }
+
+  return { publish, cancel }
+}
+
+function queueProviderConfigWrite(target: string, task: () => Promise<void>) {
   const previous = providerConfigWrites.get(target) ?? Promise.resolve()
-  const write = previous
-    .catch(() => undefined)
-    .then(() => writeProviderConfig(target, gatewayApiBase, modelIds, user, canPublish))
+  const write = previous.catch(() => undefined).then(task)
   const queued = write.finally(() => {
     if (providerConfigWrites.get(target) === queued) providerConfigWrites.delete(target)
   })
@@ -441,12 +512,11 @@ export function writeGlobalProviderConfig(
   return queued
 }
 
-async function writeProviderConfig(
+async function providerConfigEdit(
   file: string,
   gatewayApiBase: string,
   modelIds: string[],
   user: RuyingUser,
-  canPublish: () => boolean,
 ) {
   const exists = existsSync(file)
   const source = exists ? await Bun.file(file).text() : "{}"
@@ -457,27 +527,88 @@ async function writeProviderConfig(
 
   const provider = buildProviderPatch(gatewayApiBase, modelIds, user).provider[PROVIDER_ID]
   const formatting = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
-  const output = [
-    { path: ["enabled_providers"], value: [PROVIDER_ID] },
+  const edits = [
     { path: ["provider", PROVIDER_ID, "name"], value: provider.name },
     { path: ["provider", PROVIDER_ID, "npm"], value: provider.npm },
     ...(provider.models ? [{ path: ["provider", PROVIDER_ID, "models"], value: provider.models }] : []),
     { path: ["provider", PROVIDER_ID, "options", "baseURL"], value: provider.options.baseURL },
     { path: ["provider", PROVIDER_ID, "options", "ruyingUser"], value: provider.options.ruyingUser },
+  ]
+  const output = [
+    {
+      path: ["enabled_providers"],
+      value: [PROVIDER_ID],
+    },
+    ...edits,
   ].reduce((result, edit) => applyEdits(result, modify(result, edit.path, edit.value, formatting)), source)
+  return {
+    output,
+    mode: exists ? (await stat(file)).mode & 0o777 : 0o600,
+    snapshot: {
+      fileExisted: exists,
+      enabled: ownedConfigValue(config, ["enabled_providers"]),
+      values: edits.map((edit) => ownedConfigValue(config, edit.path)),
+    } satisfies OwnedConfigSnapshot,
+  }
+}
+
+async function writeTemporaryConfig(file: string, output: string, mode: number) {
   const temporary = join(dirname(file), `.${basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`)
-  const mode = exists ? (await stat(file)).mode & 0o777 : 0o600
-  if (!canPublish()) return
   await writeFile(temporary, output, { encoding: "utf8", flag: "wx", mode })
     .then(() => chmod(temporary, mode))
-    .then(async () => {
-      if (canPublish()) return rename(temporary, file)
-      await rm(temporary, { force: true })
-    })
     .catch(async (error) => {
       await rm(temporary, { force: true }).catch(() => undefined)
       throw error
     })
+  return temporary
+}
+
+async function restoreOwnedConfig(file: string, snapshot: OwnedConfigSnapshot) {
+  if (!existsSync(file)) return
+  const source = await Bun.file(file).text()
+  const errors: ParseError[] = []
+  const config: unknown = parse(source, errors, { allowTrailingComma: true })
+  if (errors.length || !isRecord(config)) return
+  const formatting = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
+  const enabled = Array.isArray(config.enabled_providers)
+    ? config.enabled_providers.filter((item) => item !== PROVIDER_ID)
+    : []
+  const previousEnabled = Array.isArray(snapshot.enabled.value) ? snapshot.enabled.value : []
+  const restoredEnabled = snapshot.enabled.present
+    ? Array.isArray(snapshot.enabled.value)
+      ? [...previousEnabled, ...enabled.filter((item) => !previousEnabled.includes(item))]
+      : snapshot.enabled.value
+    : enabled.length
+      ? enabled
+      : undefined
+  const restored = snapshot.values
+    .reduce(
+      (result, item) =>
+        applyEdits(result, modify(result, item.path, item.present ? item.value : undefined, formatting)),
+      applyEdits(source, modify(source, ["enabled_providers"], restoredEnabled, formatting)),
+    )
+  const parsed = parse(restored) as Record<string, unknown>
+  const provider = isRecord(parsed.provider) ? parsed.provider : undefined
+  const ruying = provider && isRecord(provider[PROVIDER_ID]) ? provider[PROVIDER_ID] : undefined
+  const compacted = ruying && Object.keys(ruying).length === 0
+    ? applyEdits(restored, modify(restored, ["provider", PROVIDER_ID], undefined, formatting))
+    : restored
+  const finalConfig = parse(compacted) as Record<string, unknown>
+  if (!snapshot.fileExisted && Object.keys(finalConfig).length === 0) {
+    await rm(file, { force: true })
+    return
+  }
+  const mode = (await stat(file)).mode & 0o777
+  await writeTemporaryConfig(file, compacted, mode).then((temporary) => rename(temporary, file))
+}
+
+function ownedConfigValue(config: Record<string, unknown>, path: string[]): OwnedConfigValue {
+  let current: unknown = config
+  for (const key of path) {
+    if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, key)) return { path, present: false }
+    current = current[key]
+  }
+  return { path, present: true, value: current }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -548,6 +679,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
             const attemptId = crypto.randomUUID()
             let canceled = false
             let rejectOutcome = (_error: Error) => {}
+            let publication: ReturnType<typeof createRuyingConfigPublication> | undefined
             const callbackPath = `${OAUTH_REDIRECT_PATH}/${attemptId}`
             const { port } = await startOAuthServer(callbackHost, callbackPort, configuredCallbackPort === undefined)
             const redirectUri = `http://${callbackHost}:${port}${callbackPath}`
@@ -625,16 +757,17 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                 canceled: () => canceled,
               }, callbackTimeoutMs)
             })
+            void outcomePromise.catch(() => undefined)
 
             const url = buildSsoUrl(ssoLoginUrl, redirectUri)
             await open(url).catch(() => undefined)
 
             return {
               url,
-              instructions: "请在浏览器完成 GWM SSO 登录，opencode 会自动捕获回调并开通网关 API Key。",
+              instructions: "请在浏览器完成 GWM SSO 登录，如影 Code 会自动捕获回调并开通网关 API Key。",
               method: "auto" as const,
               async cancel() {
-                if (canceled) return
+                if (canceled) return publication?.cancel()
                 canceled = true
                 if (pending?.id === attemptId) {
                   const current = pending
@@ -644,6 +777,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                   rejectOutcome(new Error("登录已取消"))
                 }
                 stopOAuthServer(attemptId)
+                await publication?.cancel()
               },
               async callback() {
                 try {
@@ -661,13 +795,14 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                   // logged-in user. Written to disk directly (not via the SDK) so we
                   // don't dispose the instance mid-callback; the gate re-bootstraps.
                   try {
-                    await writeGlobalProviderConfig(
+                    publication = createRuyingConfigPublication(
                       options.configFile ?? globalConfigFile(),
                       gatewayApiBase,
                       modelIds,
                       outcome.user,
-                      () => !canceled,
+                      options.configPublicationHooks,
                     )
+                    await publication.publish()
                   } catch {
                     // best-effort
                   }

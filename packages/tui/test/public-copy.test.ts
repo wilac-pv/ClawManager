@@ -9,6 +9,10 @@ const surfaces = [
   "src/feature-plugins/sidebar/footer.tsx",
   "src/routes/session/footer.tsx",
   "src/routes/session/index.tsx",
+  "src/routes/session/permission.tsx",
+  "src/util/presentation.ts",
+  "../opencode/src/cli/cmd/run/footer.permission.tsx",
+  "../opencode/src/cli/cmd/run/permission.shared.ts",
 ]
 
 test("public OEM surfaces contain no generic provider connection copy", async () => {
@@ -19,4 +23,14 @@ test("public OEM surfaces contain no generic provider connection copy", async ()
   expect(source).not.toMatch(/75\+ providers/i)
   expect(source).not.toMatch(/opencode auth list/i)
   expect(source).not.toContain("OpenCode")
+  expect(source).not.toContain("opencode -s")
+  expect(source).not.toContain("█▀▀█")
+})
+
+test("Ruying OAuth browser copy contains no legacy product name", async () => {
+  const source = await Bun.file("../opencode/src/plugin/ruying.ts").text()
+
+  expect(source).not.toContain("<title>opencode")
+  expect(source).not.toContain("返回 opencode")
+  expect(source).not.toContain("opencode 会自动捕获回调")
 })

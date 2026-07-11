@@ -323,9 +323,11 @@ describe("provider HttpApi", () => {
       yield* Effect.sleep("20 millis")
       const canceled = yield* requestCancel({ providerID: cancelProviderID, headers })
       const completed = yield* Fiber.join(callback)
+      const providers = yield* request("/provider", { headers })
 
       expect(canceled).toEqual({ status: 200, body: "true" })
       expect(completed.status).toBe(400)
+      expect(((yield* providers.json) as { connected?: string[] }).connected).not.toContain(cancelProviderID)
     }),
     { ...projectOptions, init: writeProviderAuthCancelPlugin },
     30_000,

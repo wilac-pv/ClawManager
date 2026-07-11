@@ -132,11 +132,11 @@ describe("run permission shared", () => {
 
   test("formats always-allow copy for wildcard and explicit patterns", () => {
     expect(permissionAlwaysLines(req({ permission: "bash", always: ["*"] }))).toEqual([
-      "This will allow bash until OpenCode is restarted.",
+      "This will allow bash until 如影 Code is restarted.",
     ])
 
     expect(permissionAlwaysLines(req({ always: ["src/**/*.ts", "src/**/*.tsx"] }))).toEqual([
-      "This will allow the following patterns until OpenCode is restarted.",
+      "This will allow the following patterns until 如影 Code is restarted.",
       "- src/**/*.ts",
       "- src/**/*.tsx",
     ])
