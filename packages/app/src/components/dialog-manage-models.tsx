@@ -2,8 +2,6 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { Button } from "@opencode-ai/ui/button"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Dialog as DialogV2, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode-ai/ui/v2/dialog-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
@@ -15,9 +13,6 @@ import { For, Show, type Component } from "solid-js"
 import { useLocal } from "@/context/local"
 import { popularProviders } from "@/hooks/use-providers"
 import { useLanguage } from "@/context/language"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { DialogConnectProvider } from "./dialog-connect-provider"
-import { decode64 } from "@/utils/base64"
 import { SettingsListV2 } from "./settings-v2/parts/list"
 import { SettingsRowV2 } from "./settings-v2/parts/row"
 import "./settings-v2/settings-v2.css"
@@ -27,12 +22,6 @@ type ModelItem = ReturnType<ReturnType<typeof useLocal>["model"]["list"]>[number
 export const DialogManageModels: Component = () => {
   const local = useLocal()
   const language = useLanguage()
-  const dialog = useDialog()
-  const directory = () => decode64(local.slug())
-
-  const handleConnectProvider = () => {
-    void dialog.show(() => <DialogConnectProvider directory={directory} />)
-  }
   const providerRank = (id: string) => popularProviders.indexOf(id)
   const providerList = (providerID: string) => local.model.list().filter((x) => x.provider.id === providerID)
   const providerVisible = (providerID: string) =>
@@ -44,15 +33,7 @@ export const DialogManageModels: Component = () => {
   }
 
   return (
-    <Dialog
-      title={language.t("dialog.model.manage")}
-      description={language.t("dialog.model.manage.description")}
-      action={
-        <Button class="h-7 -my-1 text-14-medium" icon="plus-small" tabIndex={-1} onClick={handleConnectProvider}>
-          {language.t("command.provider.connect")}
-        </Button>
-      }
-    >
+    <Dialog title={language.t("dialog.model.manage")} description={language.t("dialog.model.manage.description")}>
       <List
         class="px-3"
         search={{ placeholder: language.t("dialog.model.search.placeholder"), autofocus: true }}
@@ -103,7 +84,7 @@ export const DialogManageModels: Component = () => {
             <span>{i.name}</span>
             <div onClick={(e) => e.stopPropagation()}>
               <Switch
-                checked={!!local.model.visible({ modelID: i.id, providerID: i.provider.id })}
+                checked={local.model.visible({ modelID: i.id, providerID: i.provider.id })}
                 onChange={(checked) => {
                   local.model.setVisibility({ modelID: i.id, providerID: i.provider.id }, checked)
                 }}
@@ -119,12 +100,6 @@ export const DialogManageModels: Component = () => {
 export const DialogManageModelsV2: Component = () => {
   const local = useLocal()
   const language = useLanguage()
-  const dialog = useDialog()
-  const directory = () => decode64(local.slug())
-
-  const handleConnectProvider = () => {
-    void dialog.show(() => <DialogConnectProvider directory={directory} />)
-  }
   const providerList = (providerID: string) => local.model.list().filter((x) => x.provider.id === providerID)
   const providerVisible = (providerID: string) =>
     providerList(providerID).every((x) => local.model.visible({ modelID: x.id, providerID: x.provider.id }))
@@ -160,9 +135,6 @@ export const DialogManageModelsV2: Component = () => {
           title={language.t("dialog.model.manage")}
           description={language.t("dialog.model.manage.description")}
         />
-        <ButtonV2 variant="neutral" icon="plus" onClick={handleConnectProvider}>
-          {language.t("command.provider.connect")}
-        </ButtonV2>
       </DialogHeader>
       <DialogBody class="flex min-h-0 flex-1 flex-col">
         <div class="px-4 pt-px pb-3">

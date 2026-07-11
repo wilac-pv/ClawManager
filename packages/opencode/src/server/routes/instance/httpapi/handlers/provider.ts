@@ -13,9 +13,21 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Brand } from "@opencode-ai/core/brand/brand"
 import { getRuyingSessionStatus, logoutRuyingSession } from "@/auth/ruying-session"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { EffectBridge } from "@/effect/bridge"
 
 export function visibleProviderIDs(all: string[], enabled?: Set<string>, disabled = new Set<string>()) {
   return all.filter((id) => (enabled ? enabled.has(id) : id === Brand.profile.providerID) && !disabled.has(id))
+}
+
+export function scheduleRuyingLogoutDisposal<R>(input: {
+  dispose: Effect.Effect<void, unknown, R>
+  fork: (effect: Effect.Effect<void, never, R>) => unknown
+}) {
+  input.fork(
+    input.dispose.pipe(
+      Effect.catchCause((cause) => Effect.logWarning("ruying logout disposal failed", { cause })),
+    ),
+  )
 }
 
 function mapProviderAuthError<A, R>(self: Effect.Effect<A, ProviderAuth.Error, R>) {
@@ -43,6 +55,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     const cfg = yield* Config.Service
     const provider = yield* Provider.Service
     const svc = yield* ProviderAuth.Service
+    const bridge = yield* EffectBridge.make()
 
     const list = Effect.fn("ProviderHttpApi.list")(function* () {
       const config = yield* cfg.get()
@@ -109,7 +122,10 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       yield* logoutRuyingSession().pipe(
         Effect.mapError((error) => new RuyingSessionLogoutApiError({ message: error.message })),
       )
-      yield* disposeAllInstancesAndEmitGlobalDisposed()
+      scheduleRuyingLogoutDisposal({
+        dispose: disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }),
+        fork: bridge.fork,
+      })
       return true
     })
 

@@ -16,9 +16,9 @@ const GO_UPSELL_WINDOW = 86_400_000 // 24 hrs
 const GO_UPSELL_PROVIDERS = new Set(["opencode", "opencode-go"])
 
 function goUpsellKeys(status: SessionStatus) {
-  if (status.type !== "retry" || !status.action) return
+  if (status.type !== "retry" || !status.action) return undefined
   const { action } = status
-  if (!GO_UPSELL_PROVIDERS.has(action.provider)) return
+  if (!GO_UPSELL_PROVIDERS.has(action.provider)) return undefined
   if (action.reason === "free_tier_limit") {
     return {
       lastSeenAt: GO_UPSELL_FREE_TIER_LAST_SEEN_AT,
@@ -31,6 +31,7 @@ function goUpsellKeys(status: SessionStatus) {
       dontShow: GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW,
     } as const
   }
+  return undefined
 }
 
 export function useUsageExceededDialogs() {
@@ -66,7 +67,7 @@ export function useUsageExceededDialogs() {
       if (goUpsellState[keys.dontShow]) return
 
       if (action.reason === "free_tier_limit") {
-        dialog.show(() => (
+        void dialog.show(() => (
           <DialogUsageExceeded
             title={isEnglish() ? action.title : t("dialog.usageExceeded.freeTier.title")}
             description={isEnglish() ? action.message : t("dialog.usageExceeded.freeTier.description")}
@@ -75,18 +76,11 @@ export function useUsageExceededDialogs() {
             onClose={(dontShowAgain) => {
               setGoUpsellState(keys.lastSeenAt, Date.now())
               if (dontShowAgain) setGoUpsellState(keys.dontShow, Date.now())
-              else {
-                void import("../../components/dialog-connect-provider").then((x) => {
-                  const controller = x.useProviderConnectController()
-                  controller.select("opencode-go")
-                  void dialog.show(() => <x.DialogConnectProvider controller={controller} />)
-                })
-              }
             }}
           />
         ))
       } else if (action.reason === "account_rate_limit") {
-        dialog.show(() => (
+        void dialog.show(() => (
           <DialogUsageExceeded
             title={isEnglish() ? action.title : t("dialog.usageExceeded.accountRateLimit.title")}
             description={isEnglish() ? action.message : t("dialog.usageExceeded.accountRateLimit.description")}

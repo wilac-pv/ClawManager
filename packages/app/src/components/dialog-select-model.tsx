@@ -6,7 +6,6 @@ import {
   createMemo,
   For,
   JSX,
-  onCleanup,
   Show,
   ValidComponent,
 } from "solid-js"
@@ -27,7 +26,6 @@ import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
-import { decode64 } from "@/utils/base64"
 import { handleDocumentSearchKeydown } from "@/utils/search-keydown"
 import { createEventListener } from "@solid-primitives/event-listener"
 import { matchesModelSearch } from "./dialog-select-model-search"
@@ -122,7 +120,7 @@ const ModelList: Component<{
 }
 
 type ModelSelectorTriggerProps = Omit<ComponentProps<typeof Kobalte.Trigger>, "as" | "ref">
-type Dismiss = "escape" | "outside" | "select" | "manage" | "provider"
+type Dismiss = "escape" | "outside" | "select" | "manage"
 
 export function ModelSelectorPopover(props: {
   provider?: string
@@ -140,8 +138,6 @@ export function ModelSelectorPopover(props: {
     dismiss: null,
   })
   const dialog = useDialog()
-  const local = useLocal()
-  const directory = () => decode64(local.slug())
 
   const close = (dismiss: Dismiss) => {
     setStore("dismiss", dismiss)
@@ -151,16 +147,10 @@ export function ModelSelectorPopover(props: {
   const handleManage = () => {
     close("manage")
     void import("./dialog-manage-models").then((x) => {
-      dialog.show(() => <x.DialogManageModels />)
+      void dialog.show(() => <x.DialogManageModels />)
     })
   }
 
-  const handleConnectProvider = () => {
-    close("provider")
-    void import("./dialog-connect-provider").then((x) => {
-      void dialog.show(() => <x.DialogConnectProvider directory={directory} />)
-    })
-  }
   const language = useLanguage()
 
   return (
@@ -204,17 +194,7 @@ export function ModelSelectorPopover(props: {
             onSelect={() => close("select")}
             class="p-1"
             action={
-              <div class="flex items-center gap-1">
-                <Tooltip placement="top" value={language.t("command.provider.connect")}>
-                  <IconButton
-                    icon="plus-small"
-                    variant="ghost"
-                    iconSize="normal"
-                    class="size-6"
-                    aria-label={language.t("command.provider.connect")}
-                    onClick={handleConnectProvider}
-                  />
-                </Tooltip>
+              <div class="flex items-center">
                 <Tooltip placement="top" value={language.t("dialog.model.manage")}>
                   <IconButton
                     icon="sliders"
@@ -322,7 +302,7 @@ export function ModelSelectorPopoverV2(props: {
     setOpen(false)
     afterClose(() => {
       void import("./dialog-manage-models").then((x) => {
-        dialog.show(() => <x.DialogManageModelsV2 />)
+        void dialog.show(() => <x.DialogManageModelsV2 />)
       })
     })
   }
@@ -516,30 +496,15 @@ export function ModelSelectorPopoverV2(props: {
 export const DialogSelectModel: Component<{ provider?: string; model?: ModelState }> = (props) => {
   const dialog = useDialog()
   const language = useLanguage()
-  const local = useLocal()
-  const directory = () => decode64(local.slug())
-
-  const provider = () => {
-    void import("./dialog-connect-provider").then((x) => {
-      void dialog.show(() => <x.DialogConnectProvider directory={directory} />)
-    })
-  }
 
   const manage = () => {
     void import("./dialog-manage-models").then((x) => {
-      dialog.show(() => <x.DialogManageModels />)
+      void dialog.show(() => <x.DialogManageModels />)
     })
   }
 
   return (
-    <Dialog
-      title={language.t("dialog.model.select.title")}
-      action={
-        <Button class="h-7 -my-1 text-14-medium" icon="plus-small" tabIndex={-1} onClick={provider}>
-          {language.t("command.provider.connect")}
-        </Button>
-      }
-    >
+    <Dialog title={language.t("dialog.model.select.title")}>
       <ModelList provider={props.provider} model={props.model} onSelect={() => dialog.close()} />
       <Button variant="ghost" class="ml-3 mt-5 mb-6 text-text-base self-start" onClick={manage}>
         {language.t("dialog.model.manage")}
