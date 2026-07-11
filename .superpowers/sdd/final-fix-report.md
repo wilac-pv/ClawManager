@@ -808,7 +808,7 @@ Date: 2026-07-12
 - Removed Chelper's elapsed-time lease, heartbeat, transition directory, and deletable quarantine. The short commit mutex is now claimed by fully writing `{pid, token}` in a unique candidate directory and atomically renaming that complete candidate to the canonical lock name.
 - A currently existing PID is always treated as live, regardless of age. A PID-reuse collision therefore causes a conservative timeout instead of unsafe eviction. A clearly absent PID's complete canonical generation is atomically renamed to a deterministic, non-empty path keyed by the observed owner token. That dead-generation tombstone is deliberately permanent: every delayed observer of the same generation collides with the same occupied destination and cannot rename a successor. This leaves at most one small tombstone per real canonical-owner crash; normal releases leave no mutex artifact.
 - Dead unique candidates are safe to remove because they were never canonical. A real child killed after publishing a complete candidate is cleaned by its successor without creating a dead-generation tombstone.
-- The mutex covers only canonical auth snapshot/publication plus its adjacent ownership marker, or rollback compare-and-restore. The possibly paused config callback runs outside it. Each auth publication writes a unique transaction token, canonical target, and SHA-256 fingerprint to the marker. A failed obsolete transaction restores only when all three still match under the short mutex, so a successor is distinguished even when it writes identical auth bytes.
+- The mutex covers only canonical auth snapshot/publication plus its adjacent ownership marker, or rollback compare-and-restore. The possibly paused config callback runs outside it. Each auth publication writes a unique transaction token, canonical target, and SHA-256 fingerprint to the marker. A failed obsolete transaction restores only when all three still match under the short mutex, so a successor is distinguished even when it writes identical auth bytes. **Wave 10 correction:** this fenced failed rollback, but it was not a complete auth/config transaction: two successful publishers could finish config out of order, and a crash between auth and config had no durable recovery record.
 - Canonical target identity is re-established before the initial commit boundary. Snapshot, auth mutation, fingerprinting, marker publication, comparison, and rollback all use the fixed canonical target, never the mutable symlink alias. A symlink retarget sends the successor to its new target while the obsolete transaction can only restore its owned original target.
 - Added a platform-aware network-path classifier. Backslash UNC remains rejected on every platform. Windows classification also rejects `//server`, `//?/UNC`, and `//./UNC`; non-Windows classification preserves POSIX double-slash roots such as `//tmp`. Extended local drives remain accepted. The command still validates before acquiring `FSUtil.Service`.
 
@@ -873,5 +873,91 @@ Chelper:
 
 - **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, clean scans, fenced rollback, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
 - A real dead canonical mutex generation leaves one permanent small non-empty tombstone by design. This bounded disk cost is the fencing mechanism that prevents arbitrarily delayed observers from renaming a successor. PID reuse is handled conservatively by timing out while that PID exists.
+- App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
+# Wave 10 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 10 correction and dispositions
+
+- Corrected the Wave 9 conclusion: its short mutex and ownership marker prevented an obsolete failed transaction from rolling auth back over a successor, but the config callback deliberately ran outside the mutex. A paused successful A could therefore overwrite successful B's newer config after B completed. Wave 9 also had no write-ahead record from which a successor could recover a process killed between auth and config publication.
+- Replaced that protocol with a no-lease transaction generation held through durable auth and config publication. A separate short lifecycle coordinator serializes inspection, recovery, claim, and release of the main generation. Complete candidates are fsynced before their atomic rename; current PIDs are never evicted based on elapsed time, and a possible PID-reuse collision times out conservatively.
+- Added a versioned transaction journal in the main generation with `prepared`, `auth-published`, `config-published`, and `committed` states. Every update uses a mode-`0600` temporary file, file fsync, atomic rename, and parent-directory fsync. Recovery keeps a committed pair and otherwise restores config before auth from validated base64 snapshots, then removes the journal before publishing a metadata-only dead-generation tombstone.
+- Recovery and successor installation occur while the lifecycle coordinator is held and while the original main generation remains canonical. Killing a real recovery holder cannot expose a half-recovered generation to another contender: the next contender recovers the coordinator, re-enters recovery idempotently, and only then installs its transaction.
+- Journal validation binds the recorded owner to the fixed canonical auth/config targets and rejects unknown versions, states, target mismatches, relative config targets, or malformed snapshots. Invalid journals fail closed without changing either resource or replacing the canonical main generation.
+- All canonical target snapshots and restores use no-follow inspection and reject symlinks and non-regular files. The config callback receives the fixed canonical config target, so alias retargeting cannot redirect a transaction or its recovery. The removed Wave 9 marker is cleaned by unlinking only its directory entry; a marker symlink's victim is never overwritten.
+- Legacy empty or malformed main/coordinator generations receive bounded rereads at 25, 50, and 100 ms before deterministic legacy recovery. Dead main/coordinator generations become permanent non-empty tombstones; abandoned candidates and release artifacts are removed only when their ownership and artifact class are proven.
+- Updated UNC classification to normalize slash direction only for classification. Windows now rejects mixed spellings such as `//server\\share`, `//?/UNC\\server`, and `//./UNC\\server`; mixed extended local-drive spellings remain accepted. Non-Windows still preserves POSIX `//tmp`, rejects backslash/mixed extended UNC, and accepts extended local drives.
+
+## Wave 10 RED and diagnostic evidence
+
+- In the real two-success interleaving, successful B progressed while A was paused, proving the Wave 9 short mutex did not order the config publication; after A resumed it could overwrite B's newer config.
+- A child killed at the intended prepare boundary reported only the config callback's `ready` phase under Wave 9, proving there was no durable `prepared` boundary or journal.
+- A legacy empty generation was replaced in about 35 ms, before the required bounded malformed-owner rereads.
+- A deliberately invalid journal was accepted instead of failing closed.
+- A Wave 9 marker symlink allowed its external victim to be overwritten.
+- The import classifier accepted mixed `//?/UNC\\server` on the Windows classification path.
+- One Wave 10 committed-boundary test initially waited for file existence, which was already true from an earlier journal state. The harness was corrected to wait for the exact committed content before the valid child-kill run. This was a test synchronization correction, not a production implementation failure. No production implementation attempt failed.
+
+## Wave 10 GREEN verification
+
+```text
+chelper$ npm test
+5 files, 51 pass, 0 fail
+  configurer: 40 pass, 0 fail
+chelper$ npm run build
+pass
+chelper$ npx tsc --noEmit
+pass
+chelper$ git diff --check
+pass
+
+packages/opencode$ bun test test/cli/import.test.ts
+2 pass, 0 fail, 32 expects
+packages/opencode$ bun typecheck
+pass
+
+packages/opencode$ bun run build --single --skip-install
+pass; Smoke test passed: 0.0.0-ruying-code-oem-202607111920
+packages/desktop$ bun run build
+pass in the required sequential order; pre-existing Vite warnings remain
+```
+
+The Chelper suite uses real child processes for two successful publishers with A paused through B's commit; kills after `prepared`, `auth-published`, `config-published`, and `committed`; and a killed recovery holder followed by two contenders. It observes the recovered auth/config pair before the successor publishes, verifies the successor ordering, proves idempotent recovery, and scans permanent tombstones for secret bytes. It also covers legacy empty/malformed main and coordinator generations, candidate/release cleanup, invalid-journal fail-closed behavior, marker-symlink victim safety, alias retargeting, and dangling aliases.
+
+These filesystem tests ran on macOS. The pure import matrix passes `win32` explicitly and covers mixed-separator classification, but it is not a Windows OS integration run. No Windows filesystem execution is claimed.
+
+Exact-value credential verification did not print the credential:
+
+```text
+Chelper tracked and full local tree excluding preserved .serena/node_modules: clean
+Chelper current dist and fresh npm pack: clean
+Primary tracked and full local tree excluding node_modules: clean
+Primary and Chelper git diff checks: clean
+```
+
+No npm publish, production request, public-share request, dependency installation, push, PR, or other real external network action was performed.
+
+## Wave 10 commits
+
+Primary:
+
+- `42d693c09` — `fix(opencode): reject mixed UNC paths`
+
+Chelper:
+
+- `d8f9dc2` — `fix(config): make publication crash recoverable`
+
+Documentation:
+
+- This report commit — `docs: record Wave 10 verification`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, exact-value scans, WAL recovery, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- A journal temporarily contains recoverable auth/config snapshots and therefore can contain credentials. It is confined to the mode-`0700` transaction directory, written mode `0600`, and removed before a recovered generation becomes a permanent tombstone. Permanent tombstones contain metadata only. Invalid externally supplied journals deliberately remain canonical and fail closed, so an administrator must inspect/remove such an artifact rather than automatic recovery copying or deleting unknown content.
+- Each genuinely dead canonical generation leaves one deterministic, permanent, small non-empty tombstone. This is the no-lease fencing cost that prevents delayed observers from acting on a successor. Current PIDs, including possible PID reuse, are never time-broken and may cause a conservative timeout.
 - App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
