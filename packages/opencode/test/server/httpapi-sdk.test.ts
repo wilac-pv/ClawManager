@@ -215,11 +215,13 @@ function httpapiInstance<A, E>(
 ) {
   it.instance(
     name,
-    httpApiTestLock.withPermits(1)(Effect.gen(function* () {
-      const instance = yield* TestInstance
-      yield* options.setup?.(instance.directory) ?? Effect.void
-      return yield* run({ sdk: yield* client(options.serverPath, instance.directory), directory: instance.directory })
-    })),
+    httpApiTestLock.withPermits(1)(
+      Effect.gen(function* () {
+        const instance = yield* TestInstance
+        yield* options.setup?.(instance.directory) ?? Effect.void
+        return yield* run({ sdk: yield* client(options.serverPath, instance.directory), directory: instance.directory })
+      }),
+    ),
     { git: options.git ?? true, config: { formatter: false, lsp: false, ...options.config } },
   )
 }
@@ -840,6 +842,42 @@ describe("HttpApi SDK", () => {
   )
 
   httpapi(
+    "project copy name generation does not touch the LLM without authoritative login",
+    Effect.gen(function* () {
+      const llm = yield* TestLLMServer
+      const configured = testProviderConfig(llm.url)
+      return yield* withProject(
+        "raw",
+        {
+          config: {
+            enabled_providers: ["ruying"],
+            provider: {
+              ruying: {
+                ...configured.provider.test,
+                id: "ruying",
+                name: "Ruying",
+                options: {
+                  ...configured.provider.test.options,
+                  ruyingUser: { employeeId: "GW001", displayName: "张三", email: "" },
+                },
+              },
+            },
+          },
+        },
+        ({ sdk }) =>
+          Effect.gen(function* () {
+            const response = yield* capture(() =>
+              sdk.experimental.projectCopy.generateName({ projectID: "project-test", context: "secure project" }),
+            )
+
+            expect(response.status).toBe(200)
+            expect(yield* llm.calls).toBe(0)
+          }),
+      )
+    }).pipe(Effect.provide(TestLLMServer.layer)),
+  )
+
+  httpapi(
     "logs out ruying and emits one global disposal",
     withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
       Effect.gen(function* () {
@@ -1036,21 +1074,21 @@ describe("HttpApi SDK", () => {
         },
       },
       ({ sdk }) =>
-      Effect.gen(function* () {
-        yield* setRuyingCredential(sdk)
-        const session = yield* call(() => sdk.session.create({ title: "fresh gate" }))
-        const rejected = yield* capture(() =>
-          sdk.session.prompt({
-            sessionID: session.data!.id,
-            agent: "build",
-            model: { providerID: "test", modelID: "test-model" },
-            noReply: true,
-            parts: [{ type: "text", text: "accepted" }],
-          }),
-        )
-        expect(rejected.status).toBe(400)
-        expect(rejected.error).toEqual(loginRequired)
-      }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
+        Effect.gen(function* () {
+          yield* setRuyingCredential(sdk)
+          const session = yield* call(() => sdk.session.create({ title: "fresh gate" }))
+          const rejected = yield* capture(() =>
+            sdk.session.prompt({
+              sessionID: session.data!.id,
+              agent: "build",
+              model: { providerID: "test", modelID: "test-model" },
+              noReply: true,
+              parts: [{ type: "text", text: "accepted" }],
+            }),
+          )
+          expect(rejected.status).toBe(400)
+          expect(rejected.error).toEqual(loginRequired)
+        }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
     ),
   )
 

@@ -426,7 +426,9 @@ describe("plugin.ruying", () => {
     test("does not clobber a config it cannot parse", async () => {
       const file = tmpConfigFile()
       writeFileSync(file, "{ not valid json // comment")
-      await writeGlobalProviderConfig(file, "https://x/v1", [], { employeeId: "G", displayName: "", email: "" })
+      await expect(
+        writeGlobalProviderConfig(file, "https://x/v1", [], { employeeId: "G", displayName: "", email: "" }),
+      ).rejects.toMatchObject({ name: "RuyingConfigPublicationError" })
       expect(readFileSync(file, "utf8")).toBe("{ not valid json // comment")
       rmSync(file, { force: true })
     })
@@ -1010,9 +1012,7 @@ describe("plugin.ruying", () => {
     })
 
     test("fails and restores config when publication reports an error", async () => {
-      using admin = makeServer(() =>
-        Response.json({ status: "ready", key: "sk-user-abc", tokenName: "GW001-张三" }),
-      )
+      using admin = makeServer(() => Response.json({ status: "ready", key: "sk-user-abc", tokenName: "GW001-张三" }))
       using gw = makeServer(() => Response.json({ data: [] }))
       const configFile = tmpConfigFile()
       const original = JSON.stringify({ theme: "dark" })
@@ -1039,6 +1039,34 @@ describe("plugin.ruying", () => {
       expect(JSON.parse(readFileSync(configFile, "utf8"))).toEqual(JSON.parse(original))
       rmSync(configFile, { force: true })
     })
+
+    for (const [name, source] of [
+      ["malformed JSONC", '{ "theme": "dark",'],
+      ["non-object JSON", "[]"],
+    ] as const) {
+      test(`fails without credential or config commit for ${name}`, async () => {
+        using admin = makeServer(() => Response.json({ status: "ready", key: "sk-user-abc", tokenName: "GW001-张三" }))
+        using gateway = makeServer(() => Response.json({ data: [] }))
+        const configFile = tmpConfigFile()
+        writeFileSync(configFile, source)
+        const hooks = await RuyingAuthPlugin({} as any, {
+          adminApiBase: baseUrl(admin),
+          gatewayApiBase: `${baseUrl(gateway)}/v1`,
+          configFile,
+          callbackHost: "127.0.0.1",
+          callbackPort: 0,
+        })
+
+        const authorized = await oauthMethod(hooks).authorize!()
+        const redirectUri = new URL(authorized.url).searchParams.get("redirect_url")!
+        const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
+        await fetch(`${redirectUri}?access_token=SSO-T`)
+
+        expect(await callbackPromise).toEqual({ type: "failed" })
+        expect(readFileSync(configFile, "utf8")).toBe(source)
+        rmSync(configFile, { force: true })
+      })
+    }
 
     test("falls back to the token name for the badge when check_token fails", async () => {
       using admin = makeServer((_, url) =>

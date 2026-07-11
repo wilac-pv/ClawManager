@@ -76,6 +76,16 @@ export interface RuyingUser {
   email: string
 }
 
+export class RuyingConfigPublicationError extends Error {
+  constructor(
+    readonly file: string,
+    readonly reason: "invalid-jsonc" | "non-object",
+  ) {
+    super(`Cannot publish Ruying provider config: ${reason} (${file})`)
+    this.name = "RuyingConfigPublicationError"
+  }
+}
+
 // Result of POST /api/provision/token. The admin service either returns a ready
 // key or reports that the token is awaiting admin enablement.
 export type ProvisionResult =
@@ -331,10 +341,7 @@ function clearOAuthServer(server: ReturnType<typeof createServer>, generation: O
   oauthServerGeneration = undefined
 }
 
-function setPending(
-  input: Pending,
-  timeoutMs: number,
-) {
+function setPending(input: Pending, timeoutMs: number) {
   // Reject any abandoned in-flight attempt so its caller stops waiting.
   if (pending) {
     pending.reject(new Error("被新的登录请求取代"))
@@ -512,17 +519,13 @@ function queueProviderConfigWrite(target: string, task: () => Promise<void>) {
   return queued
 }
 
-async function providerConfigEdit(
-  file: string,
-  gatewayApiBase: string,
-  modelIds: string[],
-  user: RuyingUser,
-) {
+async function providerConfigEdit(file: string, gatewayApiBase: string, modelIds: string[], user: RuyingUser) {
   const exists = existsSync(file)
   const source = exists ? await Bun.file(file).text() : "{}"
   const errors: ParseError[] = []
   const config: unknown = parse(source, errors, { allowTrailingComma: true })
-  if (errors.length || !isRecord(config)) return
+  if (errors.length) throw new RuyingConfigPublicationError(file, "invalid-jsonc")
+  if (!isRecord(config)) throw new RuyingConfigPublicationError(file, "non-object")
   if (!exists) mkdirSync(dirname(file), { recursive: true })
 
   const provider = buildProviderPatch(gatewayApiBase, modelIds, user).provider[PROVIDER_ID]
@@ -581,22 +584,19 @@ async function restoreOwnedConfig(file: string, snapshot: OwnedConfigSnapshot) {
     : enabled.length
       ? enabled
       : undefined
-  const restored = snapshot.values
-    .reduce(
-      (result, item) =>
-        applyEdits(result, modify(result, item.path, item.present ? item.value : undefined, formatting)),
-      applyEdits(source, modify(source, ["enabled_providers"], restoredEnabled, formatting)),
-    )
-  const compacted = [
-    ["provider", PROVIDER_ID, "options"],
-    ["provider", PROVIDER_ID],
-    ["provider"],
-  ].reduce((result, path) => {
-    const parsed = parse(result) as Record<string, unknown>
-    const value = path.reduce<unknown>((current, key) => (isRecord(current) ? current[key] : undefined), parsed)
-    if (!isRecord(value) || Object.keys(value).length) return result
-    return applyEdits(result, modify(result, path, undefined, formatting))
-  }, restored)
+  const restored = snapshot.values.reduce(
+    (result, item) => applyEdits(result, modify(result, item.path, item.present ? item.value : undefined, formatting)),
+    applyEdits(source, modify(source, ["enabled_providers"], restoredEnabled, formatting)),
+  )
+  const compacted = [["provider", PROVIDER_ID, "options"], ["provider", PROVIDER_ID], ["provider"]].reduce(
+    (result, path) => {
+      const parsed = parse(result) as Record<string, unknown>
+      const value = path.reduce<unknown>((current, key) => (isRecord(current) ? current[key] : undefined), parsed)
+      if (!isRecord(value) || Object.keys(value).length) return result
+      return applyEdits(result, modify(result, path, undefined, formatting))
+    },
+    restored,
+  )
   const finalConfig = parse(compacted) as Record<string, unknown>
   if (!snapshot.fileExisted && Object.keys(finalConfig).length === 0) {
     await rm(file, { force: true })
@@ -690,76 +690,81 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
 
             const outcomePromise = new Promise<Outcome>((resolve, reject) => {
               rejectOutcome = reject
-              setPending({
-                id: attemptId,
-                path: callbackPath,
-                async process(ssoToken) {
-                  // 1. Try to provision a fresh key from the admin service.
-                  let result: ProvisionResult | undefined
-                  let provisionError: Error | undefined
-                  try {
-                    result = await provisionToken(adminApiBase, ssoToken)
-                    debug(
-                      `[ruying] provision keys=${JSON.stringify(Object.keys(result ?? {}))} status=${result?.status} tokenName=${JSON.stringify((result as { tokenName?: unknown })?.tokenName)}`,
-                    )
-                  } catch (err) {
-                    provisionError = err instanceof Error ? err : new Error(String(err))
-                    debug(`[ruying] provision error: ${provisionError.message}`)
-                  }
-
-                  if (result) {
-                    if (result.status !== "ready" || !result.key) {
-                      const name = result.tokenName ?? PROVIDER_NAME
-                      return {
-                        ok: false,
-                        title: "待管理员开通",
-                        message: `网关 Token「${name}」已创建但尚未启用，请联系管理员开通使用权限后重新登录。`,
-                      }
+              setPending(
+                {
+                  id: attemptId,
+                  path: callbackPath,
+                  async process(ssoToken) {
+                    // 1. Try to provision a fresh key from the admin service.
+                    let result: ProvisionResult | undefined
+                    let provisionError: Error | undefined
+                    try {
+                      result = await provisionToken(adminApiBase, ssoToken)
+                      debug(
+                        `[ruying] provision keys=${JSON.stringify(Object.keys(result ?? {}))} status=${result?.status} tokenName=${JSON.stringify((result as { tokenName?: unknown })?.tokenName)}`,
+                      )
+                    } catch (err) {
+                      provisionError = err instanceof Error ? err : new Error(String(err))
+                      debug(`[ruying] provision error: ${provisionError.message}`)
                     }
-                    // Badge user: prefer check_token, fall back to the token name.
-                    let user = parseUserFromTokenName(result.tokenName)
+
+                    if (result) {
+                      if (result.status !== "ready" || !result.key) {
+                        const name = result.tokenName ?? PROVIDER_NAME
+                        return {
+                          ok: false,
+                          title: "待管理员开通",
+                          message: `网关 Token「${name}」已创建但尚未启用，请联系管理员开通使用权限后重新登录。`,
+                        }
+                      }
+                      // Badge user: prefer check_token, fall back to the token name.
+                      let user = parseUserFromTokenName(result.tokenName)
+                      try {
+                        user = await verifyAccessToken(checkTokenUrl, platformCode, ssoToken)
+                        debug(`[ruying] check_token ok employeeId=${user.employeeId} name=${user.displayName}`)
+                      } catch (e) {
+                        debug(`[ruying] check_token error: ${e instanceof Error ? e.message : String(e)}`)
+                        // check_token best-effort; keep the name parsed from tokenName.
+                      }
+                      debug(
+                        `[ruying] final user employeeId=${JSON.stringify(user.employeeId)} name=${JSON.stringify(user.displayName)}`,
+                      )
+                      return { ok: true, key: result.key, user }
+                    }
+
+                    // 2. Provisioning is down (e.g. aicoding-admin 503). Verify the SSO
+                    // login via check_token, then fall back to an existing gateway key in
+                    // the config (e.g. one chelper already provisioned) so login still
+                    // works while the provisioning service is unavailable.
+                    let user: RuyingUser
                     try {
                       user = await verifyAccessToken(checkTokenUrl, platformCode, ssoToken)
-                      debug(`[ruying] check_token ok employeeId=${user.employeeId} name=${user.displayName}`)
+                      debug(`[ruying] fallback check_token ok employeeId=${user.employeeId} name=${user.displayName}`)
                     } catch (e) {
-                      debug(`[ruying] check_token error: ${e instanceof Error ? e.message : String(e)}`)
-                      // check_token best-effort; keep the name parsed from tokenName.
+                      debug(`[ruying] fallback check_token error: ${e instanceof Error ? e.message : String(e)}`)
+                      return {
+                        ok: false,
+                        title: "开通失败",
+                        message: `网关开通服务暂不可用（${provisionError?.message ?? "503"}），且无法校验登录，请稍后重试。`,
+                      }
                     }
-                    debug(`[ruying] final user employeeId=${JSON.stringify(user.employeeId)} name=${JSON.stringify(user.displayName)}`)
-                    return { ok: true, key: result.key, user }
-                  }
-
-                  // 2. Provisioning is down (e.g. aicoding-admin 503). Verify the SSO
-                  // login via check_token, then fall back to an existing gateway key in
-                  // the config (e.g. one chelper already provisioned) so login still
-                  // works while the provisioning service is unavailable.
-                  let user: RuyingUser
-                  try {
-                    user = await verifyAccessToken(checkTokenUrl, platformCode, ssoToken)
-                    debug(`[ruying] fallback check_token ok employeeId=${user.employeeId} name=${user.displayName}`)
-                  } catch (e) {
-                    debug(`[ruying] fallback check_token error: ${e instanceof Error ? e.message : String(e)}`)
-                    return {
-                      ok: false,
-                      title: "开通失败",
-                      message: `网关开通服务暂不可用（${provisionError?.message ?? "503"}），且无法校验登录，请稍后重试。`,
+                    const existingKey = readExistingRuyingKey(options.configFile ?? globalConfigFile())
+                    debug(`[ruying] fallback existingKey=${existingKey ? "present" : "missing"}`)
+                    if (!existingKey) {
+                      return {
+                        ok: false,
+                        title: "开通失败",
+                        message: `网关开通服务暂不可用（${provisionError?.message ?? "503"}）。请稍后重试，或先用 chelper 开通一次。`,
+                      }
                     }
-                  }
-                  const existingKey = readExistingRuyingKey(options.configFile ?? globalConfigFile())
-                  debug(`[ruying] fallback existingKey=${existingKey ? "present" : "missing"}`)
-                  if (!existingKey) {
-                    return {
-                      ok: false,
-                      title: "开通失败",
-                      message: `网关开通服务暂不可用（${provisionError?.message ?? "503"}）。请稍后重试，或先用 chelper 开通一次。`,
-                    }
-                  }
-                  return { ok: true, key: existingKey, user }
+                    return { ok: true, key: existingKey, user }
+                  },
+                  resolve,
+                  reject,
+                  canceled: () => canceled,
                 },
-                resolve,
-                reject,
-                canceled: () => canceled,
-              }, callbackTimeoutMs)
+                callbackTimeoutMs,
+              )
             })
             void outcomePromise.catch(() => undefined)
 
@@ -793,9 +798,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
 
                   const modelIds = await fetchModelIds(gatewayApiBase, outcome.key).catch(() => [] as string[])
                   if (canceled) return { type: "failed" as const }
-                  debug(
-                    `[ruying] callback modelIds=${modelIds.length} user=${JSON.stringify(outcome.user ?? null)}`,
-                  )
+                  debug(`[ruying] callback modelIds=${modelIds.length} user=${JSON.stringify(outcome.user ?? null)}`)
                   // Restrict the app to only the 如影 gateway, and register it + the
                   // logged-in user. Written to disk directly (not via the SDK) so we
                   // don't dispose the instance mid-callback; the gate re-bootstraps.
