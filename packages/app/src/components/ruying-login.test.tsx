@@ -44,6 +44,54 @@ test("authoritative logged-out status exposes only the login state", async () =>
   expect(gate.state.status).toBe("loggedOut")
 })
 
+test("lifecycle logout removes gate access to children", async () => {
+  let loggedIn = true
+  let listener: ((event: { type: string }) => void) | undefined
+  const gate = createRuyingGateState(async () => ({ data: { loggedIn } }))
+  const deactivate = gate.activate({
+    status: async () => ({ data: { loggedIn } }),
+    subscribe: (next) => {
+      listener = next
+      return () => undefined
+    },
+  })
+  await Promise.resolve()
+  expect(gate.state.status).toBe("loggedIn")
+
+  loggedIn = false
+  listener?.({ type: "global.disposed" })
+  await Promise.resolve()
+  expect(gate.state.status).toBe("loggedOut")
+  deactivate()
+})
+
+test("gate replaces lifecycle listener and ignores stale status", async () => {
+  const first = deferred<StatusResult>()
+  const second = deferred<StatusResult>()
+  const removed: string[] = []
+  const gate = createRuyingGateState(() => first.promise)
+  gate.activate({
+    status: () => first.promise,
+    subscribe: () => () => removed.push("first"),
+  })
+  const stop = gate.activate({
+    status: () => second.promise,
+    subscribe: () => () => removed.push("second"),
+  })
+
+  second.resolve({ data: { loggedIn: false } })
+  await second.promise
+  await Promise.resolve()
+  first.resolve({ data: { loggedIn: true } })
+  await first.promise
+  await Promise.resolve()
+
+  expect(gate.state.status).toBe("loggedOut")
+  expect(removed).toEqual(["first"])
+  stop()
+  expect(removed).toEqual(["first", "second"])
+})
+
 async function verifyStatusRetry(first: () => Promise<StatusResult>) {
   let calls = 0
   const gate = createRuyingGateState(async () => {

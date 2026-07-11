@@ -77,6 +77,7 @@ export const ProviderApi = HttpApi.make("provider")
         HttpApiEndpoint.get("ruyingStatus", `${root}/ruying/session`, {
           query: WorkspaceRoutingQuery,
           success: described(RuyingSessionStatus, "Authoritative Ruying login status"),
+          error: RuyingSessionLogoutApiError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "provider.ruying.status",

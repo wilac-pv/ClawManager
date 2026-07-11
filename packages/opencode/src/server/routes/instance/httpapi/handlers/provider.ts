@@ -115,7 +115,9 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     })
 
     const ruyingStatus = Effect.fn("ProviderHttpApi.ruyingStatus")(function* () {
-      return yield* getRuyingSessionStatus()
+      return yield* getRuyingSessionStatus().pipe(
+        Effect.mapError((error) => new RuyingSessionLogoutApiError({ message: error.message })),
+      )
     })
 
     const ruyingLogout = Effect.fn("ProviderHttpApi.ruyingLogout")(function* () {

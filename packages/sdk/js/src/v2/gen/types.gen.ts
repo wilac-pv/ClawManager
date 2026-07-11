@@ -9409,6 +9409,10 @@ export type ProviderRuyingStatusErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * RuyingSessionLogoutError
+   */
+  500: RuyingSessionLogoutError
 }
 
 export type ProviderRuyingStatusError = ProviderRuyingStatusErrors[keyof ProviderRuyingStatusErrors]

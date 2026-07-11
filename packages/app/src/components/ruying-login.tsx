@@ -1,6 +1,6 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Splash } from "@opencode-ai/ui/logo"
-import { createEffect, type ParentProps, Show } from "solid-js"
+import { createEffect, onCleanup, type ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
@@ -26,17 +26,28 @@ export function createRuyingGateState(
   status: () => Promise<{ data?: { loggedIn: boolean }; error?: unknown }>,
 ) {
   const [state, setState] = createStore({ status: "checking" as GateStatus, message: "" })
+  let request = 0
+  let active:
+    | {
+        status: () => Promise<{ data?: { loggedIn: boolean }; error?: unknown }>
+        subscribe: (listener: (event: { type: string }) => void) => () => void
+      }
+    | undefined
+  let unsubscribe: (() => void) | undefined
 
-  async function check() {
+  async function check(next = active?.status ?? status) {
+    const current = ++request
     setState({ status: "checking", message: "" })
     try {
-      const result = await status()
+      const result = await next()
+      if (current !== request) return
       if (result.error || !result.data) {
         setState({ status: "error", message: "无法检查 GWM SSO 登录状态，请重试。" })
         return
       }
       setState("status", result.data.loggedIn ? "loggedIn" : "loggedOut")
     } catch (error) {
+      if (current !== request) return
       setState({
         status: "error",
         message: error instanceof Error ? `${error.message}，请重试。` : "无法检查 GWM SSO 登录状态，请重试。",
@@ -44,7 +55,26 @@ export function createRuyingGateState(
     }
   }
 
-  return { state, check }
+  function activate(runtime: NonNullable<typeof active>) {
+    request++
+    unsubscribe?.()
+    active = runtime
+    const stop = runtime.subscribe((event) => {
+      if (event.type !== "server.connected" && event.type !== "global.disposed") return
+      void check(runtime.status)
+    })
+    unsubscribe = stop
+    void check(runtime.status)
+    return () => {
+      if (active !== runtime) return
+      request++
+      active = undefined
+      unsubscribe = undefined
+      stop()
+    }
+  }
+
+  return { state, check, activate }
 }
 
 export function createRuyingLoginState(input: {
@@ -143,7 +173,12 @@ export function RuyingGate(props: ParentProps) {
 
   createEffect(() => {
     if (!serverSync().ready) return
-    void gate.check()
+    const sdk = serverSDK()
+    const deactivate = gate.activate({
+      status: () => sdk.client.provider.ruying.status(),
+      subscribe: (listener) => sdk.event.on("global", (event) => listener(event)),
+    })
+    onCleanup(deactivate)
   })
 
   return (

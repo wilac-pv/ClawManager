@@ -4,7 +4,13 @@ import path from "node:path"
 import { Effect } from "effect"
 import { parse } from "jsonc-parser"
 import { runLogin, runLogout } from "@/cli/cmd/ruying-auth"
-import { logoutRuying, prepareRuyingIdentityRemoval, removeRuyingIdentity } from "@/auth/ruying-session"
+import {
+  logoutRuying,
+  prepareRuyingIdentityRemoval,
+  removeRuyingIdentity,
+  RuyingSessionLogoutError,
+} from "@/auth/ruying-session"
+import { Auth } from "@/auth"
 import { requirePluginAuthSuccess } from "@/cli/cmd/providers"
 import { tmpdir } from "../../fixture/fixture"
 
@@ -108,6 +114,51 @@ test("true missing config remains a valid logout", async () => {
   )
 
   expect(removed).toBe(true)
+})
+
+test("credential read failure is a typed ruying logout error", async () => {
+  await expect(
+    Effect.runPromise(
+      logoutRuying({
+        prepareIdentity: () => Effect.succeed(Effect.void),
+        get: () => Effect.fail(new Auth.AuthError({ message: "read failed" })),
+        remove: () => Effect.void,
+        set: () => Effect.void,
+      }),
+    ),
+  ).rejects.toMatchObject({ _tag: "RuyingSessionLogoutError", message: expect.stringContaining("read failed") })
+})
+
+test("credential removal failure is a typed ruying logout error", async () => {
+  await expect(
+    Effect.runPromise(
+      logoutRuying({
+        prepareIdentity: () => Effect.succeed(Effect.void),
+        get: () => Effect.succeed({ type: "api" as const, key: "secret" }),
+        remove: () => Effect.fail(new Auth.AuthError({ message: "remove failed" })),
+        set: () => Effect.void,
+      }),
+    ),
+  ).rejects.toMatchObject({ _tag: "RuyingSessionLogoutError", message: expect.stringContaining("remove failed") })
+})
+
+test("rollback failure reports rollback and original identity errors", async () => {
+  await expect(
+    Effect.runPromise(
+      logoutRuying({
+        prepareIdentity: () =>
+          Effect.succeed(
+            Effect.fail(new RuyingSessionLogoutError({ message: "identity failed" })),
+          ),
+        get: () => Effect.succeed({ type: "api" as const, key: "secret" }),
+        remove: () => Effect.void,
+        set: () => Effect.fail(new Auth.AuthError({ message: "rollback failed" })),
+      }),
+    ),
+  ).rejects.toMatchObject({
+    _tag: "RuyingSessionLogoutError",
+    message: expect.stringMatching(/identity failed.*rollback failed|rollback failed.*identity failed/),
+  })
 })
 
 test.skipIf(process.platform === "win32")("inaccessible config fails before logout removes credentials", async () => {

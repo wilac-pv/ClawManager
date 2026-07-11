@@ -32,6 +32,9 @@ import { Database } from "@opencode-ai/core/database/database"
 import { httpApiLayer } from "./httpapi-layer"
 import { GlobalBus } from "@/bus/global"
 import { globalConfigFile } from "@/auth/ruying-session"
+import { Global } from "@opencode-ai/core/global"
+import { chmod, stat } from "node:fs/promises"
+import { chmodSync, readFileSync, watch } from "node:fs"
 
 const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 const appLayer = AppNodeBuilder.build(
@@ -865,6 +868,73 @@ describe("HttpApi SDK", () => {
         expect(logout).toMatchObject({ status: 200, data: true })
         expect(status).toMatchObject({ status: 200, data: { loggedIn: false } })
         expect(events).toEqual(["global.disposed"])
+      }),
+    ),
+  )
+
+  httpapi(
+    "returns declared ruying error when credential removal fails",
+    withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
+      Effect.gen(function* () {
+        yield* setRuyingCredential(sdk)
+        const authFile = path.join(Global.Path.data, "auth.json")
+        yield* Effect.promise(() => chmod(authFile, 0o600))
+        const mode = (yield* Effect.promise(() => stat(authFile))).mode & 0o777
+        yield* Effect.promise(() => chmod(authFile, 0o400))
+        const response = yield* capture(() => sdk.provider.ruying.logout()).pipe(
+          Effect.ensuring(Effect.promise(() => chmod(authFile, mode))),
+        )
+
+        expect(response.status).toBe(500)
+        expect(response.error).toMatchObject({ message: expect.stringContaining("remove Ruying credentials") })
+      }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
+    ),
+  )
+
+  httpapi(
+    "returns declared ruying error when identity publication and credential rollback fail",
+    withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
+      Effect.gen(function* () {
+        const configFile = globalConfigFile()
+        const configDirectory = path.dirname(configFile)
+        const existed = yield* Effect.promise(() => Bun.file(configFile).exists())
+        const previous = existed ? yield* Effect.promise(() => Bun.file(configFile).text()) : undefined
+        const configMode = (yield* Effect.promise(() => stat(configDirectory))).mode & 0o777
+        const authFile = path.join(Global.Path.data, "auth.json")
+        yield* Effect.promise(() =>
+          Bun.write(
+            configFile,
+            `{ "padding": "${"x".repeat(2_000_000)}", "provider": { "ruying": { "options": { "ruyingUser": {} } } } }`,
+          ),
+        )
+        yield* setRuyingCredential(sdk)
+        yield* Effect.promise(() => chmod(authFile, 0o600))
+        const authMode = (yield* Effect.promise(() => stat(authFile))).mode & 0o777
+        let armed = false
+        const watcher = watch(Global.Path.data, { persistent: false }, (_event, filename) => {
+          if (!armed || filename !== "auth.json") return
+          if (readFileSync(authFile, "utf8").includes('"ruying"')) return
+          chmodSync(authFile, 0o400)
+        })
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            watcher.close()
+            await chmod(authFile, authMode)
+            await chmod(configDirectory, configMode)
+            if (previous !== undefined) return void (await Bun.write(configFile, previous))
+            await Bun.file(configFile).delete()
+          }),
+        )
+        yield* Effect.promise(() => Bun.sleep(10))
+        armed = true
+        yield* Effect.promise(() => chmod(configDirectory, 0o500))
+
+        const response = yield* capture(() => sdk.provider.ruying.logout())
+
+        expect(response.status).toBe(500)
+        expect(response.error).toMatchObject({
+          message: expect.stringMatching(/identity config.*restore Ruying credentials/),
+        })
       }),
     ),
   )

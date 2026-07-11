@@ -14,7 +14,9 @@ export const getRuyingSessionStatus = Effect.fn("Auth.ruyingSessionStatus")(func
   const auth = yield* Auth.Service
   const config = yield* Config.Service
   const [credential, current] = yield* Effect.all([
-    auth.get(Brand.profile.providerID).pipe(Effect.orDie),
+    auth.get(Brand.profile.providerID).pipe(
+      Effect.mapError((error) => credentialError("read Ruying credentials", error)),
+    ),
     config.get(),
   ])
   const marker = current.provider?.[Brand.profile.providerID]?.options?.ruyingUser
@@ -27,13 +29,12 @@ export const getRuyingSessionStatus = Effect.fn("Auth.ruyingSessionStatus")(func
   ) {
     return { loggedIn: false as const }
   }
-  const value = marker as { employeeId?: unknown; displayName?: unknown; email?: unknown }
   return {
     loggedIn: true as const,
     user: {
-      ...(typeof value.employeeId === "string" ? { employeeId: value.employeeId } : {}),
-      ...(typeof value.displayName === "string" ? { displayName: value.displayName } : {}),
-      ...(typeof value.email === "string" ? { email: value.email } : {}),
+      ...(typeof marker.employeeId === "string" ? { employeeId: marker.employeeId } : {}),
+      ...(typeof marker.displayName === "string" ? { displayName: marker.displayName } : {}),
+      ...(typeof marker.email === "string" ? { email: marker.email } : {}),
     },
   }
 })
@@ -45,30 +46,50 @@ export class RuyingSessionLogoutError extends Schema.TaggedErrorClass<RuyingSess
 
 interface LogoutRuyingInput {
   prepareIdentity: () => Effect.Effect<Effect.Effect<void, RuyingSessionLogoutError>, RuyingSessionLogoutError>
-  get: (providerID: string) => Effect.Effect<Auth.Info | undefined>
-  remove: (providerID: string) => Effect.Effect<unknown>
-  set: (providerID: string, info: Auth.Info) => Effect.Effect<unknown>
+  get: (providerID: string) => Effect.Effect<Auth.Info | undefined, Auth.AuthError>
+  remove: (providerID: string) => Effect.Effect<unknown, Auth.AuthError>
+  set: (providerID: string, info: Auth.Info) => Effect.Effect<unknown, Auth.AuthError>
 }
 
 export const logoutRuying = Effect.fn("Auth.ruyingSessionLogoutTransaction")(function* (input: LogoutRuyingInput) {
   const publishIdentity = yield* input.prepareIdentity()
-  const previous = yield* input.get(Brand.profile.providerID)
-  yield* input.remove(Brand.profile.providerID)
+  const previous = yield* input
+    .get(Brand.profile.providerID)
+    .pipe(Effect.mapError((error) => credentialError("read Ruying credentials", error)))
+  yield* input
+    .remove(Brand.profile.providerID)
+    .pipe(Effect.mapError((error) => credentialError("remove Ruying credentials", error)))
   yield* publishIdentity.pipe(
     Effect.catch((error) => {
       if (!previous) return Effect.fail(error)
-      return input.set(Brand.profile.providerID, previous).pipe(Effect.andThen(Effect.fail(error)))
+      return input.set(Brand.profile.providerID, previous).pipe(
+        Effect.mapError(
+          (rollback) =>
+            new RuyingSessionLogoutError({
+              message: `${error.message}; failed to restore Ruying credentials: ${rollback.message}`,
+              cause: rollback,
+            }),
+        ),
+        Effect.andThen(Effect.fail(error)),
+      )
     }),
   )
 })
+
+function credentialError(action: string, error: Auth.AuthError) {
+  return new RuyingSessionLogoutError({
+    message: `Failed to ${action}: ${error.message}`,
+    cause: error,
+  })
+}
 
 export const logoutRuyingSession = Effect.fn("Auth.ruyingSessionLogout")(function* () {
   const auth = yield* Auth.Service
   yield* logoutRuying({
     prepareIdentity: () => prepareRuyingIdentityRemoval(globalConfigFile()),
-    get: (providerID) => auth.get(providerID).pipe(Effect.orDie),
-    remove: (providerID) => auth.remove(providerID).pipe(Effect.orDie),
-    set: (providerID, info) => auth.set(providerID, info).pipe(Effect.orDie),
+    get: (providerID) => auth.get(providerID),
+    remove: (providerID) => auth.remove(providerID),
+    set: (providerID, info) => auth.set(providerID, info),
   })
 })
 
@@ -126,7 +147,7 @@ async function resolveExistingConfig(file: string) {
   try {
     await lstat(requested)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return undefined
     throw error
   }
   return realpath(requested)
@@ -142,7 +163,7 @@ async function identityEdit(file: string) {
   const edits = modify(source, ["provider", Brand.profile.providerID, "options", "ruyingUser"], undefined, {
     formattingOptions: { insertSpaces: true, tabSize: 2 },
   })
-  if (!edits.length) return
+  if (!edits.length) return undefined
   return {
     output: applyEdits(source, edits),
     mode: (await stat(file)).mode & 0o777,

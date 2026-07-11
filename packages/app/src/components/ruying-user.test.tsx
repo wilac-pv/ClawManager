@@ -275,3 +275,31 @@ test("lifecycle refresh during failed logout still restores the action", async (
     }),
   )
 })
+
+test("late pre-logout status cannot restore identity after successful logout", async () => {
+  const status = deferred<{ data: { loggedIn: boolean; user?: unknown } }>()
+  const runtime = {
+    status: () => status.promise,
+    logout: async () => undefined,
+    subscribe: () => () => undefined,
+  }
+
+  await new Promise<void>((resolve) =>
+    createRoot((dispose) => {
+      const user = createRuyingUserController({ runtime: () => runtime, reload: () => undefined })
+      queueMicrotask(async () => {
+        await user.logout()
+        expect(user.state.status).toBe("loggedOut")
+        status.resolve({
+          data: { loggedIn: true, user: { employeeId: "STALE", displayName: "旧", email: "" } },
+        })
+        await status.promise
+        await Promise.resolve()
+        expect(user.state.status).toBe("loggedOut")
+        expect(user.state.user).toBeUndefined()
+        dispose()
+        resolve()
+      })
+    }),
+  )
+})
