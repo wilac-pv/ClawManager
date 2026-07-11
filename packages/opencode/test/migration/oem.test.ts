@@ -23,6 +23,22 @@ test("copies missing files and never overwrites the new tree", async () => {
   expect(await Bun.file(marker).exists()).toBe(true)
 })
 
+test("coalesces simultaneous first-launch copies", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-migrate-race-"))
+  const legacy = join(root, "opencode")
+  const current = join(root, "ruying-code")
+  const marker = join(root, "state", ".oem-migration-v1.json")
+  await mkdir(legacy, { recursive: true })
+  await writeFile(join(legacy, "auth.json"), "x".repeat(2_000_000))
+
+  await Promise.all(
+    Array.from({ length: 16 }, () => OemMigration.run({ pairs: [{ legacy, current }], marker })),
+  )
+
+  expect((await readFile(join(current, "auth.json"), "utf8")).length).toBe(2_000_000)
+  expect(await Bun.file(marker).exists()).toBe(true)
+})
+
 test("merges existing directories without overwriting nested branded files", async () => {
   const root = await mkdtemp(join(tmpdir(), "ruying-migrate-"))
   const legacy = join(root, "opencode")
@@ -174,4 +190,29 @@ test("migrates all XDG trees before CLI command execution", async () => {
     }),
   )
   expect(await Bun.file(join(bases.state, "ruying-code", ".oem-migration-v1.json")).exists()).toBe(true)
+})
+
+test("migrates before direct Server.listen and accepts an explicit desktop legacy state root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ruying-server-migrate-"))
+  const state = join(root, "state")
+  const legacyDesktop = join(root, "legacy-electron")
+  await mkdir(join(legacyDesktop, "opencode"), { recursive: true })
+  await writeFile(join(legacyDesktop, "opencode", "session.db"), "legacy desktop session")
+
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--eval",
+      'const { Server } = await import("./src/node.ts"); const server = await Server.listen({ hostname: "127.0.0.1", port: 0, legacyStateRoot: process.env.LEGACY_ROOT }); await server.stop()',
+    ],
+    {
+      cwd: join(import.meta.dir, "../.."),
+      env: { ...Bun.env, XDG_STATE_HOME: state, LEGACY_ROOT: legacyDesktop },
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  )
+
+  expect(await child.exited, await new Response(child.stderr).text()).toBe(0)
+  expect(await Bun.file(join(state, "ruying-code", "session.db")).text()).toBe("legacy desktop session")
 })

@@ -30,9 +30,7 @@ import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
 import { OemMigration } from "./migration/oem"
-import { Global } from "@opencode-ai/core/global"
 import { Brand } from "@opencode-ai/core/brand/brand"
-import path from "node:path"
 
 const args = hideBin(process.argv)
 
@@ -74,27 +72,7 @@ const cli = yargs(args)
       process.env.OPENCODE_PURE = "1"
     }
 
-    await OemMigration.run({
-      pairs: [
-        {
-          legacy: path.join(path.dirname(Global.Path.config), Brand.profile.legacyStorageName),
-          current: Global.Path.config,
-        },
-        {
-          legacy: path.join(path.dirname(Global.Path.data), Brand.profile.legacyStorageName),
-          current: Global.Path.data,
-        },
-        {
-          legacy: path.join(path.dirname(Global.Path.cache), Brand.profile.legacyStorageName),
-          current: Global.Path.cache,
-        },
-        {
-          legacy: path.join(path.dirname(Global.Path.state), Brand.profile.legacyStorageName),
-          current: Global.Path.state,
-        },
-      ],
-      marker: path.join(Global.Path.state, ".oem-migration-v1.json"),
-    })
+    await OemMigration.runDefault()
 
     Heap.start()
 

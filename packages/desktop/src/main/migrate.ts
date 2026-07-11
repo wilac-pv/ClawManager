@@ -36,6 +36,10 @@ const RUYING_APP_IDS = {
   prod: "cn.gwm.ruying-code",
 } as const
 
+export function legacyElectronDataPath(appData: string, channel: keyof typeof LEGACY_APP_IDS) {
+  return join(appData, LEGACY_APP_IDS[channel])
+}
+
 // Resolve the directory where Tauri stored its .dat files for the given app identifier.
 // Mirrors Tauri's AppLocalData / AppData resolution per OS.
 function tauriDir(id: string) {
@@ -184,7 +188,7 @@ export function migrate() {
   const channel = app.isPackaged ? CHANNEL : "dev"
   try {
     migrateLegacyElectronData(
-      join(app.getPath("appData"), LEGACY_APP_IDS[channel]),
+      legacyElectronDataPath(app.getPath("appData"), channel),
       join(app.getPath("appData"), RUYING_APP_IDS[channel]),
     )
   } catch (error) {

@@ -47,6 +47,12 @@ test("imports missing legacy store keys once without changing the legacy directo
   expect(await Bun.file(join(current, "opencode.global.dat")).json()).toEqual({ language: "zh" })
 })
 
+test("resolves the old Bundle-ID data root for sidecar migration", async () => {
+  const { legacyElectronDataPath } = await import("./migrate")
+  expect(legacyElectronDataPath("/app-data", "prod")).toBe(join("/app-data", "ai.opencode.desktop"))
+  expect(legacyElectronDataPath("C:\\AppData", "beta")).toBe(join("C:\\AppData", "ai.opencode.desktop.beta"))
+})
+
 test("imports prototype-named own keys while preserving current own keys", async () => {
   const root = join(tmpdir(), `ruying-desktop-migrate-${crypto.randomUUID()}`)
   const legacy = join(root, "ai.opencode.desktop")
