@@ -31,11 +31,17 @@ export const ImportCommand = effectCmd({
   }),
 })
 
+export function isNetworkImportPath(file: string, platform: NodeJS.Platform = process.platform) {
+  if (/^\\\\[?.]\\UNC(?:[\\/]|$)/i.test(file) || /^\\\\(?![?.]\\)/.test(file)) return true
+  if (platform !== "win32") return false
+  return /^\/\/[?.]\/UNC(?:\/|$)/i.test(file) || /^\/\/(?![?.]\/)/.test(file)
+}
+
 export function requireLocalImportPath(file: string) {
   if (!/^[a-z]:[\\/]/i.test(file) && /^[a-z][a-z0-9+.-]*:\/\//i.test(file)) {
     throw new CliError({ message: "Remote URL and share imports are disabled; provide a local JSON file." })
   }
-  if (/^\\\\[?.]\\UNC(?:[\\/]|$)/i.test(file) || /^\\\\(?![?.]\\)/.test(file)) {
+  if (isNetworkImportPath(file)) {
     throw new CliError({ message: "Network-share imports are disabled; provide a local filesystem path." })
   }
   return file

@@ -18,6 +18,19 @@ test("rejects only remote and Windows network paths before filesystem service ac
   const module = await import("../../src/cli/cmd/import")
   expect("requireLocalImportPath" in module).toBe(true)
   const requireLocalImportPath = module.requireLocalImportPath as (value: string) => string
+  const isNetworkImportPath = (module as unknown as {
+    isNetworkImportPath?: (value: string, platform: NodeJS.Platform) => boolean
+  }).isNetworkImportPath
+
+  expect(isNetworkImportPath).toBeTypeOf("function")
+  if (!isNetworkImportPath) return
+  expect(isNetworkImportPath("//server/share/session.json", "win32")).toBe(true)
+  expect(isNetworkImportPath("//?/UNC/server/share/session.json", "win32")).toBe(true)
+  expect(isNetworkImportPath("//./UNC/server/share/session.json", "win32")).toBe(true)
+  expect(isNetworkImportPath("//tmp/session.json", "linux")).toBe(false)
+  expect(isNetworkImportPath("//server/share/session.json", "darwin")).toBe(false)
+  expect(isNetworkImportPath("//?/C:/sessions/session.json", "win32")).toBe(false)
+  expect(isNetworkImportPath("\\\\server\\share\\session.json", "linux")).toBe(true)
 
   expect(() => requireLocalImportPath("https://example.test/share/abc")).toThrow("Remote URL and share imports")
   expect(() => requireLocalImportPath("ssh://example.test/session.json")).toThrow("Remote URL and share imports")
