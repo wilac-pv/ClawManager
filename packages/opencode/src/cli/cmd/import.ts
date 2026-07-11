@@ -32,9 +32,10 @@ export const ImportCommand = effectCmd({
 })
 
 export function isNetworkImportPath(file: string, platform: NodeJS.Platform = process.platform) {
-  if (/^\\\\[?.]\\UNC(?:[\\/]|$)/i.test(file) || /^\\\\(?![?.]\\)/.test(file)) return true
-  if (platform !== "win32") return false
-  return /^\/\/[?.]\/UNC(?:\/|$)/i.test(file) || /^\/\/(?![?.]\/)/.test(file)
+  const normalized = file.replaceAll("\\", "/")
+  const unc = /^\/\/[?.]\/UNC(?:\/|$)/i.test(normalized) || /^\/\/(?![?.]\/)/.test(normalized)
+  if (file.startsWith("\\\\")) return unc
+  return platform === "win32" && file.startsWith("//") && unc
 }
 
 export function requireLocalImportPath(file: string) {
