@@ -19,7 +19,9 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
   }
   const listeners = new Set(process.listeners("SIGHUP"))
   const events = createEventSource()
-  const calls = createFetch()
+  const calls = createFetch((url) => {
+    if (url.pathname === "/provider") return ruyingProvider()
+  })
   let started!: () => void
   const ready = new Promise<void>((resolve) => {
     started = resolve
@@ -66,6 +68,7 @@ test("app.exit prints the session epilogue after scoped cleanup", async () => {
   mock.module("@opentui/core", () => ({ ...core, createCliRenderer: async () => setup.renderer }))
   const events = createEventSource()
   const calls = createFetch((url) => {
+    if (url.pathname === "/provider") return ruyingProvider()
     if (url.pathname === "/session")
       return json([
         {
@@ -126,3 +129,20 @@ test("app.exit prints the session epilogue after scoped cleanup", async () => {
     mock.restore()
   }
 })
+
+function ruyingProvider() {
+  return json({
+    all: [
+      {
+        id: "ruying",
+        name: "如影编码网关",
+        source: "config",
+        env: [],
+        models: {},
+        options: { ruyingUser: { employeeId: "GW001", displayName: "张三" } },
+      },
+    ],
+    default: {},
+    connected: ["ruying"],
+  })
+}
