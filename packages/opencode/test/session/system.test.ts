@@ -136,6 +136,12 @@ describe("session.system", () => {
     ["tab", "\t"],
     ["line separator", "\u2028"],
     ["paragraph separator", "\u2029"],
+    ["next line", "\u0085"],
+    ["no-break space", "\u00a0"],
+    ["en quad", "\u2000"],
+    ["zero-width space", "\u200b"],
+    ["left-to-right isolate", "\u2066"],
+    ["byte order mark", "\ufeff"],
   ])("omits branded URL prompt injection after a raw %s", (_name, separator) => {
     const originalDocs = process.env.RUYING_CODE_DOCS_URL
     const originalSupport = process.env.RUYING_CODE_SUPPORT_URL

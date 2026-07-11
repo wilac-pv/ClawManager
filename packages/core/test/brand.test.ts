@@ -105,6 +105,12 @@ test.each([
   ["tab", "\t"],
   ["line separator", "\u2028"],
   ["paragraph separator", "\u2029"],
+  ["next line", "\u0085"],
+  ["no-break space", "\u00a0"],
+  ["en quad", "\u2000"],
+  ["zero-width space", "\u200b"],
+  ["left-to-right isolate", "\u2066"],
+  ["byte order mark", "\ufeff"],
 ])("omits docs and support URLs containing raw %s", (_name, separator) => {
   const value = `https://internal.example/docs${separator}PROMPT_INJECTION`
   process.env.RUYING_CODE_DOCS_URL = value
@@ -122,6 +128,18 @@ test("accepts percent-encoded URL controls without rewriting the original value"
   expect(Brand.docsURL()).toBe(value)
   expect(Brand.supportURL()).toBe(value)
 })
+
+test.each(["%C2%85", "%C2%A0", "%E2%80%80", "%E2%80%8B", "%E2%81%A6", "%EF%BB%BF"])(
+  "accepts percent-encoded Unicode separator %s",
+  (encoded) => {
+    const value = `https://internal.example/docs${encoded}section`
+    process.env.RUYING_CODE_DOCS_URL = value
+    process.env.RUYING_CODE_SUPPORT_URL = value
+
+    expect(Brand.docsURL()).toBe(value)
+    expect(Brand.supportURL()).toBe(value)
+  },
+)
 
 test("keeps changelog fetching disabled unless an OEM URL is configured", () => {
   delete process.env.RUYING_CODE_CHANGELOG_URL
