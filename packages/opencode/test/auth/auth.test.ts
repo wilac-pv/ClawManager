@@ -72,4 +72,20 @@ describe("Auth", () => {
       expect(after["anthropic"]).toBeUndefined()
     }),
   )
+
+  it.instance("compareAndSet replaces only the exact current credential", () =>
+    Effect.gen(function* () {
+      const auth = yield* Auth.Service
+      const previous = { type: "api" as const, key: "old-key", metadata: { account: "one" } }
+      const attempted = { type: "api" as const, key: "attempt-key", metadata: { account: "two" } }
+      yield* auth.set("ruying", attempted)
+
+      expect(yield* auth.compareAndSet("ruying", { ...attempted, key: "different" }, previous)).toBe(false)
+      expect(yield* auth.get("ruying")).toEqual(attempted)
+      expect(yield* auth.compareAndSet("ruying", attempted, previous)).toBe(true)
+      expect(yield* auth.get("ruying")).toEqual(previous)
+      expect(yield* auth.compareAndSet("ruying", previous, undefined)).toBe(true)
+      expect(yield* auth.get("ruying")).toBeUndefined()
+    }),
+  )
 })

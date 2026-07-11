@@ -6,7 +6,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { optional } from "@opencode-ai/core/schema"
 import { Plugin } from "../plugin"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { Array as Arr, Effect, Layer, Record, Result, Context, Schema } from "effect"
+import { Array as Arr, Cause, Context, Deferred, Effect, Exit, Layer, Record, Result, Schema } from "effect"
 
 const When = Schema.Struct({
   key: Schema.String,
@@ -100,7 +100,17 @@ export interface Interface {
 
 interface State {
   hooks: Record<ProviderV2.ID, Hook>
-  pending: Map<ProviderV2.ID, AuthOAuthResult>
+  pending: Map<ProviderV2.ID, Attempt>
+}
+
+interface Attempt {
+  result: AuthOAuthResult
+  canceled: boolean
+  persistenceStarted: boolean
+  previous?: Auth.Info
+  next?: Auth.Info
+  completion: Deferred.Deferred<void>
+  rollbackFailure?: unknown
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ProviderAuth") {}
@@ -123,7 +133,7 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
                 : Result.failVoid,
             ),
           ),
-          pending: new Map<ProviderV2.ID, AuthOAuthResult>(),
+          pending: new Map<ProviderV2.ID, Attempt>(),
         }
       }),
     )
@@ -161,6 +171,29 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       )
     })
 
+    const restore = Effect.fn("ProviderAuth.restore")(function* (input: {
+      providerID: ProviderV2.ID
+      attempt: Attempt
+    }) {
+      if (!input.attempt.next) return
+      yield* auth.compareAndSet(input.providerID, input.attempt.next, input.attempt.previous)
+    })
+
+    const cancelAttempt = Effect.fn("ProviderAuth.cancelAttempt")(function* (input: {
+      providerID: ProviderV2.ID
+      attempt: Attempt
+      pending: Map<ProviderV2.ID, Attempt>
+    }) {
+      input.attempt.canceled = true
+      if (input.pending.get(input.providerID) === input.attempt) input.pending.delete(input.providerID)
+      const plugin = yield* Effect.promise(() => input.attempt.result.cancel?.() ?? Promise.resolve()).pipe(Effect.exit)
+      if (input.attempt.persistenceStarted) yield* Deferred.await(input.attempt.completion)
+      // Durable compensation failure wins over plugin cancellation failure because
+      // it means the credential invariant could not be re-established.
+      if (input.attempt.rollbackFailure) return yield* Effect.die(input.attempt.rollbackFailure)
+      if (Exit.isFailure(plugin)) return yield* plugin
+    })
+
     const authorize = Effect.fn("ProviderAuth.authorize")(function* (
       input: { providerID: ProviderV2.ID } & AuthorizeInput,
     ) {
@@ -169,10 +202,7 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       if (method.type !== "oauth") return
 
       const previous = pending.get(input.providerID)
-      if (previous) {
-        pending.delete(input.providerID)
-        yield* Effect.promise(() => previous.cancel?.() ?? Promise.resolve())
-      }
+      if (previous) yield* cancelAttempt({ providerID: input.providerID, attempt: previous, pending })
 
       if (method.prompts && input.inputs) {
         for (const prompt of method.prompts) {
@@ -184,7 +214,12 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       }
 
       const result = yield* Effect.promise(() => method.authorize(input.inputs))
-      pending.set(input.providerID, result)
+      pending.set(input.providerID, {
+        result,
+        canceled: false,
+        persistenceStarted: false,
+        completion: yield* Deferred.make<void>(),
+      })
       return {
         url: result.url,
         method: result.method,
@@ -198,39 +233,58 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       const pending = (yield* InstanceState.get(state)).pending
       const match = pending.get(input.providerID)
       if (!match) return yield* new OauthMissing({ providerID: input.providerID })
-      if (match.method === "code" && !input.code) {
+      if (match.result.method === "code" && !input.code) {
         return yield* new OauthCodeMissing({ providerID: input.providerID })
       }
 
       yield* Effect.gen(function* () {
         const result = yield* Effect.promise(() =>
-          match.method === "code" ? match.callback(input.code!) : match.callback(),
+          match.result.method === "code" ? match.result.callback(input.code!) : match.result.callback(),
         )
-        if (pending.get(input.providerID) !== match) return yield* new OauthCallbackFailed({})
+        if (pending.get(input.providerID) !== match || match.canceled) return yield* new OauthCallbackFailed({})
         if (!result || result.type !== "success") return yield* new OauthCallbackFailed({})
 
         if ("key" in result) {
-          yield* auth.set(input.providerID, {
+          match.next = {
             type: "api",
             key: result.key,
             ...(result.metadata ? { metadata: result.metadata } : {}),
-          })
+          }
         }
 
         if ("refresh" in result) {
           const { type: _, provider: __, refresh, access, expires, ...extra } = result
-          yield* auth.set(input.providerID, {
+          match.next = {
             type: "oauth",
             access,
             refresh,
             expires,
             ...extra,
-          })
+          }
         }
+        if (!match.next) return yield* new OauthCallbackFailed({})
+
+        match.persistenceStarted = true
+        yield* Effect.gen(function* () {
+          match.previous = yield* auth.get(input.providerID)
+          if (pending.get(input.providerID) !== match || match.canceled) return yield* new OauthCallbackFailed({})
+
+          const write = yield* auth.set(input.providerID, match.next!).pipe(Effect.exit)
+          if (pending.get(input.providerID) === match && !match.canceled) return yield* write
+
+          const rollback = yield* restore({ providerID: input.providerID, attempt: match }).pipe(Effect.exit)
+          if (Exit.isFailure(rollback)) {
+            match.rollbackFailure = Cause.squash(rollback.cause)
+            return yield* rollback
+          }
+          if (Exit.isFailure(write)) return yield* write
+          return yield* new OauthCallbackFailed({})
+        }).pipe(Effect.uninterruptible)
       }).pipe(
         Effect.ensuring(
-          Effect.sync(() => {
+          Effect.gen(function* () {
             if (pending.get(input.providerID) === match) pending.delete(input.providerID)
+            yield* Deferred.succeed(match.completion, undefined).pipe(Effect.ignore)
           }),
         ),
       )
@@ -240,8 +294,7 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       const pending = (yield* InstanceState.get(state)).pending
       const match = pending.get(input.providerID)
       if (!match) return
-      pending.delete(input.providerID)
-      yield* Effect.promise(() => match.cancel?.() ?? Promise.resolve())
+      yield* cancelAttempt({ providerID: input.providerID, attempt: match, pending })
     })
 
     return Service.of({ methods, authorize, callback, cancel })
