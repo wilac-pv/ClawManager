@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test"
+import { symlink } from "fs/promises"
+import path from "path"
 import {
   INSTALL_REGISTRY,
   launcherSource,
@@ -57,6 +59,51 @@ test("requires explicit valid release metadata before real publishing", () => {
   expect(() => releaseMetadata(["--version", "1.2.3", "--tag="], {}, "1.2.3", false)).toThrow(
     "explicit release version and tag",
   )
+})
+
+test("rejects SemVer-range tags before fetch or npm commands", async () => {
+  await using tmp = await tmpdir()
+  const repository = `${tmp.path}/repo`
+  const opencode = `${repository}/packages/opencode`
+  const publisher = `${opencode}/script/publish-ruying.ts`
+  const marker = `${tmp.path}/npm-called`
+  await Bun.$`mkdir -p ${opencode}/script ${opencode}/dist ${tmp.path}/bin`
+  await symlink(path.join(import.meta.dir, "../../node_modules"), `${opencode}/node_modules`)
+  await Bun.write(publisher, await Bun.file(`${import.meta.dir}/../../script/publish-ruying.ts`).text())
+  await Bun.write(
+    `${opencode}/script/postinstall.mjs`,
+    await Bun.file(`${import.meta.dir}/../../script/postinstall.mjs`).text(),
+  )
+  await Bun.write(`${repository}/LICENSE`, "test")
+  await Promise.all(
+    SUPPORTED_TARGETS.map(async (target) => {
+      const directory = `${opencode}/dist/${platformDirectory(target)}`
+      await Bun.$`mkdir -p ${directory}`
+      await Bun.write(`${directory}/package.json`, JSON.stringify(platformManifest("1.2.3", target)))
+    }),
+  )
+  await Bun.write(`${tmp.path}/preload.ts`, 'globalThis.fetch = () => { throw new Error("fetch attempted") }\n')
+  await Bun.write(
+    `${tmp.path}/bin/npm`,
+    `#!/usr/bin/env node\nrequire("fs").writeFileSync(${JSON.stringify(marker)}, "called")\nprocess.exit(86)\n`,
+  )
+  await Bun.$`chmod 755 ${tmp.path}/bin/npm`
+
+  for (const tag of ["1.2", "1.x", "v1"]) {
+    if (await Bun.file(marker).exists()) await Bun.file(marker).delete()
+    const result = Bun.spawn(
+      [process.execPath, "--preload", `${tmp.path}/preload.ts`, publisher, "--version", "1.2.3", `--tag=${tag}`],
+      {
+        env: { ...process.env, PATH: `${tmp.path}/bin${path.delimiter}${process.env.PATH ?? ""}` },
+        stdout: "ignore",
+        stderr: "pipe",
+      },
+    )
+
+    expect(await new Response(result.stderr).text()).toContain(`Invalid release tag: ${tag}`)
+    expect(await result.exited).not.toBe(0)
+    expect(await Bun.file(marker).exists()).toBeFalse()
+  }
 })
 
 test("uses deterministic local metadata for pack-only rehearsals", () => {

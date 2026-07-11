@@ -171,7 +171,7 @@ export function releaseMetadata(
   if (version !== builtVersion) {
     throw new Error(`Release version ${version} does not match built package version ${builtVersion}`)
   }
-  if (tag && (!/^[a-z0-9][a-z0-9._-]*$/.test(tag) || semver.valid(tag))) {
+  if (tag && (!/^[a-z0-9][a-z0-9._-]*$/.test(tag) || semver.validRange(tag))) {
     throw new Error(`Invalid release tag: ${tag}`)
   }
   return { version, tag }
