@@ -1006,5 +1006,8 @@ export const dict = {
   "error.childStore.persistedProjectMetadataCreateFailed": "永続プロジェクトメタデータの作成に失敗しました",
   "error.childStore.persistedProjectIconCreateFailed": "永続プロジェクトアイコンの作成に失敗しました",
   "error.childStore.storeCreateFailed": "ストアの作成に失敗しました",
-  "terminal.connectionLost.abnormalClose": "WebSocket が異常終了しました: {{code}}",
+ "terminal.connectionLost.abnormalClose": "WebSocket が異常終了しました: {{code}}",
+  "session.header.reveal.finder": "Reveal in Finder",
+  "session.header.reveal.fileExplorer": "Reveal in File Explorer",
+  "session.header.reveal.containingFolder": "Open containing folder",
 }

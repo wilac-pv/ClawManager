@@ -793,15 +793,19 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         },
         category: "System",
       },
-      {
-        name: "docs.open",
-        title: "Open docs",
-        run: () => {
-          open("https://opencode.ai/docs").catch(() => {})
-          dialog.clear()
-        },
-        category: "System",
-      },
+      ...(Brand.docsURL()
+        ? [
+            {
+              name: "docs.open",
+              title: "Open docs",
+              run: () => {
+                open(Brand.docsURL()!).catch(() => {})
+                dialog.clear()
+              },
+              category: "System",
+            },
+          ]
+        : []),
       {
         name: "app.exit",
         title: "Exit the app",

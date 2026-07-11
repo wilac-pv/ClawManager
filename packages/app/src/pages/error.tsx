@@ -8,6 +8,7 @@ import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { Icon } from "@opencode-ai/ui/icon"
 import { errorDescriptionKey } from "./error-description"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 export type InitError = {
   name: string
@@ -354,7 +355,10 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
             <button
               type="button"
               class="flex items-center text-text-interactive-base gap-1"
-              onClick={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+              onClick={() => {
+                const url = Brand.supportURL()
+                if (url) platform.openLink(url)
+              }}
             >
               <div>{language.t("error.page.report.discord")}</div>
               <Icon name="discord" class="text-text-interactive-base" />

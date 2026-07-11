@@ -34,3 +34,20 @@ test("Ruying OAuth browser copy contains no legacy product name", async () => {
   expect(source).not.toContain("返回 opencode")
   expect(source).not.toContain("opencode 会自动捕获回调")
 })
+
+test("OEM help and crash surfaces contain no public upstream exits", async () => {
+  const files = [
+    "src/app.tsx",
+    "src/component/error-component.tsx",
+    "../app/src/pages/layout.tsx",
+    "../app/src/pages/home.tsx",
+    "../app/src/pages/error.tsx",
+    "../desktop/src/main/onboarding.ts",
+  ]
+  const source = (await Promise.all(files.map((file) => Bun.file(file).text()))).join("\n")
+
+  expect(source).not.toContain("https://opencode.ai/docs")
+  expect(source).not.toContain("https://opencode.ai/desktop-feedback")
+  expect(source).not.toContain("github.com/anomalyco/opencode/issues")
+  expect(source).not.toContain("New OpenCode Project")
+})

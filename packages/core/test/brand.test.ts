@@ -14,6 +14,10 @@ const originalEnv = [
   "OPENCODE_EXPERIMENTAL_FILEWATCHER",
   "RUYING_CODE_EXPERIMENTAL_DISABLE_FILEWATCHER",
   "OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER",
+  "RUYING_CODE_DOCS_URL",
+  "OPENCODE_DOCS_URL",
+  "RUYING_CODE_SUPPORT_URL",
+  "OPENCODE_SUPPORT_URL",
 ].map((key) => [key, process.env[key]] as const)
 
 afterEach(() => {
@@ -47,6 +51,19 @@ test("prefers RUYING_CODE variables over OPENCODE variables", () => {
   expect(Brand.env("CONFIG")).toBe("new.json")
   delete process.env.RUYING_CODE_CONFIG
   expect(Brand.env("CONFIG")).toBe("old.json")
+})
+
+test("keeps docs and support URLs optional with branded-first aliases", () => {
+  process.env.OPENCODE_DOCS_URL = "https://legacy.example/docs"
+  process.env.RUYING_CODE_DOCS_URL = "https://internal.example/docs"
+  process.env.OPENCODE_SUPPORT_URL = "https://legacy.example/support"
+  expect(Brand.docsURL()).toBe("https://internal.example/docs")
+  expect(Brand.supportURL()).toBe("https://legacy.example/support")
+  delete process.env.RUYING_CODE_DOCS_URL
+  delete process.env.OPENCODE_DOCS_URL
+  delete process.env.OPENCODE_SUPPORT_URL
+  expect(Brand.docsURL()).toBeUndefined()
+  expect(Brand.supportURL()).toBeUndefined()
 })
 
 test("recognizes true and 1 environment values", () => {

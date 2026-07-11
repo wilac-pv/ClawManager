@@ -59,6 +59,7 @@ import { pathKey } from "@/utils/path-key"
 import { useGlobal } from "@/context/global"
 import { useCommand } from "@/context/command"
 import { Binary } from "@opencode-ai/core/util/binary"
+import { Brand } from "@opencode-ai/core/brand/brand"
 import { ServerRowMenu } from "@/components/server/server-row-menu"
 import { ServerHealthIndicator } from "@/components/server/server-row"
 import { type ServerHealth } from "@/utils/server-health"
@@ -565,7 +566,7 @@ export function NewHome() {
           clearNotifications={clearNotifications}
           unseenCount={unseenCount}
           openSettings={openSettings}
-          openHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+          openHelp={Brand.supportURL() ? () => platform.openLink(Brand.supportURL()!) : undefined}
           language={language}
         />
 
@@ -657,7 +658,7 @@ export function NewHome() {
         <HomeUtilityNav
           class="flex lg:hidden"
           openSettings={openSettings}
-          openHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+          openHelp={Brand.supportURL() ? () => platform.openLink(Brand.supportURL()!) : undefined}
           language={language}
         />
       </div>
@@ -680,7 +681,7 @@ function HomeProjectColumn(props: {
   clearNotifications: (server: ServerConnection.Any, project: LocalProject) => void
   unseenCount: (server: ServerConnection.Any, project: LocalProject) => number
   openSettings: () => void
-  openHelp: () => void
+  openHelp?: () => void
   language: ReturnType<typeof useLanguage>
 }) {
   const global = useGlobal()
@@ -790,7 +791,7 @@ function HomeProjectColumn(props: {
 function HomeUtilityNav(props: {
   class?: string
   openSettings: () => void
-  openHelp: () => void
+  openHelp?: () => void
   language: ReturnType<typeof useLanguage>
 }) {
   return (
@@ -803,14 +804,18 @@ function HomeUtilityNav(props: {
         <IconV2 name="settings-gear" size="small" />
         <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("sidebar.settings")}</span>
       </button>
-      <button
-        type="button"
-        class={`${HOME_PROJECT_NAV_ROW} text-v2-text-text-faint [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted`}
-        onClick={props.openHelp}
-      >
-        <IconV2 name="help" size="small" />
-        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("sidebar.help")}</span>
-      </button>
+      <Show when={props.openHelp}>
+        {(openHelp) => (
+          <button
+            type="button"
+            class={`${HOME_PROJECT_NAV_ROW} text-v2-text-text-faint [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted`}
+            onClick={openHelp()}
+          >
+            <IconV2 name="help" size="small" />
+            <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("sidebar.help")}</span>
+          </button>
+        )}
+      </Show>
     </div>
   )
 }

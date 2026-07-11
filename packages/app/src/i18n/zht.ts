@@ -1064,5 +1064,8 @@ export const dict = {
   "error.childStore.persistedProjectMetadataCreateFailed": "建立持續性專案中繼資料失敗",
   "error.childStore.persistedProjectIconCreateFailed": "建立持續性專案圖示失敗",
   "error.childStore.storeCreateFailed": "建立儲存區失敗",
-  "terminal.connectionLost.abnormalClose": "WebSocket 異常關閉：{{code}}",
+ "terminal.connectionLost.abnormalClose": "WebSocket 異常關閉：{{code}}",
+  "session.header.reveal.finder": "Reveal in Finder",
+  "session.header.reveal.fileExplorer": "Reveal in File Explorer",
+  "session.header.reveal.containingFolder": "Open containing folder",
 } satisfies Partial<Record<Keys, string>>

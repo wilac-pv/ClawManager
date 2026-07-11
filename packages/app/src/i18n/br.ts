@@ -1014,5 +1014,8 @@ export const dict = {
   "error.childStore.persistedProjectMetadataCreateFailed": "Falha ao criar metadados de projeto persistentes",
   "error.childStore.persistedProjectIconCreateFailed": "Falha ao criar ícone de projeto persistente",
   "error.childStore.storeCreateFailed": "Falha ao criar armazenamento",
-  "terminal.connectionLost.abnormalClose": "WebSocket fechado anormalmente: {{code}}",
+ "terminal.connectionLost.abnormalClose": "WebSocket fechado anormalmente: {{code}}",
+  "session.header.reveal.finder": "Reveal in Finder",
+  "session.header.reveal.fileExplorer": "Reveal in File Explorer",
+  "session.header.reveal.containingFolder": "Open containing folder",
 }

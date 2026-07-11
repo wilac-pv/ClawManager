@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { ZipWriter, BlobWriter, BlobReader } from "@zip.js/zip.js"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
+import { debugArchiveName, serverLogRoots as resolveServerLogRoots } from "./logging-paths"
 
 const MAX_LOG_AGE_DAYS = 7
 const TAIL_LINES = 1000
@@ -54,7 +55,7 @@ export async function exportDebugLogs() {
     await netLog.stopLogging().catch((error) => write("network", "failed to stop net log", { error }))
   }
 
-  const output = join(app.getPath("downloads"), `opencode-debug-${stamp()}.zip`)
+  const output = join(app.getPath("downloads"), debugArchiveName(stamp()))
   try {
     write("main", "exporting debug logs", { output })
     await writeZip(output, [
@@ -151,7 +152,7 @@ function manifest() {
 
 function serverLogRoots() {
   const xdgData = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share")
-  return [...new Set([join(xdgData, "opencode", "log"), join(app.getPath("userData"), "opencode", "log")])]
+  return resolveServerLogRoots({ xdgData, userData: app.getPath("userData") })
 }
 
 type Entry = { name: string; path?: string; data?: Buffer }

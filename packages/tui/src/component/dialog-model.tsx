@@ -7,6 +7,11 @@ import { DialogVariant } from "./dialog-variant"
 import * as fuzzysort from "fuzzysort"
 import { useConnected } from "./use-connected"
 import { useSync } from "../context/sync"
+import { Brand } from "@opencode-ai/core/brand/brand"
+
+export function visibleModelProviders<T extends { id: string }>(providers: T[]) {
+  return providers.filter((provider) => provider.id === Brand.profile.providerID)
+}
 
 export function DialogModel(props: { providerID?: string }) {
   const local = useLocal()
@@ -16,6 +21,7 @@ export function DialogModel(props: { providerID?: string }) {
 
   const connected = useConnected()
   const showExtra = createMemo(() => connected() && !props.providerID)
+  const providers = createMemo(() => visibleModelProviders(sync.data.provider))
 
   const options = createMemo(() => {
     const needle = query().trim()
@@ -26,7 +32,7 @@ export function DialogModel(props: { providerID?: string }) {
     function toOptions(items: typeof favorites, category: string) {
       if (!showSections) return []
       return items.flatMap((item) => {
-        const provider = sync.data.provider.find((provider) => provider.id === item.providerID)
+        const provider = providers().find((provider) => provider.id === item.providerID)
         if (!provider) return []
         const model = provider.models[item.modelID]
         if (!model) return []
@@ -56,7 +62,7 @@ export function DialogModel(props: { providerID?: string }) {
     )
 
     const providerOptions = pipe(
-      sync.data.provider,
+      providers(),
       sortBy(
         (provider) => provider.id !== "opencode",
         (provider) => provider.name,
@@ -113,7 +119,7 @@ export function DialogModel(props: { providerID?: string }) {
   })
 
   const provider = createMemo(() =>
-    props.providerID ? sync.data.provider.find((item) => item.id === props.providerID) : null,
+    props.providerID ? providers().find((item) => item.id === props.providerID) : null,
   )
 
   const title = createMemo(() => {

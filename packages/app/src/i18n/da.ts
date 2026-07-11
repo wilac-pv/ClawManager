@@ -1082,5 +1082,8 @@ export const dict = {
   "error.childStore.persistedProjectMetadataCreateFailed": "Kunne ikke oprette vedvarende projektmetadata",
   "error.childStore.persistedProjectIconCreateFailed": "Kunne ikke oprette vedvarende projektikon",
   "error.childStore.storeCreateFailed": "Kunne ikke oprette lager",
-  "terminal.connectionLost.abnormalClose": "WebSocket lukkede unormalt: {{code}}",
+ "terminal.connectionLost.abnormalClose": "WebSocket lukkede unormalt: {{code}}",
+  "session.header.reveal.finder": "Reveal in Finder",
+  "session.header.reveal.fileExplorer": "Reveal in File Explorer",
+  "session.header.reveal.containingFolder": "Open containing folder",
 }

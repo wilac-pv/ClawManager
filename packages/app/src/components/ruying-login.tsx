@@ -121,17 +121,7 @@ export function createRuyingLoginState(input: {
 }
 
 export function RuyingLogin() {
-  const serverSDK = useServerSDK()
-  const login = createRuyingLoginState({
-    authorize: () =>
-      serverSDK().client.provider.oauth.authorize(
-        { providerID: RUYING_PROVIDER_ID, method: 0 },
-        { throwOnError: true },
-      ),
-    callback: () => serverSDK().client.provider.oauth.callback({ providerID: RUYING_PROVIDER_ID, method: 0 }),
-    dispose: () => serverSDK().client.global.dispose().catch(() => undefined),
-    reload: () => window.location.reload(),
-  })
+  const login = createRuyingLoginController()
 
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6 select-none">
@@ -170,24 +160,26 @@ export function RuyingLogin() {
   )
 }
 
-export function RuyingGate(props: ParentProps) {
-  const serverSync = useServerSync()
+export function createRuyingLoginController(reload = () => window.location.reload()) {
   const serverSDK = useServerSDK()
-  const gate = createRuyingGateState(() => serverSDK().client.provider.ruying.status())
-
-  createEffect(() => {
-    if (!serverSync().ready) return
-    const sdk = serverSDK()
-    const deactivate = gate.activate({
-      status: () => sdk.client.provider.ruying.status(),
-      subscribe: (listener) => sdk.event.on("global", (event) => listener(event)),
-    })
-    onCleanup(deactivate)
+  return createRuyingLoginState({
+    authorize: () =>
+      serverSDK().client.provider.oauth.authorize(
+        { providerID: RUYING_PROVIDER_ID, method: 0 },
+        { throwOnError: true },
+      ),
+    callback: () => serverSDK().client.provider.oauth.callback({ providerID: RUYING_PROVIDER_ID, method: 0 }),
+    dispose: () => serverSDK().client.global.dispose().catch(() => undefined),
+    reload,
   })
+}
+
+export function RuyingGate(props: ParentProps) {
+  const { gate, ready } = createRuyingGateController()
 
   return (
     <Show
-      when={serverSync().ready && gate.state.status !== "checking"}
+      when={ready() && gate.state.status !== "checking"}
       fallback={
         <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
           <Splash class="w-16 h-20 opacity-50 animate-pulse" />
@@ -213,4 +205,21 @@ export function RuyingGate(props: ParentProps) {
       </Show>
     </Show>
   )
+}
+
+export function createRuyingGateController() {
+  const serverSync = useServerSync()
+  const serverSDK = useServerSDK()
+  const gate = createRuyingGateState(() => serverSDK().client.provider.ruying.status())
+
+  createEffect(() => {
+    if (!serverSync().ready) return
+    const sdk = serverSDK()
+    const deactivate = gate.activate({
+      status: () => sdk.client.provider.ruying.status(),
+      subscribe: (listener) => sdk.event.on("global", (event) => listener(event)),
+    })
+    onCleanup(deactivate)
+  })
+  return { gate, ready: () => serverSync().ready }
 }

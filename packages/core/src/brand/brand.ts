@@ -33,4 +33,12 @@ export function truthy(suffix: string) {
   return value === "true" || value === "1"
 }
 
+export function docsURL() {
+  return env("DOCS_URL")
+}
+
+export function supportURL() {
+  return env("SUPPORT_URL")
+}
+
 export * as Brand from "./brand"

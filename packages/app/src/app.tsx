@@ -565,7 +565,7 @@ export function AppInterface(props: {
                     <NotificationProvider>
                       <ServerShell>
                         <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
-                          <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
+                          <NewAppLayout>{routerProps.children}</NewAppLayout>
                         </Show>
                       </ServerShell>
                     </NotificationProvider>

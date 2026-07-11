@@ -1093,5 +1093,8 @@ export const dict = {
   "error.childStore.persistedProjectMetadataCreateFailed": "Не удалось создать постоянные метаданные проекта",
   "error.childStore.persistedProjectIconCreateFailed": "Не удалось создать постоянный значок проекта",
   "error.childStore.storeCreateFailed": "Не удалось создать хранилище",
-  "terminal.connectionLost.abnormalClose": "WebSocket закрыт аварийно: {{code}}",
+ "terminal.connectionLost.abnormalClose": "WebSocket закрыт аварийно: {{code}}",
+  "session.header.reveal.finder": "Reveal in Finder",
+  "session.header.reveal.fileExplorer": "Reveal in File Explorer",
+  "session.header.reveal.containingFolder": "Open containing folder",
 }

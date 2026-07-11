@@ -1027,5 +1027,8 @@ export const dict = {
     "Échec de la création des métadonnées de projet persistantes",
   "error.childStore.persistedProjectIconCreateFailed": "Échec de la création de l'icône de projet persistante",
   "error.childStore.storeCreateFailed": "Échec de la création du stockage",
-  "terminal.connectionLost.abnormalClose": "WebSocket fermé anormalement : {{code}}",
+ "terminal.connectionLost.abnormalClose": "WebSocket fermé anormalement : {{code}}",
+  "session.header.reveal.finder": "Reveal in Finder",
+  "session.header.reveal.fileExplorer": "Reveal in File Explorer",
+  "session.header.reveal.containingFolder": "Open containing folder",
 }
