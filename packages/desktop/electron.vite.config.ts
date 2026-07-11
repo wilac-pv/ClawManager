@@ -35,6 +35,9 @@ export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+      "import.meta.env.RUYING_CODE_DESKTOP_UPDATE_URL": JSON.stringify(
+        process.env.RUYING_CODE_DESKTOP_UPDATE_URL ?? "",
+      ),
     },
     build: {
       rollupOptions: {

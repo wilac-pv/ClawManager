@@ -1,12 +1,25 @@
 import { app } from "electron"
 import log from "electron-log/main.js"
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { CHANNEL } from "./constants"
 import { getStore } from "./store"
 
 const TAURI_MIGRATED_KEY = "tauriMigrated"
+const LEGACY_ELECTRON_MIGRATED_FILE = ".legacy-electron-migrated"
+
+const LEGACY_APP_IDS = {
+  dev: "ai.opencode.desktop.dev",
+  beta: "ai.opencode.desktop.beta",
+  prod: "ai.opencode.desktop",
+} as const
+
+const RUYING_APP_IDS = {
+  dev: "cn.gwm.ruying-code.dev",
+  beta: "cn.gwm.ruying-code.beta",
+  prod: "cn.gwm.ruying-code",
+} as const
 
 // Resolve the directory where Tauri stored its .dat files for the given app identifier.
 // Mirrors Tauri's AppLocalData / AppData resolution per OS.
@@ -29,6 +42,47 @@ const TAURI_APP_IDS: Record<string, string> = {
 }
 function tauriAppId() {
   return app.isPackaged ? TAURI_APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
+}
+
+export function migrateLegacyElectronData(legacyDir: string, currentDir: string) {
+  const marker = join(currentDir, LEGACY_ELECTRON_MIGRATED_FILE)
+  if (existsSync(marker)) return
+
+  mkdirSync(currentDir, { recursive: true })
+  if (existsSync(legacyDir)) {
+    readdirSync(legacyDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && (entry.name === "default.dat" || entry.name.startsWith("opencode.")))
+      .forEach((entry) => migrateLegacyElectronStore(join(legacyDir, entry.name), join(currentDir, entry.name)))
+  }
+
+  writeJsonAtomically(marker, { migratedAt: new Date().toISOString() })
+}
+
+function migrateLegacyElectronStore(legacyFile: string, currentFile: string) {
+  const legacy = readObject(legacyFile)
+  const current = existsSync(currentFile) ? readObject(currentFile) : {}
+
+  const missing = Object.fromEntries(Object.entries(legacy).filter(([key]) => !(key in current)))
+  if (Object.keys(missing).length === 0) return
+  writeJsonAtomically(currentFile, { ...current, ...missing })
+}
+
+function readObject(file: string) {
+  const value = JSON.parse(readFileSync(file, "utf8")) as unknown
+  if (!isRecord(value)) {
+    throw new Error(`legacy electron migration: store is not an object ${file}`)
+  }
+  return value
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function writeJsonAtomically(file: string, value: Record<string, unknown>) {
+  const temporary = `${file}.${crypto.randomUUID()}.tmp`
+  writeFileSync(temporary, JSON.stringify(value, null, 2))
+  renameSync(temporary, file)
 }
 
 // Migrate a single Tauri .dat file into the corresponding electron-store.
@@ -67,6 +121,16 @@ function migrateFile(datPath: string, filename: string) {
 }
 
 export function migrate() {
+  const channel = app.isPackaged ? CHANNEL : "dev"
+  try {
+    migrateLegacyElectronData(
+      join(app.getPath("appData"), LEGACY_APP_IDS[channel]),
+      join(app.getPath("appData"), RUYING_APP_IDS[channel]),
+    )
+  } catch (error) {
+    log.warn("legacy electron migration: failed", error)
+  }
+
   if (getStore().get(TAURI_MIGRATED_KEY)) {
     log.log("tauri migration: already done, skipping")
     return

@@ -4,10 +4,9 @@
   "version": "1.17.18",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "description": "如影 Code desktop application",
   "author": {
-    "name": "OpenCode",
-    "email": "hello@opencode.ai"
+    "name": "如影 Code"
   },
   "scripts": {
     "typecheck": "tsgo -b",

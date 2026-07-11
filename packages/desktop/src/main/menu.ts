@@ -22,7 +22,7 @@ export function createMenu(deps: Deps) {
   const template = DESKTOP_MENU.filter((menu) => desktopMenuVisible(menu, "macos")).map((menu) => {
     if (menu.role) return { role: nativeRole(menu.role) }
     return {
-      label: menu.label,
+      label: menu.id === "app" ? "如影 Code" : menu.label,
       submenu: menu.items
         ?.filter((entry) => desktopMenuVisible(entry, "macos"))
         .map((entry) => nativeItem(entry, deps)),

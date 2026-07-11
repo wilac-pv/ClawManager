@@ -1,5 +1,6 @@
 interface ImportMetaEnv {
   readonly OPENCODE_CHANNEL: string
+  readonly RUYING_CODE_DESKTOP_UPDATE_URL: string
 }
 
 interface ImportMeta {
