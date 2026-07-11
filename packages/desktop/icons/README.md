@@ -7,9 +7,9 @@ platform-safe padding.
 Regenerate every release channel from `packages/desktop`:
 
 ```sh
-bun tauri icon -o icons/prod app-icon.png
-bun tauri icon -o icons/beta app-icon.png
-bun tauri icon -o icons/dev app-icon.png
+bunx --bun @tauri-apps/cli@2.11.4 icon -o icons/prod app-icon.png
+bunx --bun @tauri-apps/cli@2.11.4 icon -o icons/beta app-icon.png
+bunx --bun @tauri-apps/cli@2.11.4 icon -o icons/dev app-icon.png
 cp icons/prod/128x128@2x.png icons/prod/dock.png
 cp icons/beta/128x128@2x.png icons/beta/dock.png
 cp icons/dev/128x128@2x.png icons/dev/dock.png
