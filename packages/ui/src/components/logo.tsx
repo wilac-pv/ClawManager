@@ -9,8 +9,17 @@ export const Mark = (props: { class?: string }) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path data-slot="logo-logo-mark-shadow" d="M12 16H4V8H12V16Z" fill="var(--icon-weak-base)" />
-      <path data-slot="logo-logo-mark-o" d="M12 4H4V16H12V4ZM16 20H0V0H16V20Z" fill="var(--icon-strong-base)" />
+      <path
+        data-slot="logo-logo-mark-shadow"
+        d="M3 3.3H8V5.7H3V3.3ZM3 11.3H8V12.7H3V11.3Z"
+        fill="var(--icon-weak-base)"
+      />
+      <path
+        data-slot="logo-logo-mark-ruying"
+        fill-rule="evenodd"
+        d="M1.5 2H9.5V7H8V8H10V9.5H1V8H3V7H1.5V2ZM3 3.3V4H8V3.3H3ZM3 5V5.7H8V5H3ZM1.5 10H9.5V14H7V18H4.7V14H1.5V10ZM3 11.3V12.7H8V11.3H3ZM2.7 14.5L4.3 15.3L2.7 18L1.1 17.2L2.7 14.5ZM7.5 14.5L10 17L8.6 18.4L6.2 15.8L7.5 14.5ZM13.3 2.3L15.3 3.4C14.3 5.4 13.2 6.8 11.2 8.3L9.9 6.6C11.5 5.4 12.5 4.2 13.3 2.3ZM13.7 7.7L15.7 8.8C14.5 11.2 13.1 12.9 10.8 14.5L9.6 12.7C11.5 11.4 12.7 9.9 13.7 7.7ZM14 13L16 14.1C14.6 16.8 13 18.4 10.5 20L9.3 18.2C11.4 16.8 12.8 15.4 14 13Z"
+        fill="var(--icon-strong-base)"
+      />
     </svg>
   )
 }
