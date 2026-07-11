@@ -39,6 +39,7 @@ import {
 } from "./windows"
 import { createWslServersController } from "./wsl/servers"
 import { registerWslIpcHandlers } from "./wsl/ipc"
+import { createWslSidecarLauncher } from "./wsl/sidecar-launcher"
 import { spawnWslSidecar } from "./wsl/sidecar"
 import { legacyElectronDataPath, migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
@@ -140,21 +141,12 @@ const main = Effect.gen(function* () {
   logger = initLogging()
   initCrashReporter()
 
-  const wslServers = createWslServersController(
-    app.getVersion(),
-    async (distro) => {
-      logger.log("spawning wsl sidecar", { distro })
-      return spawnWslSidecar(distro, {
-        onLine: (line) => logger.log("wsl sidecar", { distro, stream: line.stream, text: line.text }),
-      })
+  const wslServers = createWslServersController(app.getVersion(), createWslSidecarLauncher(logger, spawnWslSidecar), {
+    logger: {
+      log: (message, meta) => logger.log(message, meta),
+      error: (message, meta) => logger.error(message, meta),
     },
-    {
-      logger: {
-        log: (message, meta) => logger.log(message, meta),
-        error: (message, meta) => logger.error(message, meta),
-      },
-    },
-  )
+  })
   const stopSidecars = async () => {
     await killSidecar()
     wslServers.stopAll()

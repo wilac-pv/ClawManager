@@ -13,6 +13,7 @@ import {
   wslServerIdsToStartOnInitialize,
 } from "./startup"
 import { createWslServersController, type WslServerConfig } from "./servers"
+import { createWslSidecarLauncher } from "./sidecar-launcher"
 
 let persistedServers: WslServerConfig[] = []
 let releaseOpencodeResolve: (() => void) | undefined
@@ -204,6 +205,41 @@ test("does not check OpenCode in addable distros that cannot execute commands", 
   expect(Object.keys(controller.getState().distroProbes)).toEqual(["Debian", "Ubuntu"])
   expect(opencode).toEqual(["Debian"])
   expect(Object.keys(controller.getState().opencodeChecks)).toEqual(["Debian"])
+})
+
+test("hands a configured distro from the production launcher adapter to the sidecar boundary", async () => {
+  persistedServers = [{ id: "wsl:Debian", distro: "Debian" }]
+  const logs: Array<{ message: string; meta?: unknown }> = []
+  const spawned: string[] = []
+  const controller = createWslServersController(
+    "1.17.18",
+    createWslSidecarLauncher({ log: (message, meta) => logs.push({ message, meta }) }, async (distro, opts) => {
+      spawned.push(distro)
+      opts.onLine?.({ stream: "stdout", text: "ready" })
+      return {
+        listener: { stop: () => undefined, onExit: () => undefined },
+        url: "http://127.0.0.1:4096",
+        username: "opencode",
+        password: "secret",
+      }
+    }),
+    {
+      readServers: () => persistedServers,
+      writeServers: (servers) => (persistedServers = servers),
+      resolveOpencode: async () => "/home/me/.local/bin/ruying-code",
+      readCommandVersion: async () => "1.17.18",
+    },
+  )
+
+  await controller.initialize()
+  await waitFor(() => controller.getState().servers[0]?.runtime.kind === "ready")
+
+  expect(spawned).toEqual(["Debian"])
+  expect(logs).toContainEqual({ message: "spawning wsl sidecar", meta: { distro: "Debian" } })
+  expect(logs).toContainEqual({
+    message: "wsl sidecar",
+    meta: { distro: "Debian", stream: "stdout", text: "ready" },
+  })
 })
 
 async function waitFor(check: () => boolean) {
