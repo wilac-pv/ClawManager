@@ -36,7 +36,12 @@ describe("CommandPlugin.Plugin", () => {
         name: "init",
         description: "guided AGENTS.md setup",
       })
-      expect((yield* command.get("init"))?.template).toContain("`/repo`")
+      const init = (yield* command.get("init"))?.template ?? ""
+      expect(init).toContain("`/repo`")
+      expect(init).toContain("Ruying Code")
+      expect(init).toContain("ruying-code.json")
+      expect(init).not.toContain("OpenCode")
+      expect(init).not.toContain("opencode.json")
       expect(yield* command.get("review")).toMatchObject({
         name: "review",
         description: "review changes [commit|branch|pr], defaults to uncommitted",

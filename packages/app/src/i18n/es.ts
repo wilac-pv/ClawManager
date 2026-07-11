@@ -119,7 +119,7 @@ export const dict = {
   "dialog.model.manage.description": "Personalizar qué modelos aparecen en el selector de modelos.",
   "dialog.model.manage.provider.toggle": "Alternar todos los modelos de {{provider}}",
 
-  "dialog.model.unpaid.freeModels.title": "Modelos gratuitos proporcionados por OpenCode",
+  "dialog.model.unpaid.freeModels.title": "Modelos gratuitos proporcionados por Ruying Code",
   "dialog.model.unpaid.addMore.title": "Añadir más modelos de proveedores populares",
 
   "dialog.provider.viewAll": "Ver más proveedores",
@@ -132,12 +132,12 @@ export const dict = {
   "provider.connect.status.waiting": "Esperando autorización...",
   "provider.connect.status.failed": "Autorización fallida: {{error}}",
   "provider.connect.apiKey.description":
-    "Introduce tu clave API de {{provider}} para conectar tu cuenta y usar modelos de {{provider}} en OpenCode.",
+    "Introduce tu clave API de {{provider}} para conectar tu cuenta y usar modelos de {{provider}} en Ruying Code.",
   "provider.connect.apiKey.label": "Clave API de {{provider}}",
   "provider.connect.apiKey.placeholder": "Clave API",
   "provider.connect.apiKey.required": "La clave API es obligatoria",
   "provider.connect.opencodeZen.line1":
-    "OpenCode Zen te da acceso a un conjunto curado de modelos fiables optimizados para agentes de programación.",
+    "Ruying Code Zen te da acceso a un conjunto curado de modelos fiables optimizados para agentes de programación.",
   "provider.connect.opencodeZen.line2":
     "Con una sola clave API obtendrás acceso a modelos como Claude, GPT, Gemini, GLM y más.",
   "provider.connect.opencodeZen.visit.prefix": "Visita ",
@@ -146,7 +146,7 @@ export const dict = {
   "provider.connect.oauth.code.visit.prefix": "Visita ",
   "provider.connect.oauth.code.visit.link": "este enlace",
   "provider.connect.oauth.code.visit.suffix":
-    " para obtener tu código de autorización para conectar tu cuenta y usar modelos de {{provider}} en OpenCode.",
+    " para obtener tu código de autorización para conectar tu cuenta y usar modelos de {{provider}} en Ruying Code.",
   "provider.connect.oauth.code.label": "Código de autorización {{method}}",
   "provider.connect.oauth.code.placeholder": "Código de autorización",
   "provider.connect.oauth.code.required": "El código de autorización es obligatorio",
@@ -154,7 +154,7 @@ export const dict = {
   "provider.connect.oauth.auto.visit.prefix": "Visita ",
   "provider.connect.oauth.auto.visit.link": "este enlace",
   "provider.connect.oauth.auto.visit.suffix":
-    " e introduce el código a continuación para conectar tu cuenta y usar modelos de {{provider}} en OpenCode.",
+    " e introduce el código a continuación para conectar tu cuenta y usar modelos de {{provider}} en Ruying Code.",
   "provider.connect.oauth.auto.confirmationCode": "Código de confirmación",
   "provider.connect.toast.connected.title": "{{provider}} conectado",
   "provider.connect.toast.connected.description": "Los modelos de {{provider}} ahora están disponibles para usar.",
@@ -311,7 +311,7 @@ export const dict = {
   "dialog.mcp.empty": "No hay MCPs configurados",
 
   "dialog.lsp.empty": "LSPs detectados automáticamente por tipo de archivo",
-  "dialog.plugins.empty": "Plugins configurados en opencode.json",
+  "dialog.plugins.empty": "Plugins configurados en ruying-code.json",
 
   "mcp.status.connected": "conectado",
   "mcp.status.failed": "fallido",
@@ -330,7 +330,7 @@ export const dict = {
   "dialog.directory.readError": "No se puede leer esta carpeta",
 
   "dialog.server.title": "Servidores",
-  "dialog.server.description": "Cambiar a qué servidor de OpenCode se conecta esta app.",
+  "dialog.server.description": "Cambiar a qué servidor de Ruying Code se conecta esta app.",
   "dialog.server.search.placeholder": "Buscar servidores",
   "dialog.server.empty": "No hay servidores aún",
   "dialog.server.add.title": "Añadir un servidor",
@@ -549,7 +549,7 @@ export const dict = {
   "error.page.action.checking": "Comprobando...",
   "error.page.action.checkUpdates": "Buscar actualizaciones",
   "error.page.action.updateTo": "Actualizar a {{version}}",
-  "error.page.report.prefix": "Por favor reporta este error al equipo de OpenCode",
+  "error.page.report.prefix": "Por favor reporta este error al equipo de Ruying Code",
   "error.page.report.discord": "en Discord",
   "error.page.version": "Versión: {{version}}",
 
@@ -567,8 +567,8 @@ export const dict = {
   "error.chain.responseBody": "Cuerpo de la respuesta:\n{{body}}",
   "error.chain.didYouMean": "¿Quisiste decir: {{suggestions}}",
   "error.chain.modelNotFound": "Modelo no encontrado: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Comprueba los nombres de proveedor/modelo en tu configuración (opencode.json)",
-  "error.chain.mcpFailed": 'El servidor MCP "{{name}}" falló. Nota, OpenCode no soporta autenticación MCP todavía.',
+  "error.chain.checkConfig": "Comprueba los nombres de proveedor/modelo en tu configuración (ruying-code.json)",
+  "error.chain.mcpFailed": 'El servidor MCP "{{name}}" falló. Nota, Ruying Code no soporta autenticación MCP todavía.',
   "error.chain.providerAuthFailed": "Autenticación de proveedor fallida ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
     'Fallo al inicializar proveedor "{{provider}}". Comprueba credenciales y configuración.',
@@ -740,7 +740,7 @@ export const dict = {
   "sidebar.workspaces.enable": "Habilitar espacios de trabajo",
   "sidebar.workspaces.disable": "Deshabilitar espacios de trabajo",
   "sidebar.gettingStarted.title": "Empezando",
-  "sidebar.gettingStarted.line1": "OpenCode incluye modelos gratuitos para que puedas empezar inmediatamente.",
+  "sidebar.gettingStarted.line1": "Ruying Code incluye modelos gratuitos para que puedas empezar inmediatamente.",
   "sidebar.gettingStarted.line2": "Conecta cualquier proveedor para usar modelos, inc. Claude, GPT, Gemini etc.",
   "sidebar.project.recentSessions": "Sesiones recientes",
   "sidebar.project.viewAllSessions": "Ver todas las sesiones",
@@ -748,7 +748,7 @@ export const dict = {
   "sidebar.empty.title": "No hay proyectos abiertos",
   "sidebar.empty.description": "Abre un proyecto para empezar",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Ruying Code Desktop",
 
   "settings.section.desktop": "Escritorio",
   "settings.section.server": "Servidor",

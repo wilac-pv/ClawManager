@@ -123,7 +123,7 @@ export const dict = {
   "dialog.model.manage.description": "Model seçicide hangi modellerin görüneceğini özelleştirin.",
   "dialog.model.manage.provider.toggle": "Tüm {{provider}} modellerini aç/kapat",
 
-  "dialog.model.unpaid.freeModels.title": "OpenCode tarafından sunulan ücretsiz modeller",
+  "dialog.model.unpaid.freeModels.title": "Ruying Code tarafından sunulan ücretsiz modeller",
   "dialog.model.unpaid.addMore.title": "Popüler sağlayıcılardan daha fazla model ekleyin",
 
   "dialog.provider.viewAll": "Daha fazla sağlayıcı göster",
@@ -136,12 +136,12 @@ export const dict = {
   "provider.connect.status.waiting": "Yetkilendirme bekleniyor...",
   "provider.connect.status.failed": "Yetkilendirme başarısız: {{error}}",
   "provider.connect.apiKey.description":
-    "{{provider}} hesabınızı bağlamak ve OpenCode'da {{provider}} modellerini kullanmak için API anahtarınızı girin.",
+    "{{provider}} hesabınızı bağlamak ve Ruying Code'da {{provider}} modellerini kullanmak için API anahtarınızı girin.",
   "provider.connect.apiKey.label": "{{provider}} API anahtarı",
   "provider.connect.apiKey.placeholder": "API anahtarı",
   "provider.connect.apiKey.required": "API anahtarı gerekli",
   "provider.connect.opencodeZen.line1":
-    "OpenCode Zen, kodlama ajanları için seçilmiş güvenilir optimize edilmiş modellere erişim sağlar.",
+    "Ruying Code Zen, kodlama ajanları için seçilmiş güvenilir optimize edilmiş modellere erişim sağlar.",
   "provider.connect.opencodeZen.line2":
     "Tek bir API anahtarıyla Claude, GPT, Gemini, GLM ve daha fazlası gibi modellere erişebilirsiniz.",
   "provider.connect.opencodeZen.visit.prefix": "",
@@ -150,7 +150,7 @@ export const dict = {
   "provider.connect.oauth.code.visit.prefix": "Yetkilendirme kodunuzu almak için ",
   "provider.connect.oauth.code.visit.link": "bu bağlantıya",
   "provider.connect.oauth.code.visit.suffix":
-    " gidin; ardından hesabınızı bağlayarak OpenCode'da {{provider}} modellerini kullanın.",
+    " gidin; ardından hesabınızı bağlayarak Ruying Code'da {{provider}} modellerini kullanın.",
   "provider.connect.oauth.code.label": "{{method}} yetkilendirme kodu",
   "provider.connect.oauth.code.placeholder": "Yetkilendirme kodu",
   "provider.connect.oauth.code.required": "Yetkilendirme kodu gerekli",
@@ -158,7 +158,7 @@ export const dict = {
   "provider.connect.oauth.auto.visit.prefix": "",
   "provider.connect.oauth.auto.visit.link": "Bu bağlantıya",
   "provider.connect.oauth.auto.visit.suffix":
-    " tıklayarak aşağıdaki kodu girin ve hesabınızı bağlayarak OpenCode'da {{provider}} modellerini kullanın.",
+    " tıklayarak aşağıdaki kodu girin ve hesabınızı bağlayarak Ruying Code'da {{provider}} modellerini kullanın.",
   "provider.connect.oauth.auto.confirmationCode": "Onay kodu",
   "provider.connect.toast.connected.title": "{{provider}} bağlandı",
   "provider.connect.toast.connected.description": "{{provider}} modelleri artık kullanımda.",
@@ -316,7 +316,7 @@ export const dict = {
   "dialog.mcp.empty": "Yapılandırılmış MCP yok",
 
   "dialog.lsp.empty": "LSP'ler dosya türlerinden otomatik algılanır",
-  "dialog.plugins.empty": "Eklentiler opencode.json içinde yapılandırılır",
+  "dialog.plugins.empty": "Eklentiler ruying-code.json içinde yapılandırılır",
 
   "mcp.status.connected": "bağlı",
   "mcp.status.failed": "başarısız",
@@ -335,7 +335,7 @@ export const dict = {
   "dialog.directory.readError": "Bu klasör okunamıyor",
 
   "dialog.server.title": "Sunucular",
-  "dialog.server.description": "Bu uygulamanın hangi OpenCode sunucusuna bağlanacağını değiştirin.",
+  "dialog.server.description": "Bu uygulamanın hangi Ruying Code sunucusuna bağlanacağını değiştirin.",
   "dialog.server.search.placeholder": "Sunucu ara",
   "dialog.server.empty": "Henüz sunucu yok",
   "dialog.server.add.title": "Sunucu ekle",
@@ -552,7 +552,7 @@ export const dict = {
   "error.page.action.checking": "Kontrol ediliyor...",
   "error.page.action.checkUpdates": "Güncellemeleri kontrol et",
   "error.page.action.updateTo": "{{version}} sürümüne güncelle",
-  "error.page.report.prefix": "Lütfen bu hatayı OpenCode ekibine bildirin",
+  "error.page.report.prefix": "Lütfen bu hatayı Ruying Code ekibine bildirin",
   "error.page.report.discord": "Discord üzerinden",
   "error.page.version": "Sürüm: {{version}}",
 
@@ -570,9 +570,9 @@ export const dict = {
   "error.chain.responseBody": "Yanıt gövdesi:\n{{body}}",
   "error.chain.didYouMean": "Bunu mu demek istediniz: {{suggestions}}",
   "error.chain.modelNotFound": "Model bulunamadı: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Yapılandırma dosyanızı (opencode.json) sağlayıcı/model adlarını kontrol edin",
+  "error.chain.checkConfig": "Yapılandırma dosyanızı (ruying-code.json) sağlayıcı/model adlarını kontrol edin",
   "error.chain.mcpFailed":
-    'MCP sunucusu "{{name}}" başarısız oldu. Not: OpenCode henüz MCP kimlik doğrulamasını desteklemiyor.',
+    'MCP sunucusu "{{name}}" başarısız oldu. Not: Ruying Code henüz MCP kimlik doğrulamasını desteklemiyor.',
   "error.chain.providerAuthFailed": "Sağlayıcı kimlik doğrulaması başarısız ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
     '"{{provider}}" sağlayıcısı başlatılamadı. Kimlik bilgilerini ve yapılandırmayı kontrol edin.',
@@ -742,7 +742,7 @@ export const dict = {
   "sidebar.workspaces.enable": "Çalışma alanlarını etkinleştir",
   "sidebar.workspaces.disable": "Çalışma alanlarını devre dışı bırak",
   "sidebar.gettingStarted.title": "Başlarken",
-  "sidebar.gettingStarted.line1": "OpenCode ücretsiz modeller içerir, böylece hemen başlayabilirsiniz.",
+  "sidebar.gettingStarted.line1": "Ruying Code ücretsiz modeller içerir, böylece hemen başlayabilirsiniz.",
   "sidebar.gettingStarted.line2": "Claude, GPT, Gemini vb. modelleri kullanmak için herhangi bir sağlayıcı bağlayın.",
   "sidebar.project.recentSessions": "Son oturumlar",
   "sidebar.project.viewAllSessions": "Tüm oturumları görüntüle",
@@ -750,7 +750,7 @@ export const dict = {
   "sidebar.empty.title": "Açık proje yok",
   "sidebar.empty.description": "Başlamak için bir proje açın",
 
-  "app.name.desktop": "OpenCode Masaüstü",
+  "app.name.desktop": "Ruying Code Masaüstü",
 
   "settings.section.desktop": "Masaüstü",
   "settings.section.server": "Sunucu",

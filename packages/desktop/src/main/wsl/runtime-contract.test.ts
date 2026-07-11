@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
+import { existsSync } from "node:fs"
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises"
 import { rejectMountedWslExecutable, wslPathSetupScript } from "./runtime"
 
 test("production WSL installation, resolution, and launch use only Ruying Code from Nexus", async () => {
@@ -16,6 +18,8 @@ test("production WSL installation, resolution, and launch use only Ruying Code f
   expect(runtime).toContain("sanitizeWslPath")
   expect(runtime).toContain('linux_path=$(sanitizeWslPath "$PATH")')
   expect(runtime).toContain('case "$npm_path" in /mnt/*|"")')
+  expect(runtime).toContain('readlink -f -- "$npm_path"')
+  expect(runtime).toContain('readlink -f -- "$resolved"')
   expect(runtime).not.toContain("command -v curl")
   expect(runtime).not.toContain("https://opencode.ai/install")
   expect(runtime).not.toContain("$HOME/.opencode/bin/opencode")
@@ -25,6 +29,16 @@ test("production WSL installation, resolution, and launch use only Ruying Code f
   expect(sidecar).not.toContain("resolveWslOpencode")
   expect(sidecar).not.toContain("OpenCode is not installed")
   expect(servers).not.toContain("OpenCode installation failed")
+})
+
+const mountedSymlinkTest = process.platform === "linux" && existsSync("/mnt") ? test : test.skip
+mountedSymlinkTest("canonical rejection catches a Linux symlink into the Windows mount", async () => {
+    const directory = await mkdtemp("/tmp/ruying-wsl-link-")
+    const link = `${directory}/mounted`
+    await symlink("/mnt", link)
+    const canonical = await realpath(link)
+    expect(rejectMountedWslExecutable(canonical)).toBeNull()
+    await rm(directory, { recursive: true, force: true })
 })
 
 test("WSL PATH sanitization preserves Linux tool managers and filters Windows mounts", () => {

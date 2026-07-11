@@ -277,7 +277,7 @@ export async function installWslOpencode(version: string, distro: string, opts?:
       [
         "bash",
         "-lc",
-        `${wslPathSetupScript()}; npm_path=$(PATH="$PATH" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") echo "A Linux npm installation is required" >&2; exit 127 ;; esac; mkdir -p "$HOME/.local" && PATH="$PATH" "$npm_path" install --global --prefix "$HOME/.local" --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
+        `${wslPathSetupScript()}; npm_path=$(PATH="$PATH" command -v npm 2>/dev/null || true); npm_path=$(/usr/bin/readlink -f -- "$npm_path" 2>/dev/null || true); case "$npm_path" in /mnt/*|"") echo "A Linux npm installation is required" >&2; exit 127 ;; esac; mkdir -p "$HOME/.local" && PATH="$PATH" "$npm_path" install --global --prefix "$HOME/.local" --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
       ],
       distro,
     ),
@@ -306,7 +306,7 @@ export async function probeWslDistro(name: string, opts?: RunWslOptions): Promis
   const [bash, npm] = await Promise.all([
     runWslSh("command -v bash >/dev/null && printf yes || printf no", name, opts),
     runWslSh(
-      `${wslPathSetupScript()}; npm_path=$(PATH="$PATH" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") printf no ;; *) printf yes ;; esac`,
+      `${wslPathSetupScript()}; npm_path=$(PATH="$PATH" command -v npm 2>/dev/null || true); npm_path=$(/usr/bin/readlink -f -- "$npm_path" 2>/dev/null || true); case "$npm_path" in /mnt/*|"") printf no ;; *) printf yes ;; esac`,
       name,
       opts,
     ),
@@ -326,7 +326,7 @@ export async function resolveWslRuyingCode(distro: string, opts?: RunWslOptions)
     firstLine(
       (
         await runWslSh(
-          `${wslPathSetupScript()}; resolved=$(PATH="$PATH" command -v ruying-code 2>/dev/null || true); case "$resolved" in /mnt/*) ;; *) [ -n "$resolved" ] && printf "%s\\n" "$resolved" ;; esac`,
+          `${wslPathSetupScript()}; resolved=$(PATH="$PATH" command -v ruying-code 2>/dev/null || true); resolved=$(/usr/bin/readlink -f -- "$resolved" 2>/dev/null || true); case "$resolved" in /mnt/*) ;; *) [ -n "$resolved" ] && printf "%s\\n" "$resolved" ;; esac`,
           distro,
           opts,
         )

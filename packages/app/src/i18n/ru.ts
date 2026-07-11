@@ -119,7 +119,7 @@ export const dict = {
   "dialog.model.manage.description": "Настройте какие модели появляются в выборе модели",
   "dialog.model.manage.provider.toggle": "Переключить все модели {{provider}}",
 
-  "dialog.model.unpaid.freeModels.title": "Бесплатные модели от OpenCode",
+  "dialog.model.unpaid.freeModels.title": "Бесплатные модели от Ruying Code",
   "dialog.model.unpaid.addMore.title": "Добавьте больше моделей от популярных провайдеров",
 
   "dialog.provider.viewAll": "Показать больше провайдеров",
@@ -132,12 +132,12 @@ export const dict = {
   "provider.connect.status.waiting": "Ожидание авторизации...",
   "provider.connect.status.failed": "Ошибка авторизации: {{error}}",
   "provider.connect.apiKey.description":
-    "Введите ваш API ключ {{provider}} для подключения аккаунта и использования моделей {{provider}} в OpenCode.",
+    "Введите ваш API ключ {{provider}} для подключения аккаунта и использования моделей {{provider}} в Ruying Code.",
   "provider.connect.apiKey.label": "{{provider}} API ключ",
   "provider.connect.apiKey.placeholder": "API ключ",
   "provider.connect.apiKey.required": "API ключ обязателен",
   "provider.connect.opencodeZen.line1":
-    "OpenCode Zen даёт вам доступ к отобранным надёжным оптимизированным моделям для агентов программирования.",
+    "Ruying Code Zen даёт вам доступ к отобранным надёжным оптимизированным моделям для агентов программирования.",
   "provider.connect.opencodeZen.line2":
     "С одним API ключом вы получите доступ к таким моделям как Claude, GPT, Gemini, GLM и другим.",
   "provider.connect.opencodeZen.visit.prefix": "Посетите ",
@@ -146,7 +146,7 @@ export const dict = {
   "provider.connect.oauth.code.visit.prefix": "Посетите ",
   "provider.connect.oauth.code.visit.link": "эту ссылку",
   "provider.connect.oauth.code.visit.suffix":
-    " чтобы получить код авторизации для подключения аккаунта и использования моделей {{provider}} в OpenCode.",
+    " чтобы получить код авторизации для подключения аккаунта и использования моделей {{provider}} в Ruying Code.",
   "provider.connect.oauth.code.label": "{{method}} код авторизации",
   "provider.connect.oauth.code.placeholder": "Код авторизации",
   "provider.connect.oauth.code.required": "Код авторизации обязателен",
@@ -154,7 +154,7 @@ export const dict = {
   "provider.connect.oauth.auto.visit.prefix": "Посетите ",
   "provider.connect.oauth.auto.visit.link": "эту ссылку",
   "provider.connect.oauth.auto.visit.suffix":
-    " и введите код ниже для подключения аккаунта и использования моделей {{provider}} в OpenCode.",
+    " и введите код ниже для подключения аккаунта и использования моделей {{provider}} в Ruying Code.",
   "provider.connect.oauth.auto.confirmationCode": "Код подтверждения",
   "provider.connect.toast.connected.title": "{{provider}} подключён",
   "provider.connect.toast.connected.description": "Модели {{provider}} теперь доступны.",
@@ -311,7 +311,7 @@ export const dict = {
   "dialog.mcp.empty": "MCP не настроены",
 
   "dialog.lsp.empty": "LSP автоматически обнаружены по типам файлов",
-  "dialog.plugins.empty": "Плагины настроены в opencode.json",
+  "dialog.plugins.empty": "Плагины настроены в ruying-code.json",
 
   "mcp.status.connected": "подключено",
   "mcp.status.failed": "ошибка",
@@ -330,7 +330,7 @@ export const dict = {
   "dialog.directory.readError": "Не удалось прочитать эту папку",
 
   "dialog.server.title": "Серверы",
-  "dialog.server.description": "Переключите сервер OpenCode к которому подключается приложение.",
+  "dialog.server.description": "Переключите сервер Ruying Code к которому подключается приложение.",
   "dialog.server.search.placeholder": "Поиск серверов",
   "dialog.server.empty": "Серверов пока нет",
   "dialog.server.add.title": "Добавить сервер",
@@ -548,7 +548,7 @@ export const dict = {
   "error.page.action.checking": "Проверка...",
   "error.page.action.checkUpdates": "Проверить обновления",
   "error.page.action.updateTo": "Обновить до {{version}}",
-  "error.page.report.prefix": "Пожалуйста, сообщите об этой ошибке команде OpenCode",
+  "error.page.report.prefix": "Пожалуйста, сообщите об этой ошибке команде Ruying Code",
   "error.page.report.discord": "в Discord",
   "error.page.version": "Версия: {{version}}",
 
@@ -566,9 +566,9 @@ export const dict = {
   "error.chain.responseBody": "Тело ответа:\n{{body}}",
   "error.chain.didYouMean": "Возможно, вы имели в виду: {{suggestions}}",
   "error.chain.modelNotFound": "Модель не найдена: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Проверьте названия провайдера/модели в конфиге (opencode.json)",
+  "error.chain.checkConfig": "Проверьте названия провайдера/модели в конфиге (ruying-code.json)",
   "error.chain.mcpFailed":
-    'MCP сервер "{{name}}" завершился с ошибкой. Обратите внимание, что OpenCode пока не поддерживает MCP авторизацию.',
+    'MCP сервер "{{name}}" завершился с ошибкой. Обратите внимание, что Ruying Code пока не поддерживает MCP авторизацию.',
   "error.chain.providerAuthFailed": "Ошибка аутентификации провайдера ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
     'Не удалось инициализировать провайдера "{{provider}}". Проверьте учётные данные и конфигурацию.',
@@ -737,7 +737,7 @@ export const dict = {
   "sidebar.workspaces.enable": "Включить рабочие пространства",
   "sidebar.workspaces.disable": "Отключить рабочие пространства",
   "sidebar.gettingStarted.title": "Начало работы",
-  "sidebar.gettingStarted.line1": "OpenCode включает бесплатные модели, чтобы вы могли начать сразу.",
+  "sidebar.gettingStarted.line1": "Ruying Code включает бесплатные модели, чтобы вы могли начать сразу.",
   "sidebar.gettingStarted.line2":
     "Подключите любого провайдера для использования моделей, включая Claude, GPT, Gemini и др.",
   "sidebar.project.recentSessions": "Недавние сессии",
@@ -746,7 +746,7 @@ export const dict = {
   "sidebar.empty.title": "Нет открытых проектов",
   "sidebar.empty.description": "Откройте проект, чтобы начать",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Ruying Code Desktop",
   "settings.section.desktop": "Приложение",
   "settings.section.server": "Сервер",
   "settings.tab.general": "Основные",

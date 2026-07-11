@@ -3,10 +3,10 @@ import { stat } from "node:fs/promises"
 import path from "node:path"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ShareRevocationQuarantineTable } from "@opencode-ai/core/share/sql"
+import { SessionShareTable, ShareRevocationQuarantineTable } from "@opencode-ai/core/share/sql"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Effect, Exit } from "effect"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { ShareRevocationQuarantine } from "@/share/quarantine"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
@@ -31,6 +31,40 @@ test("db CLI exposes bounded local share quarantine administration", async () =>
 })
 
 describe("share revocation quarantine admin workflow", () => {
+  it.live("is idempotent and preserves the first quarantined secret on conflict", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run(sql`PRAGMA foreign_keys = OFF`).pipe(Effect.orDie)
+        yield* db
+          .insert(ShareRevocationQuarantineTable)
+          .values({ session_id: "ses_first", id: "shr_same", secret: "first-secret", url: "https://first" })
+          .run()
+          .pipe(Effect.orDie)
+        yield* db
+          .insert(SessionShareTable)
+          .values({ session_id: "ses_conflict", id: "shr_same", secret: "later-secret", url: "https://later" })
+          .run()
+          .pipe(Effect.orDie)
+        yield* db.run(sql`PRAGMA foreign_keys = ON`).pipe(Effect.orDie)
+
+        const quarantine = yield* ShareRevocationQuarantine.Service
+        yield* quarantine.migrate()
+        yield* quarantine.migrate()
+
+        expect(
+          yield* db
+            .select()
+            .from(ShareRevocationQuarantineTable)
+            .where(eq(ShareRevocationQuarantineTable.id, "shr_same"))
+            .get()
+            .pipe(Effect.orDie),
+        ).toMatchObject({ session_id: "ses_first", secret: "first-secret" })
+        expect(yield* db.select().from(SessionShareTable).get().pipe(Effect.orDie)).toBeUndefined()
+      }).pipe(Effect.provide(layer)),
+    ),
+  )
+
   it.live("lists without secrets, exports to a new 0600 file, and requires confirmation to complete", () =>
     provideTmpdirInstance((directory) =>
       Effect.gen(function* () {

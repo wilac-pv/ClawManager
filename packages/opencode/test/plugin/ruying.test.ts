@@ -111,15 +111,18 @@ describe("plugin.ruying", () => {
   describe("provisionToken", () => {
     test("returns the ready key and posts { ssoAccessToken }", async () => {
       let body: any
+      let userAgent: string | null = null
       using admin = makeServer(async (request, url) => {
         expect(url.pathname).toBe("/api/provision/token")
         expect(request.method).toBe("POST")
         body = await request.json()
+        userAgent = request.headers.get("user-agent")
         return Response.json({ status: "ready", key: "sk-user-abc", tokenName: "GW001-张三" })
       })
       const result = await provisionToken(baseUrl(admin), "SSO-T")
       expect(result).toEqual({ status: "ready", key: "sk-user-abc", tokenName: "GW001-张三" })
       expect(body).toEqual({ ssoAccessToken: "SSO-T" })
+      expect(userAgent).toMatch(/^ruying-code\//)
     })
 
     test("passes through pending_enable", async () => {
@@ -144,14 +147,17 @@ describe("plugin.ruying", () => {
   describe("fetchModelIds", () => {
     test("returns valid model ids and filters out blanks / non-strings", async () => {
       const authHeaders: Array<string | null> = []
+      const userAgents: Array<string | null> = []
       using server = makeServer((request, url) => {
         expect(url.pathname).toBe("/models")
         authHeaders.push(request.headers.get("authorization"))
+        userAgents.push(request.headers.get("user-agent"))
         return Response.json({ data: [{ id: "GLM-5.1" }, { id: "Deepseek-V4" }, { id: "" }, { foo: 1 }, {}] })
       })
       const ids = await fetchModelIds(baseUrl(server), "sk-ruying-abc")
       expect(ids).toEqual(["GLM-5.1", "Deepseek-V4"])
       expect(authHeaders[0]).toBe("Bearer sk-ruying-abc")
+      expect(userAgents[0]).toMatch(/^ruying-code\//)
     })
 
     test("returns [] on a non-ok response", async () => {

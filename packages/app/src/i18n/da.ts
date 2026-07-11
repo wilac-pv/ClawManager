@@ -119,7 +119,7 @@ export const dict = {
   "dialog.model.manage.description": "Tilpas hvilke modeller der vises i modelvælgeren.",
   "dialog.model.manage.provider.toggle": "Skift alle {{provider}}-modeller",
 
-  "dialog.model.unpaid.freeModels.title": "Gratis modeller leveret af OpenCode",
+  "dialog.model.unpaid.freeModels.title": "Gratis modeller leveret af Ruying Code",
   "dialog.model.unpaid.addMore.title": "Tilføj flere modeller fra populære udbydere",
 
   "dialog.provider.viewAll": "Vis flere udbydere",
@@ -132,12 +132,12 @@ export const dict = {
   "provider.connect.status.waiting": "Venter på godkendelse...",
   "provider.connect.status.failed": "Godkendelse mislykkedes: {{error}}",
   "provider.connect.apiKey.description":
-    "Indtast din {{provider}} API-nøgle for at forbinde din konto og bruge {{provider}} modeller i OpenCode.",
+    "Indtast din {{provider}} API-nøgle for at forbinde din konto og bruge {{provider}} modeller i Ruying Code.",
   "provider.connect.apiKey.label": "{{provider}} API-nøgle",
   "provider.connect.apiKey.placeholder": "API-nøgle",
   "provider.connect.apiKey.required": "API-nøgle er påkrævet",
   "provider.connect.opencodeZen.line1":
-    "OpenCode Zen giver dig adgang til et udvalg af pålidelige optimerede modeller til kodningsagenter.",
+    "Ruying Code Zen giver dig adgang til et udvalg af pålidelige optimerede modeller til kodningsagenter.",
   "provider.connect.opencodeZen.line2":
     "Med en enkelt API-nøgle får du adgang til modeller som Claude, GPT, Gemini, GLM og flere.",
   "provider.connect.opencodeZen.visit.prefix": "Besøg ",
@@ -146,7 +146,7 @@ export const dict = {
   "provider.connect.oauth.code.visit.prefix": "Besøg ",
   "provider.connect.oauth.code.visit.link": "dette link",
   "provider.connect.oauth.code.visit.suffix":
-    " for at hente din godkendelseskode for at forbinde din konto og bruge {{provider}} modeller i OpenCode.",
+    " for at hente din godkendelseskode for at forbinde din konto og bruge {{provider}} modeller i Ruying Code.",
   "provider.connect.oauth.code.label": "{{method}} godkendelseskode",
   "provider.connect.oauth.code.placeholder": "Godkendelseskode",
   "provider.connect.oauth.code.required": "Godkendelseskode er påkrævet",
@@ -154,7 +154,7 @@ export const dict = {
   "provider.connect.oauth.auto.visit.prefix": "Besøg ",
   "provider.connect.oauth.auto.visit.link": "dette link",
   "provider.connect.oauth.auto.visit.suffix":
-    " og indtast koden nedenfor for at forbinde din konto og bruge {{provider}} modeller i OpenCode.",
+    " og indtast koden nedenfor for at forbinde din konto og bruge {{provider}} modeller i Ruying Code.",
   "provider.connect.oauth.auto.confirmationCode": "Bekræftelseskode",
   "provider.connect.toast.connected.title": "{{provider}} forbundet",
   "provider.connect.toast.connected.description": "{{provider}} modeller er nu tilgængelige.",
@@ -310,7 +310,7 @@ export const dict = {
   "dialog.mcp.empty": "Ingen MCP'er konfigureret",
 
   "dialog.lsp.empty": "LSP'er registreret automatisk fra filtyper",
-  "dialog.plugins.empty": "Plugins konfigureret i opencode.json",
+  "dialog.plugins.empty": "Plugins konfigureret i ruying-code.json",
 
   "mcp.status.connected": "forbundet",
   "mcp.status.failed": "mislykkedes",
@@ -329,7 +329,7 @@ export const dict = {
   "dialog.directory.readError": "Denne mappe kan ikke læses",
 
   "dialog.server.title": "Servere",
-  "dialog.server.description": "Skift hvilken OpenCode-server denne app forbinder til.",
+  "dialog.server.description": "Skift hvilken Ruying Code-server denne app forbinder til.",
   "dialog.server.search.placeholder": "Søg servere",
   "dialog.server.empty": "Ingen servere endnu",
   "dialog.server.add.title": "Tilføj en server",
@@ -546,7 +546,7 @@ export const dict = {
   "error.page.action.checking": "Tjekker...",
   "error.page.action.checkUpdates": "Tjek for opdateringer",
   "error.page.action.updateTo": "Opdater til {{version}}",
-  "error.page.report.prefix": "Rapporter venligst denne fejl til OpenCode-teamet",
+  "error.page.report.prefix": "Rapporter venligst denne fejl til Ruying Code-teamet",
   "error.page.report.discord": "på Discord",
   "error.page.version": "Version: {{version}}",
 
@@ -564,8 +564,8 @@ export const dict = {
   "error.chain.responseBody": "Svarindhold:\n{{body}}",
   "error.chain.didYouMean": "Mente du: {{suggestions}}",
   "error.chain.modelNotFound": "Model ikke fundet: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Tjek dine konfigurations (opencode.json) udbyder/modelnavne",
-  "error.chain.mcpFailed": 'MCP-server "{{name}}" fejlede. Bemærk, OpenCode understøtter ikke MCP-godkendelse endnu.',
+  "error.chain.checkConfig": "Tjek dine konfigurations (ruying-code.json) udbyder/modelnavne",
+  "error.chain.mcpFailed": 'MCP-server "{{name}}" fejlede. Bemærk, Ruying Code understøtter ikke MCP-godkendelse endnu.',
   "error.chain.providerAuthFailed": "Udbydergodkendelse mislykkedes ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
     'Kunne ikke initialisere udbyder "{{provider}}". Tjek legitimationsoplysninger og konfiguration.',
@@ -733,7 +733,7 @@ export const dict = {
   "sidebar.workspaces.enable": "Aktiver arbejdsområder",
   "sidebar.workspaces.disable": "Deaktiver arbejdsområder",
   "sidebar.gettingStarted.title": "Kom i gang",
-  "sidebar.gettingStarted.line1": "OpenCode inkluderer gratis modeller så du kan starte med det samme.",
+  "sidebar.gettingStarted.line1": "Ruying Code inkluderer gratis modeller så du kan starte med det samme.",
   "sidebar.gettingStarted.line2": "Forbind enhver udbyder for at bruge modeller, inkl. Claude, GPT, Gemini osv.",
   "sidebar.project.recentSessions": "Seneste sessioner",
   "sidebar.project.viewAllSessions": "Vis alle sessioner",
@@ -741,7 +741,7 @@ export const dict = {
   "sidebar.empty.title": "Ingen åbne projekter",
   "sidebar.empty.description": "Åbn et projekt for at komme i gang",
 
-  "app.name.desktop": "OpenCode Desktop",
+  "app.name.desktop": "Ruying Code Desktop",
   "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",
   "settings.tab.general": "Generelt",

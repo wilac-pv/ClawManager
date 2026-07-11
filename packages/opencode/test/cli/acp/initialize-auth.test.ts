@@ -35,6 +35,11 @@ describe("opencode acp initialize/auth subprocess", () => {
 
         expect(initialized.authMethods?.[0]?.id).toBe("opencode-login")
         expect(initialized.authMethods?.[0]?._meta?.["terminal-auth"]).toBeDefined()
+        expect(initialized.authMethods?.[0]?._meta?.["terminal-auth"]).toMatchObject({
+          command: "ruying-code",
+          args: ["login"],
+          label: "Ruying Code Login",
+        })
         expect(yield* acp.request<AuthenticateResponse>("authenticate", { methodId: "opencode-login" })).toMatchObject({
           result: {},
         })

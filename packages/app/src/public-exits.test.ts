@@ -43,6 +43,13 @@ test("all visible updater and settings locale values use Ruying Code branding", 
   expect(visible.join("\n")).not.toContain("OpenCode")
 })
 
+test("all locale values avoid visible upstream product and config names", async () => {
+  const files = Array.fromAsync(new Bun.Glob("i18n/*.ts").scan({ cwd: import.meta.dir, absolute: true }))
+  const sources = await Promise.all((await files).map((file) => Bun.file(file).text()))
+  expect(sources.join("\n")).not.toContain("OpenCode")
+  expect(sources.join("\n")).not.toContain("opencode.json")
+})
+
 test("OEM resource paths contain no upstream fetching or notification icons", async () => {
   const sources = await Promise.all(
     ["context/highlights.tsx", "entry.tsx", "../../desktop/src/renderer/index.tsx"].map((file) =>
