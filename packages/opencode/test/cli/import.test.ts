@@ -14,7 +14,7 @@ test("keeps local-file import registered without URL or share transport", async 
   expect(body.indexOf("requireLocalImportPath")).toBeLessThan(body.indexOf("FSUtil.Service"))
 })
 
-test("behaviorally rejects remote and public share URLs before file access", async () => {
+test("rejects only remote and Windows network paths before filesystem service access", async () => {
   const module = await import("../../src/cli/cmd/import")
   expect("requireLocalImportPath" in module).toBe(true)
   const requireLocalImportPath = module.requireLocalImportPath as (value: string) => string
@@ -22,8 +22,11 @@ test("behaviorally rejects remote and public share URLs before file access", asy
   expect(() => requireLocalImportPath("https://example.test/share/abc")).toThrow("Remote URL and share imports")
   expect(() => requireLocalImportPath("ssh://example.test/session.json")).toThrow("Remote URL and share imports")
   expect(() => requireLocalImportPath("\\\\server\\share\\session.json")).toThrow("local filesystem")
-  expect(() => requireLocalImportPath("//server/share/session.json")).toThrow("local filesystem")
   expect(() => requireLocalImportPath("\\\\?\\UNC\\server\\share\\session.json")).toThrow("local filesystem")
+  expect(() => requireLocalImportPath("\\\\.\\UNC\\server\\share\\session.json")).toThrow("local filesystem")
   expect(requireLocalImportPath("./session.json")).toBe("./session.json")
+  expect(requireLocalImportPath("//tmp/session.json")).toBe("//tmp/session.json")
   expect(requireLocalImportPath("C:\\sessions\\session.json")).toBe("C:\\sessions\\session.json")
+  expect(requireLocalImportPath("C://sessions/session.json")).toBe("C://sessions/session.json")
+  expect(requireLocalImportPath("\\\\?\\C:\\sessions\\session.json")).toBe("\\\\?\\C:\\sessions\\session.json")
 })

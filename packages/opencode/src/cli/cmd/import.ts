@@ -32,10 +32,10 @@ export const ImportCommand = effectCmd({
 })
 
 export function requireLocalImportPath(file: string) {
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(file)) {
+  if (!/^[a-z]:[\\/]/i.test(file) && /^[a-z][a-z0-9+.-]*:\/\//i.test(file)) {
     throw new CliError({ message: "Remote URL and share imports are disabled; provide a local JSON file." })
   }
-  if (file.startsWith("\\\\") || file.startsWith("//")) {
+  if (/^\\\\[?.]\\UNC(?:[\\/]|$)/i.test(file) || /^\\\\(?![?.]\\)/.test(file)) {
     throw new CliError({ message: "Network-share imports are disabled; provide a local filesystem path." })
   }
   return file
