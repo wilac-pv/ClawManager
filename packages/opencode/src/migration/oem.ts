@@ -217,7 +217,9 @@ function isMarker(value: unknown): value is { version: 1; copied: string[]; skip
 }
 
 function isTemporaryName(name: string) {
-  return /^\..+\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/i.test(name)
+  return /^\.ruying-oem-migration-v1\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/i.test(
+    name,
+  )
 }
 
 function fileInfo(file: string) {
@@ -228,7 +230,7 @@ function fileInfo(file: string) {
 }
 
 function temporaryPath(file: string) {
-  return path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`)
+  return path.join(path.dirname(file), `.ruying-oem-migration-v1.${process.pid}.${randomUUID()}.tmp`)
 }
 
 function copyCollision(error: unknown) {

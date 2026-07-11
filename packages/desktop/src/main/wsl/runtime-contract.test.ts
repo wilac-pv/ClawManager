@@ -8,6 +8,8 @@ test("production WSL installation, resolution, and launch use only Ruying Code f
   expect(runtime).toContain("@ruying/ruying-code")
   expect(runtime).toContain("ruying-code")
   expect(runtime).toContain("command -v npm")
+  expect(runtime).toContain('--prefix "$HOME/.local"')
+  expect(runtime).toContain('case "$resolved" in /mnt/*)')
   expect(runtime).not.toContain("command -v curl")
   expect(runtime).not.toContain("https://opencode.ai/install")
   expect(runtime).not.toContain("$HOME/.opencode/bin/opencode")

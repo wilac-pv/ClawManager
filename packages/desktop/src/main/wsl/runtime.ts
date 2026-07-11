@@ -268,7 +268,7 @@ export async function installWslOpencode(version: string, distro: string, opts?:
       [
         "bash",
         "-lc",
-        `npm install --global --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
+        `mkdir -p "$HOME/.local" && npm install --global --prefix "$HOME/.local" --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
       ],
       distro,
     ),
@@ -312,7 +312,7 @@ export async function resolveWslRuyingCode(distro: string, opts?: RunWslOptions)
   return firstLine(
     (
       await runWslSh(
-        'command -v ruying-code 2>/dev/null || { [ -x "$HOME/.local/bin/ruying-code" ] && printf "%s\\n" "$HOME/.local/bin/ruying-code"; }',
+        'resolved=$(PATH="$HOME/.local/bin:$(printf "%s" "$PATH" | tr ":" "\\n" | grep -v "^/mnt/" | paste -sd: -)" command -v ruying-code 2>/dev/null || true); case "$resolved" in /mnt/*) ;; *) [ -n "$resolved" ] && printf "%s\\n" "$resolved" ;; esac',
         distro,
         opts,
       )
