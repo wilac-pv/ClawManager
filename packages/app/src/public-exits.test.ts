@@ -31,6 +31,18 @@ test("all WSL locale values use Ruying Code branding, including multiline values
   expect(wsl.join("\n")).not.toContain("OpenCode")
 })
 
+test("all visible updater and settings locale values use Ruying Code branding", async () => {
+  const files = Array.fromAsync(new Bun.Glob("i18n/*.ts").scan({ cwd: import.meta.dir, absolute: true }))
+  const sources = await Promise.all((await files).map((file) => Bun.file(file).text()))
+  const visible = sources.flatMap((source) => {
+    const lines = source.split("\n")
+    return lines.flatMap((line, index) =>
+      line.includes('"toast.update.') || line.includes('"settings.') ? [line, lines[index + 1] ?? ""] : [],
+    )
+  })
+  expect(visible.join("\n")).not.toContain("OpenCode")
+})
+
 test("OEM resource paths contain no upstream fetching or notification icons", async () => {
   const sources = await Promise.all(
     ["context/highlights.tsx", "entry.tsx", "../../desktop/src/renderer/index.tsx"].map((file) =>

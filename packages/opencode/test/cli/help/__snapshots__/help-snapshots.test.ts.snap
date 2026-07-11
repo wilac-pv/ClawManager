@@ -378,8 +378,9 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 database tools
 
 Commands:
-  ruying-code db [query]     open an interactive sqlite3 shell or run a query              [default]
-  ruying-code db path        print the database path
+  ruying-code db [query]           open an interactive sqlite3 shell or run a query        [default]
+  ruying-code db path              print the database path
+  ruying-code db share-quarantine  secure local workflow for manual public share revocation
 
 Positionals:
   query  SQL query to execute                                                               [string]
@@ -535,4 +536,72 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db share-quarantine --help 1`] = `
+"ruying-code db share-quarantine
+
+secure local workflow for manual public share revocation
+
+Commands:
+  ruying-code db share-quarantine list           list quarantined share IDs without displaying
+                                                 revocation secrets
+  ruying-code db share-quarantine export <file>  export revocation material to a new local file with
+                                                 mode 0600
+  ruying-code db share-quarantine complete <id>  remove one local record after manual remote
+                                                 revocation is confirmed
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db share-quarantine list --help 1`] = `
+"ruying-code db share-quarantine list
+
+list quarantined share IDs without displaying revocation secrets
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db share-quarantine export --help 1`] = `
+"ruying-code db share-quarantine export <file>
+
+export revocation material to a new local file with mode 0600
+
+Positionals:
+  file  new local export file                                                    [string] [required]
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db share-quarantine complete --help 1`] = `
+"ruying-code db share-quarantine complete <id>
+
+remove one local record after manual remote revocation is confirmed
+
+Positionals:
+  id  public share ID                                                            [string] [required]
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]
+      --confirmed   confirm the share was revoked manually on the remote service
+                                                                          [boolean] [default: false]"
 `;

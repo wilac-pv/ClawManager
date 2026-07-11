@@ -24,6 +24,7 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import sessionMetadataMigration from "@opencode-ai/core/database/migration/20260511173437_session-metadata"
+import shareRevocationQuarantineMigration from "@opencode-ai/core/database/migration/20260711172511_share_revocation_quarantine"
 import type { SqlClient as SqlClientService } from "effect/unstable/sql/SqlClient"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
@@ -109,6 +110,44 @@ describe("DatabaseMigration", () => {
         }),
       ),
     ).rejects.toThrow("Database is not empty and has no session table")
+  })
+
+  test("moves legacy share revocation material outside the cascading session table", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY)`)
+        yield* db.run(sql`
+          CREATE TABLE session_share (
+            session_id text PRIMARY KEY,
+            id text NOT NULL,
+            secret text NOT NULL,
+            url text NOT NULL,
+            time_created integer NOT NULL,
+            time_updated integer NOT NULL
+          )
+        `)
+        yield* db.run(sql`
+          INSERT INTO session_share VALUES
+            ('ses_old', 'shr_old', 'revocation-secret', 'https://share', 1, 2)
+        `)
+
+        yield* DatabaseMigration.applyOnly(db, [shareRevocationQuarantineMigration])
+
+        expect(yield* db.get(sql`SELECT count(*) AS count FROM session_share`)).toEqual({ count: 0 })
+        expect(
+          yield* db.get(sql`
+            SELECT id, session_id, secret
+            FROM share_revocation_quarantine
+            WHERE id = 'shr_old'
+          `),
+        ).toEqual({ id: "shr_old", session_id: "ses_old", secret: "revocation-secret" })
+        yield* db.run(sql`DELETE FROM session WHERE id = 'ses_old'`)
+        expect(yield* db.get(sql`SELECT id FROM share_revocation_quarantine WHERE id = 'shr_old'`)).toEqual({
+          id: "shr_old",
+        })
+      }),
+    )
   })
 
   test("backfills existing Context Epoch rows to the build agent", async () => {

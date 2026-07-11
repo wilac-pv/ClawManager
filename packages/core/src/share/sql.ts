@@ -11,3 +11,11 @@ export const SessionShareTable = sqliteTable("session_share", {
   url: text().notNull(),
   ...Timestamps,
 })
+
+export const ShareRevocationQuarantineTable = sqliteTable("share_revocation_quarantine", {
+  id: text().primaryKey(),
+  session_id: text().notNull(),
+  secret: text().notNull(),
+  url: text().notNull(),
+  ...Timestamps,
+})

@@ -13,6 +13,7 @@ describe("OEM sharing boundary", () => {
     expect(source).not.toContain("shareNext.create")
     expect(source).toContain("Public share revocation material remains quarantined locally")
     expect(source).toContain("Do not paste the share secret into chat or logs")
+    expect(source).toContain("ruying-code db share-quarantine list")
 
     const config = await Bun.file(new URL("../../src/config/config.ts", import.meta.url)).text()
     expect(config).toContain('result.share = "disabled"')

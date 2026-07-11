@@ -3,7 +3,8 @@ import { spawn } from "child_process"
 import { Database } from "@opencode-ai/core/database/database"
 import { Effect } from "effect"
 import { sql } from "drizzle-orm"
-import { effectCmd } from "../effect-cmd"
+import { CliError, effectCmd } from "../effect-cmd"
+import { ShareRevocationQuarantine } from "@/share/quarantine"
 
 const QueryCommand = effectCmd({
   command: "$0 [query]",
@@ -51,12 +52,75 @@ const PathCommand = effectCmd({
   }),
 })
 
+const ShareQuarantineListCommand = effectCmd({
+  command: "list",
+  describe: "list quarantined share IDs without displaying revocation secrets",
+  instance: false,
+  handler: Effect.fn("Cli.db.shareQuarantine.list")(function* () {
+    const quarantine = yield* ShareRevocationQuarantine.Service
+    const rows = yield* quarantine.list()
+    for (const row of rows) console.log(`${row.id}\t${row.sessionID}\t${new Date(row.timeCreated).toISOString()}`)
+  }),
+})
+
+const ShareQuarantineExportCommand = effectCmd({
+  command: "export <file>",
+  describe: "export revocation material to a new local file with mode 0600",
+  instance: false,
+  builder: (yargs: Argv) =>
+    yargs.positional("file", { type: "string", demandOption: true, describe: "new local export file" }),
+  handler: Effect.fn("Cli.db.shareQuarantine.export")(function* (args: { file: string }) {
+    const quarantine = yield* ShareRevocationQuarantine.Service
+    const count = yield* quarantine
+      .exportTo(args.file)
+      .pipe(Effect.mapError((error) => new CliError({ message: `Failed to export quarantine: ${String(error)}` })))
+    console.log(`Exported ${count} quarantined share revocation record(s) to ${args.file}`)
+  }),
+})
+
+const ShareQuarantineCompleteCommand = effectCmd({
+  command: "complete <id>",
+  describe: "remove one local record after manual remote revocation is confirmed",
+  instance: false,
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("id", { type: "string", demandOption: true, describe: "public share ID" })
+      .option("confirmed", {
+        type: "boolean",
+        default: false,
+        describe: "confirm the share was revoked manually on the remote service",
+      }),
+  handler: Effect.fn("Cli.db.shareQuarantine.complete")(function* (args: { id: string; confirmed: boolean }) {
+    if (!args.confirmed) {
+      return yield* new CliError({ message: "Pass --confirmed only after manual remote revocation succeeds." })
+    }
+    const quarantine = yield* ShareRevocationQuarantine.Service
+    const removed = yield* quarantine
+      .complete(args.id, args.confirmed)
+      .pipe(Effect.mapError((error) => new CliError({ message: error.message })))
+    console.log(removed ? `Removed local quarantine record ${args.id}` : `No quarantine record found for ${args.id}`)
+  }),
+})
+
+const ShareQuarantineCommand = effectCmd({
+  command: "share-quarantine",
+  describe: "secure local workflow for manual public share revocation",
+  instance: false,
+  builder: (yargs: Argv) =>
+    yargs
+      .command(ShareQuarantineListCommand)
+      .command(ShareQuarantineExportCommand)
+      .command(ShareQuarantineCompleteCommand)
+      .demandCommand(),
+  handler: Effect.fn("Cli.db.shareQuarantine")(function* () {}),
+})
+
 export const DbCommand = effectCmd({
   command: "db",
   describe: "database tools",
   instance: false,
   builder: (yargs: Argv) => {
-    return yargs.command(QueryCommand).command(PathCommand).demandCommand()
+    return yargs.command(QueryCommand).command(PathCommand).command(ShareQuarantineCommand).demandCommand()
   },
   handler: Effect.fn("Cli.db")(function* () {}),
 })

@@ -31,6 +31,7 @@ test("public OEM surfaces contain no generic provider connection copy", async ()
   expect(tips).not.toMatch(/\{highlight\}opencode(?:\s|\{\/highlight\})/)
   expect(tips).not.toContain("/share")
   expect(tips).not.toContain('"share": "auto"')
+  expect(tips).not.toContain("Add {highlight}$schema{/highlight}")
 })
 
 test("Ruying OAuth browser copy contains no legacy product name", async () => {

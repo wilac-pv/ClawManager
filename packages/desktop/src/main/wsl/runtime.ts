@@ -34,7 +34,15 @@ const DEFAULT_WSL_TIMEOUT_MS = 20_000
 const DEFAULT_WSL_INSTALL_TIMEOUT_MS = 15 * 60_000
 const RUYING_PACKAGE = "@ruying/ruying-code"
 const RUYING_REGISTRY = "https://nexus.gwm.cn/repository/npm-group/"
-const WSL_LINUX_PATH = "$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+export function wslPathSetupScript() {
+  return 'sanitizeWslPath() { printf "%s" "$1" | /usr/bin/tr ":" "\\n" | /usr/bin/awk \'length && $0 !~ "^/mnt(/|$)"\' | /usr/bin/paste -sd: -; }; linux_path=$(sanitizeWslPath "$PATH"); PATH="$HOME/.local/bin${linux_path:+:$linux_path}"'
+}
+
+export function rejectMountedWslExecutable(path: string | null) {
+  if (!path || path === "/mnt" || path.startsWith("/mnt/")) return null
+  return path
+}
 
 export function wslArgs(args: string[], distro?: string | null, user?: string | null) {
   return [...(distro ? ["-d", distro] : []), ...(user ? ["--user", user] : []), "--", ...args]
@@ -269,7 +277,7 @@ export async function installWslOpencode(version: string, distro: string, opts?:
       [
         "bash",
         "-lc",
-        `npm_path=$(PATH="${WSL_LINUX_PATH}" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") echo "A Linux npm installation is required" >&2; exit 127 ;; esac; mkdir -p "$HOME/.local" && PATH="${WSL_LINUX_PATH}" "$npm_path" install --global --prefix "$HOME/.local" --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
+        `${wslPathSetupScript()}; npm_path=$(PATH="$PATH" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") echo "A Linux npm installation is required" >&2; exit 127 ;; esac; mkdir -p "$HOME/.local" && PATH="$PATH" "$npm_path" install --global --prefix "$HOME/.local" --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
       ],
       distro,
     ),
@@ -298,7 +306,7 @@ export async function probeWslDistro(name: string, opts?: RunWslOptions): Promis
   const [bash, npm] = await Promise.all([
     runWslSh("command -v bash >/dev/null && printf yes || printf no", name, opts),
     runWslSh(
-      `npm_path=$(PATH="${WSL_LINUX_PATH}" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") printf no ;; *) printf yes ;; esac`,
+      `${wslPathSetupScript()}; npm_path=$(PATH="$PATH" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") printf no ;; *) printf yes ;; esac`,
       name,
       opts,
     ),
@@ -314,14 +322,16 @@ export async function probeWslDistro(name: string, opts?: RunWslOptions): Promis
 }
 
 export async function resolveWslRuyingCode(distro: string, opts?: RunWslOptions) {
-  return firstLine(
-    (
-      await runWslSh(
-        'resolved=$(PATH="$HOME/.local/bin:$(printf "%s" "$PATH" | tr ":" "\\n" | grep -v "^/mnt/" | paste -sd: -)" command -v ruying-code 2>/dev/null || true); case "$resolved" in /mnt/*) ;; *) [ -n "$resolved" ] && printf "%s\\n" "$resolved" ;; esac',
-        distro,
-        opts,
-      )
-    ).stdout,
+  return rejectMountedWslExecutable(
+    firstLine(
+      (
+        await runWslSh(
+          `${wslPathSetupScript()}; resolved=$(PATH="$PATH" command -v ruying-code 2>/dev/null || true); case "$resolved" in /mnt/*) ;; *) [ -n "$resolved" ] && printf "%s\\n" "$resolved" ;; esac`,
+          distro,
+          opts,
+        )
+      ).stdout,
+    ),
   )
 }
 

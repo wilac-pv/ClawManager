@@ -136,7 +136,7 @@ function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
-function userAgent() {
+export function ruyingUserAgent() {
   return `${Brand.profile.cliName}/${InstallationVersion}`
 }
 
@@ -371,7 +371,7 @@ function setPending(input: Pending, timeoutMs: number) {
 export async function provisionToken(adminApiBase: string, ssoAccessToken: string): Promise<ProvisionResult> {
   const res = await fetch(`${stripTrailingSlash(adminApiBase)}/api/provision/token`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json", "User-Agent": userAgent() },
+    headers: { "Content-Type": "application/json", Accept: "application/json", "User-Agent": ruyingUserAgent() },
     body: JSON.stringify({ ssoAccessToken }),
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
   })
@@ -388,7 +388,7 @@ export async function provisionToken(adminApiBase: string, ssoAccessToken: strin
 // provider config. Failure is non-fatal — login still succeeds without models.
 export async function fetchModelIds(gatewayApiBase: string, apiKey: string): Promise<string[]> {
   const res = await fetch(`${stripTrailingSlash(gatewayApiBase)}/models`, {
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", "User-Agent": userAgent() },
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", "User-Agent": ruyingUserAgent() },
     signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
   })
   if (!res.ok) return []

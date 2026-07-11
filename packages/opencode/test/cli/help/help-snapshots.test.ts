@@ -78,6 +78,10 @@ const SUBCOMMANDS = [
   ["session", "list"],
   ["session", "delete"],
   ["db", "path"],
+  ["db", "share-quarantine"],
+  ["db", "share-quarantine", "list"],
+  ["db", "share-quarantine", "export"],
+  ["db", "share-quarantine", "complete"],
 ] as const
 
 // Fixed wrap width so a developer's terminal doesn't affect snapshots.

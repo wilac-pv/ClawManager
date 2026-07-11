@@ -9,9 +9,9 @@ import { AccountRepo } from "../../src/account/repo"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { Session } from "@/session/session"
 import { ShareNext } from "@/share/share-next"
-import { SessionShareTable } from "@opencode-ai/core/share/sql"
+import { SessionShareTable, ShareRevocationQuarantineTable } from "@opencode-ai/core/share/sql"
 import { Database } from "@opencode-ai/core/database/database"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 import { testEffect } from "../lib/effect"
@@ -55,19 +55,45 @@ describe("ShareNext OEM boundary", () => {
       Effect.gen(function* () {
         const session = yield* (yield* Session.Service).create({ title: "test" })
         const { db } = yield* Database.Service
+        expect(
+          yield* db
+            .get<{ name: string }>(
+              sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'share_revocation_quarantine'`,
+            )
+            .pipe(Effect.orDie),
+        ).toEqual({ name: "share_revocation_quarantine" })
         yield* db
           .insert(SessionShareTable)
           .values({ session_id: session.id, id: "shr_old", secret: "secret", url: "https://opncd.ai/s/old" })
           .run()
           .pipe(Effect.orDie)
 
-        yield* ShareNext.Service.use((service) => service.remove(session.id))
+        yield* ShareNext.Service.use((service) => service.init())
 
         expect(
           yield* db
             .select()
             .from(SessionShareTable)
             .where(eq(SessionShareTable.session_id, session.id))
+            .get()
+            .pipe(Effect.orDie),
+        ).toBeUndefined()
+        expect(
+          yield* db
+            .select()
+            .from(ShareRevocationQuarantineTable)
+            .where(eq(ShareRevocationQuarantineTable.id, "shr_old"))
+            .get()
+            .pipe(Effect.orDie),
+        ).toMatchObject({ id: "shr_old", session_id: session.id, secret: "secret" })
+
+        yield* (yield* Session.Service).remove(session.id)
+
+        expect(
+          yield* db
+            .select()
+            .from(ShareRevocationQuarantineTable)
+            .where(eq(ShareRevocationQuarantineTable.id, "shr_old"))
             .get()
             .pipe(Effect.orDie),
         ).toMatchObject({ id: "shr_old", secret: "secret" })

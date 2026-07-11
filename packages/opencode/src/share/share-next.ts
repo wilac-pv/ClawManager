@@ -19,6 +19,7 @@ import { SessionShareTable } from "@opencode-ai/core/share/sql"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { EventV2 } from "@opencode-ai/core/event"
+import { ShareRevocationQuarantine } from "./quarantine"
 
 // The OEM has no approved internal sharing service. Keep this authoritative at
 // the transport boundary so inherited configuration cannot upload session data.
@@ -118,6 +119,7 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const cfg = yield* Config.Service
     const { db } = yield* Database.Service
+    const quarantine = yield* ShareRevocationQuarantine.Service
     const http = yield* HttpClient.HttpClient
     const httpOk = HttpClient.filterStatusOk(http)
     const provider = yield* Provider.Service
@@ -303,6 +305,7 @@ const layer = Layer.effect(
     })
 
     const init = Effect.fn("ShareNext.init")(function* () {
+      yield* quarantine.migrate()
       if (disabled) return
       yield* InstanceState.get(state)
     })
@@ -340,6 +343,7 @@ const layer = Layer.effect(
     })
 
     const remove = Effect.fn("ShareNext.remove")(function* (sessionID: SessionID) {
+      yield* quarantine.migrate()
       const s = yield* InstanceState.get(state)
       if (!disabled) {
         const share = yield* getCached(sessionID)
@@ -364,7 +368,16 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Account.node, EventV2Bridge.node, Config.node, Database.node, httpClient, Provider.node, Session.node],
+  deps: [
+    Account.node,
+    EventV2Bridge.node,
+    Config.node,
+    Database.node,
+    ShareRevocationQuarantine.node,
+    httpClient,
+    Provider.node,
+    Session.node,
+  ],
 })
 
 export * as ShareNext from "./share-next"

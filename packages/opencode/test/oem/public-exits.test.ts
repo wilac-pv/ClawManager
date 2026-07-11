@@ -36,4 +36,18 @@ describe("OEM public exits", () => {
     expect(skill).not.toContain("opencode.ai")
     expect(skill).not.toContain("customize-opencode")
   })
+
+  test("active init template uses only OEM product and config names", async () => {
+    const template = await Bun.file(new URL("../../src/command/template/initialize.txt", import.meta.url)).text()
+    expect(template).toContain("Ruying Code")
+    expect(template).toContain("ruying-code.json")
+    expect(template).not.toContain("OpenCode")
+    expect(template).not.toContain("opencode.json")
+  })
+
+  test("Ruying gateway User-Agent is behaviorally branded", async () => {
+    const plugin = await import("../../src/plugin/ruying")
+    expect("ruyingUserAgent" in plugin).toBe(true)
+    expect((plugin.ruyingUserAgent as () => string)()).toMatch(/^ruying-code\//)
+  })
 })

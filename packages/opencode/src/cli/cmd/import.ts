@@ -31,16 +31,23 @@ export const ImportCommand = effectCmd({
   }),
 })
 
-const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: InstanceContext) {
-  if (/^https?:\/\//i.test(file)) {
-    return yield* new CliError({ message: "Remote URL and share imports are disabled; provide a local JSON file." })
+export function requireLocalImportPath(file: string) {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(file)) {
+    throw new CliError({ message: "Remote URL and share imports are disabled; provide a local JSON file." })
   }
+  return file
+}
+
+const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: InstanceContext) {
+  const localFile = requireLocalImportPath(file)
 
   const fs = yield* FSUtil.Service
   const { db } = yield* Database.Service
-  const exportData = (yield* fs.readJson(file).pipe(Effect.orElseSucceed(() => undefined))) as ExportData | undefined
+  const exportData = (yield* fs.readJson(localFile).pipe(Effect.orElseSucceed(() => undefined))) as
+    | ExportData
+    | undefined
   if (!exportData) {
-    process.stdout.write(`File not found: ${file}${EOL}`)
+    process.stdout.write(`File not found: ${localFile}${EOL}`)
     return
   }
 

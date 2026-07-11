@@ -13,7 +13,7 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionShare") {}
 
 const publicShareDisabledMessage =
-  "Public session sharing is not available. Public share revocation material remains quarantined locally; Ruying Code will not contact the public service automatically. Ask an administrator to revoke the share using its locally stored share ID. Do not paste the share secret into chat or logs. Remove the local record only after remote revocation is confirmed."
+  "Public session sharing is not available. Public share revocation material remains quarantined locally; Ruying Code will not contact the public service automatically. Administrators can run `ruying-code db share-quarantine list`, export revocation material to a protected local file, revoke each share manually, then run `ruying-code db share-quarantine complete <id> --confirmed`. Do not paste the share secret into chat or logs."
 
 const layer = Layer.effect(
   Service,
