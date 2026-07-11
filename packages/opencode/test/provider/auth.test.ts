@@ -31,6 +31,7 @@ function layer(input: { auth: Auth.Interface; hooks: Hooks }) {
 function harness(input: {
   previous?: Auth.Info
   blockRollbackRead?: boolean
+  blockCancel?: boolean
   setFailure?: boolean
   cancelFailure?: boolean
 }) {
@@ -38,7 +39,10 @@ function harness(input: {
   const releaseSet = Promise.withResolvers<void>()
   const rollbackReadStarted = Promise.withResolvers<void>()
   const releaseRollbackRead = Promise.withResolvers<void>()
+  const cancelStarted = Promise.withResolvers<void>()
+  const releaseCancel = Promise.withResolvers<void>()
   let current = input.previous
+  let authorizeCalls = 0
   let callbackCalls = 0
   let cancelCalls = 0
   let setCalls = 0
@@ -86,12 +90,15 @@ function harness(input: {
           type: "oauth",
           label: "Attempt test",
           async authorize() {
+            authorizeCalls++
             return {
               url: "https://example.test/oauth",
               method: "auto" as const,
               instructions: "test",
               async cancel() {
                 cancelCalls++
+                cancelStarted.resolve()
+                if (input.blockCancel) await releaseCancel.promise
                 if (input.cancelFailure) throw new Error("plugin cancel failed")
               },
               async callback() {
@@ -111,7 +118,10 @@ function harness(input: {
     releaseSet,
     rollbackReadStarted,
     releaseRollbackRead,
+    cancelStarted,
+    releaseCancel,
     cancelFailure: input.cancelFailure,
+    authorizeCalls: () => authorizeCalls,
     callbackCalls: () => callbackCalls,
     cancelCalls: () => cancelCalls,
     setCalls: () => setCalls,
@@ -384,5 +394,93 @@ it.instance("duplicate cancels join one cancellation transaction", () => {
     expect(Exit.isSuccess(yield* Fiber.await(first))).toBe(true)
     expect(Exit.isSuccess(yield* Fiber.await(second))).toBe(true)
     expect(input.cancelCalls()).toBe(1)
+  }).pipe(Effect.provide(layer(input)))
+})
+
+it.instance("a delayed duplicate cancel joins the completed failure tombstone", () => {
+  const input = harness({ blockCancel: true, cancelFailure: true })
+  const duplicateStarted = Promise.withResolvers<void>()
+  const releaseDuplicate = Promise.withResolvers<void>()
+  return Effect.gen(function* () {
+    const service = yield* ProviderAuth.Service
+    yield* service.authorize({ providerID, method: 0 })
+    const first = yield* service.cancel({ providerID }).pipe(Effect.exit, Effect.forkScoped)
+    yield* Effect.promise(() => input.cancelStarted.promise)
+    const duplicate = yield* Effect.gen(function* () {
+      duplicateStarted.resolve()
+      yield* Effect.promise(() => releaseDuplicate.promise)
+      return yield* service.cancel({ providerID }).pipe(Effect.exit)
+    }).pipe(Effect.forkScoped)
+    yield* Effect.promise(() => duplicateStarted.promise)
+
+    input.releaseCancel.resolve()
+    const firstExit = yield* Fiber.join(first)
+    expect(Exit.isFailure(firstExit)).toBe(true)
+    releaseDuplicate.resolve()
+    const duplicateExit = yield* Fiber.join(duplicate)
+    expect(Exit.isFailure(duplicateExit)).toBe(true)
+    if (Exit.isFailure(firstExit) && Exit.isFailure(duplicateExit)) {
+      expect(duplicateExit.cause).toEqual(firstExit.cause)
+    }
+    expect(input.cancelCalls()).toBe(1)
+  }).pipe(Effect.provide(layer(input)))
+})
+
+it.instance("authorize joins a completed cancel failure without replacing the tombstone", () => {
+  const input = harness({ blockCancel: true, cancelFailure: true })
+  const authorizeStarted = Promise.withResolvers<void>()
+  const releaseAuthorize = Promise.withResolvers<void>()
+  return Effect.gen(function* () {
+    const service = yield* ProviderAuth.Service
+    yield* service.authorize({ providerID, method: 0 })
+    const cancel = yield* service.cancel({ providerID }).pipe(Effect.exit, Effect.forkScoped)
+    yield* Effect.promise(() => input.cancelStarted.promise)
+    const replacement = yield* Effect.gen(function* () {
+      authorizeStarted.resolve()
+      yield* Effect.promise(() => releaseAuthorize.promise)
+      yield* service.authorize({ providerID, method: 0 })
+    }).pipe(Effect.exit, Effect.forkScoped)
+    yield* Effect.promise(() => authorizeStarted.promise)
+
+    input.releaseCancel.resolve()
+    const cancelExit = yield* Fiber.join(cancel)
+    expect(Exit.isFailure(cancelExit)).toBe(true)
+    releaseAuthorize.resolve()
+    const replacementExit = yield* Fiber.join(replacement)
+    expect(Exit.isFailure(replacementExit)).toBe(true)
+    if (Exit.isFailure(cancelExit) && Exit.isFailure(replacementExit)) {
+      expect(replacementExit.cause).toEqual(cancelExit.cause)
+    }
+    expect(input.authorizeCalls()).toBe(1)
+    expect(input.cancelCalls()).toBe(1)
+  }).pipe(Effect.provide(layer(input)))
+})
+
+it.instance("authorize joins a successful cancel tombstone and installs one replacement", () => {
+  const input = harness({ blockCancel: true })
+  const authorizeStarted = Promise.withResolvers<void>()
+  const releaseAuthorize = Promise.withResolvers<void>()
+  return Effect.gen(function* () {
+    const service = yield* ProviderAuth.Service
+    yield* service.authorize({ providerID, method: 0 })
+    const cancel = yield* service.cancel({ providerID }).pipe(Effect.forkScoped)
+    yield* Effect.promise(() => input.cancelStarted.promise)
+    const replacement = yield* Effect.gen(function* () {
+      authorizeStarted.resolve()
+      yield* Effect.promise(() => releaseAuthorize.promise)
+      yield* service.authorize({ providerID, method: 0 })
+    }).pipe(Effect.forkScoped)
+    yield* Effect.promise(() => authorizeStarted.promise)
+
+    input.releaseCancel.resolve()
+    expect(Exit.isSuccess(yield* Fiber.await(cancel))).toBe(true)
+    releaseAuthorize.resolve()
+    expect(Exit.isSuccess(yield* Fiber.await(replacement))).toBe(true)
+    expect(input.authorizeCalls()).toBe(2)
+    expect(input.cancelCalls()).toBe(1)
+    const callback = yield* service.callback({ providerID, method: 0 }).pipe(Effect.forkScoped)
+    yield* Effect.promise(() => input.setStarted.promise)
+    input.releaseSet.resolve()
+    expect(Exit.isSuccess(yield* Fiber.await(callback))).toBe(true)
   }).pipe(Effect.provide(layer(input)))
 })

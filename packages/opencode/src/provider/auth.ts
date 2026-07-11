@@ -196,44 +196,41 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       return next
     }
 
-    const cancelAttemptEffect = Effect.fn("ProviderAuth.cancelAttempt")(function* (input: {
+    const cancelCurrentEffect = Effect.fn("ProviderAuth.cancelCurrent")(function* (input: {
       providerID: ProviderV2.ID
-      attempt: Attempt
       provider: ProviderState
     }) {
       const selected = yield* input.provider.lock.withPermits(1)(
         Effect.gen(function* () {
-          if (input.provider.attempt !== input.attempt) return
-          if (input.attempt.cancel) return { owner: false as const, task: input.attempt.cancel }
-          input.attempt.canceled = true
-          input.attempt.cancel = yield* Deferred.make<void>()
-          return { owner: true as const, task: input.attempt.cancel }
+          const attempt = input.provider.attempt
+          if (!attempt) return
+          if (attempt.cancel) return { owner: false as const, attempt, task: attempt.cancel }
+          attempt.canceled = true
+          attempt.cancel = yield* Deferred.make<void>()
+          return { owner: true as const, attempt, task: attempt.cancel }
         }),
       )
       if (!selected) return
       if (selected.owner) {
         const exit = yield* Effect.gen(function* () {
-          const pluginCancel = yield* Effect.promise(() => input.attempt.result.cancel?.() ?? Promise.resolve()).pipe(
-            Effect.exit,
-          )
-          const callback = yield* input.provider.lock.withPermits(1)(Effect.sync(() => input.attempt.callback))
+          const pluginCancel = yield* Effect.promise(
+            () => selected.attempt.result.cancel?.() ?? Promise.resolve(),
+          ).pipe(Effect.exit)
+          const callback = yield* input.provider.lock.withPermits(1)(Effect.sync(() => selected.attempt.callback))
           if (callback) yield* Deferred.await(callback).pipe(Effect.exit)
           // Durable compensation failure wins over plugin cancellation failure because
           // it means the credential invariant could not be re-established.
-          if (input.attempt.rollbackFailure) return yield* Effect.die(input.attempt.rollbackFailure)
+          if (selected.attempt.rollbackFailure) return yield* Effect.die(selected.attempt.rollbackFailure)
           if (Exit.isFailure(pluginCancel)) return yield* pluginCancel
         }).pipe(Effect.exit)
         yield* input.provider.lock.withPermits(1)(
-          Effect.gen(function* () {
-            if (input.provider.attempt === input.attempt) input.provider.attempt = undefined
-            yield* Deferred.done(selected.task, exit).pipe(Effect.ignore)
-          }),
+          Deferred.done(selected.task, exit).pipe(Effect.ignore),
         )
       }
       yield* Deferred.await(selected.task)
     })
-    const cancelAttempt = (input: { providerID: ProviderV2.ID; attempt: Attempt; provider: ProviderState }) =>
-      cancelAttemptEffect(input).pipe(Effect.uninterruptible)
+    const cancelCurrent = (input: { providerID: ProviderV2.ID; provider: ProviderState }) =>
+      cancelCurrentEffect(input).pipe(Effect.uninterruptible)
 
     const authorize = Effect.fn("ProviderAuth.authorize")(function* (
       input: { providerID: ProviderV2.ID } & AuthorizeInput,
@@ -245,8 +242,7 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
 
       return yield* provider.authorize.withPermits(1)(
         Effect.gen(function* () {
-          const previous = yield* provider.lock.withPermits(1)(Effect.sync(() => provider.attempt))
-          if (previous) yield* cancelAttempt({ providerID: input.providerID, attempt: previous, provider })
+          yield* cancelCurrent({ providerID: input.providerID, provider })
 
           if (method.prompts && input.inputs) {
             for (const prompt of method.prompts) {
@@ -284,8 +280,8 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
         Effect.gen(function* () {
           const attempt = provider.attempt
           if (!attempt) return yield* new OauthMissing({ providerID: input.providerID })
-          if (attempt.callback) return { owner: false as const, attempt, task: attempt.callback }
           if (attempt.canceled) return yield* new OauthCallbackFailed({})
+          if (attempt.callback) return { owner: false as const, attempt, task: attempt.callback }
           if (attempt.result.method === "code" && !input.code) {
             return yield* new OauthCodeMissing({ providerID: input.providerID })
           }
@@ -370,9 +366,7 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
     const cancel = Effect.fn("ProviderAuth.cancel")(function* (input: { providerID: ProviderV2.ID }) {
       const value = yield* InstanceState.get(state)
       const provider = providerState(value, input.providerID)
-      const match = yield* provider.lock.withPermits(1)(Effect.sync(() => provider.attempt))
-      if (!match) return
-      yield* cancelAttempt({ providerID: input.providerID, attempt: match, provider })
+      yield* cancelCurrent({ providerID: input.providerID, provider })
     })
 
     return Service.of({ methods, authorize, callback, cancel })
