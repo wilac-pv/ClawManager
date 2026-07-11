@@ -113,6 +113,97 @@ test("uses deterministic local metadata for pack-only rehearsals", () => {
   ).toEqual({ version: "1.2.3", tag: "next" })
 })
 
+test("rejects combining pack-only and dry-run modes", async () => {
+  await using tmp = await tmpdir()
+  const repository = `${tmp.path}/repo`
+  const opencode = `${repository}/packages/opencode`
+  await Bun.$`mkdir -p ${opencode}/script ${opencode}/dist/ruying-code-darwin-arm64/bin`
+  await symlink(path.join(import.meta.dir, "../../node_modules"), `${opencode}/node_modules`)
+  await Bun.write(
+    `${opencode}/script/publish-ruying.ts`,
+    await Bun.file(`${import.meta.dir}/../../script/publish-ruying.ts`).text(),
+  )
+  await Bun.write(
+    `${opencode}/script/postinstall.mjs`,
+    await Bun.file(`${import.meta.dir}/../../script/postinstall.mjs`).text(),
+  )
+  await Bun.write(`${repository}/LICENSE`, "test")
+  await Bun.write(
+    `${opencode}/dist/ruying-code-darwin-arm64/package.json`,
+    JSON.stringify(platformManifest("1.2.3", { os: "darwin", arch: "arm64" })),
+  )
+  await Bun.write(`${opencode}/dist/ruying-code-darwin-arm64/bin/opencode`, "test")
+
+  const result = Bun.spawn([process.execPath, `${opencode}/script/publish-ruying.ts`, "--pack-only", "--dry-run"], {
+    stdout: "ignore",
+    stderr: "pipe",
+  })
+  const stderr = await new Response(result.stderr).text()
+  expect(await result.exited).not.toBe(0)
+  expect(stderr).toContain("--pack-only and --dry-run are mutually exclusive")
+})
+
+test("dry-run rehearses every complete-set publish without registry reads", async () => {
+  await using tmp = await tmpdir()
+  const repository = `${tmp.path}/repo`
+  const opencode = `${repository}/packages/opencode`
+  const publisher = `${opencode}/script/publish-ruying.ts`
+  const calls = `${tmp.path}/npm-calls`
+  await Bun.$`mkdir -p ${opencode}/script ${opencode}/dist ${tmp.path}/bin`
+  await symlink(path.join(import.meta.dir, "../../node_modules"), `${opencode}/node_modules`)
+  await Bun.write(publisher, await Bun.file(`${import.meta.dir}/../../script/publish-ruying.ts`).text())
+  await Bun.write(
+    `${opencode}/script/postinstall.mjs`,
+    await Bun.file(`${import.meta.dir}/../../script/postinstall.mjs`).text(),
+  )
+  await Bun.write(`${repository}/LICENSE`, "test")
+  await Promise.all(
+    SUPPORTED_TARGETS.map(async (target) => {
+      const directory = `${opencode}/dist/${platformDirectory(target)}`
+      await Bun.$`mkdir -p ${directory}/bin`
+      await Bun.write(`${directory}/package.json`, JSON.stringify(platformManifest("1.2.3", target)))
+      await Bun.write(`${directory}/bin/opencode`, "test")
+    }),
+  )
+  await Bun.write(
+    `${tmp.path}/bin/npm`,
+    `#!/usr/bin/env node\nrequire("fs").appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }) + "\\n")\n`,
+  )
+  await Bun.$`chmod 755 ${tmp.path}/bin/npm`
+
+  const result = Bun.spawn(
+    [process.execPath, publisher, "--dry-run", "--version", "1.2.3", "--tag", "beta"],
+    {
+      env: { ...process.env, PATH: `${tmp.path}/bin${path.delimiter}${process.env.PATH ?? ""}` },
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  )
+  const stderr = await new Response(result.stderr).text()
+  expect(await result.exited).toBe(0)
+  expect(stderr).toBe("")
+  const commands = (await Bun.file(calls).text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { cwd: string; args: string[] })
+  expect(commands).toHaveLength(SUPPORTED_TARGETS.length + 1)
+  expect(commands.map((command) => path.basename(command.cwd)).sort()).toEqual(
+    [...SUPPORTED_TARGETS.map(platformDirectory), "ruying-code"].sort(),
+  )
+  expect(
+    commands.every(
+      (command) =>
+        command.args[0] === "publish" &&
+        command.args.includes("--registry=https://nexus.gwm.cn/repository/npm-releases/") &&
+        command.args.includes("beta") &&
+        command.args.includes("--dry-run"),
+    ),
+  ).toBeTrue()
+  expect((await Bun.file(`${opencode}/dist/ruying-code/package.json`).json()).optionalDependencies).toEqual(
+    Object.fromEntries(SUPPORTED_TARGETS.map((target) => [platformManifest("1.2.3", target).name, "1.2.3"])),
+  )
+})
+
 test("creates a dual-bin scoped wrapper", () => {
   const manifest = wrapperManifest("1.2.3", { "@ruying/ruying-code-darwin-arm64": "1.2.3" })
 
@@ -255,6 +346,14 @@ test("publishes only scoped platform dependencies to the hosted registry", () =>
     "--registry=https://nexus.gwm.cn/repository/npm-releases/",
     "--tag",
     "beta",
+  ])
+  expect(npmPublishArguments("ruying-ruying-code-1.2.3.tgz", "beta", true)).toEqual([
+    "publish",
+    "ruying-ruying-code-1.2.3.tgz",
+    "--registry=https://nexus.gwm.cn/repository/npm-releases/",
+    "--tag",
+    "beta",
+    "--dry-run",
   ])
   expect(npmViewArguments("@ruying/ruying-code", "1.2.3")).toEqual([
     "view",

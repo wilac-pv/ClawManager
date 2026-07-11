@@ -149,8 +149,8 @@ export function npmViewArguments(name: string, version: string) {
   return ["view", `${name}@${version}`, "version", `--registry=${INSTALL_REGISTRY}`]
 }
 
-export function npmPublishArguments(tarball: string, tag: string) {
-  return ["publish", tarball, `--registry=${PUBLISH_REGISTRY}`, "--tag", tag]
+export function npmPublishArguments(tarball: string, tag: string, dryRun = false) {
+  return ["publish", tarball, `--registry=${PUBLISH_REGISTRY}`, "--tag", tag, ...(dryRun ? ["--dry-run"] : [])]
 }
 
 export function releaseMetadata(
@@ -193,9 +193,16 @@ export async function removeTarballs(directory: string) {
   )
 }
 
-async function publish(directory: string, name: string, version: string, tag: string, packOnly: boolean) {
+async function publish(
+  directory: string,
+  name: string,
+  version: string,
+  tag: string,
+  packOnly: boolean,
+  dryRun: boolean,
+) {
   if (process.platform !== "win32") await $`chmod -R 755 .`.cwd(directory)
-  if (!packOnly) {
+  if (!packOnly && !dryRun) {
     const view = Bun.spawn(["npm", ...npmViewArguments(name, version)], {
       cwd: directory,
       stdout: "ignore",
@@ -213,7 +220,7 @@ async function publish(directory: string, name: string, version: string, tag: st
 
   const tarballs = Array.from(new Bun.Glob("*.tgz").scanSync({ cwd: directory }))
   if (tarballs.length !== 1) throw new Error(`Expected one tarball for ${name}, found ${tarballs.length}`)
-  const result = Bun.spawn(["npm", ...npmPublishArguments(tarballs[0], tag)], {
+  const result = Bun.spawn(["npm", ...npmPublishArguments(tarballs[0], tag, dryRun)], {
     cwd: directory,
     stdin: "inherit",
     stdout: "inherit",
@@ -226,6 +233,8 @@ async function main() {
   const dir = fileURLToPath(new URL("..", import.meta.url))
   const dist = path.join(dir, "dist")
   const packOnly = process.argv.includes("--pack-only")
+  const dryRun = process.argv.includes("--dry-run")
+  if (packOnly && dryRun) throw new Error("--pack-only and --dry-run are mutually exclusive")
   const packages = await Promise.all(
     Array.from(new Bun.Glob("*/package.json").scanSync({ cwd: dist })).map(async (filepath) => ({
       directory: path.join(dist, path.dirname(filepath)),
@@ -253,9 +262,9 @@ async function main() {
   )
 
   for (const entry of packages) {
-    await publish(entry.directory, entry.manifest.name, entry.manifest.version, metadata.tag, packOnly)
+    await publish(entry.directory, entry.manifest.name, entry.manifest.version, metadata.tag, packOnly, dryRun)
   }
-  await publish(wrapper, "@ruying/ruying-code", metadata.version, metadata.tag, packOnly)
+  await publish(wrapper, "@ruying/ruying-code", metadata.version, metadata.tag, packOnly, dryRun)
 }
 
 if (import.meta.main) await main()
