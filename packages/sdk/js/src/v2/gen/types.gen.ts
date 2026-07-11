@@ -2527,6 +2527,7 @@ export type ProviderAuthError1 = {
     | "ProviderAuthOauthCodeMissing"
     | "ProviderAuthOauthCallbackFailed"
     | "ProviderAuthValidationFailed"
+    | "ProviderAuthLoginRequired"
   data: {
     providerID?: string
     field?: string
@@ -9815,9 +9816,9 @@ export type SessionPromptData = {
 
 export type SessionPromptErrors = {
   /**
-   * BadRequest | InvalidRequestError
+   * BadRequest | ProviderAuthError | InvalidRequestError
    */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  400: EffectHttpApiErrorBadRequest | ProviderAuthError1 | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -9999,9 +10000,9 @@ export type SessionInitData = {
 
 export type SessionInitErrors = {
   /**
-   * BadRequest | InvalidRequestError
+   * BadRequest | ProviderAuthError | InvalidRequestError
    */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  400: EffectHttpApiErrorBadRequest | ProviderAuthError1 | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -10113,9 +10114,9 @@ export type SessionSummarizeData = {
 
 export type SessionSummarizeErrors = {
   /**
-   * BadRequest | InvalidRequestError
+   * BadRequest | ProviderAuthError | InvalidRequestError
    */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  400: EffectHttpApiErrorBadRequest | ProviderAuthError1 | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -10162,9 +10163,9 @@ export type SessionPromptAsyncData = {
 
 export type SessionPromptAsyncErrors = {
   /**
-   * BadRequest | InvalidRequestError
+   * BadRequest | ProviderAuthError | InvalidRequestError
    */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  400: EffectHttpApiErrorBadRequest | ProviderAuthError1 | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -10211,9 +10212,9 @@ export type SessionCommandData = {
 
 export type SessionCommandErrors = {
   /**
-   * BadRequest | InvalidRequestError
+   * BadRequest | ProviderAuthError | InvalidRequestError
    */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  400: EffectHttpApiErrorBadRequest | ProviderAuthError1 | InvalidRequestError
   /**
    * NotFoundError
    */

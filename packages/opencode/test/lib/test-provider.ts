@@ -11,6 +11,9 @@ export function testProviderConfig(llmUrl: string) {
     formatter: false,
     lsp: false,
     provider: {
+      ruying: {
+        options: { ruyingUser: {} },
+      },
       test: {
         name: "Test",
         id: "test",

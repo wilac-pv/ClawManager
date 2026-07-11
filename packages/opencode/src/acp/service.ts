@@ -45,8 +45,6 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Provider } from "@/provider/provider"
 import type { Command } from "@/command"
-import type { Auth } from "@/auth"
-import { requireRuyingLoginEffect, RuyingLoginRequiredError } from "@/auth/ruying-gate"
 
 export const AuthMethodID = "opencode-login"
 
@@ -742,7 +740,6 @@ async function loadDirectorySnapshot(sdk: OpencodeClient, directory: string) {
       ProviderV2.ID,
       Provider.Info
     >
-    await Effect.runPromise(requireRuyingLoginEffect(ruyingAuth(providers)))
     const defaultModelStarted = performance.now()
     const defaultModel = defaultModelFromConfig(configResponse?.data?.model, providers)
     ACPProfile.duration("acp.directory.defaultModel.resolve", defaultModelStarted, { configured: !!defaultModel })
@@ -775,21 +772,6 @@ async function loadDirectorySnapshot(sdk: OpencodeClient, directory: string) {
       ...(defaultModel ? { defaultModel } : {}),
     })
   })
-}
-
-function ruyingAuth(providers: Record<ProviderV2.ID, Provider.Info>): Auth.Info | undefined {
-  const provider = providers[ProviderV2.ID.make("ruying")]
-  if (!provider?.key) return
-  const user = provider.options.ruyingUser
-  if (typeof user !== "object" || user === null || Array.isArray(user)) {
-    return { type: "api", key: provider.key }
-  }
-  const employeeId = "employeeId" in user && typeof user.employeeId === "string" ? user.employeeId : undefined
-  return {
-    type: "api",
-    key: provider.key,
-    ...(employeeId ? { metadata: { employeeId } } : {}),
-  }
 }
 
 function defaultModelFromConfig(
@@ -1092,8 +1074,8 @@ function isACPError(error: unknown): error is Error {
 
 function isAuthRequired(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false
-  if (value instanceof RuyingLoginRequiredError) return true
   if (value instanceof Error && (value.name === "ProviderAuthError" || value.name === "LoadAPIKeyError")) return true
+  if ("name" in value && value.name === "ProviderAuthLoginRequired") return true
   if (
     value instanceof Error &&
     (value.message.includes("ProviderAuthError") || value.message.includes("LoadAPIKeyError"))

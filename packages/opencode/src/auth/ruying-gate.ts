@@ -1,28 +1,29 @@
-import { Effect } from "effect"
-import type { Auth } from "."
+import { Schema, Effect } from "effect"
+import { Config } from "@/config/config"
+import { Auth } from "."
 
-const message = "请先运行 ruying-code login 完成 GWM SSO 登录"
+export const message = "请先运行 ruying-code login 完成 GWM SSO 登录"
 
-export class RuyingLoginRequiredError extends Error {
-  readonly providerID = "ruying"
+export class RuyingLoginRequiredError extends Schema.TaggedErrorClass<RuyingLoginRequiredError>()(
+  "RuyingLoginRequiredError",
+  { message: Schema.String },
+) {}
 
-  constructor() {
-    super(message)
-    this.name = "RuyingLoginRequiredError"
+export const requireRuyingLogin = Effect.fn("Auth.requireRuyingLogin")(function* () {
+  const auth = yield* Auth.Service
+  const config = yield* Config.Service
+  const [credential, current] = yield* Effect.all([auth.get("ruying").pipe(Effect.orDie), config.get()])
+  const marker = current.provider?.ruying?.options?.ruyingUser
+  if (
+    credential?.type === "api" &&
+    credential.key &&
+    typeof marker === "object" &&
+    marker !== null &&
+    !Array.isArray(marker)
+  ) {
+    return
   }
-}
-
-export async function requireRuyingLogin(auth: Auth.Info | undefined) {
-  const user = auth?.type === "api" ? auth.metadata : undefined
-  if (auth?.type === "api" && auth.key && user?.employeeId) return
-  throw new RuyingLoginRequiredError()
-}
-
-export const requireRuyingLoginEffect = Effect.fn("Auth.requireRuyingLogin")((auth: Auth.Info | undefined) =>
-  Effect.tryPromise({
-    try: () => requireRuyingLogin(auth),
-    catch: () => new RuyingLoginRequiredError(),
-  }),
-)
+  return yield* new RuyingLoginRequiredError({ message })
+})
 
 export * as RuyingGate from "./ruying-gate"

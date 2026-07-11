@@ -1190,7 +1190,11 @@ describe("ACP service sessions", () => {
         session: {
           create: () => Promise.resolve({ data: { id: session.sessionId } }),
           list: () => Promise.resolve({ data: [] }),
-          prompt: () => Promise.reject({ name: "ProviderAuthError", data: { providerID: "test" } }),
+          prompt: () =>
+            Promise.reject({
+              name: "ProviderAuthLoginRequired",
+              data: { providerID: "ruying", kind: "login-required" },
+            }),
         },
         mcp: {
           add: () => Promise.resolve({ data: {} }),
@@ -1212,6 +1216,7 @@ describe("ACP service sessions", () => {
     )
 
     expect(error.code).toBe(-32000)
+    expect(error.data).toEqual({ providerId: "ruying" })
   })
 })
 

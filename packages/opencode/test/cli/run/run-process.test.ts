@@ -299,6 +299,26 @@ describe("opencode run (non-interactive subprocess)", () => {
     60_000,
   )
 
+  cliIt.live(
+    "attach mode relies on the remote ruying login state",
+    ({ opencode }) =>
+      Effect.gen(function* () {
+        const server = yield* opencode.serve({ env: { OPENCODE_AUTH_CONTENT: "{}" } })
+        const result = yield* opencode.run("must use remote auth", {
+          env: {
+            OPENCODE_AUTH_CONTENT: JSON.stringify({
+              ruying: { type: "api", key: "sk-local", metadata: { employeeId: "GW001" } },
+            }),
+          },
+          extraArgs: ["--attach", server.url, "--"],
+        })
+
+        expect(result.exitCode).not.toBe(0)
+        expect(result.stderr).toContain("ruying-code login")
+      }),
+    60_000,
+  )
+
   cliIt.concurrent(
     "attach mode rejects local directories before prompt admission",
     ({ home, opencode }) =>

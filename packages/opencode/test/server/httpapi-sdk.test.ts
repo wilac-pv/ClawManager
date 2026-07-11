@@ -251,7 +251,12 @@ function withStandardProject<A, E>(
 function withFakeLlm<A, E>(serverPath: ServerPath, run: (input: LlmProjectFixture) => Effect.Effect<A, E, TestScope>) {
   return Effect.gen(function* () {
     const llm = yield* TestLLMServer
-    return yield* withProject(serverPath, { config: testProviderConfig(llm.url) }, (input) => run({ ...input, llm }))
+    return yield* withProject(serverPath, { config: testProviderConfig(llm.url) }, (input) =>
+      Effect.gen(function* () {
+        yield* setRuyingCredential(input.sdk)
+        return yield* run({ ...input, llm })
+      }).pipe(Effect.ensuring(removeRuyingCredential(input.sdk).pipe(Effect.ignore))),
+    )
   }).pipe(Effect.provide(TestLLMServer.layer))
 }
 
@@ -268,9 +273,37 @@ function withFakeLlmProject<A, E>(
         config: testProviderConfig(llm.url),
         setup: options.setup,
       },
-      (input) => run({ ...input, llm }),
+      (input) =>
+        Effect.gen(function* () {
+          yield* setRuyingCredential(input.sdk)
+          return yield* run({ ...input, llm })
+        }).pipe(Effect.ensuring(removeRuyingCredential(input.sdk).pipe(Effect.ignore))),
     )
   }).pipe(Effect.provide(TestLLMServer.layer))
+}
+
+const modelConfig = testProviderConfig("http://127.0.0.1:1")
+const credentialOnlyConfig = {
+  ...modelConfig,
+  provider: { test: modelConfig.provider.test },
+} satisfies Partial<ConfigV1.Info>
+const ruyingIdentityConfig = modelConfig
+
+const loginRequired = {
+  name: "ProviderAuthLoginRequired",
+  data: {
+    providerID: "ruying",
+    kind: "login-required",
+    message: "请先运行 ruying-code login 完成 GWM SSO 登录",
+  },
+}
+
+function setRuyingCredential(sdk: Sdk) {
+  return call(() => sdk.auth.set({ providerID: "ruying", auth: { type: "api", key: "sk-ruying" } }))
+}
+
+function removeRuyingCredential(sdk: Sdk) {
+  return call(() => sdk.auth.remove({ providerID: "ruying" }))
 }
 
 function writeStandardFiles(dir: string) {
@@ -735,8 +768,9 @@ describe("HttpApi SDK", () => {
   )
 
   serverPathParity("matches generated SDK prompt no-reply routes", (serverPath) =>
-    withStandardProject(serverPath, ({ sdk }) =>
+    withProject(serverPath, { config: ruyingIdentityConfig, setup: writeStandardFiles }, ({ sdk }) =>
       Effect.gen(function* () {
+        yield* setRuyingCredential(sdk)
         const session = yield* capture(() => sdk.session.create({ title: "prompt" }))
         const sessionID = String(record(session.data).id)
         const prompt = yield* capture(() =>
@@ -767,7 +801,113 @@ describe("HttpApi SDK", () => {
             .filter((text): text is string => typeof text === "string")
             .sort(),
         }
+      }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
+    ),
+  )
+
+  httpapi(
+    "rejects model execution when only the ruying credential exists",
+    withProject("raw", { config: credentialOnlyConfig }, ({ sdk }) =>
+      Effect.gen(function* () {
+        yield* setRuyingCredential(sdk)
+        const session = yield* call(() => sdk.session.create({ title: "credential only" }))
+        const result = yield* capture(() =>
+          sdk.session.prompt({
+            sessionID: session.data!.id,
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+            noReply: true,
+            parts: [{ type: "text", text: "blocked" }],
+          }),
+        )
+
+        expect(result.status).toBe(400)
+        expect(result.error).toEqual(loginRequired)
+      }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
+    ),
+  )
+
+  httpapi(
+    "rejects model execution when only the ruying identity marker exists",
+    withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
+      Effect.gen(function* () {
+        yield* removeRuyingCredential(sdk)
+        const session = yield* call(() => sdk.session.create({ title: "marker only" }))
+        const result = yield* capture(() =>
+          sdk.session.prompt({
+            sessionID: session.data!.id,
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+            noReply: true,
+            parts: [{ type: "text", text: "blocked" }],
+          }),
+        )
+        const command = yield* capture(() =>
+          sdk.session.command({
+            sessionID: session.data!.id,
+            agent: "build",
+            model: "test/test-model",
+            command: "init",
+            arguments: "",
+          }),
+        )
+        const summarize = yield* capture(() =>
+          sdk.session.summarize({
+            sessionID: session.data!.id,
+            providerID: "test",
+            modelID: "test-model",
+          }),
+        )
+        const init = yield* capture(() =>
+          sdk.session.init({
+            sessionID: session.data!.id,
+            providerID: "test",
+            modelID: "test-model",
+            messageID: MessageID.ascending(),
+          }),
+        )
+
+        expect(result.status).toBe(400)
+        expect(result.error).toEqual(loginRequired)
+        expect(statuses({ command, summarize, init })).toEqual({ command: 400, summarize: 400, init: 400 })
+        expect([command.error, summarize.error, init.error]).toEqual([loginRequired, loginRequired, loginRequired])
       }),
+    ),
+  )
+
+  httpapi(
+    "accepts an empty identity marker and rejects prompt async after credential revocation",
+    withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
+      Effect.gen(function* () {
+        yield* setRuyingCredential(sdk)
+        const session = yield* call(() => sdk.session.create({ title: "fresh gate" }))
+        const accepted = yield* capture(() =>
+          sdk.session.prompt({
+            sessionID: session.data!.id,
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+            noReply: true,
+            parts: [{ type: "text", text: "accepted" }],
+          }),
+        )
+        expect(accepted.status).toBe(200)
+
+        yield* removeRuyingCredential(sdk)
+        const rejected = yield* capture(() =>
+          sdk.session.promptAsync({
+            sessionID: session.data!.id,
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+            noReply: true,
+            parts: [{ type: "text", text: "must not fork" }],
+          }),
+        )
+        const messages = yield* call(() => sdk.session.messages({ sessionID: session.data!.id }))
+
+        expect(rejected.status).toBe(400)
+        expect(rejected.error).toEqual(loginRequired)
+        expect(JSON.stringify(messages.data)).not.toContain("must not fork")
+      }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
     ),
   )
 
