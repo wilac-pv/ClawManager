@@ -31,7 +31,7 @@
 - [ ] Add table-driven failing tests for LF, CR, tab, `U+2028`, and `U+2029`, plus an accepted `%0A` HTTPS case.
 - [ ] Add a failing prompt test that places a unique injection marker after each raw separator and proves marker omission plus bounded output.
 - [ ] Run focused tests and record the expected raw values entering Brand/prompt.
-- [ ] Add `if (/[\u0000- \u007f\u2028\u2029]/u.test(value)) return` before `new URL(value)`.
+- [ ] Add a pre-parse regular-expression guard for `U+0000..U+0020`, `U+007F`, `U+2028`, and `U+2029` before `new URL(value)`.
 - [ ] Run both focused suites and package-local typechecks.
 - [ ] Commit as `fix(core): reject raw branded URL controls`.
 
