@@ -9,7 +9,6 @@ import { fileURLToPath } from "url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
-const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"))
 
 const platformMap = {
   darwin: "darwin",
@@ -24,9 +23,8 @@ const archMap = {
 
 const platform = platformMap[os.platform()] ?? os.platform()
 const arch = archMap[os.arch()] ?? os.arch()
-const base = `opencode-${platform}-${arch}`
 const sourceBinary = platform === "windows" ? "opencode.exe" : "opencode"
-const targetBinary = path.join(__dirname, "bin", "opencode.exe")
+const targetBinary = path.join(__dirname, "bin", "ruying-code")
 
 function supportsAvx2() {
   if (arch !== "x64") return false
@@ -93,11 +91,11 @@ function isMusl() {
   }
 }
 
-function packageNames() {
-  const baseline = arch === "x64" && !supportsAvx2()
+export function packageNames(platform, arch, baseline, musl) {
+  const base = `@ruying/ruying-code-${platform}-${arch}`
 
   if (platform === "linux") {
-    if (isMusl()) {
+    if (musl) {
       if (arch === "x64")
         return baseline
           ? [`${base}-baseline-musl`, `${base}-musl`, `${base}-baseline`, base]
@@ -116,6 +114,17 @@ function packageNames() {
   return [base]
 }
 
+export function installArguments(name, version) {
+  return [
+    "install",
+    "--ignore-scripts",
+    "--no-save",
+    "--loglevel=error",
+    "--registry=https://nexus.gwm.cn/repository/npm-group/",
+    `${name}@${version}`,
+  ]
+}
+
 function resolveBinary(name) {
   const packageJsonPath = require.resolve(`${name}/package.json`)
   const binaryPath = path.join(path.dirname(packageJsonPath), "bin", sourceBinary)
@@ -124,16 +133,15 @@ function resolveBinary(name) {
 }
 
 function installPackage(name) {
-  const version = packageJson.optionalDependencies?.[name]
+  const version = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).optionalDependencies?.[name]
   if (!version) return
 
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-install-"))
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "ruying-code-install-"))
   try {
-    const result = childProcess.spawnSync(
-      "npm",
-      ["install", "--ignore-scripts", "--no-save", "--loglevel=error", "--prefix", temp, `${name}@${version}`],
-      { stdio: "inherit", windowsHide: true },
-    )
+    const result = childProcess.spawnSync("npm", [...installArguments(name, version), "--prefix", temp], {
+      stdio: "inherit",
+      windowsHide: true,
+    })
     if (result.status !== 0) return
     const packageDir = path.join(temp, "node_modules", name)
     copyBinary(path.join(packageDir, "bin", sourceBinary), targetBinary)
@@ -165,7 +173,8 @@ function verifyBinary() {
 }
 
 function main() {
-  for (const name of packageNames()) {
+  const names = packageNames(platform, arch, arch === "x64" && !supportsAvx2(), isMusl())
+  for (const name of names) {
     try {
       copyBinary(resolveBinary(name), targetBinary)
       if (verifyBinary()) return
@@ -175,15 +184,17 @@ function main() {
   }
 
   throw new Error(
-    `It seems your package manager failed to install the right opencode CLI package. Try manually installing ${packageNames()
+    `It seems your package manager failed to install the right Ruying Code CLI package. Try manually installing ${names
       .map((name) => JSON.stringify(name))
       .join(" or ")}.`,
   )
 }
 
-try {
-  main()
-} catch (error) {
-  console.error(error.message)
-  process.exit(1)
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    main()
+  } catch (error) {
+    console.error(error.message)
+    process.exit(1)
+  }
 }
