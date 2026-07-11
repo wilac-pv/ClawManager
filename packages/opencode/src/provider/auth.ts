@@ -241,8 +241,10 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       input: { providerID: ProviderV2.ID } & AuthorizeInput,
     ) {
       const value = yield* InstanceState.get(state)
+      if (!Object.hasOwn(value.hooks, input.providerID)) {
+        return yield* new OauthMissing({ providerID: input.providerID })
+      }
       const hook = value.hooks[input.providerID]
-      if (!hook) return yield* new OauthMissing({ providerID: input.providerID })
       const method = hook.methods[input.method]
       if (method.type !== "oauth") return
       const provider = providerState(value, input.providerID)
@@ -282,7 +284,9 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       input: { providerID: ProviderV2.ID } & CallbackInput,
     ) {
       const value = yield* InstanceState.get(state)
-      if (!value.hooks[input.providerID]) return yield* new OauthMissing({ providerID: input.providerID })
+      if (!Object.hasOwn(value.hooks, input.providerID)) {
+        return yield* new OauthMissing({ providerID: input.providerID })
+      }
       const provider = providerState(value, input.providerID)
       const selected = yield* provider.lock.withPermits(1)(
         Effect.gen(function* () {
@@ -373,7 +377,7 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
 
     const cancel = Effect.fn("ProviderAuth.cancel")(function* (input: { providerID: ProviderV2.ID }) {
       const value = yield* InstanceState.get(state)
-      if (!value.hooks[input.providerID]) return
+      if (!Object.hasOwn(value.hooks, input.providerID)) return
       const provider = providerState(value, input.providerID)
       yield* cancelCurrent({ providerID: input.providerID, provider })
     })

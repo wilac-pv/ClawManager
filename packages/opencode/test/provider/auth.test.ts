@@ -487,21 +487,23 @@ it.instance("authorize joins a successful cancel tombstone and installs one repl
 
 it.instance("unknown provider traffic does not allocate provider state", () => {
   const input = harness({})
-  const unknown = Array.from({ length: 500 }, (_, index) => ProviderV2.ID.make(`unknown-${index}`))
+  const unknown = ["__proto__", "constructor", "toString", "hasOwnProperty", "valueOf"]
+    .map((id) => ProviderV2.ID.make(id))
+    .concat(Array.from({ length: 500 }, (_, index) => ProviderV2.ID.make(`unknown-${index}`)))
   return Effect.gen(function* () {
     const service = yield* ProviderAuth.Service
     expect(yield* service.allocatedProviderCount()).toBe(0)
 
     const callbacks = yield* Effect.forEach(unknown, (id) =>
-      service.callback({ providerID: id, method: 0 }).pipe(Effect.exit),
+      service.callback({ providerID: id, method: 0 }).pipe(Effect.flip),
     )
     yield* Effect.forEach(unknown, (id) => service.cancel({ providerID: id }))
     const authorizes = yield* Effect.forEach(unknown, (id) =>
-      service.authorize({ providerID: id, method: 0 }).pipe(Effect.exit),
+      service.authorize({ providerID: id, method: 0 }).pipe(Effect.flip),
     )
 
-    expect(callbacks.every(Exit.isFailure)).toBe(true)
-    expect(authorizes.every(Exit.isFailure)).toBe(true)
+    expect(callbacks.every((error) => error instanceof ProviderAuth.OauthMissing)).toBe(true)
+    expect(authorizes.every((error) => error instanceof ProviderAuth.OauthMissing)).toBe(true)
     expect(yield* service.allocatedProviderCount()).toBe(0)
     expect(input.authorizeCalls()).toBe(0)
 
