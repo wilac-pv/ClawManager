@@ -961,3 +961,91 @@ Documentation:
 - Each genuinely dead canonical generation leaves one deterministic, permanent, small non-empty tombstone. This is the no-lease fencing cost that prevents delayed observers from acting on a successor. Current PIDs, including possible PID reuse, are never time-broken and may cause a conservative timeout.
 - App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
+# Wave 11 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 11 corrections and dispositions
+
+- Corrected the Wave 10 conflict-domain claim. Its no-lease main transaction was keyed by canonical auth target, so different auth files that published one shared config could overlap. Wave 11 uses one per-user global Chelper configuration transaction root, coordinator, main generation, and process-local queue. Any auth/config pair is serialized against every other pair.
+- Corrected the Wave 10 anchoring claim. Fixed canonical path strings plus `lstat` did not make pathname reads/writes descriptor-anchored, and the injected config callback still owned canonical config I/O. Wave 11 makes the callback a scheduling/failure hook only. Production bytes use internal no-follow operations that compare pre-open `lstat`, opened-descriptor `fstat`, and post-open `lstat`; held parent-directory descriptors/fingerprints are rechecked before temp creation and before and after namespace changes.
+- The global root is created mode `0700`, canonicalized, fsynced where supported, and rejected if it is a symlink or non-directory. Owner and journal files are mode `0600`. Complete owner metadata has exact version/PID/token/generation/target keys, and approved targets come from trusted fixed-canonical owner construction rather than the journal alone.
+- Strict recovery validates the whole bounded WAL before either restore: exact keys, version/state, matching owner token/generation/targets, approved absolute canonical targets, allowed snapshot kinds, canonical base64, integer mode `0..0777`, a 16 MiB decoded snapshot bound, and a 48 MiB journal bound. Invalid owner/WAL state fails explicitly with the canonical main retained and both resources untouched.
+- A real child killed after fsyncing a journal temp but before its rename is recovered by removing recognized temp artifacts before retirement. Non-committed valid recovery still restores config before auth; committed recovery keeps both.
+- Corrected the Wave 10 tombstone claim. Renaming the original generation could retain unknown malformed or temporary bytes. Wave 11 first creates and fsyncs a fresh deterministic metadata-only tombstone, validates any existing tombstone, then—only while the global coordinator is held for main retirement—renames the old generation to a release artifact, fsyncs, deletes it, and fsyncs again. Permanent tombstones contain only `tombstone.json`.
+- Candidate directory, candidate parent, acquire rename, journal rename, tombstone rename, retirement rename/cleanup, and normal release rename/cleanup transitions fsync their directories where Node supports it. Windows directory fsync remains an explicit no-op.
+- PID reuse remains safety-first. No portable reliable process-start identity was available in the supported Node-only surface, so an existing PID is never time-broken. A reused PID can conservatively make the transaction unavailable until timeout rather than risk evicting a live owner.
+- Windows import classification is allowlist-based for namespace paths. Ordinary consistent drive paths, consistent extended drive paths, and valid consistent `Volume{GUID}` paths are accepted. UNC, device, named pipe, `GLOBALROOT`, redirector, malformed volume, doubled separators, and mixed-leading/body separator paths are rejected before `FSUtil.Service`. Non-Windows POSIX `//tmp` remains local; backslash Windows namespace paths remain rejected.
+
+## Wave 11 RED and diagnostic evidence
+
+- In a real same-config/different-auth interleaving, B reached its config callback while A remained paused (`secondBlocked=false`), proving Wave 10's auth-derived lock did not cover shared config resources.
+- In a real parent-swap test, the fixed config parent was renamed and replaced with a victim symlink during the callback window. Wave 10-style pathname publication overwrote the victim from `owner:victim` to `owner:new`.
+- The Windows matrix showed `\\.\C:` device namespace was classified local.
+- Wave 10's earlier invalid-journal diagnostic accepted malformed recovery state. Wave 11 adds twelve crafted owner/WAL cases covering extra fields, owner token/generation/target mismatches, noncanonical base64, fractional/out-of-range mode, invalid snapshot kind/shape, and size bounds. These table cases were added after the strict codec slice and therefore are recorded as GREEN coverage, not individually claimed as test-first RED evidence.
+- The first Wave 11 full-suite migration run found six tests still constructing or scanning old auth-derived lock paths. After moving those fixtures to the global root, one auth-alias test timed out because its Wave 10 ordering waited for B before releasing A; the new global lock correctly blocked B. The test now proves B is blocked, releases A, then awaits both. These were test-contract migrations, not production implementation failures.
+- Two old Windows expectations accepted mixed extended-drive spellings on nonmatching platforms. They were updated to the approved Wave 11 allowlist before the valid GREEN run. No production implementation attempt failed.
+
+## Wave 11 GREEN verification
+
+```text
+chelper$ npm test
+5 files, 69 pass, 0 fail
+  configurer: 58 pass, 0 fail
+chelper$ npm run build
+pass
+chelper$ npx tsc --noEmit
+pass
+chelper$ git diff --check
+pass
+
+packages/opencode$ bun test test/cli/import.test.ts
+2 pass, 0 fail, 50 expects
+packages/opencode$ bun typecheck
+pass
+
+packages/opencode$ bun run build --single --skip-install
+pass; Smoke test passed: 0.0.0-ruying-code-oem-202607111957
+packages/desktop$ bun run build
+pass in the required sequential order; pre-existing Vite warnings remain
+```
+
+Real child coverage includes same-config/different-auth serialization, all four durable journal states, a kill after journal-temp fsync, a killed recovery holder with two contenders, complete-candidate death, and fixed-canonical alias behavior. POSIX tests prove parent-swap and target-symlink swaps fail closed without mutating victims. Namespace hooks observe every required durability transition, and fresh tombstones are asserted to contain only metadata.
+
+These filesystem tests ran on macOS. `O_NOFOLLOW` and directory fsync were exercised there. Node 18 has no portable `openat`/`renameat`; parent-descriptor identity checks detect tested swaps and narrow the pathname race, but this report does not claim an absolute directory anchor against a malicious same-user process changing a namespace between verification and the pathname operation. Windows directory fsync is not available through this portable Node implementation, so no Windows power-loss durability claim is made. The Windows classifier matrix is pure logic executed on macOS, not a Windows OS integration run.
+
+Exact-value credential verification did not print the credential:
+
+```text
+Chelper tracked and full local tree excluding preserved .serena/node_modules: clean
+Chelper current dist and fresh npm pack: clean
+Primary tracked and full local tree excluding node_modules: clean
+Primary and Chelper git diff checks: clean
+```
+
+No npm publish, production request, public-share request, dependency installation, push, PR, or other real external network action was performed.
+
+## Wave 11 commits
+
+Primary:
+
+- `ef5b6d716` — `docs: design Wave 11 hardening`
+- `526c2d4e4` — `fix(opencode): restrict Windows import paths`
+
+Chelper:
+
+- `04c1581` — `fix(config): harden global transactions`
+
+Documentation:
+
+- This report commit — `docs: record Wave 11 verification`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, exact-value scans, global serialization, WAL validation, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- One global per-user transaction deliberately trades unrelated config-publication concurrency for a simple complete conflict domain. A live or PID-reused owner can cause a conservative 30-second timeout; it is never evicted based on age.
+- A valid in-progress journal temporarily contains recoverable auth/config snapshots and can contain credentials. It is confined to mode-`0700` transaction storage in mode-`0600` files and removed before retirement. Invalid state stays canonical and fail-closed for administrator inspection. Permanent tombstones are fresh metadata only.
+- Parent descriptor/fingerprint verification is defense-in-depth, not a portable substitute for `renameat`. Windows directory fsync/power-loss behavior and Windows filesystem execution remain unverified limitations.
+- App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
