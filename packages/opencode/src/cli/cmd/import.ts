@@ -32,10 +32,27 @@ export const ImportCommand = effectCmd({
 })
 
 export function isNetworkImportPath(file: string, platform: NodeJS.Platform = process.platform) {
+  const windowsPrefix = /^(?:\\\\|\/\/|\\\/|\/\\)/
+  if (platform === "win32" && windowsPrefix.test(file)) {
+    const separator = file.startsWith("\\\\") ? "\\" : file.startsWith("//") ? "/" : undefined
+    if (!separator) return true
+    if (file.includes(separator === "\\" ? "/" : "\\")) return true
+    const escaped = separator === "\\" ? "\\\\" : "/"
+    const drive = new RegExp(`^${escaped}${escaped}\\?${escaped}[a-z]:${escaped}(?!${escaped})`, "i")
+    const volume = new RegExp(
+      `^${escaped}${escaped}\\?${escaped}Volume\\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\}${escaped}`,
+      "i",
+    )
+    return !drive.test(file) && !volume.test(file)
+  }
+  if (platform === "win32" && /^[a-z]:[\\/]/i.test(file)) {
+    const separator = file[2]
+    const rest = file.slice(2)
+    if (rest.startsWith("//") || rest.startsWith("\\\\")) return true
+    return rest.includes(separator === "\\" ? "/" : "\\")
+  }
   const normalized = file.replaceAll("\\", "/")
-  const unc = /^\/\/[?.]\/UNC(?:\/|$)/i.test(normalized) || /^\/\/(?![?.]\/)/.test(normalized)
-  if (file.startsWith("\\\\")) return unc
-  return platform === "win32" && file.startsWith("//") && unc
+  return file.startsWith("\\\\") && /^\/\//.test(normalized)
 }
 
 export function requireLocalImportPath(file: string) {
