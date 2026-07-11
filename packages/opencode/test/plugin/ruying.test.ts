@@ -23,7 +23,6 @@ const {
   buildSsoUrl,
   parseUserFromTokenName,
   provisionToken,
-  verifyAccessToken,
   fetchModelIds,
   buildProviderPatch,
   writeGlobalProviderConfig,
@@ -54,6 +53,14 @@ function oauthMethod(hooks: Awaited<ReturnType<typeof RuyingAuthPlugin>>) {
 }
 
 describe("plugin.ruying", () => {
+  test("contains no remote bearer-token introspection path", async () => {
+    const source = await Bun.file(new URL("../../src/plugin/ruying.ts", import.meta.url)).text()
+
+    expect(source).not.toContain("DEFAULT_CHECK_TOKEN_URL")
+    expect(source).not.toContain("verifyAccessToken")
+    expect(source).not.toContain("?access_token=")
+  })
+
   describe("globalConfigFile", () => {
     test("uses branded config precedence in the branded config directory", async () => {
       const dir = mkdtempSync(join(tmpdir(), "ruying-config-path-"))
@@ -131,25 +138,6 @@ describe("plugin.ruying", () => {
 
       using broken = makeServer(() => new Response("boom", { status: 500 }))
       await expect(provisionToken(baseUrl(broken), "x")).rejects.toThrow(/开通失败 \(500\).*boom/)
-    })
-  })
-
-  describe("verifyAccessToken", () => {
-    test("returns user info and sends access_token + platform_code", async () => {
-      let qs: URLSearchParams | undefined
-      using sso = makeServer((_, url) => {
-        qs = url.searchParams
-        return Response.json({ key: "S_0000", result: { user_code: "GW001", user_name: "张三", email: "z@gwm.cn" } })
-      })
-      const user = await verifyAccessToken(baseUrl(sso), "PLAT", "tok-123")
-      expect(user).toEqual({ employeeId: "GW001", displayName: "张三", email: "z@gwm.cn" })
-      expect(qs?.get("access_token")).toBe("tok-123")
-      expect(qs?.get("platform_code")).toBe("PLAT")
-    })
-
-    test("throws when key is not S_0000", async () => {
-      using sso = makeServer(() => Response.json({ key: "S_9999" }))
-      await expect(verifyAccessToken(baseUrl(sso), "P", "t")).rejects.toThrow(/校验被拒绝/)
     })
   })
 
@@ -502,7 +490,6 @@ describe("plugin.ruying", () => {
       symlinkSync(target, link)
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: "http://127.0.0.1:1",
         gatewayApiBase: baseUrl(gateway),
         callbackPort: 0,
         configFile: link,
@@ -563,7 +550,6 @@ describe("plugin.ruying", () => {
       chmodSync(file, 0o640)
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: "http://127.0.0.1:1",
         gatewayApiBase: baseUrl(gateway),
         callbackPort: 0,
         configFile: file,
@@ -627,7 +613,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: "http://127.0.0.1:1",
         callbackPort: 0,
         configFile,
       })
@@ -647,12 +632,8 @@ describe("plugin.ruying", () => {
 
     test("returns public identity metadata with the api key", async () => {
       using admin = makeServer(() => Response.json({ status: "ready", key: "sk-test", tokenName: "GW001-张三" }))
-      using sso = makeServer(() =>
-        Response.json({ key: "S_0000", result: { user_code: "GW001", user_name: "张三", email: "z@gwm.cn" } }),
-      )
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: baseUrl(sso),
         callbackPort: 0,
         configFile: tmpConfigFile(),
       })
@@ -663,7 +644,7 @@ describe("plugin.ruying", () => {
       expect(await callback).toMatchObject({
         type: "success",
         key: "sk-test",
-        metadata: { employeeId: "GW001", displayName: "张三", email: "z@gwm.cn" },
+        metadata: { employeeId: "GW001", displayName: "张三", email: "" },
       })
     })
 
@@ -723,7 +704,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: "http://127.0.0.1:1",
         gatewayApiBase: baseUrl(gateway),
         callbackPort: 0,
         callbackTimeoutMs: 50,
@@ -769,7 +749,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const firstHooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: "http://127.0.0.1:1",
         gatewayApiBase: baseUrl(gateway),
         callbackPort: 0,
         callbackTimeoutMs: 10,
@@ -808,7 +787,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: baseUrl(sso),
         gatewayApiBase: baseUrl(gateway),
         callbackTimeoutMs: 100,
         configFile,
@@ -938,11 +916,6 @@ describe("plugin.ruying", () => {
           return Response.json({ status: "ready", key: "sk-user-abc", tokenName: "GW001-张三" })
         return new Response("nf", { status: 404 })
       })
-      using sso = makeServer((_, url) => {
-        if (url.pathname === "/check")
-          return Response.json({ key: "S_0000", result: { user_code: "GW001", user_name: "张三", email: "z@gwm.cn" } })
-        return new Response("nf", { status: 404 })
-      })
       using gw = makeServer((_, url) => {
         if (url.pathname === "/v1/models") return Response.json({ data: [{ id: "GLM-5.1" }, { id: "Deepseek-V4" }] })
         return new Response("nf", { status: 404 })
@@ -951,8 +924,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: `${baseUrl(sso)}/check`,
-        platformCode: "PLAT",
         gatewayApiBase: `${baseUrl(gw)}/v1`,
         configFile,
         callbackHost: "127.0.0.1",
@@ -975,7 +946,7 @@ describe("plugin.ruying", () => {
       expect(await callbackPromise).toEqual({
         type: "success",
         key: "sk-user-abc",
-        metadata: { employeeId: "GW001", displayName: "张三", email: "z@gwm.cn" },
+        metadata: { employeeId: "GW001", displayName: "张三", email: "" },
       })
 
       const config = JSON.parse(readFileSync(configFile, "utf8"))
@@ -985,7 +956,7 @@ describe("plugin.ruying", () => {
       expect(config.provider.ruying.options.ruyingUser).toEqual({
         employeeId: "GW001",
         displayName: "张三",
-        email: "z@gwm.cn",
+        email: "",
       })
       rmSync(configFile, { force: true })
     })
@@ -996,7 +967,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: baseUrl(sso),
         configFile,
         callbackHost: "127.0.0.1",
         callbackPort: 0,
@@ -1068,13 +1038,12 @@ describe("plugin.ruying", () => {
       })
     }
 
-    test("falls back to the token name for the badge when check_token fails", async () => {
+    test("uses the authenticated provisioning token name as identity", async () => {
       using admin = makeServer((_, url) =>
         url.pathname === "/api/provision/token"
           ? Response.json({ status: "ready", key: "sk-k", tokenName: "GW00178937-武晓达" })
           : new Response("nf", { status: 404 }),
       )
-      using sso = makeServer(() => new Response("down", { status: 500 })) // check_token unavailable
       using gw = makeServer((_, url) =>
         url.pathname === "/v1/models" ? Response.json({ data: [] }) : new Response("nf", { status: 404 }),
       )
@@ -1082,8 +1051,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: baseUrl(sso),
-        platformCode: "P",
         gatewayApiBase: `${baseUrl(gw)}/v1`,
         configFile,
         callbackHost: "127.0.0.1",
@@ -1130,14 +1097,8 @@ describe("plugin.ruying", () => {
       expect(existsSync(configFile)).toBe(false)
     })
 
-    test("falls back to the existing config key when provisioning is down (503)", async () => {
+    test("does not trust an existing config key when authoritative provisioning is down", async () => {
       using admin = makeServer(() => new Response("503 Service Temporarily Unavailable", { status: 503 }))
-      using sso = makeServer(() =>
-        Response.json({ key: "S_0000", result: { user_code: "GW001", user_name: "张三", email: "z@gwm.cn" } }),
-      )
-      using gw = makeServer((_, url) =>
-        url.pathname === "/v1/models" ? Response.json({ data: [] }) : new Response("nf", { status: 404 }),
-      )
 
       const configFile = tmpConfigFile()
       // A key chelper already provisioned into the config.
@@ -1150,9 +1111,6 @@ describe("plugin.ruying", () => {
 
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: baseUrl(sso),
-        platformCode: "P",
-        gatewayApiBase: `${baseUrl(gw)}/v1`,
         configFile,
         callbackHost: "127.0.0.1",
         callbackPort: 0,
@@ -1161,21 +1119,11 @@ describe("plugin.ruying", () => {
       const authorized = await oauthMethod(hooks).authorize!()
       const redirectUri = new URL(authorized.url).searchParams.get("redirect_url")!
       const callbackPromise = (authorized as { callback: () => Promise<any> }).callback()
-      expect(await (await fetch(`${redirectUri}?access_token=SSO-T`)).text()).toContain("登录成功")
-
-      expect(await callbackPromise).toEqual({
-        type: "success",
-        key: "sk-chelper",
-        metadata: { employeeId: "GW001", displayName: "张三", email: "z@gwm.cn" },
-      })
+      expect(await (await fetch(`${redirectUri}?access_token=SSO-T`)).text()).toContain("开通失败")
+      expect(await callbackPromise).toEqual({ type: "failed" })
       const config = JSON.parse(readFileSync(configFile, "utf8"))
-      expect(config.provider.ruying.options.apiKey).toBe("sk-chelper") // preserved
-      expect(config.provider.ruying.options.ruyingUser).toEqual({
-        employeeId: "GW001",
-        displayName: "张三",
-        email: "z@gwm.cn",
-      })
-      expect(config.enabled_providers).toEqual(["ruying"])
+      expect(config.provider.ruying.options.apiKey).toBe("sk-chelper")
+      expect(config.provider.ruying.options.ruyingUser).toBeUndefined()
       rmSync(configFile, { force: true })
     })
 
@@ -1185,8 +1133,6 @@ describe("plugin.ruying", () => {
       const configFile = tmpConfigFile()
       const hooks = await RuyingAuthPlugin({} as any, {
         adminApiBase: baseUrl(admin),
-        checkTokenUrl: baseUrl(sso),
-        platformCode: "P",
         configFile,
         callbackHost: "127.0.0.1",
         callbackPort: 0,

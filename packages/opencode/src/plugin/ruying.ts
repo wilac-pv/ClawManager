@@ -18,7 +18,7 @@ import { ConfigPaths } from "@/config/paths"
 //      admin service validates the SSO token server-side, finds/creates the
 //      employee's gateway token, and returns the real sk- key (or a pending
 //      status when an admin still has to enable it). No client admin token.
-//   3. check_token (auth.paas.gwm.cn) for the employee id / display name (badge).
+//   3. Require employee identity from the authenticated provisioning result.
 //   4. Fetch /v1/models and register the openai-compatible gateway provider.
 //
 // The token→key exchange runs inside the loopback handler so the browser page
@@ -34,9 +34,6 @@ const PROVIDER_NPM = "@ai-sdk/openai-compatible"
 // Defaults match the chelper reference; overridable by env so the same plugin
 // can target staging / a self-hosted gateway, and by options for tests.
 const DEFAULT_SSO_LOGIN_URL = process.env["RUYING_SSO_URL"] ?? "https://sso.gwm.cn/login"
-const DEFAULT_CHECK_TOKEN_URL =
-  process.env["RUYING_CHECK_TOKEN_URL"] ?? "http://auth.paas.gwm.cn/authenticate/check_token"
-const DEFAULT_PLATFORM_CODE = process.env["RUYING_PLATFORM_CODE"] ?? "6533f020e78fcae0e8a28222e49fa558"
 // Admin provisioning service (exchanges the SSO token for a gateway key).
 const DEFAULT_ADMIN_API_BASE = process.env["RUYING_ADMIN_API"] ?? "https://aicoding-admin.gwm.cn"
 // The actual openai-compatible gateway (models + provider baseURL).
@@ -55,8 +52,6 @@ const MODELS_FETCH_TIMEOUT_MS = 15_000
 
 export interface RuyingAuthPluginOptions {
   ssoLoginUrl?: string
-  checkTokenUrl?: string
-  platformCode?: string
   adminApiBase?: string
   gatewayApiBase?: string
   callbackHost?: string
@@ -160,8 +155,8 @@ export function buildSsoUrl(ssoLoginUrl: string, redirectUri: string): string {
 }
 
 // Token names follow "{EMPLOYEE_ID}-{display name}" (e.g. "GW00178937-武晓达"),
-// so we can derive the badge user from the provision result when check_token is
-// unavailable.
+// The provisioning service has already authenticated the SSO token, so its
+// token name is the authoritative client-safe identity source.
 export function parseUserFromTokenName(tokenName: string | undefined): RuyingUser {
   const name = (tokenName ?? "").trim()
   const idx = name.indexOf("-")
@@ -386,33 +381,6 @@ export async function provisionToken(adminApiBase: string, ssoAccessToken: strin
     throw new Error(`开通失败 (${res.status})${detail ? `: ${detail}` : ""}`)
   }
   return (await res.json()) as ProvisionResult
-}
-
-// SSO access_token -> user info, via GWM PaaS check_token (best-effort badge info).
-export async function verifyAccessToken(
-  checkTokenUrl: string,
-  platformCode: string,
-  accessToken: string,
-): Promise<RuyingUser> {
-  if (!accessToken) throw new Error("access_token 为空")
-  const url = `${checkTokenUrl}?access_token=${encodeURIComponent(accessToken)}&platform_code=${encodeURIComponent(platformCode)}`
-  const res = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": userAgent() },
-    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-  })
-  if (!res.ok) throw new Error(`SSO 校验失败 (check_token HTTP ${res.status})`)
-  const body = (await res.json().catch(() => undefined)) as
-    | { key?: string; result?: { user_code?: string; user_name?: string; email?: string } }
-    | undefined
-  if (!body || body.key !== "S_0000") throw new Error(`SSO 校验被拒绝: key=${body?.key ?? "未知"}`)
-  const result = body.result ?? {}
-  const employeeId = (result.user_code ?? "").trim()
-  if (!employeeId) throw new Error("SSO 返回缺少工号 (user_code)")
-  return {
-    employeeId,
-    displayName: (result.user_name ?? "").trim(),
-    email: (result.email ?? "").trim(),
-  }
 }
 
 // Best-effort: list available gateway models so they can be written into the
@@ -663,8 +631,6 @@ export function buildProviderPatch(gatewayApiBase: string, modelIds: string[], u
 
 export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthPluginOptions = {}): Promise<Hooks> {
   const ssoLoginUrl = options.ssoLoginUrl ?? DEFAULT_SSO_LOGIN_URL
-  const checkTokenUrl = options.checkTokenUrl ?? DEFAULT_CHECK_TOKEN_URL
-  const platformCode = options.platformCode ?? DEFAULT_PLATFORM_CODE
   const adminApiBase = stripTrailingSlash(options.adminApiBase ?? DEFAULT_ADMIN_API_BASE)
   const gatewayApiBase = stripTrailingSlash(options.gatewayApiBase ?? DEFAULT_GATEWAY_API_BASE)
   const callbackHost = options.callbackHost ?? DEFAULT_CALLBACK_HOST
@@ -717,14 +683,13 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                           message: `网关 Token「${name}」已创建但尚未启用，请联系管理员开通使用权限后重新登录。`,
                         }
                       }
-                      // Badge user: prefer check_token, fall back to the token name.
-                      let user = parseUserFromTokenName(result.tokenName)
-                      try {
-                        user = await verifyAccessToken(checkTokenUrl, platformCode, ssoToken)
-                        debug(`[ruying] check_token ok employeeId=${user.employeeId} name=${user.displayName}`)
-                      } catch (e) {
-                        debug(`[ruying] check_token error: ${e instanceof Error ? e.message : String(e)}`)
-                        // check_token best-effort; keep the name parsed from tokenName.
+                      const user = parseUserFromTokenName(result.tokenName)
+                      if (!user.employeeId) {
+                        return {
+                          ok: false,
+                          title: "登录失败",
+                          message: "开通服务未返回工号身份，请联系管理员检查 Token 名称。",
+                        }
                       }
                       debug(
                         `[ruying] final user employeeId=${JSON.stringify(user.employeeId)} name=${JSON.stringify(user.displayName)}`,
@@ -732,32 +697,11 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                       return { ok: true, key: result.key, user }
                     }
 
-                    // 2. Provisioning is down (e.g. aicoding-admin 503). Verify the SSO
-                    // login via check_token, then fall back to an existing gateway key in
-                    // the config (e.g. one chelper already provisioned) so login still
-                    // works while the provisioning service is unavailable.
-                    let user: RuyingUser
-                    try {
-                      user = await verifyAccessToken(checkTokenUrl, platformCode, ssoToken)
-                      debug(`[ruying] fallback check_token ok employeeId=${user.employeeId} name=${user.displayName}`)
-                    } catch (e) {
-                      debug(`[ruying] fallback check_token error: ${e instanceof Error ? e.message : String(e)}`)
-                      return {
-                        ok: false,
-                        title: "开通失败",
-                        message: `网关开通服务暂不可用（${provisionError?.message ?? "503"}），且无法校验登录，请稍后重试。`,
-                      }
+                    return {
+                      ok: false,
+                      title: "开通失败",
+                      message: `网关开通服务暂不可用（${provisionError?.message ?? "503"}）。请稍后重试。`,
                     }
-                    const existingKey = readExistingRuyingKey(options.configFile ?? globalConfigFile())
-                    debug(`[ruying] fallback existingKey=${existingKey ? "present" : "missing"}`)
-                    if (!existingKey) {
-                      return {
-                        ok: false,
-                        title: "开通失败",
-                        message: `网关开通服务暂不可用（${provisionError?.message ?? "503"}）。请稍后重试，或先用 chelper 开通一次。`,
-                      }
-                    }
-                    return { ok: true, key: existingKey, user }
                   },
                   resolve,
                   reject,
