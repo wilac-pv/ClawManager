@@ -118,7 +118,7 @@ function migrateLegacyElectronStore(legacyFile: string, currentFile: string) {
   const legacy = readObject(legacyFile)
   const current = existsSync(currentFile) ? readObject(currentFile) : {}
 
-  const missing = Object.fromEntries(Object.entries(legacy).filter(([key]) => !(key in current)))
+  const missing = Object.fromEntries(Object.entries(legacy).filter(([key]) => !Object.hasOwn(current, key)))
   if (Object.keys(missing).length === 0) return
   writeJsonAtomically(currentFile, { ...current, ...missing })
 }

@@ -47,6 +47,35 @@ test("imports missing legacy store keys once without changing the legacy directo
   expect(await Bun.file(join(current, "opencode.global.dat")).json()).toEqual({ language: "zh" })
 })
 
+test("imports prototype-named own keys while preserving current own keys", async () => {
+  const root = join(tmpdir(), `ruying-desktop-migrate-${crypto.randomUUID()}`)
+  const legacy = join(root, "ai.opencode.desktop")
+  const current = join(root, "cn.gwm.ruying-code")
+  roots.push(root)
+  mkdirSync(legacy, { recursive: true })
+  mkdirSync(current, { recursive: true })
+  writeFileSync(
+    join(legacy, "default.dat"),
+    '{"toString":"legacy","constructor":"legacy","__proto__":"legacy","hasOwnProperty":"legacy"}',
+  )
+  writeFileSync(join(current, "default.dat"), "{}")
+  writeFileSync(join(legacy, "opencode.global.dat"), '{"constructor":"legacy","normal":"legacy"}')
+  writeFileSync(join(current, "opencode.global.dat"), '{"constructor":"current"}')
+
+  const { migrateLegacyElectronData } = await import("./migrate")
+  migrateLegacyElectronData(legacy, current)
+
+  const migrated = await Bun.file(join(current, "default.dat")).json()
+  expect(migrated).toEqual(
+    JSON.parse('{"toString":"legacy","constructor":"legacy","__proto__":"legacy","hasOwnProperty":"legacy"}'),
+  )
+  expect(Object.hasOwn(migrated, "__proto__")).toBe(true)
+  expect(await Bun.file(join(current, "opencode.global.dat")).json()).toEqual({
+    constructor: "current",
+    normal: "legacy",
+  })
+})
+
 test("does not mark a malformed legacy store as migrated", async () => {
   const root = join(tmpdir(), `ruying-desktop-migrate-${crypto.randomUUID()}`)
   const legacy = join(root, "ai.opencode.desktop")
