@@ -155,6 +155,13 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       return true
     })
 
+    const cancel = Effect.fn("ProviderHttpApi.cancel")(function* (ctx: {
+      params: { providerID: ProviderV2.ID }
+    }) {
+      yield* svc.cancel({ providerID: ctx.params.providerID })
+      return true
+    })
+
     return handlers
       .handle("list", list)
       .handle("auth", auth)
@@ -162,5 +169,6 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       .handle("ruyingLogout", ruyingLogout)
       .handleRaw("authorize", authorizeRaw)
       .handle("callback", callback)
+      .handle("cancel", cancel)
   }),
 )

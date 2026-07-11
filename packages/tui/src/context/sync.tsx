@@ -442,7 +442,18 @@ export const {
     const exit = useExit()
     const args = useArgs()
 
-    async function bootstrap(input: { fatal?: boolean } = {}) {
+    let bootstrapTask: Promise<void> | undefined
+
+    function bootstrap(input: { fatal?: boolean } = {}) {
+      if (bootstrapTask) return bootstrapTask
+      const task = runBootstrap(input).finally(() => {
+        if (bootstrapTask === task) bootstrapTask = undefined
+      })
+      bootstrapTask = task
+      return task
+    }
+
+    async function runBootstrap(input: { fatal?: boolean }) {
       const fatal = input.fatal ?? true
       const workspace = project.workspace.current()
       const projectPromise = project.sync()

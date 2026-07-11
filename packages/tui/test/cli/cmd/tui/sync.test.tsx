@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { tmpdir } from "../../../fixture/fixture"
 import { mount, wait } from "./sync-fixture"
 import type { GlobalEvent } from "@opencode-ai/sdk/v2"
+import { json } from "./sync-fixture"
 
 function branchEvent(branch: string, workspace?: string): GlobalEvent {
   return {
@@ -18,6 +19,42 @@ function branchEvent(branch: string, workspace?: string): GlobalEvent {
 }
 
 describe("tui sync", () => {
+  test("instance disposal event and caller share one bootstrap", async () => {
+    await using tmp = await tmpdir()
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const delayed = Promise.withResolvers<Response>()
+    let racing = false
+    let providers = 0
+    const { app, emit, sync } = await mount((url) => {
+      if (!racing || url.pathname !== "/config/providers") return
+      providers++
+      return delayed.promise
+    }, tmp.path)
+
+    try {
+      racing = true
+      emit({
+        directory: "/tmp/opencode/packages/tui",
+        project: "proj_test",
+        payload: {
+          id: "evt_disposed",
+          type: "server.instance.disposed",
+          properties: { directory: "/tmp/opencode/packages/tui" },
+        },
+      })
+      await wait(() => providers === 1)
+      const caller = sync.bootstrap()
+      await Bun.sleep(20)
+      expect(providers).toBe(1)
+
+      delayed.resolve(json({ providers: {}, default: {} }))
+      await caller
+      expect(providers).toBe(1)
+    } finally {
+      app.renderer.destroy()
+    }
+  })
+
   test("refresh scopes sessions by default and lists project sessions when disabled", async () => {
     await using tmp = await tmpdir()
     await Bun.write(`${tmp.path}/kv.json`, "{}")

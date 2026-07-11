@@ -9503,6 +9503,36 @@ export type ProviderOauthCallbackResponses = {
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
 
+export type ProviderOauthCancelData = {
+  body?: never
+  path: {
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/{providerID}/oauth/cancel"
+}
+
+export type ProviderOauthCancelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProviderOauthCancelError = ProviderOauthCancelErrors[keyof ProviderOauthCancelErrors]
+
+export type ProviderOauthCancelResponses = {
+  /**
+   * OAuth authorization canceled
+   */
+  200: boolean
+}
+
+export type ProviderOauthCancelResponse = ProviderOauthCancelResponses[keyof ProviderOauthCancelResponses]
+
 export type SessionListData = {
   body?: never
   path?: never

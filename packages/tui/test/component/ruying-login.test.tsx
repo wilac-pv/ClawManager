@@ -35,6 +35,7 @@ async function mount(input: {
   status: (call: number) => Status | Promise<Status>
   authorize?: (call: number) => Result | Promise<Result>
   callback?: (call: number) => Result | Promise<Result>
+  cancel?: (call: number) => Result | Promise<Result>
   logout?: (call: number) => Result | Promise<Result>
 }) {
   const root = await tmpdir()
@@ -66,12 +67,17 @@ async function mount(input: {
       const result = (await input.callback?.(call)) ?? { data: true }
       return json(result.data ?? { message: "callback failed" }, { status: result.status ?? 200 })
     }
+    if (key === "POST /provider/ruying/oauth/cancel") {
+      const call = next(key)
+      const result = (await input.cancel?.(call)) ?? { data: true }
+      return json(result.data ?? { message: "cancel failed" }, { status: result.status ?? 200 })
+    }
     if (key === "DELETE /provider/ruying/session") {
       const call = next(key)
       const result = (await input.logout?.(call)) ?? { data: true }
       return json(result.data ?? { message: "logout failed" }, { status: result.status ?? 200 })
     }
-    if (key === "POST /instance/dispose") {
+    if (key === "POST /global/dispose") {
       next(key)
       return json(true)
     }
@@ -161,15 +167,21 @@ test("callback failure leaves a retryable login screen", async () => {
 
 test("Escape retries safely while an older callback overlaps and refreshes in order", async () => {
   const first = deferred<Result>()
+  const cancel = deferred<Result>()
   const gate = await mount({
     status: (call) => (call === 1 ? { loggedIn: false } : { loggedIn: true, user: { employeeId: "GW001" } }),
     callback: (call) => (call === 1 ? first.promise : { data: true }),
+    cancel: () => cancel.promise,
   })
   try {
     await waitFor(() => gate.count("GET /provider/ruying/session") === 1)
     gate.app.mockInput.pressEnter()
     await waitFor(() => gate.count("POST /provider/ruying/oauth/callback") === 1)
     gate.app.mockInput.pressEscape()
+    await waitFor(() => gate.count("POST /provider/ruying/oauth/cancel") === 1)
+    expect(await gate.frame()).toContain("正在等待浏览器完成 SSO 登录")
+    cancel.resolve({ data: true })
+    await gate.app.waitForFrame((frame) => frame.includes("SSO 登录"))
     expect(await gate.frame()).toContain("SSO 登录")
 
     gate.app.mockInput.pressEnter()
@@ -177,14 +189,14 @@ test("Escape retries safely while an older callback overlaps and refreshes in or
     expect(await gate.frame()).toContain("WORKSPACE")
     expect(gate.calls.slice(-4)).toEqual([
       "POST /provider/ruying/oauth/callback",
-      "POST /instance/dispose",
+      "POST /global/dispose",
       "bootstrap",
       "GET /provider/ruying/session",
     ])
 
     first.resolve({ status: 400 })
     await Bun.sleep(20)
-    expect(gate.count("POST /instance/dispose")).toBe(1)
+    expect(gate.count("POST /global/dispose")).toBe(1)
     expect(await gate.frame()).toContain("WORKSPACE")
   } finally {
     await gate.cleanup()
@@ -224,8 +236,8 @@ test("keyboard logout recovers from failure without client-side disposal", async
     gate.app.mockInput.pressKey("l", { ctrl: true, shift: true })
     await waitFor(() => gate.count("GET /provider/ruying/session") === 2)
     expect(await gate.frame()).toContain("SSO 登录")
-    expect(gate.count("POST /instance/dispose")).toBe(0)
-    expect(gate.calls).not.toContain("bootstrap")
+    expect(gate.count("POST /global/dispose")).toBe(0)
+    expect(gate.calls.slice(-3)).toEqual(["DELETE /provider/ruying/session", "bootstrap", "GET /provider/ruying/session"])
   } finally {
     await gate.cleanup()
   }

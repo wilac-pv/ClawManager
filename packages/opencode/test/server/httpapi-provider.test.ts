@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer, Scope } from "effect"
 import path from "path"
 import { resetDatabase } from "../fixture/db"
 import { TestInstance } from "../fixture/fixture"
@@ -22,6 +22,7 @@ const projectOptions = { config: { formatter: false, lsp: false } }
 const providerID = "test-oauth-parity"
 const oauthURL = "https://example.com/oauth"
 const oauthInstructions = "Finish OAuth"
+const cancelProviderID = "test-oauth-cancel"
 
 function providerListHasFetch(list: unknown) {
   if (!Array.isArray(list)) return false
@@ -104,6 +105,16 @@ function requestCallback(input: { providerID: string; method: number; headers: H
   })
 }
 
+function requestCancel(input: { providerID: string; headers: HeadersInit }) {
+  return Effect.gen(function* () {
+    const response = yield* request(`/provider/${input.providerID}/oauth/cancel`, {
+      method: "POST",
+      headers: input.headers,
+    })
+    return { status: response.status, body: yield* response.text }
+  })
+}
+
 function writeProviderAuthPlugin(dir: string) {
   return Effect.gen(function* () {
     const fs = yield* FSUtil.Service
@@ -172,6 +183,41 @@ function writeProviderAuthValidationPlugin(dir: string) {
         "          }),",
         "        },",
         "      ],",
+        "    },",
+        "  }),",
+        "}",
+        "",
+      ].join("\n"),
+    )
+  })
+}
+
+function writeProviderAuthCancelPlugin(dir: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FSUtil.Service
+    yield* Effect.promise(() => markPluginDependenciesReady(path.join(dir, ".opencode")))
+    yield* fs.writeWithDirs(
+      path.join(dir, ".opencode", "plugin", "provider-oauth-cancel.ts"),
+      [
+        "export default {",
+        '  id: "test.provider-oauth-cancel",',
+        "  server: async () => ({",
+        "    auth: {",
+        `      provider: "${cancelProviderID}",`,
+        "      methods: [{",
+        '        type: "oauth",',
+        '        label: "OAuth",',
+        "        authorize: async () => ({",
+        `          url: "${oauthURL}",`,
+        '          method: "auto",',
+        `          instructions: "${oauthInstructions}",`,
+        "          cancel: async () => undefined,",
+        "          callback: async () => {",
+        "            await Bun.sleep(100)",
+        "            return { type: 'success', key: 'late-key' }",
+        "          },",
+        "        }),",
+        "      }],",
         "    },",
         "  }),",
         "}",
@@ -262,6 +308,29 @@ function setEnvScoped(key: string, value: string) {
 }
 
 describe("provider HttpApi", () => {
+  it.instance(
+    "cancel removes pending auth and blocks late credential persistence",
+    Effect.gen(function* () {
+      const directory = (yield* TestInstance).directory
+      const headers = { "x-opencode-directory": directory, "content-type": "application/json" }
+      const authorized = yield* requestAuthorize({ providerID: cancelProviderID, method: 0, headers })
+      expect(authorized.status).toBe(200)
+
+      const scope = yield* Scope.Scope
+      const callback = yield* requestCallback({ providerID: cancelProviderID, method: 0, headers }).pipe(
+        Effect.forkIn(scope),
+      )
+      yield* Effect.sleep("20 millis")
+      const canceled = yield* requestCancel({ providerID: cancelProviderID, headers })
+      const completed = yield* Fiber.join(callback)
+
+      expect(canceled).toEqual({ status: 200, body: "true" })
+      expect(completed.status).toBe(400)
+    }),
+    { ...projectOptions, init: writeProviderAuthCancelPlugin },
+    30_000,
+  )
+
   test("provider list exposes only ruying after login", () => {
     expect(visibleProviderIDs(["ruying", "openai"], new Set(["ruying"]), new Set())).toEqual(["ruying"])
   })

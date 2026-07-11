@@ -290,6 +290,15 @@ const scenarios: Scenario[] = [
       body: { method: "bad" },
     }))
     .status(400),
+  http.protected
+    .post("/provider/{providerID}/oauth/cancel", "provider.oauth.cancel")
+    .at((ctx) => ({
+      path: route("/provider/{providerID}/oauth/cancel", { providerID: "httpapi" }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      check(body === true, "provider OAuth cancel should return true")
+    }),
   http.protected.get("/permission", "permission.list").json(200, array),
   http.protected
     .post("/permission/{requestID}/reply", "permission.reply.invalid")

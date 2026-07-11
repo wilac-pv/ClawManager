@@ -121,6 +121,17 @@ export const ProviderApi = HttpApi.make("provider")
             description: "Handle the OAuth callback from a provider after user authorization.",
           }),
         ),
+        HttpApiEndpoint.post("cancel", `${root}/:providerID/oauth/cancel`, {
+          params: { providerID: ProviderV2.ID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "OAuth authorization canceled"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "provider.oauth.cancel",
+            summary: "Cancel OAuth authorization",
+            description: "Cancel the pending OAuth authorization attempt for a provider.",
+          }),
+        ),
       )
       .annotateMerge(
         OpenApi.annotations({

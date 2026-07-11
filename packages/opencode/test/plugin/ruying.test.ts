@@ -463,6 +463,35 @@ describe("plugin.ruying", () => {
   })
 
   describe("authorize -> callback", () => {
+    test("cancel during provisioning prevents config persistence", async () => {
+      const started = Promise.withResolvers<void>()
+      const released = Promise.withResolvers<void>()
+      using admin = makeServer(async () => {
+        started.resolve()
+        await released.promise
+        return Response.json({ status: "ready", key: "sk-late", tokenName: "GW001-张三" })
+      })
+      const configFile = tmpConfigFile()
+      const hooks = await RuyingAuthPlugin({} as any, {
+        adminApiBase: baseUrl(admin),
+        checkTokenUrl: "http://127.0.0.1:1",
+        callbackPort: 0,
+        configFile,
+      })
+      const authorized = await oauthMethod(hooks).authorize!()
+      const redirect = new URL(authorized.url).searchParams.get("redirect_url")!
+      const callback = (authorized as { callback: () => Promise<unknown> }).callback()
+      const browser = fetch(`${redirect}?access_token=token`)
+      await started.promise
+
+      await (authorized as { cancel: () => Promise<void> }).cancel()
+      released.resolve()
+
+      expect(await callback).toEqual({ type: "failed" })
+      await browser
+      expect(existsSync(configFile)).toBe(false)
+    })
+
     test("returns public identity metadata with the api key", async () => {
       using admin = makeServer(() => Response.json({ status: "ready", key: "sk-test", tokenName: "GW001-张三" }))
       using sso = makeServer(() =>

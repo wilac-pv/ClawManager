@@ -95,6 +95,7 @@ export interface Interface {
     } & AuthorizeInput,
   ) => Effect.Effect<Authorization | undefined, Error>
   readonly callback: (input: { providerID: ProviderV2.ID } & CallbackInput) => Effect.Effect<void, Error>
+  readonly cancel: (input: { providerID: ProviderV2.ID }) => Effect.Effect<void>
 }
 
 interface State {
@@ -167,6 +168,12 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       const method = hooks[input.providerID].methods[input.method]
       if (method.type !== "oauth") return
 
+      const previous = pending.get(input.providerID)
+      if (previous) {
+        pending.delete(input.providerID)
+        yield* Effect.promise(() => previous.cancel?.() ?? Promise.resolve())
+      }
+
       if (method.prompts && input.inputs) {
         for (const prompt of method.prompts) {
           if (prompt.type === "text" && prompt.validate && input.inputs[prompt.key] !== undefined) {
@@ -195,32 +202,49 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
         return yield* new OauthCodeMissing({ providerID: input.providerID })
       }
 
-      const result = yield* Effect.promise(() =>
-        match.method === "code" ? match.callback(input.code!) : match.callback(),
+      yield* Effect.gen(function* () {
+        const result = yield* Effect.promise(() =>
+          match.method === "code" ? match.callback(input.code!) : match.callback(),
+        )
+        if (pending.get(input.providerID) !== match) return yield* new OauthCallbackFailed({})
+        if (!result || result.type !== "success") return yield* new OauthCallbackFailed({})
+
+        if ("key" in result) {
+          yield* auth.set(input.providerID, {
+            type: "api",
+            key: result.key,
+            ...(result.metadata ? { metadata: result.metadata } : {}),
+          })
+        }
+
+        if ("refresh" in result) {
+          const { type: _, provider: __, refresh, access, expires, ...extra } = result
+          yield* auth.set(input.providerID, {
+            type: "oauth",
+            access,
+            refresh,
+            expires,
+            ...extra,
+          })
+        }
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (pending.get(input.providerID) === match) pending.delete(input.providerID)
+          }),
+        ),
       )
-      if (!result || result.type !== "success") return yield* new OauthCallbackFailed({})
-
-      if ("key" in result) {
-        yield* auth.set(input.providerID, {
-          type: "api",
-          key: result.key,
-          ...(result.metadata ? { metadata: result.metadata } : {}),
-        })
-      }
-
-      if ("refresh" in result) {
-        const { type: _, provider: __, refresh, access, expires, ...extra } = result
-        yield* auth.set(input.providerID, {
-          type: "oauth",
-          access,
-          refresh,
-          expires,
-          ...extra,
-        })
-      }
     })
 
-    return Service.of({ methods, authorize, callback })
+    const cancel = Effect.fn("ProviderAuth.cancel")(function* (input: { providerID: ProviderV2.ID }) {
+      const pending = (yield* InstanceState.get(state)).pending
+      const match = pending.get(input.providerID)
+      if (!match) return
+      pending.delete(input.providerID)
+      yield* Effect.promise(() => match.cancel?.() ?? Promise.resolve())
+    })
+
+    return Service.of({ methods, authorize, callback, cancel })
   }),
 )
 

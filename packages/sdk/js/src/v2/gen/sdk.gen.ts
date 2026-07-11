@@ -151,6 +151,8 @@ import type {
   ProviderOauthAuthorizeResponses,
   ProviderOauthCallbackErrors,
   ProviderOauthCallbackResponses,
+  ProviderOauthCancelErrors,
+  ProviderOauthCancelResponses,
   ProviderRuyingLogoutErrors,
   ProviderRuyingLogoutResponses,
   ProviderRuyingStatusErrors,
@@ -3363,6 +3365,40 @@ export class Oauth extends HeyApiClient {
         ...params.headers,
       },
     })
+  }
+
+  /**
+   * Cancel OAuth authorization
+   *
+   * Cancel the pending OAuth authorization attempt for a provider.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "providerID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ProviderOauthCancelResponses, ProviderOauthCancelErrors, ThrowOnError>(
+      {
+        url: "/provider/{providerID}/oauth/cancel",
+        ...options,
+        ...params,
+      },
+    )
   }
 }
 

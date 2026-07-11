@@ -18,6 +18,7 @@ export function RuyingLoginGate(props: ParentProps) {
   const [loginStatus, setLoginStatus] = createSignal<"idle" | "pending" | "error">("idle")
   const [loginMessage, setLoginMessage] = createSignal("")
   const [url, setUrl] = createSignal("")
+  const [canceling, setCanceling] = createSignal(false)
   const [loggingOut, setLoggingOut] = createSignal(false)
   const [logoutMessage, setLogoutMessage] = createSignal("")
   const user = createMemo(() => (session()?.loggedIn ? (session()?.user ?? {}) : undefined))
@@ -71,7 +72,7 @@ export function RuyingLoginGate(props: ParentProps) {
       setLoginMessage("登录失败，请重试；如需开通权限，请联系管理员")
       return
     }
-    await sdk.client.instance.dispose()
+    await sdk.client.global.dispose()
     if (current !== attempt) return
     await sync.bootstrap()
     if (current !== attempt) return
@@ -94,11 +95,30 @@ export function RuyingLoginGate(props: ParentProps) {
     })
   }
 
-  function cancelLogin() {
-    attempt++
+  async function cancelLogin(current: number) {
+    const result = await sdk.client.provider.oauth.cancel({ providerID: Brand.profile.providerID })
+    if (current !== attempt) return
+    setCanceling(false)
+    if (result.error) {
+      setLoginStatus("error")
+      setLoginMessage("取消登录失败，请重试")
+      return
+    }
     setLoginStatus("idle")
     setLoginMessage("")
     setUrl("")
+  }
+
+  function startCancel() {
+    if (canceling()) return
+    const current = ++attempt
+    setCanceling(true)
+    void cancelLogin(current).catch((error) => {
+      if (current !== attempt) return
+      setCanceling(false)
+      setLoginStatus("error")
+      setLoginMessage(error instanceof Error ? error.message : String(error))
+    })
   }
 
   async function logout() {
@@ -111,6 +131,7 @@ export function RuyingLoginGate(props: ParentProps) {
       setLogoutMessage("退出失败，请重试")
       return
     }
+    await sync.bootstrap()
     const refreshed = await status()
     setLoggingOut(false)
     if (refreshed && !refreshed.loggedIn) {
@@ -128,10 +149,10 @@ export function RuyingLoginGate(props: ParentProps) {
   }
 
   useKeyboard((event) => {
-    if (event.name === "escape" && loginStatus() === "pending") {
+    if (event.name === "escape" && loginStatus() === "pending" && !canceling()) {
       event.preventDefault()
       event.stopPropagation()
-      cancelLogin()
+      startCancel()
       return
     }
     if (!checking() && !user() && event.name === "return" && loginStatus() !== "pending") {
@@ -157,7 +178,7 @@ export function RuyingLoginGate(props: ParentProps) {
             message={loginMessage()}
             url={url()}
             onLogin={startLogin}
-            onCancel={cancelLogin}
+            onCancel={startCancel}
           />
         }
       >

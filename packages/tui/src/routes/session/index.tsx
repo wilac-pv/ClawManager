@@ -564,7 +564,7 @@ export function Session() {
         if (!selectedModel) {
           toast.show({
             variant: "warning",
-            message: "Connect a provider to summarize this session",
+            message: "如影编码网关暂无可用模型，无法压缩会话",
             duration: 3000,
           })
           return

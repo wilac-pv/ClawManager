@@ -20,8 +20,34 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
   const listeners = new Set(process.listeners("SIGHUP"))
   const events = createEventSource()
   const calls = createFetch((url) => {
+    if (url.pathname === "/agent")
+      return json([{ name: "build", mode: "primary", native: true, permission: [], options: {} }])
     if (url.pathname === "/provider/ruying/session") return ruyingStatus()
     if (url.pathname === "/provider") return ruyingProvider()
+    if (url.pathname === "/session")
+      return json([
+        {
+          id: "dummy",
+          title: "Demo session",
+          slug: "dummy",
+          projectID: "project",
+          directory,
+          version: "0.0.0-test",
+          time: { created: 0, updated: 0 },
+        },
+      ])
+    if (url.pathname === "/session/dummy")
+      return json({
+        id: "dummy",
+        title: "Demo session",
+        slug: "dummy",
+        projectID: "project",
+        directory,
+        version: "0.0.0-test",
+        time: { created: 0, updated: 0 },
+      })
+    if (["/session/dummy/message", "/session/dummy/todo", "/session/dummy/diff"].includes(url.pathname))
+      return json([])
   })
   let started!: () => void
   const ready = new Promise<void>((resolve) => {
@@ -38,9 +64,10 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
         config: createTuiResolvedConfig({ plugin_enabled: {} }),
         fetch: calls.fetch,
         events: events.source,
-        args: {},
+        args: { continue: true },
         pluginHost: {
-          async start() {
+          async start(input) {
+            input.runtime.setupSlots(input.api)
             started()
           },
           async dispose() {
@@ -50,6 +77,11 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
       }).pipe(Effect.provide(AppNodeBuilder.build(Global.node))),
     )
     await ready
+    const frame = await setup.waitForFrame(
+      (value) => value.includes("暂无可用模型") || value.includes("No provider selected"),
+      { maxPasses: 50 },
+    )
+    expect(frame).toContain("暂无可用模型")
     process.emit("SIGHUP")
     await task
 

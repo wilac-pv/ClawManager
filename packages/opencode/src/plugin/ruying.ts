@@ -88,6 +88,7 @@ interface Pending {
   process: (token: string) => Promise<Outcome>
   resolve: (outcome: Outcome) => void
   reject: (error: Error) => void
+  canceled: () => boolean
 }
 
 interface OAuthServerBinding {
@@ -263,6 +264,7 @@ function listenOAuthServer(
       } catch (err) {
         outcome = { ok: false, title: "登录失败", message: err instanceof Error ? err.message : String(err) }
       }
+      if (current.canceled()) outcome = { ok: false, title: "登录已取消", message: "请返回终端重新发起登录" }
       endHtml(res, 200, outcome.ok ? HTML_SUCCESS : htmlNotice(outcome.title, outcome.message))
       current.resolve(outcome)
     })()
@@ -342,6 +344,7 @@ function setPending(
       clearTimeout(timeout)
       input.reject(err)
     },
+    canceled: input.canceled,
   }
 }
 
@@ -423,11 +426,14 @@ export function writeGlobalProviderConfig(
   gatewayApiBase: string,
   modelIds: string[],
   user: RuyingUser,
+  canPublish = () => true,
 ): Promise<void> {
   const requested = resolve(file)
   const target = existsSync(requested) ? realpathSync(requested) : requested
   const previous = providerConfigWrites.get(target) ?? Promise.resolve()
-  const write = previous.catch(() => undefined).then(() => writeProviderConfig(target, gatewayApiBase, modelIds, user))
+  const write = previous
+    .catch(() => undefined)
+    .then(() => writeProviderConfig(target, gatewayApiBase, modelIds, user, canPublish))
   const queued = write.finally(() => {
     if (providerConfigWrites.get(target) === queued) providerConfigWrites.delete(target)
   })
@@ -435,7 +441,13 @@ export function writeGlobalProviderConfig(
   return queued
 }
 
-async function writeProviderConfig(file: string, gatewayApiBase: string, modelIds: string[], user: RuyingUser) {
+async function writeProviderConfig(
+  file: string,
+  gatewayApiBase: string,
+  modelIds: string[],
+  user: RuyingUser,
+  canPublish: () => boolean,
+) {
   const exists = existsSync(file)
   const source = exists ? await Bun.file(file).text() : "{}"
   const errors: ParseError[] = []
@@ -455,9 +467,13 @@ async function writeProviderConfig(file: string, gatewayApiBase: string, modelId
   ].reduce((result, edit) => applyEdits(result, modify(result, edit.path, edit.value, formatting)), source)
   const temporary = join(dirname(file), `.${basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`)
   const mode = exists ? (await stat(file)).mode & 0o777 : 0o600
+  if (!canPublish()) return
   await writeFile(temporary, output, { encoding: "utf8", flag: "wx", mode })
     .then(() => chmod(temporary, mode))
-    .then(() => rename(temporary, file))
+    .then(async () => {
+      if (canPublish()) return rename(temporary, file)
+      await rm(temporary, { force: true })
+    })
     .catch(async (error) => {
       await rm(temporary, { force: true }).catch(() => undefined)
       throw error
@@ -530,11 +546,14 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
           label: "如影 SSO 登录 (浏览器)",
           async authorize() {
             const attemptId = crypto.randomUUID()
+            let canceled = false
+            let rejectOutcome = (_error: Error) => {}
             const callbackPath = `${OAUTH_REDIRECT_PATH}/${attemptId}`
             const { port } = await startOAuthServer(callbackHost, callbackPort, configuredCallbackPort === undefined)
             const redirectUri = `http://${callbackHost}:${port}${callbackPath}`
 
             const outcomePromise = new Promise<Outcome>((resolve, reject) => {
+              rejectOutcome = reject
               setPending({
                 id: attemptId,
                 path: callbackPath,
@@ -603,6 +622,7 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                 },
                 resolve,
                 reject,
+                canceled: () => canceled,
               }, callbackTimeoutMs)
             })
 
@@ -613,13 +633,27 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
               url,
               instructions: "请在浏览器完成 GWM SSO 登录，opencode 会自动捕获回调并开通网关 API Key。",
               method: "auto" as const,
+              async cancel() {
+                if (canceled) return
+                canceled = true
+                if (pending?.id === attemptId) {
+                  const current = pending
+                  pending = undefined
+                  current.reject(new Error("登录已取消"))
+                } else {
+                  rejectOutcome(new Error("登录已取消"))
+                }
+                stopOAuthServer(attemptId)
+              },
               async callback() {
                 try {
                   const outcome = await outcomePromise
                   debug(`[ruying] callback outcome ok=${outcome.ok}`)
                   if (!outcome.ok) return { type: "failed" as const }
+                  if (canceled) return { type: "failed" as const }
 
                   const modelIds = await fetchModelIds(gatewayApiBase, outcome.key).catch(() => [] as string[])
+                  if (canceled) return { type: "failed" as const }
                   debug(
                     `[ruying] callback modelIds=${modelIds.length} user=${JSON.stringify(outcome.user ?? null)}`,
                   )
@@ -632,10 +666,12 @@ export async function RuyingAuthPlugin(_input: PluginInput, options: RuyingAuthP
                       gatewayApiBase,
                       modelIds,
                       outcome.user,
+                      () => !canceled,
                     )
                   } catch {
                     // best-effort
                   }
+                  if (canceled) return { type: "failed" as const }
 
                   return {
                     type: "success" as const,
