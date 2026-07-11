@@ -635,7 +635,7 @@ Date: 2026-07-12
 
 - `Brand.docsURL()` and `Brand.supportURL()` now share one admission boundary before UI or prompt use. An accepted value must parse as an absolute HTTPS URL, contain no username or password, and occupy at most 512 UTF-8 bytes. The original accepted string is preserved; invalid or oversized values are omitted. Changelog behavior is unchanged.
 - Owner, WAL, and snapshot reads no longer rely on a pre-read size followed by `readFileSync` to EOF. Verified descriptors use one reader that allocates at most the configured maximum plus one byte and stops at that boundary. A post-open overflow is rejected. A file already oversized during legacy inspection retains Wave 12's bounded, metadata-only legacy recovery behavior.
-- Transaction owner and WAL now persist exact `parents.auth/config.dev/ino` values from bigint filesystem metadata as canonical nonnegative decimal strings. Owner and WAL shapes require exact keys and exact identity equality.
+- Transaction owner and WAL now persist exact `parents.auth/config.dev/ino` values from bigint filesystem metadata as canonical nonnegative decimal strings. Owner and WAL shapes require exact keys and exact identity equality. **Wave 14 correction:** Wave 13 incorrectly kept schema version 1 while making these parent fields required; Wave 14 introduces version 2 and explicit version-1 compatibility behavior.
 - Auth/config parent anchors are opened and held before publishing the owner. Dead recovery validates the complete owner and WAL, opens current no-follow parent anchors, and compares both recorded identities before resource-temp cleanup, snapshot restore, or target publication. A same-path real directory replacement therefore fails closed with the canonical main retained.
 - Production root selection is factored into the pure `resolveGlobalLockRootPath()` entry point used by the creating/validating resolver. Two real children with divergent `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME`, and no injected lock root, select the same OS-account-derived path. This is evidence for production path selection only; no live acquisition in the actual user directory is claimed.
 - Chelper `docs/config-publication.md` documents the positional publication callback as a scheduling/failure hook that never owns resource I/O, the synchronous verified-open/read test hook and exception propagation, the 64 KiB owner, 48 MiB WAL, and 16 MiB decoded per-snapshot caps, and parent-identity recovery behavior.
@@ -705,6 +705,85 @@ Documentation:
 - Auth/config files larger than 16 MiB cannot enter the recoverable publication protocol; owner metadata larger than 64 KiB and WAL larger than 48 MiB fail closed or enter the documented bounded legacy path. These are deliberate bounded-memory availability tradeoffs.
 - A live or PID-reused owner still causes conservative waiting and can time out after 30 seconds. It is never evicted based on age or invalid target semantics.
 - Node still has no portable `openat`/`renameat`. Held descriptors plus bigint identity revalidation detect pathname replacement but are not an atomic namespace-relative rename primitive. Windows directory fsync and power-loss behavior remain unverified.
+- App build retains its pre-existing dynamic-import, duplicate sourcemap, and large-chunk warnings.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
+# Wave 14 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 14 corrections and dispositions
+
+- Brand URL admission now rejects raw `U+0000..U+0020`, `U+007F`, `U+2028`, and `U+2029` code points before WHATWG parsing. This blocks silently stripped LF, CR, and tab plus prompt-breaking line and paragraph separators. Percent-encoded representations such as `%0A` remain accepted. HTTPS-only, no-credentials, 512 UTF-8 byte, and exact original-string requirements remain unchanged.
+- Current Chelper coordinator and transaction owner records are version 2. Current transaction WAL is also version 2. Owner parsing is an exact discriminated union for v1/v2 coordinator and transaction shapes; extra, missing, or cross-version fields are invalid.
+- Historical v1 transaction targets are retained without semantic validation until immutable PID fencing. A live v1 PID blocks contenders even when targets are relative or otherwise invalid, and the owner is never classified or retired as legacy.
+- A dead v1 transaction has no trustworthy parent identity. It now throws `v1 事务需要手动恢复` before WAL read, resource-temp cleanup, anchor creation, restore, journal removal, or retirement. Canonical main, owner, WAL, auth, and config remain for administrator inspection. A dead v1 coordinator contains no resource transaction and remains safely retireable.
+- Automatic WAL recovery is restricted to strict v2 owner/WAL records with exact matching targets and parent identities. Current crafted fixtures explicitly use v2; the live/dead compatibility fixtures and coordinator fixture explicitly preserve v1.
+- Chelper operator documentation now names v2 as current and documents live-v1 fencing, dead-v1 manual recovery, artifact retention, and the safe dead-v1 coordinator exception.
+
+## Wave 14 RED and diagnostic evidence
+
+- Raw LF, CR, tab, `U+2028`, and `U+2029` values were returned by both Brand accessors. Each unique marker entered the model-visible docs and support prompt text. Percent-encoded `%0A` already remained accepted and unchanged.
+- A real process supplied the PID for an exact v1 targets-only transaction owner with invalid relative targets. The contender settled within the 500 ms observation window (`settled=true`), proving the record had been classified and retired as legacy instead of fencing the live PID.
+- A dead v1 owner plus v1 WAL failed with `无法恢复缺少 owner 的事务日志` rather than recognizing a transaction requiring manual recovery. Resources happened to remain unchanged in that path, but the immutable v1 identity and required operational disposition were lost.
+- A newly generated prepared owner and WAL both reported version 1 after Wave 13, proving the required-parent schema had changed without a version bump.
+- The first written-plan commit accidentally materialized escaped code points as control bytes in Markdown and Git recorded the file as binary. Two preserved follow-up documentation commits normalized the file and rewrote the regex instruction in plain code-point language. No source or production behavior was affected. No production implementation attempt failed.
+
+## Wave 14 GREEN verification
+
+```text
+packages/core$ bun test test/brand.test.ts
+23 pass, 0 fail, 42 expects
+packages/core$ bun typecheck
+pass
+
+packages/opencode$ bun test test/session/system.test.ts
+19 pass, 0 fail, 56 expects
+packages/opencode$ bun typecheck
+pass
+packages/opencode$ bun run build --single --skip-install
+pass; smoke test 0.0.0-ruying-code-oem-202607112231
+
+chelper$ npm test
+5 files, 91 pass, 0 fail
+  configurer: 80 pass, 0 fail
+chelper$ npm run build
+pass; tsup ESM 135.90 KiB
+```
+
+The real live-v1 test observes the contender blocked with the canonical main present and no dead tombstone. The dead-v1 test asserts the manual-recovery message, byte-identical auth/config, and retained owner/WAL. Dedicated coverage confirms a dead targets-free v1 coordinator retires and publication proceeds. The existing v2 replacement-directory crash, bounded-growth, durable-state, temp cleanup, recovery contender, and symlink matrices remain GREEN.
+
+Filesystem integration ran on macOS. Windows still has no POSIX UID-equivalent owner check through this Node surface, and no Windows OS execution or power-loss durability is claimed. Production resolver evidence remains limited to artifact-free OS-account path selection; it does not claim live acquisition at the actual user root.
+
+Changed-file credential-pattern scans returned zero matching files in both Primary and Chelper. Both repository diff checks passed. Chelper's unrelated `.serena/` remained excluded and untouched.
+
+No npm publish, production request, public-share request, dependency installation, push, PR, or other real external network action was performed.
+
+## Wave 14 commits
+
+Primary:
+
+- `d1e9d9122` — `docs: design Wave 14 compatibility`
+- `f58506a3e` — `docs: plan Wave 14 compatibility`
+- `bd63db262` — `docs: normalize Wave 14 plan text`
+- `d482f13cc` — `docs: clarify Wave 14 raw URL gate`
+- `58913e0fb` — `fix(core): reject raw branded URL controls`
+
+Chelper:
+
+- `23fc5ee` — `fix(config): version durable transactions`
+
+Documentation:
+
+- This report commit — `docs: record Wave 14 verification`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, scans, URL admission, schema versioning, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- A dead v1 transaction deliberately requires administrator inspection and manual recovery because it lacks trustworthy parent identity. Automatic retirement or restore would be unsafe.
+- Auth/config files larger than 16 MiB cannot enter the recoverable publication protocol; owner metadata larger than 64 KiB and WAL larger than 48 MiB retain the documented bounded behavior.
+- A live or PID-reused owner remains safety-first and can cause a conservative 30-second timeout.
+- Node still has no portable `openat`/`renameat`; held descriptors and identity revalidation are defense-in-depth rather than an atomic namespace-relative rename primitive. Windows directory fsync and power-loss behavior remain unverified.
 - App build retains its pre-existing dynamic-import, duplicate sourcemap, and large-chunk warnings.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
 
