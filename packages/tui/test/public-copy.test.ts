@@ -25,6 +25,12 @@ test("public OEM surfaces contain no generic provider connection copy", async ()
   expect(source).not.toContain("OpenCode")
   expect(source).not.toContain("opencode -s")
   expect(source).not.toContain("█▀▀█")
+
+  const tips = await Bun.file("src/feature-plugins/home/tips-view.tsx").text()
+  expect(tips).not.toContain("opencode.ai")
+  expect(tips).not.toMatch(/\{highlight\}opencode(?:\s|\{\/highlight\})/)
+  expect(tips).not.toContain("/share")
+  expect(tips).not.toContain('"share": "auto"')
 })
 
 test("Ruying OAuth browser copy contains no legacy product name", async () => {

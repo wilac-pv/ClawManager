@@ -408,12 +408,12 @@ export const dict = {
   "wsl.onboarding.needAnotherDistroHint": "WSL kataloğundan bir Linux dağıtımı kurun",
   "wsl.onboarding.wslNotInstalled.title": "WSL kurulu değil",
   "wsl.onboarding.wslNotInstalled.description":
-    "OpenCode'un WSL sunucusu ekleyebilmesi için önce WSL (Linux için Windows Alt Sistemi) kurulmalıdır",
+    "Ruying Code'un WSL sunucusu ekleyebilmesi için önce WSL (Linux için Windows Alt Sistemi) kurulmalıdır",
   "wsl.onboarding.wslUnavailable.title": "WSL kullanılamıyor",
   "wsl.onboarding.wslUnavailable.description": "Ruying Code bu makinede WSL'yi doğrulayamadı.",
   "wsl.onboarding.installWsl": "WSL'yi kur",
   "wsl.onboarding.windowsRestartRequired":
-    "WSL kurulumunu tamamlamak için Windows'u yeniden başlatın, ardından OpenCode'u tekrar açın.",
+    "WSL kurulumunu tamamlamak için Windows'u yeniden başlatın, ardından Ruying Code'u tekrar açın.",
   "wsl.onboarding.next": "İleri",
   "wsl.onboarding.refresh": "Yenile",
   "wsl.onboarding.allDistrosAdded": "Kurulu tüm dağıtımlar zaten eklenmiş.",

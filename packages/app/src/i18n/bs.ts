@@ -404,12 +404,12 @@ export const dict = {
   "wsl.onboarding.needAnotherDistroHint": "Instaliraj Linux distribuciju iz WSL kataloga",
   "wsl.onboarding.wslNotInstalled.title": "WSL nije instaliran",
   "wsl.onboarding.wslNotInstalled.description":
-    "WSL (Windows Subsystem for Linux) je potreban da bi OpenCode mogao dodati WSL server",
+    "WSL (Windows Subsystem for Linux) je potreban da bi Ruying Code mogao dodati WSL server",
   "wsl.onboarding.wslUnavailable.title": "WSL nije dostupan",
   "wsl.onboarding.wslUnavailable.description": "Ruying Code nije mogao provjeriti WSL na ovom uređaju.",
   "wsl.onboarding.installWsl": "Instaliraj WSL",
   "wsl.onboarding.windowsRestartRequired":
-    "Ponovo pokreni Windows da završiš instalaciju WSL-a, zatim ponovo otvori OpenCode.",
+    "Ponovo pokreni Windows da završiš instalaciju WSL-a, zatim ponovo otvori Ruying Code.",
   "wsl.onboarding.next": "Dalje",
   "wsl.onboarding.refresh": "Osvježi",
   "wsl.onboarding.allDistrosAdded": "Sve instalirane distribucije su već dodane.",

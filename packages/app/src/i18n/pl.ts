@@ -377,12 +377,12 @@ export const dict = {
   "wsl.onboarding.needAnotherDistroHint": "Zainstaluj dystrybucję systemu Linux z katalogu WSL",
   "wsl.onboarding.wslNotInstalled.title": "WSL nie jest zainstalowany",
   "wsl.onboarding.wslNotInstalled.description":
-    "WSL (Podsystem Windows dla systemu Linux) jest wymagany, zanim OpenCode będzie mógł dodać serwer WSL",
+    "WSL (Podsystem Windows dla systemu Linux) jest wymagany, zanim Ruying Code będzie mógł dodać serwer WSL",
   "wsl.onboarding.wslUnavailable.title": "WSL jest niedostępny",
   "wsl.onboarding.wslUnavailable.description": "Ruying Code nie mógł zweryfikować WSL na tym komputerze.",
   "wsl.onboarding.installWsl": "Zainstaluj WSL",
   "wsl.onboarding.windowsRestartRequired":
-    "Uruchom ponownie system Windows, aby dokończyć instalację WSL, a następnie ponownie otwórz OpenCode.",
+    "Uruchom ponownie system Windows, aby dokończyć instalację WSL, a następnie ponownie otwórz Ruying Code.",
   "wsl.onboarding.next": "Dalej",
   "wsl.onboarding.refresh": "Odśwież",
   "wsl.onboarding.allDistrosAdded": "Wszystkie zainstalowane dystrybucje zostały już dodane.",

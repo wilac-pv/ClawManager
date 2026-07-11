@@ -10,6 +10,7 @@ import { escapeHtml } from "@/util/html"
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser"
 import { Global } from "@opencode-ai/core/global"
 import { ConfigPaths } from "@/config/paths"
+import { Brand } from "@opencode-ai/core/brand/brand"
 
 // 如影 (Ruying) coding gateway SSO login. Ported from the chelper CLI
 // (aicoding-helper, src/commands/login.ts + core/gateway.ts). Flow:
@@ -136,7 +137,7 @@ function stripTrailingSlash(value: string): string {
 }
 
 function userAgent() {
-  return `opencode/${InstallationVersion}`
+  return `${Brand.profile.cliName}/${InstallationVersion}`
 }
 
 // Diagnostic log to a temp file (disable with RUYING_DEBUG=0). Helps trace why

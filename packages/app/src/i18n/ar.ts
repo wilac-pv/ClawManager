@@ -376,7 +376,7 @@ export const dict = {
   "wsl.onboarding.needAnotherDistroHint": "ثبّت توزيعة Linux من كتالوج WSL",
   "wsl.onboarding.wslNotInstalled.title": "WSL غير مثبت",
   "wsl.onboarding.wslNotInstalled.description":
-    "يلزم WSL (نظام Windows الفرعي لـ Linux) قبل أن يتمكن OpenCode من إضافة خادم WSL",
+    "يلزم WSL (نظام Windows الفرعي لـ Linux) قبل أن يتمكن Ruying Code من إضافة خادم WSL",
   "wsl.onboarding.wslUnavailable.title": "WSL غير متاح",
   "wsl.onboarding.wslUnavailable.description": "تعذر على Ruying Code التحقق من WSL على هذا الجهاز.",
   "wsl.onboarding.installWsl": "تثبيت WSL",

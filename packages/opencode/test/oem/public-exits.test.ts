@@ -28,4 +28,12 @@ describe("OEM public exits", () => {
     expect(handlers).toContain("return { orgs: [] }")
     expect(handlers).toContain("return false")
   })
+
+  test("built-in customization guidance is OEM-only", async () => {
+    const skill = await Bun.file(new URL("../../../core/src/plugin/skill/customize-opencode.md", import.meta.url)).text()
+    expect(skill).toContain("Ruying Code")
+    expect(skill).toContain("ruying-code.json")
+    expect(skill).not.toContain("opencode.ai")
+    expect(skill).not.toContain("customize-opencode")
+  })
 })

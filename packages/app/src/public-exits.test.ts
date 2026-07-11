@@ -19,9 +19,15 @@ test("OEM public surfaces contain no upstream docs, Discord, or GitHub exits", a
   expect(publicSource).not.toContain("Open the OpenCode website")
 })
 
-test("primary WSL locales use Ruying Code branding", async () => {
-  const sources = await Promise.all(["i18n/en.ts", "i18n/zh.ts"].map((file) => Bun.file(new URL(file, import.meta.url)).text()))
-  const wsl = sources.flatMap((source) => source.split("\n").filter((line) => line.includes('"wsl.') || line.includes('"settings.desktop.wsl')))
+test("all WSL locale values use Ruying Code branding, including multiline values", async () => {
+  const files = Array.fromAsync(new Bun.Glob("i18n/*.ts").scan({ cwd: import.meta.dir, absolute: true }))
+  const sources = await Promise.all((await files).map((file) => Bun.file(file).text()))
+  const wsl = sources.flatMap((source) => {
+    const lines = source.split("\n")
+    return lines.flatMap((line, index) =>
+      line.includes('"wsl.') || line.includes('"settings.desktop.wsl') ? [line, lines[index + 1] ?? ""] : [],
+    )
+  })
   expect(wsl.join("\n")).not.toContain("OpenCode")
 })
 

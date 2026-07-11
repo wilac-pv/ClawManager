@@ -375,12 +375,12 @@ export const dict = {
   "wsl.onboarding.needAnotherDistroHint": "WSLカタログからLinuxディストリビューションをインストール",
   "wsl.onboarding.wslNotInstalled.title": "WSLがインストールされていません",
   "wsl.onboarding.wslNotInstalled.description":
-    "OpenCodeでWSLサーバーを追加するには、WSL (Windows Subsystem for Linux) が必要です",
+    "Ruying CodeでWSLサーバーを追加するには、WSL (Windows Subsystem for Linux) が必要です",
   "wsl.onboarding.wslUnavailable.title": "WSLを利用できません",
   "wsl.onboarding.wslUnavailable.description": "このマシンのWSLを確認できませんでした。",
   "wsl.onboarding.installWsl": "WSLをインストール",
   "wsl.onboarding.windowsRestartRequired":
-    "WSLのインストールを完了するにはWindowsを再起動し、OpenCodeをもう一度開いてください。",
+    "WSLのインストールを完了するにはWindowsを再起動し、Ruying Codeをもう一度開いてください。",
   "wsl.onboarding.next": "次へ",
   "wsl.onboarding.refresh": "更新",
   "wsl.onboarding.allDistrosAdded": "インストール済みのディストリビューションはすべて追加済みです。",

@@ -50,7 +50,7 @@ describe("ShareNext OEM boundary", () => {
     ),
   )
 
-  it.live("cleans migrated local share records without a remote delete", () =>
+  it.live("quarantines migrated revocation material without a remote delete", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const session = yield* (yield* Session.Service).create({ title: "test" })
@@ -70,7 +70,7 @@ describe("ShareNext OEM boundary", () => {
             .where(eq(SessionShareTable.session_id, session.id))
             .get()
             .pipe(Effect.orDie),
-        ).toBeUndefined()
+        ).toMatchObject({ id: "shr_old", secret: "secret" })
       }).pipe(Effect.provide(layer)),
     ),
   )

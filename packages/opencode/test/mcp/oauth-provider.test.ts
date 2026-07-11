@@ -40,6 +40,12 @@ describe("McpOAuthProvider.clientMetadata", () => {
     expect(provider.clientMetadata.redirect_uris).toEqual([`http://127.0.0.1:6620${OAUTH_CALLBACK_PATH}`])
   })
 
+  test("uses OEM identity and omits public client_uri", () => {
+    const metadata = makeProvider({}).clientMetadata
+    expect(metadata.client_name).toBe("Ruying Code")
+    expect(metadata.client_uri).toBeUndefined()
+  })
+
   test("includes scope when set in config", () => {
     const provider = makeProvider({ scope: "openid offline_access" })
     expect(provider.clientMetadata.scope).toBe("openid offline_access")

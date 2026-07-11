@@ -341,8 +341,9 @@ const layer = Layer.effect(
 
     const remove = Effect.fn("ShareNext.remove")(function* (sessionID: SessionID) {
       const s = yield* InstanceState.get(state)
-      const share = yield* getCached(sessionID)
-      if (!disabled && share) {
+      if (!disabled) {
+        const share = yield* getCached(sessionID)
+        if (!share) return
         yield* Effect.logInfo("removing share", { sessionID: sessionID })
         const req = yield* request()
         yield* HttpClientRequest.delete(`${req.baseUrl}${req.api.remove(share.id)}`).pipe(
@@ -352,7 +353,6 @@ const layer = Layer.effect(
         )
       }
 
-      yield* db.delete(SessionShareTable).where(eq(SessionShareTable.session_id, sessionID)).run().pipe(Effect.orDie)
       s.shared.delete(sessionID)
       s.queue.delete(sessionID)
     })

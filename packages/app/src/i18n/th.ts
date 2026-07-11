@@ -403,12 +403,12 @@ export const dict = {
   "wsl.onboarding.needAnotherDistroHint": "ติดตั้งดิสทริบิวชัน Linux จากแค็ตตาล็อก WSL",
   "wsl.onboarding.wslNotInstalled.title": "ยังไม่ได้ติดตั้ง WSL",
   "wsl.onboarding.wslNotInstalled.description":
-    "ต้องมี WSL (Windows Subsystem for Linux) ก่อนที่ OpenCode จะเพิ่มเซิร์ฟเวอร์ WSL ได้",
+    "ต้องมี WSL (Windows Subsystem for Linux) ก่อนที่ Ruying Code จะเพิ่มเซิร์ฟเวอร์ WSL ได้",
   "wsl.onboarding.wslUnavailable.title": "WSL ไม่พร้อมใช้งาน",
   "wsl.onboarding.wslUnavailable.description": "Ruying Code ไม่สามารถตรวจสอบ WSL บนเครื่องนี้ได้.",
   "wsl.onboarding.installWsl": "ติดตั้ง WSL",
   "wsl.onboarding.windowsRestartRequired":
-    "รีสตาร์ท Windows เพื่อให้การติดตั้ง WSL เสร็จสมบูรณ์ แล้วเปิด OpenCode อีกครั้ง.",
+    "รีสตาร์ท Windows เพื่อให้การติดตั้ง WSL เสร็จสมบูรณ์ แล้วเปิด Ruying Code อีกครั้ง.",
   "wsl.onboarding.next": "ถัดไป",
   "wsl.onboarding.refresh": "รีเฟรช",
   "wsl.onboarding.allDistrosAdded": "เพิ่มดิสโทรที่ติดตั้งไว้ทั้งหมดแล้ว.",

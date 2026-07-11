@@ -34,6 +34,7 @@ const DEFAULT_WSL_TIMEOUT_MS = 20_000
 const DEFAULT_WSL_INSTALL_TIMEOUT_MS = 15 * 60_000
 const RUYING_PACKAGE = "@ruying/ruying-code"
 const RUYING_REGISTRY = "https://nexus.gwm.cn/repository/npm-group/"
+const WSL_LINUX_PATH = "$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 export function wslArgs(args: string[], distro?: string | null, user?: string | null) {
   return [...(distro ? ["-d", distro] : []), ...(user ? ["--user", user] : []), "--", ...args]
@@ -268,7 +269,7 @@ export async function installWslOpencode(version: string, distro: string, opts?:
       [
         "bash",
         "-lc",
-        `mkdir -p "$HOME/.local" && npm install --global --prefix "$HOME/.local" --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
+        `npm_path=$(PATH="${WSL_LINUX_PATH}" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") echo "A Linux npm installation is required" >&2; exit 127 ;; esac; mkdir -p "$HOME/.local" && PATH="${WSL_LINUX_PATH}" "$npm_path" install --global --prefix "$HOME/.local" --registry=${shellEscape(RUYING_REGISTRY)} ${shellEscape(`${RUYING_PACKAGE}@${version}`)}`,
       ],
       distro,
     ),
@@ -296,7 +297,11 @@ export async function probeWslDistro(name: string, opts?: RunWslOptions): Promis
 
   const [bash, npm] = await Promise.all([
     runWslSh("command -v bash >/dev/null && printf yes || printf no", name, opts),
-    runWslSh("command -v npm >/dev/null && printf yes || printf no", name, opts),
+    runWslSh(
+      `npm_path=$(PATH="${WSL_LINUX_PATH}" command -v npm 2>/dev/null || true); case "$npm_path" in /mnt/*|"") printf no ;; *) printf yes ;; esac`,
+      name,
+      opts,
+    ),
   ])
 
   return {

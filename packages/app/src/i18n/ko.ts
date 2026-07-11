@@ -912,7 +912,7 @@ export const dict = {
   "wsl.onboarding.needAnotherDistroHint": "WSL 카탈로그에서 Linux 배포판을 설치하세요",
   "wsl.onboarding.wslNotInstalled.title": "WSL이 설치되지 않음",
   "wsl.onboarding.wslNotInstalled.description":
-    "OpenCode에서 WSL 서버를 추가하려면 WSL (Windows Subsystem for Linux)이 필요합니다",
+    "Ruying Code에서 WSL 서버를 추가하려면 WSL (Windows Subsystem for Linux)이 필요합니다",
   "wsl.onboarding.wslUnavailable.title": "WSL을 사용할 수 없음",
   "wsl.onboarding.wslUnavailable.description": "Ruying Code에서 이 컴퓨터의 WSL을 확인할 수 없습니다.",
   "wsl.onboarding.installWsl": "WSL 설치",

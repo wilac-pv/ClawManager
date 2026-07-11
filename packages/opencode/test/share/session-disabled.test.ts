@@ -7,10 +7,12 @@ describe("OEM sharing boundary", () => {
   test("hard-disables sharing independently of inherited configuration", async () => {
     const source = await Bun.file(new URL("../../src/share/session.ts", import.meta.url)).text()
 
-    expect(source).toContain('throw new Error("Public session sharing is not available")')
+    expect(source).toContain("Public session sharing is not available")
     expect(source).not.toContain("flags.autoShare")
     expect(source).not.toContain('conf.share === "auto"')
     expect(source).not.toContain("shareNext.create")
+    expect(source).toContain("Public share revocation material remains quarantined locally")
+    expect(source).toContain("Do not paste the share secret into chat or logs")
 
     const config = await Bun.file(new URL("../../src/config/config.ts", import.meta.url)).text()
     expect(config).toContain('result.share = "disabled"')
@@ -18,7 +20,7 @@ describe("OEM sharing boundary", () => {
     const entry = await Bun.file(new URL("../../src/index.ts", import.meta.url)).text()
     expect(entry).not.toContain("GithubCommand")
     expect(entry).not.toContain("ConsoleCommand")
-    expect(entry).not.toContain("ImportCommand")
+    expect(entry).toContain("ImportCommand")
 
     const run = await Bun.file(new URL("../../src/cli/cmd/run.ts", import.meta.url)).text()
     expect(run).not.toContain('option("share"')
