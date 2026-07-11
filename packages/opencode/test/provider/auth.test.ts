@@ -484,3 +484,30 @@ it.instance("authorize joins a successful cancel tombstone and installs one repl
     expect(Exit.isSuccess(yield* Fiber.await(callback))).toBe(true)
   }).pipe(Effect.provide(layer(input)))
 })
+
+it.instance("unknown provider traffic does not allocate provider state", () => {
+  const input = harness({})
+  const unknown = Array.from({ length: 500 }, (_, index) => ProviderV2.ID.make(`unknown-${index}`))
+  return Effect.gen(function* () {
+    const service = yield* ProviderAuth.Service
+    expect(yield* service.allocatedProviderCount()).toBe(0)
+
+    const callbacks = yield* Effect.forEach(unknown, (id) =>
+      service.callback({ providerID: id, method: 0 }).pipe(Effect.exit),
+    )
+    yield* Effect.forEach(unknown, (id) => service.cancel({ providerID: id }))
+    const authorizes = yield* Effect.forEach(unknown, (id) =>
+      service.authorize({ providerID: id, method: 0 }).pipe(Effect.exit),
+    )
+
+    expect(callbacks.every(Exit.isFailure)).toBe(true)
+    expect(authorizes.every(Exit.isFailure)).toBe(true)
+    expect(yield* service.allocatedProviderCount()).toBe(0)
+    expect(input.authorizeCalls()).toBe(0)
+
+    yield* service.authorize({ providerID, method: 0 })
+    expect(yield* service.allocatedProviderCount()).toBe(1)
+    yield* service.cancel({ providerID })
+    expect(yield* service.allocatedProviderCount()).toBe(1)
+  }).pipe(Effect.provide(layer(input)))
+})

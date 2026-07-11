@@ -89,6 +89,7 @@ type Hook = NonNullable<Hooks["auth"]>
 
 export interface Interface {
   readonly methods: () => Effect.Effect<Methods>
+  readonly allocatedProviderCount: () => Effect.Effect<number>
   readonly authorize: (
     input: {
       providerID: ProviderV2.ID
@@ -177,6 +178,10 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       )
     })
 
+    const allocatedProviderCount = Effect.fn("ProviderAuth.allocatedProviderCount")(function* () {
+      return (yield* InstanceState.get(state)).providers.size
+    })
+
     const restore = Effect.fn("ProviderAuth.restore")(function* (input: {
       providerID: ProviderV2.ID
       attempt: Attempt
@@ -236,7 +241,9 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       input: { providerID: ProviderV2.ID } & AuthorizeInput,
     ) {
       const value = yield* InstanceState.get(state)
-      const method = value.hooks[input.providerID].methods[input.method]
+      const hook = value.hooks[input.providerID]
+      if (!hook) return yield* new OauthMissing({ providerID: input.providerID })
+      const method = hook.methods[input.method]
       if (method.type !== "oauth") return
       const provider = providerState(value, input.providerID)
 
@@ -275,6 +282,7 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
       input: { providerID: ProviderV2.ID } & CallbackInput,
     ) {
       const value = yield* InstanceState.get(state)
+      if (!value.hooks[input.providerID]) return yield* new OauthMissing({ providerID: input.providerID })
       const provider = providerState(value, input.providerID)
       const selected = yield* provider.lock.withPermits(1)(
         Effect.gen(function* () {
@@ -365,11 +373,12 @@ const layer: Layer.Layer<Service, never, Auth.Service | Plugin.Service> = Layer.
 
     const cancel = Effect.fn("ProviderAuth.cancel")(function* (input: { providerID: ProviderV2.ID }) {
       const value = yield* InstanceState.get(state)
+      if (!value.hooks[input.providerID]) return
       const provider = providerState(value, input.providerID)
       yield* cancelCurrent({ providerID: input.providerID, provider })
     })
 
-    return Service.of({ methods, authorize, callback, cancel })
+    return Service.of({ methods, allocatedProviderCount, authorize, callback, cancel })
   }),
 )
 
