@@ -32,6 +32,24 @@ export class ProviderAuthApiError extends Schema.ErrorClass<ProviderAuthApiError
   { httpApiStatus: 400 },
 ) {}
 
+export const RuyingSessionUser = Schema.Struct({
+  employeeId: Schema.optional(Schema.String),
+  displayName: Schema.optional(Schema.String),
+  email: Schema.optional(Schema.String),
+})
+
+export const RuyingSessionStatus = Schema.Struct({
+  loggedIn: Schema.Boolean,
+  user: Schema.optional(RuyingSessionUser),
+})
+
+export class RuyingSessionLogoutApiError extends Schema.ErrorClass<RuyingSessionLogoutApiError>(
+  "RuyingSessionLogoutError",
+)(
+  { message: Schema.String },
+  { httpApiStatus: 500 },
+) {}
+
 export const ProviderApi = HttpApi.make("provider")
   .add(
     HttpApiGroup.make("provider")
@@ -54,6 +72,27 @@ export const ProviderApi = HttpApi.make("provider")
             identifier: "provider.auth",
             summary: "Get provider auth methods",
             description: "Retrieve available authentication methods for all AI providers.",
+          }),
+        ),
+        HttpApiEndpoint.get("ruyingStatus", `${root}/ruying/session`, {
+          query: WorkspaceRoutingQuery,
+          success: described(RuyingSessionStatus, "Authoritative Ruying login status"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "provider.ruying.status",
+            summary: "Get Ruying login status",
+            description: "Freshly verify the stored Ruying credential and persisted GWM SSO identity.",
+          }),
+        ),
+        HttpApiEndpoint.delete("ruyingLogout", `${root}/ruying/session`, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Ruying logout completed"),
+          error: RuyingSessionLogoutApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "provider.ruying.logout",
+            summary: "Log out of Ruying",
+            description: "Transactionally remove the Ruying credential and persisted GWM SSO identity.",
           }),
         ),
         HttpApiEndpoint.post("authorize", `${root}/:providerID/oauth/authorize`, {

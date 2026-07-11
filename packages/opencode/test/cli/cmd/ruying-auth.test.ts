@@ -3,13 +3,8 @@ import { chmod, lstat, mkdir, stat, symlink } from "node:fs/promises"
 import path from "node:path"
 import { Effect } from "effect"
 import { parse } from "jsonc-parser"
-import {
-  logoutRuying,
-  prepareRuyingIdentityRemoval,
-  removeRuyingIdentity,
-  runLogin,
-  runLogout,
-} from "@/cli/cmd/ruying-auth"
+import { runLogin, runLogout } from "@/cli/cmd/ruying-auth"
+import { logoutRuying, prepareRuyingIdentityRemoval, removeRuyingIdentity } from "@/auth/ruying-session"
 import { requirePluginAuthSuccess } from "@/cli/cmd/providers"
 import { tmpdir } from "../../fixture/fixture"
 
@@ -95,7 +90,7 @@ test("malformed config fails before logout removes credentials", async () => {
         set: () => Effect.void,
       }),
     ),
-  ).rejects.toMatchObject({ _tag: "CliError" })
+  ).rejects.toMatchObject({ _tag: "RuyingSessionLogoutError" })
   expect(removed).toBe(false)
 })
 
@@ -134,7 +129,7 @@ test.skipIf(process.platform === "win32")("inaccessible config fails before logo
           set: () => Effect.void,
         }),
       ),
-    ).rejects.toMatchObject({ _tag: "CliError" })
+    ).rejects.toMatchObject({ _tag: "RuyingSessionLogoutError" })
   } finally {
     await chmod(locked, 0o700)
   }
@@ -157,7 +152,7 @@ test.skipIf(process.platform === "win32")("dangling config symlink fails before 
         set: () => Effect.void,
       }),
     ),
-  ).rejects.toMatchObject({ _tag: "CliError" })
+  ).rejects.toMatchObject({ _tag: "RuyingSessionLogoutError" })
   expect(removed).toBe(false)
 })
 
@@ -180,7 +175,7 @@ test.skipIf(process.platform === "win32")("config publication failure restores t
           set: (_providerID, info) => Effect.sync(() => (restored = info as typeof credential)),
         }),
       ),
-    ).rejects.toMatchObject({ _tag: "CliError" })
+    ).rejects.toMatchObject({ _tag: "RuyingSessionLogoutError" })
   } finally {
     await chmod(tmp.path, 0o700)
   }

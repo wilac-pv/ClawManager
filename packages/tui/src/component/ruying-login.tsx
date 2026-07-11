@@ -1,123 +1,212 @@
 import { TextAttributes } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
-import open from "open"
-import { createMemo, createSignal, Show, type ParentProps } from "solid-js"
+import { createMemo, createSignal, onMount, Show, type ParentProps } from "solid-js"
 import { Brand } from "@opencode-ai/core/brand/brand"
+import type { ProviderRuyingStatusResponse } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../context/sdk"
 import { useSync } from "../context/sync"
 import { useTheme } from "../context/theme"
 import { Link } from "../ui/link"
 import { Logo } from "./logo"
 
-export function isRuyingLoggedIn(options: unknown) {
-  if (!options || typeof options !== "object") return false
-  const user = (options as { ruyingUser?: unknown }).ruyingUser
-  return !!user && typeof user === "object"
-}
-
 export function RuyingLoginGate(props: ParentProps) {
-  const sync = useSync()
   const sdk = useSDK()
+  const sync = useSync()
   const { theme } = useTheme()
-  const provider = createMemo(() => sync.data.provider_next.all.find((item) => item.id === Brand.profile.providerID))
-  const user = createMemo(() => {
-    const options = provider()?.options
-    if (!isRuyingLoggedIn(options)) return
-    const value = (options as { ruyingUser: { employeeId?: unknown; displayName?: unknown } }).ruyingUser
-    const employeeId = typeof value.employeeId === "string" ? value.employeeId : ""
-    const displayName = typeof value.displayName === "string" ? value.displayName : ""
-    return { employeeId, displayName }
-  })
+  const [session, setSession] = createSignal<ProviderRuyingStatusResponse>()
+  const [checking, setChecking] = createSignal(true)
+  const [loginStatus, setLoginStatus] = createSignal<"idle" | "pending" | "error">("idle")
+  const [loginMessage, setLoginMessage] = createSignal("")
+  const [url, setUrl] = createSignal("")
   const [loggingOut, setLoggingOut] = createSignal(false)
+  const [logoutMessage, setLogoutMessage] = createSignal("")
+  const user = createMemo(() => (session()?.loggedIn ? (session()?.user ?? {}) : undefined))
+  let attempt = 0
 
-  async function logout() {
-    if (loggingOut()) return
-    setLoggingOut(true)
-    await sdk.client.auth.remove({ providerID: Brand.profile.providerID })
-    await sdk.client.global.config.update({
-      config: { provider: { [Brand.profile.providerID]: { options: { ruyingUser: false } } } },
-    })
-    await sdk.client.instance.dispose()
-    await sync.bootstrap()
-    setLoggingOut(false)
+  async function status() {
+    const result = await sdk.client.provider.ruying.status()
+    if (result.error || !result.data) return
+    setSession(result.data)
+    return result.data
   }
 
-  return (
-    <Show when={user()} fallback={<RuyingLogin />}>
-      {(identity) => (
-        <>
-          {props.children}
-          <box position="absolute" top={0} right={1} zIndex={2000} flexDirection="row" gap={1}>
-            <text fg={theme.textMuted}>
-              {identity().displayName || identity().employeeId}
-              <Show when={identity().displayName && identity().employeeId}> ({identity().employeeId})</Show>
-            </text>
-            <text
-              fg={theme.primary}
-              attributes={TextAttributes.BOLD}
-              onMouseUp={() => void logout().catch(() => setLoggingOut(false))}
-              selectable={false}
-            >
-              {loggingOut() ? "正在退出…" : "退出登录"}
-            </text>
-          </box>
-        </>
-      )}
-    </Show>
-  )
-}
+  onMount(() => {
+    void status()
+      .then((value) => {
+        if (value) return
+        setSession({ loggedIn: false })
+        setLoginStatus("error")
+        setLoginMessage("无法检查登录状态，请重试")
+      })
+      .catch((error) => {
+        setSession({ loggedIn: false })
+        setLoginStatus("error")
+        setLoginMessage(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => setChecking(false))
+  })
 
-function RuyingLogin() {
-  const sdk = useSDK()
-  const sync = useSync()
-  const { theme } = useTheme()
-  const [status, setStatus] = createSignal<"idle" | "pending" | "error">("idle")
-  const [message, setMessage] = createSignal("")
-  const [url, setUrl] = createSignal("")
-
-  async function login() {
-    if (status() === "pending") return
-    setStatus("pending")
-    setMessage("")
+  async function login(current: number) {
+    setLoginStatus("pending")
+    setLoginMessage("")
     setUrl("")
     const authorization = await sdk.client.provider.oauth.authorize({
       providerID: Brand.profile.providerID,
       method: 0,
     })
+    if (current !== attempt) return
     if (authorization.error || !authorization.data) {
-      setStatus("error")
-      setMessage("无法启动 GWM SSO 登录，请重试")
+      setLoginStatus("error")
+      setLoginMessage("无法启动 GWM SSO 登录，请重试")
       return
     }
     setUrl(authorization.data.url)
-    void open(authorization.data.url).catch(() => undefined)
-    const result = await sdk.client.provider.oauth.callback({
+    const callback = await sdk.client.provider.oauth.callback({
       providerID: Brand.profile.providerID,
       method: 0,
     })
-    if (result.error) {
-      setStatus("error")
-      setMessage("登录失败，请重试；如需开通权限，请联系管理员")
+    if (current !== attempt) return
+    if (callback.error) {
+      setLoginStatus("error")
+      setLoginMessage("登录失败，请重试；如需开通权限，请联系管理员")
       return
     }
     await sdk.client.instance.dispose()
+    if (current !== attempt) return
     await sync.bootstrap()
+    if (current !== attempt) return
+    const refreshed = await status()
+    if (current !== attempt) return
+    if (refreshed?.loggedIn) {
+      setLoginStatus("idle")
+      return
+    }
+    setLoginStatus("error")
+    setLoginMessage("登录状态未生效，请重试")
   }
 
-  useKeyboard((event) => {
-    if (event.name !== "return" || status() === "pending") return
-    event.preventDefault()
-    event.stopPropagation()
-    startLogin()
-  })
-
   function startLogin() {
-    void login().catch((error) => {
-      setStatus("error")
-      setMessage(error instanceof Error ? error.message : String(error))
+    const current = ++attempt
+    void login(current).catch((error) => {
+      if (current !== attempt) return
+      setLoginStatus("error")
+      setLoginMessage(error instanceof Error ? error.message : String(error))
     })
   }
 
+  function cancelLogin() {
+    attempt++
+    setLoginStatus("idle")
+    setLoginMessage("")
+    setUrl("")
+  }
+
+  async function logout() {
+    if (loggingOut()) return
+    setLoggingOut(true)
+    setLogoutMessage("")
+    const result = await sdk.client.provider.ruying.logout()
+    if (result.error) {
+      setLoggingOut(false)
+      setLogoutMessage("退出失败，请重试")
+      return
+    }
+    const refreshed = await status()
+    setLoggingOut(false)
+    if (refreshed && !refreshed.loggedIn) {
+      setLoginStatus("idle")
+      return
+    }
+    setLogoutMessage("退出状态未生效，请重试")
+  }
+
+  function startLogout() {
+    void logout().catch((error) => {
+      setLoggingOut(false)
+      setLogoutMessage(error instanceof Error ? error.message : String(error))
+    })
+  }
+
+  useKeyboard((event) => {
+    if (event.name === "escape" && loginStatus() === "pending") {
+      event.preventDefault()
+      event.stopPropagation()
+      cancelLogin()
+      return
+    }
+    if (!checking() && !user() && event.name === "return" && loginStatus() !== "pending") {
+      event.preventDefault()
+      event.stopPropagation()
+      startLogin()
+      return
+    }
+    if (user() && event.name.toLowerCase() === "l" && event.ctrl && event.shift && !loggingOut()) {
+      event.preventDefault()
+      event.stopPropagation()
+      startLogout()
+    }
+  })
+
+  return (
+    <Show when={!checking()} fallback={<RuyingChecking />}>
+      <Show
+        when={user()}
+        fallback={
+          <RuyingLogin
+            status={loginStatus()}
+            message={loginMessage()}
+            url={url()}
+            onLogin={startLogin}
+            onCancel={cancelLogin}
+          />
+        }
+      >
+        {(identity) => (
+          <>
+            {props.children}
+            <box position="absolute" top={0} right={1} zIndex={2000} flexDirection="column" alignItems="flex-end">
+              <box flexDirection="row" gap={1}>
+                <text fg={theme.textMuted}>
+                  {identity().displayName || identity().employeeId}
+                  <Show when={identity().displayName && identity().employeeId}> ({identity().employeeId})</Show>
+                </text>
+                <text
+                  fg={theme.primary}
+                  attributes={TextAttributes.BOLD}
+                  onMouseUp={startLogout}
+                  selectable={false}
+                >
+                  Ctrl+Shift+L {loggingOut() ? "正在退出…" : "退出登录"}
+                </text>
+              </box>
+              <Show when={logoutMessage()}>
+                <text fg={theme.error}>{logoutMessage()}</text>
+              </Show>
+            </box>
+          </>
+        )}
+      </Show>
+    </Show>
+  )
+}
+
+function RuyingChecking() {
+  const { theme } = useTheme()
+  return (
+    <box width="100%" height="100%" alignItems="center" justifyContent="center" backgroundColor={theme.background}>
+      <text fg={theme.textMuted}>正在检查 GWM SSO 登录状态…</text>
+    </box>
+  )
+}
+
+function RuyingLogin(props: {
+  status: "idle" | "pending" | "error"
+  message: string
+  url: string
+  onLogin: () => void
+  onCancel: () => void
+}) {
+  const { theme } = useTheme()
   return (
     <box width="100%" height="100%" alignItems="center" justifyContent="center" backgroundColor={theme.background}>
       <box alignItems="center" gap={1}>
@@ -126,21 +215,24 @@ function RuyingLogin() {
           如影编码网关
         </text>
         <Show
-          when={status() === "pending"}
+          when={props.status === "pending"}
           fallback={
             <>
               <text fg={theme.textMuted}>请使用 GWM SSO 登录以继续使用</text>
-              <text fg={theme.primary} attributes={TextAttributes.BOLD} onMouseUp={startLogin} selectable={false}>
+              <text fg={theme.primary} attributes={TextAttributes.BOLD} onMouseUp={props.onLogin} selectable={false}>
                 Enter&nbsp; SSO 登录
               </text>
-              <Show when={status() === "error"}>
-                <text fg={theme.error}>{message()}</text>
+              <Show when={props.status === "error"}>
+                <text fg={theme.error}>{props.message}</text>
               </Show>
             </>
           }
         >
           <text fg={theme.textMuted}>正在等待浏览器完成 SSO 登录…</text>
-          <Show when={url()}>{(href) => <Link href={href()} fg={theme.primary} />}</Show>
+          <Show when={props.url}>{(href) => <Link href={href()} fg={theme.primary} />}</Show>
+          <text fg={theme.textMuted} onMouseUp={props.onCancel} selectable={false}>
+            Esc 取消
+          </text>
         </Show>
       </box>
     </box>

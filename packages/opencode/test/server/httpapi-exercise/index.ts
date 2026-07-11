@@ -263,6 +263,17 @@ const scenarios: Scenario[] = [
     .status(204, undefined, "status"),
   http.protected.get("/provider", "provider.list").json(),
   http.protected.get("/provider/auth", "provider.auth").json(),
+  http.protected.get("/provider/ruying/session", "provider.ruying.status").json(200, (body) => {
+    object(body)
+    check(typeof body.loggedIn === "boolean", "ruying status should return loggedIn")
+  }),
+  http.protected
+    .delete("/provider/ruying/session", "provider.ruying.logout")
+    .global()
+    .mutating()
+    .json(200, (body) => {
+      check(body === true, "ruying logout should return true")
+    }),
   http.protected
     .post("/provider/{providerID}/oauth/authorize", "provider.oauth.authorize")
     .at((ctx) => ({

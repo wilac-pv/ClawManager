@@ -8,9 +8,11 @@ import { Effect, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ProviderAuthApiError } from "../groups/provider"
+import { ProviderAuthApiError, RuyingSessionLogoutApiError } from "../groups/provider"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Brand } from "@opencode-ai/core/brand/brand"
+import { getRuyingSessionStatus, logoutRuyingSession } from "@/auth/ruying-session"
+import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
 
 export function visibleProviderIDs(all: string[], enabled?: Set<string>, disabled = new Set<string>()) {
   return all.filter((id) => (enabled ? enabled.has(id) : id === Brand.profile.providerID) && !disabled.has(id))
@@ -99,6 +101,18 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       return Object.fromEntries(Object.entries(methods).filter(([id]) => visible.has(id)))
     })
 
+    const ruyingStatus = Effect.fn("ProviderHttpApi.ruyingStatus")(function* () {
+      return yield* getRuyingSessionStatus()
+    })
+
+    const ruyingLogout = Effect.fn("ProviderHttpApi.ruyingLogout")(function* () {
+      yield* logoutRuyingSession().pipe(
+        Effect.mapError((error) => new RuyingSessionLogoutApiError({ message: error.message })),
+      )
+      yield* disposeAllInstancesAndEmitGlobalDisposed()
+      return true
+    })
+
     const authorize = Effect.fn("ProviderHttpApi.authorize")(function* (ctx: {
       params: { providerID: ProviderV2.ID }
       payload: ProviderAuth.AuthorizeInput
@@ -144,6 +158,8 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     return handlers
       .handle("list", list)
       .handle("auth", auth)
+      .handle("ruyingStatus", ruyingStatus)
+      .handle("ruyingLogout", ruyingLogout)
       .handleRaw("authorize", authorizeRaw)
       .handle("callback", callback)
   }),

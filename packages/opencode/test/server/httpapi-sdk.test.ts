@@ -30,6 +30,8 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Database } from "@opencode-ai/core/database/database"
 import { httpApiLayer } from "./httpapi-layer"
+import { GlobalBus } from "@/bus/global"
+import { globalConfigFile } from "@/auth/ruying-session"
 
 const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 const appLayer = AppNodeBuilder.build(
@@ -802,6 +804,68 @@ describe("HttpApi SDK", () => {
             .sort(),
         }
       }).pipe(Effect.ensuring(removeRuyingCredential(sdk).pipe(Effect.ignore))),
+    ),
+  )
+
+  httpapi(
+    "reports authoritative ruying status without provider models",
+    withProject(
+      "raw",
+      {
+        config: {
+          ...ruyingIdentityConfig,
+          provider: {
+            ...ruyingIdentityConfig.provider,
+            ruying: { options: { ruyingUser: { employeeId: "GW001", displayName: "张三", email: "" } } },
+          },
+        },
+      },
+      ({ directory }) =>
+        Effect.gen(function* () {
+          const sdk = yield* client("raw", directory)
+          yield* setRuyingCredential(sdk)
+          const response = yield* capture(() => sdk.provider.ruying.status())
+
+          expect(response.status).toBe(200)
+          expect(response.data).toEqual({
+            loggedIn: true,
+            user: { employeeId: "GW001", displayName: "张三", email: "" },
+          })
+        }).pipe(Effect.ensuring(client("raw", directory).pipe(Effect.flatMap(removeRuyingCredential), Effect.ignore))),
+    ),
+  )
+
+  httpapi(
+    "logs out ruying and emits one global disposal",
+    withProject("raw", { config: ruyingIdentityConfig }, ({ sdk }) =>
+      Effect.gen(function* () {
+        const configFile = globalConfigFile()
+        const existed = yield* Effect.promise(() => Bun.file(configFile).exists())
+        const previous = existed ? yield* Effect.promise(() => Bun.file(configFile).text()) : undefined
+        yield* Effect.promise(() =>
+          Bun.write(configFile, '{ "provider": { "ruying": { "options": { "ruyingUser": {} } } } }'),
+        )
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            if (previous !== undefined) return void (await Bun.write(configFile, previous))
+            await Bun.file(configFile).delete()
+          }),
+        )
+        yield* setRuyingCredential(sdk)
+        const events: string[] = []
+        const listener = (event: { payload: { type?: string } }) => {
+          if (event.payload.type === "global.disposed") events.push(event.payload.type)
+        }
+        GlobalBus.on("event", listener)
+        yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", listener)))
+
+        const logout = yield* capture(() => sdk.provider.ruying.logout())
+        const status = yield* capture(() => sdk.provider.ruying.status())
+
+        expect(logout).toMatchObject({ status: 200, data: true })
+        expect(status).toMatchObject({ status: 200, data: { loggedIn: false } })
+        expect(events).toEqual(["global.disposed"])
+      }),
     ),
   )
 

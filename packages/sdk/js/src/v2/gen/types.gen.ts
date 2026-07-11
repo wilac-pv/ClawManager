@@ -2514,6 +2514,10 @@ export type ProviderAuthMethod = {
   >
 }
 
+export type RuyingSessionLogoutError = {
+  message: string
+}
+
 export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
@@ -9357,6 +9361,73 @@ export type ProviderAuthResponses = {
 }
 
 export type ProviderAuthResponse = ProviderAuthResponses[keyof ProviderAuthResponses]
+
+export type ProviderRuyingLogoutData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/ruying/session"
+}
+
+export type ProviderRuyingLogoutErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * RuyingSessionLogoutError
+   */
+  500: RuyingSessionLogoutError
+}
+
+export type ProviderRuyingLogoutError = ProviderRuyingLogoutErrors[keyof ProviderRuyingLogoutErrors]
+
+export type ProviderRuyingLogoutResponses = {
+  /**
+   * Ruying logout completed
+   */
+  200: boolean
+}
+
+export type ProviderRuyingLogoutResponse = ProviderRuyingLogoutResponses[keyof ProviderRuyingLogoutResponses]
+
+export type ProviderRuyingStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/ruying/session"
+}
+
+export type ProviderRuyingStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProviderRuyingStatusError = ProviderRuyingStatusErrors[keyof ProviderRuyingStatusErrors]
+
+export type ProviderRuyingStatusResponses = {
+  /**
+   * Authoritative Ruying login status
+   */
+  200: {
+    loggedIn: boolean
+    user?: {
+      employeeId?: string
+      displayName?: string
+      email?: string
+    }
+  }
+}
+
+export type ProviderRuyingStatusResponse = ProviderRuyingStatusResponses[keyof ProviderRuyingStatusResponses]
 
 export type ProviderOauthAuthorizeData = {
   body?: {

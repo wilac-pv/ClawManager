@@ -151,6 +151,10 @@ import type {
   ProviderOauthAuthorizeResponses,
   ProviderOauthCallbackErrors,
   ProviderOauthCallbackResponses,
+  ProviderRuyingLogoutErrors,
+  ProviderRuyingLogoutResponses,
+  ProviderRuyingStatusErrors,
+  ProviderRuyingStatusResponses,
   PtyConnectErrors,
   PtyConnectResponses,
   PtyConnectTokenErrors,
@@ -3198,6 +3202,76 @@ export class Permission extends HeyApiClient {
   }
 }
 
+export class Ruying extends HeyApiClient {
+  /**
+   * Log out of Ruying
+   *
+   * Transactionally remove the Ruying credential and persisted GWM SSO identity.
+   */
+  public logout<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      ProviderRuyingLogoutResponses,
+      ProviderRuyingLogoutErrors,
+      ThrowOnError
+    >({
+      url: "/provider/ruying/session",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get Ruying login status
+   *
+   * Freshly verify the stored Ruying credential and persisted GWM SSO identity.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ProviderRuyingStatusResponses,
+      ProviderRuyingStatusErrors,
+      ThrowOnError
+    >({
+      url: "/provider/ruying/session",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Oauth extends HeyApiClient {
   /**
    * Start OAuth authorization
@@ -3351,6 +3425,11 @@ export class Provider extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _ruying?: Ruying
+  get ruying(): Ruying {
+    return (this._ruying ??= new Ruying({ client: this.client }))
   }
 
   private _oauth?: Oauth
