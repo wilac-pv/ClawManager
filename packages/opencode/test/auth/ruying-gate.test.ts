@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { requireRuyingLogin, requireRuyingProvider } from "@/auth/ruying-gate"
-import { getRuyingSessionStatus } from "@/auth/ruying-session"
+import { getRuyingSessionStatus, logoutRuying } from "@/auth/ruying-session"
 import { Auth } from "@/auth"
 import { Config } from "@/config/config"
 import { LLM } from "@/session/llm"
@@ -65,6 +65,27 @@ test("LLM rejects a secondary provider before touching provider or client work",
   expect(result.exit).toMatchObject({ _tag: "Failure" })
   expect(String(result.exit)).toContain("RuyingProviderRequiredError")
   expect(result.touches).toEqual([])
+})
+
+test("authenticate then logout rejects a continuation with zero post-logout provider calls", async () => {
+  let auth: Auth.Info | undefined = { type: "api", key: "sk", metadata: { employeeId: "GW001" } }
+  let marker: unknown = { employeeId: "GW001" }
+
+  const authenticated = await directLLM({ providerID: "ruying", auth, marker })
+  expect(authenticated.touches.toSorted()).toEqual(["language", "provider"])
+
+  await Effect.runPromise(
+    logoutRuying({
+      prepareIdentity: () => Effect.succeed(Effect.sync(() => (marker = undefined))),
+      get: () => Effect.succeed(auth),
+      remove: () => Effect.sync(() => (auth = undefined)),
+      set: (_providerID, info) => Effect.sync(() => (auth = info)),
+    }),
+  )
+
+  const continuation = await directLLM({ providerID: "ruying", auth, marker })
+  expect(String(continuation.exit)).toContain("RuyingLoginRequiredError")
+  expect(continuation.touches).toEqual([])
 })
 
 test("reports the authoritative user only when credential and marker are both present", async () => {
