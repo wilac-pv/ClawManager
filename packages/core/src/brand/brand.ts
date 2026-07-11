@@ -33,12 +33,24 @@ export function truthy(suffix: string) {
   return value === "true" || value === "1"
 }
 
+function url(suffix: string) {
+  const value = env(suffix)
+  if (!value || Buffer.byteLength(value, "utf8") > 512) return
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return
+    return value
+  } catch {
+    return
+  }
+}
+
 export function docsURL() {
-  return env("DOCS_URL")
+  return url("DOCS_URL")
 }
 
 export function supportURL() {
-  return env("SUPPORT_URL")
+  return url("SUPPORT_URL")
 }
 
 export function changelogURL() {

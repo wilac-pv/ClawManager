@@ -68,6 +68,37 @@ test("keeps docs and support URLs optional with branded-first aliases", () => {
   expect(Brand.supportURL()).toBeUndefined()
 })
 
+test("accepts docs and support URLs at exactly 512 UTF-8 bytes", () => {
+  const prefix = "https://internal.example/"
+  process.env.RUYING_CODE_DOCS_URL = prefix + "a".repeat(512 - Buffer.byteLength(prefix))
+  process.env.RUYING_CODE_SUPPORT_URL = prefix + "界".repeat(100) + "a".repeat(512 - Buffer.byteLength(prefix) - 300)
+
+  expect(Buffer.byteLength(Brand.docsURL()!)).toBe(512)
+  expect(Buffer.byteLength(Brand.supportURL()!)).toBe(512)
+})
+
+test("omits docs and support URLs larger than 512 UTF-8 bytes", () => {
+  const prefix = "https://internal.example/"
+  process.env.RUYING_CODE_DOCS_URL = prefix + "a".repeat(513 - Buffer.byteLength(prefix))
+  process.env.RUYING_CODE_SUPPORT_URL = prefix + "界".repeat(100) + "a".repeat(513 - Buffer.byteLength(prefix) - 300)
+
+  expect(Brand.docsURL()).toBeUndefined()
+  expect(Brand.supportURL()).toBeUndefined()
+})
+
+test.each([
+  "http://internal.example/docs",
+  "https://user@internal.example/docs",
+  "https://user:password@internal.example/docs",
+  "not a url",
+])("omits unsafe docs and support URL %s", (value) => {
+  process.env.RUYING_CODE_DOCS_URL = value
+  process.env.RUYING_CODE_SUPPORT_URL = value
+
+  expect(Brand.docsURL()).toBeUndefined()
+  expect(Brand.supportURL()).toBeUndefined()
+})
+
 test("keeps changelog fetching disabled unless an OEM URL is configured", () => {
   delete process.env.RUYING_CODE_CHANGELOG_URL
   delete process.env.OPENCODE_CHANGELOG_URL
