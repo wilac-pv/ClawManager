@@ -636,7 +636,7 @@ Date: 2026-07-12
 ## Wave 7 dispositions
 
 - Branded the active Core/V2 `/init` template and added behavior-level assertions for both active init implementations.
-- Replaced every remaining visible `OpenCode` and `opencode.json` locale value across all App/Desktop locales with Ruying Code and `ruying-code.json`; executable audits cover the full locale corpus.
+- Replaced every remaining visible `OpenCode` and `opencode.json` locale value across all App locales with Ruying Code and `ruying-code.json`; the App executable audit covers that locale corpus. Wave 7 did not audit the separate dormant Desktop renderer dictionaries; Wave 8 closes that gap.
 - Canonicalized WSL npm and `ruying-code` paths with `/usr/bin/readlink -f --` immediately after `command -v` and before `/mnt/*` rejection. The Linux-only behavior test creates a symlink to `/mnt` and verifies canonical rejection; it is skipped on this macOS verification host and will execute on Linux where `/mnt` exists. The lexical PATH-preservation test remains cross-platform and passed locally.
 - Rejected UNC/network-share import forms (`\\server`, `//server`, and `\\?\UNC`) before acquiring `FSUtil` or reading a file. URL/share transport remains disabled and no fetch path exists.
 - Replaced Chelper's process-local-only publication transaction with an adjacent owner-token filesystem lock keyed by canonical auth target. The lock covers snapshot, auth publication, config publication, and rollback; it waits across processes, recovers dead owners, releases only its token, and leaves no lock or temporary file. A real two-process failure/success interleaving reproduces the stale rollback before the fix and verifies the successful process wins afterward.
@@ -647,7 +647,7 @@ Date: 2026-07-12
 ## Wave 7 RED evidence
 
 - The Core command-plugin behavior test returned the upstream `OpenCode`/`opencode.json` init template.
-- The all-locale audit found remaining visible upstream product/config values outside Wave 6's updater/settings subset.
+- The App all-locale audit found remaining visible upstream product/config values outside Wave 6's updater/settings subset.
 - UNC behavior tests accepted all three network-share forms.
 - WSL source/contract tests found no canonicalization between `command -v` and mounted-path rejection.
 - Chelper callback behavior had no reusable parser boundary for exact-path and output assertions.
@@ -716,4 +716,84 @@ Chelper:
 - **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, artifact deletion, serialization, and clean scans cannot invalidate an already exposed credential; external rotation is not claimed complete.
 - The WSL symlink-to-`/mnt` behavior test is present but skipped on this macOS host because `/mnt` is unavailable. Source assertions and the cross-platform lexical sanitizer test passed locally; the symlink behavior runs on Linux.
 - App/Desktop builds retain their pre-existing Vite warnings. Desktop must remain sequential after the Opencode build because both use the shared Opencode dist directory.
+- Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
+
+# Wave 8 Re-review Fixes
+
+Date: 2026-07-12
+
+## Wave 8 dispositions
+
+- Replaced Chelper's single-file compare/unlink lock with generation directories. A release or stale breaker must win the generation's atomic `transition/` directory, revalidate its reason for transition, rename the entire canonical generation to a unique quarantine, and delete only that quarantine. The canonical lock name becomes available for a successor only after the generation rename, so a stale observer cannot unlink a successor generation.
+- A 500 ms heartbeat renews the owner record under a 2 second lease. Staleness no longer depends on PID liveness, so PID reuse cannot keep an expired owner alive. A freshly partial owner record recovers in about one lease and within the 30 second acquisition budget.
+- Canonical auth targets now resolve their deepest existing ancestor with `realpathSync` and append missing components. Existing target symlinks and missing targets under symlinked parent aliases therefore share one transaction identity and adjacent filesystem lock.
+- Moved the real process worker from `src/tools` to `test/fixtures`; production packaging no longer carries a test entrypoint.
+- Narrowed local-import rejection to true backslash UNC and extended UNC device forms. `\\server`, `\\?\UNC`, and `\\.\UNC` are rejected before `FSUtil.Service`; extended local drives such as `\\?\C:\...`, POSIX `//tmp/...`, `C://...`, ordinary drive paths, and relative paths remain accepted unchanged. Remote URI schemes remain disabled.
+- Branded all 16 dormant Desktop renderer locale dictionaries from visible OpenCode/`opencode` command copy to Ruying Code/`ruying-code`. A whole-dictionary contract keeps internal compatibility/storage identifiers out of scope while enforcing every visible dictionary value.
+- Corrected the Wave 7 report: that wave's whole-locale audit covered App dictionaries, not the separate dormant Desktop renderer dictionaries.
+
+## Wave 8 RED and diagnostic evidence
+
+- The real two-breaker Chelper test started two child processes against one incomplete expired generation. The old single-file protocol returned child exits `[1, 1]` instead of `[0, 0]` because it could not interpret or transition a lock directory.
+- The canonical-target unit test found no `canonicalAuthTarget` function; the old `resolve()` result preserved a missing target's symlink-parent spelling.
+- The first transition-directory implementation timed out once. Creating `transition/` updated the incomplete generation directory mtime, causing the breaker to invalidate its own stale observation forever. The corrected implementation carries the pre-claim missing-owner/expired-generation observation across the transition claim, while revalidating any owner that appears. No other implementation attempts failed.
+- The real symlink-parent two-process regression already passed before the canonicalization change because both adjacent lock spellings resolve to the same physical directory on this POSIX host. It is retained as strengthened cross-process coverage and is not misreported as a pre-fix failure.
+- Import behavior rejected valid `//tmp/session.json` under the broad double-slash rule; the same old branches also rejected `C://...` as a URI scheme and `\\?\C:\...` as a broad double-backslash path.
+- The Desktop dictionary audit failed first on `da.ts`, showing visible OpenCode and `opencode` CLI copy in the dormant dictionary corpus.
+
+## Wave 8 GREEN verification
+
+```text
+chelper$ npm test
+5 files, 38 pass, 0 fail
+chelper$ npm run build
+pass
+chelper$ npx tsc --noEmit
+pass
+
+packages/opencode$ bun test test/cli/import.test.ts
+2 pass, 0 fail, 18 expects
+packages/opencode$ bun typecheck
+pass
+
+packages/desktop$ bun test src/renderer/i18n/brand-contract.test.ts src/main/wsl/runtime-contract.test.ts
+3 pass, 0 fail, 1 Linux-only WSL symlink test skipped on macOS, 56 expects
+packages/desktop$ bun typecheck
+pass
+
+packages/opencode$ bun run build --single --skip-install
+pass; Smoke test passed: 0.0.0-ruying-code-oem-202607111827
+packages/desktop$ bun run build
+pass in the required sequential order
+```
+
+The Chelper configurer suite includes real child-process coverage for two simultaneous stale breakers with an exclusive critical-section sentinel, a held transaction longer than the lease to prove heartbeat renewal, a current/reused PID with an expired lease, fresh partial-owner recovery within the acquisition budget, and missing targets through real and symlinked parents. The two-breaker protocol test uses Windows-supported Node filesystem operations and is not platform-gated, but this verification ran on macOS; no Windows execution is claimed. The symlink-parent tests are explicitly POSIX-gated.
+
+Exact-value credential verification did not print the credential:
+
+```text
+Chelper tracked and full local tree excluding preserved .serena/node_modules: clean
+Chelper current dist and fresh npm pack: clean
+Primary tracked and full local tree excluding node_modules: clean
+Desktop dormant renderer dictionary brand scan: clean
+Primary and Chelper git diff checks: clean
+```
+
+No npm publish, production request, public-share request, package installation, or other real network action was performed.
+
+## Wave 8 commits
+
+Primary:
+
+- `58a329418` — `fix: close Wave 8 OEM boundaries`
+
+Chelper:
+
+- `938f6b9` — `fix(config): make lock takeover ownership-safe`
+
+## Mandatory external action and remaining concerns
+
+- **An administrator must still revoke/rotate the formerly exposed credential in the external service.** Local redaction, clean scans, lock hardening, and commits cannot invalidate an already exposed credential; external rotation is not claimed complete.
+- App/Desktop builds retain their pre-existing Vite dynamic-import, eval, sourcemap, and chunk-size warnings. Desktop was built only after the Opencode build completed because both use the shared Opencode dist directory.
+- The Linux-only WSL symlink-to-`/mnt` test remains skipped on this macOS host. Wave 8's Chelper symlink-parent tests did execute on macOS; Windows execution was not available and is not claimed.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
