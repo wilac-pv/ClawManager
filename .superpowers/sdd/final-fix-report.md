@@ -622,4 +622,5 @@ Chelper:
 
 - **An administrator must revoke/rotate the formerly exposed legacy credential in the external service.** Source redaction, artifact deletion, clean scans, and local commits cannot invalidate an already exposed credential. External rotation is not complete and is not claimed by this report.
 - App/Desktop builds retain the repository's existing Vite dynamic-import, duplicate sourcemap, and chunk-size warnings; all builds exited successfully.
+- The post-commit parallel build verification reproduced the known shared-artifact race: Desktop observed `ENOENT` while the simultaneous Opencode build replaced `packages/opencode/dist/node`. The required sequential Desktop rerun passed. This is recorded as a build-order constraint, not hidden as a parallel pass.
 - Chelper's unrelated untracked `.serena/` directory remains preserved unchanged.
