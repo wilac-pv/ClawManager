@@ -482,7 +482,10 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     peek: children.peek,
     disableMcp: children.disableMcp,
     queryOptions: queryOptionsApi,
-    // bootstrap,
+    bootstrap: async () => {
+      const result = await bootstrap.refetch()
+      if (result.error) throw result.error
+    },
     updateConfig: updateConfigMutation.mutateAsync,
     project: projectApi,
     session,

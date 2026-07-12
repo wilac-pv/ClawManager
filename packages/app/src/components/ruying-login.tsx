@@ -2,6 +2,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Splash } from "@opencode-ai/ui/logo"
 import { createEffect, onCleanup, type ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
+import { usePlatform } from "@/context/platform"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 
@@ -183,7 +184,7 @@ export function RuyingLogin() {
         <Splash class="w-12 h-15" />
         <div class="text-16-medium text-text-strong">如影编码网关</div>
         <Show
-          when={login.state.status === "pending"}
+          when={login.state.status === "pending" || login.state.status === "canceling"}
           fallback={
             <>
               <p class="text-14-regular text-text-weak">请使用 GWM SSO 登录以继续使用</p>
@@ -201,30 +202,48 @@ export function RuyingLogin() {
           <Show when={login.state.authUrl}>
             <a
               href={login.state.authUrl}
-              target="_blank"
-              rel="noreferrer"
+              onClick={(event) => {
+                event.preventDefault()
+                login.open()
+              }}
               class="text-12-regular text-text-weak underline break-all"
             >
               {login.state.authUrl}
             </a>
           </Show>
+          <Show when={login.state.message}>
+            <p class="text-12-regular text-text-base">{login.state.message}</p>
+          </Show>
+          <Button
+            variant="secondary"
+            size="large"
+            disabled={login.state.status === "canceling"}
+            onClick={login.cancel}
+          >
+            {login.state.status === "canceling" ? "正在取消…" : "取消登录"}
+          </Button>
         </Show>
       </div>
     </div>
   )
 }
 
-export function createRuyingLoginController(reload = () => window.location.reload()) {
-  const serverSDK = useServerSDK()
+export function createRuyingLoginController() {
+  const serverSDK = useServerSDK()()
+  const serverSync = useServerSync()()
+  const platform = usePlatform()
   return createRuyingLoginState({
     authorize: () =>
-      serverSDK().client.provider.oauth.authorize(
+      serverSDK.client.provider.oauth.authorize(
         { providerID: RUYING_PROVIDER_ID, method: 0 },
         { throwOnError: true },
       ),
-    callback: () => serverSDK().client.provider.oauth.callback({ providerID: RUYING_PROVIDER_ID, method: 0 }),
-    dispose: () => serverSDK().client.global.dispose().catch(() => undefined),
-    reload,
+    openLink: (url) => platform.openLink(url),
+    callback: () => serverSDK.client.provider.oauth.callback({ providerID: RUYING_PROVIDER_ID, method: 0 }),
+    cancel: () => serverSDK.client.provider.oauth.cancel({ providerID: RUYING_PROVIDER_ID }),
+    dispose: () => serverSDK.client.global.dispose().catch(() => undefined),
+    bootstrap: () => serverSync.bootstrap(),
+    status: () => serverSDK.client.provider.ruying.status(),
   })
 }
 

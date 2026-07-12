@@ -1,4 +1,4 @@
-import { afterEach, expect, mock, spyOn, test } from "bun:test"
+import { afterEach, expect, mock, test } from "bun:test"
 import { createComponent, createEffect, createRoot, createSignal } from "solid-js"
 import { insert, render } from "solid-js/web"
 
@@ -6,7 +6,11 @@ type Runtime = {
   client: {
     provider: {
       ruying: { status: () => Promise<{ data: { loggedIn: boolean } }> }
-      oauth: { authorize: (...args: unknown[]) => Promise<unknown>; callback: (...args: unknown[]) => Promise<unknown> }
+      oauth: {
+        authorize: (...args: unknown[]) => Promise<unknown>
+        callback: (...args: unknown[]) => Promise<unknown>
+        cancel: (...args: unknown[]) => Promise<unknown>
+      }
     }
     global: { dispose: () => Promise<unknown> }
   }
@@ -14,10 +18,12 @@ type Runtime = {
 }
 
 const [sdk, setSdk] = createSignal<Runtime>()
-const [sync, setSync] = createSignal({ ready: false })
+const [sync, setSync] = createSignal({ ready: false, bootstrap: async () => undefined })
+const openLink = mock((_url: string) => undefined)
 
 mock.module("@/context/server-sdk", () => ({ useServerSDK: () => sdk }))
 mock.module("@/context/server-sync", () => ({ useServerSync: () => sync }))
+mock.module("@/context/platform", () => ({ usePlatform: () => ({ openLink }) }))
 mock.module("@opencode-ai/ui/button", () => ({
   Button: (props: { children?: unknown; onClick?: () => void; disabled?: boolean }) => {
     const element = document.createElement("button")
@@ -37,17 +43,17 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-function runtime(loggedIn: boolean, removed: string[]) {
+function runtime(loggedIn: boolean, removed: string[]): Runtime {
   return {
     client: {
       provider: {
         ruying: { status: async () => ({ data: { loggedIn } }) },
-        oauth: { authorize: async () => ({}), callback: async () => ({}) },
+        oauth: { authorize: async () => ({}), callback: async () => ({}), cancel: async () => ({ data: true }) },
       },
       global: { dispose: async () => undefined },
     },
     event: { on: () => () => removed.push(loggedIn ? "logged-in" : "logged-out") },
-  } satisfies Runtime
+  }
 }
 
 async function settle() {
@@ -56,9 +62,15 @@ async function settle() {
   await Bun.sleep(1)
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => (resolve = done))
+  return { promise, resolve }
+}
+
 test("gate controller wires readiness and replaces the active SDK subscription", async () => {
   const removed: string[] = []
-  setSync({ ready: false })
+  setSync({ ready: false, bootstrap: async () => undefined })
   setSdk(runtime(true, removed))
   let controller!: ReturnType<typeof createRuyingGateController>
   const dispose = createRoot((close) => {
@@ -68,7 +80,7 @@ test("gate controller wires readiness and replaces the active SDK subscription",
 
   expect(controller.ready()).toBe(false)
   expect(controller.gate.state.status).toBe("checking")
-  setSync({ ready: true })
+  setSync({ ready: true, bootstrap: async () => undefined })
   await settle()
   expect(controller.gate.state.status).toBe("loggedIn")
 
@@ -81,7 +93,7 @@ test("gate controller wires readiness and replaces the active SDK subscription",
   expect(removed).toEqual(["logged-in", "logged-out"])
 })
 
-test("login controller wires SDK authorize, callback, dispose, and reload in order", async () => {
+test("login controller opens the browser and refreshes the captured server in place", async () => {
   const calls: string[] = []
   const current = runtime(false, [])
   current.client.provider.oauth.authorize = async () => {
@@ -92,36 +104,104 @@ test("login controller wires SDK authorize, callback, dispose, and reload in ord
     calls.push("callback")
     return { data: true }
   }
-  current.client.global.dispose = async () => {
-    calls.push("dispose")
+  current.client.global.dispose = async () => calls.push("dispose")
+  current.client.provider.ruying.status = async () => {
+    calls.push("status")
+    return { data: { loggedIn: true } }
   }
+  openLink.mockImplementation((url: string) => {
+    calls.push(`open:${url}`)
+  })
+  setSync({
+    ready: true,
+    bootstrap: async () => {
+      calls.push("bootstrap")
+    },
+  })
   setSdk(current)
 
   let login!: ReturnType<typeof createRuyingLoginController>
   const dispose = createRoot((close) => {
-    login = createRuyingLoginController(() => calls.push("reload"))
+    login = createRuyingLoginController()
     return close
   })
   await login.login()
 
-  expect(calls).toEqual(["authorize", "callback", "dispose", "reload"])
+  expect(calls).toEqual([
+    "authorize",
+    "open:https://sso.example/login",
+    "callback",
+    "dispose",
+    "bootstrap",
+    "status",
+  ])
+  dispose()
+})
+
+test("pending login remains bound to the server that authorized it", async () => {
+  const callback = deferred<{ data?: boolean; error?: unknown }>()
+  const calls: string[] = []
+  const first = runtime(false, [])
+  first.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
+  first.client.provider.oauth.callback = () => callback.promise
+  first.client.global.dispose = async () => {
+    calls.push("first:dispose")
+  }
+  first.client.provider.ruying.status = async () => {
+    calls.push("first:status")
+    return { data: { loggedIn: true } }
+  }
+  const second = runtime(false, [])
+  second.client.global.dispose = async () => {
+    calls.push("second:dispose")
+  }
+  second.client.provider.ruying.status = async () => {
+    calls.push("second:status")
+    return { data: { loggedIn: true } }
+  }
+  setSync({
+    ready: true,
+    bootstrap: async () => {
+      calls.push("first:bootstrap")
+    },
+  })
+  setSdk(first)
+
+  let login!: ReturnType<typeof createRuyingLoginController>
+  const dispose = createRoot((close) => {
+    login = createRuyingLoginController()
+    return close
+  })
+  const pending = login.login()
+  await Promise.resolve()
+  setSdk(second)
+  setSync({
+    ready: true,
+    bootstrap: async () => {
+      calls.push("second:bootstrap")
+    },
+  })
+  callback.resolve({ data: true })
+  await pending
+
+  expect(calls).toEqual(["first:dispose", "first:bootstrap", "first:status"])
   dispose()
 })
 
 test("mounted RuyingGate renders checking, logged-out, and logged-in child states", async () => {
   const removed: string[] = []
-  setSync({ ready: false })
+  setSync({ ready: false, bootstrap: async () => undefined })
   setSdk(runtime(false, removed))
   const first = mountGate()
   expect(first.host.textContent).toContain("正在检查 GWM SSO 登录状态")
 
-  setSync({ ready: true })
+  setSync({ ready: true, bootstrap: async () => undefined })
   await settle()
   expect(first.host.textContent).toContain("SSO 登录")
   expect(first.host.textContent).not.toContain("PROTECTED CHILD")
   first.dispose()
 
-  setSync({ ready: true })
+  setSync({ ready: true, bootstrap: async () => undefined })
   setSdk(runtime(true, removed))
   const second = mountGate()
   await settle()
@@ -138,7 +218,7 @@ test("mounted RuyingGate renders an error and retry unlocks the protected child"
     if (calls === 1) return { error: new Error("status failed") } as never
     return { data: { loggedIn: true } }
   }
-  setSync({ ready: true })
+  setSync({ ready: true, bootstrap: async () => undefined })
   setSdk(current)
   const gate = mountGate()
 
@@ -156,33 +236,67 @@ test("mounted RuyingGate renders an error and retry unlocks the protected child"
   gate.dispose()
 })
 
-test("mounted RuyingLogin button wires authorize, callback, dispose, and reload", async () => {
-  const calls: string[] = []
+test("mounted login unlocks the gate in place after the disposed lifecycle refresh", async () => {
+  let loggedIn = false
+  let listener: ((event: { type: string }) => void) | undefined
   const current = runtime(false, [])
-  current.client.provider.oauth.authorize = async () => {
-    calls.push("authorize")
-    return { data: { url: "https://sso.example/login" } }
-  }
+  current.client.provider.ruying.status = async () => ({ data: { loggedIn } })
+  current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
   current.client.provider.oauth.callback = async () => {
-    calls.push("callback")
+    loggedIn = true
     return { data: true }
   }
   current.client.global.dispose = async () => {
-    calls.push("dispose")
+    listener?.({ type: "global.disposed" })
   }
-  const reload = spyOn(window.location, "reload").mockImplementation(() => calls.push("reload"))
-  setSync({ ready: true })
+  current.event.on = (_scope, next) => {
+    listener = next
+    return () => undefined
+  }
+  setSync({ ready: true, bootstrap: async () => undefined })
   setSdk(current)
   const gate = mountGate()
 
   await settle()
-  const login = [...gate.host.querySelectorAll("button")].find((button) => button.textContent?.includes("SSO 登录"))
-  if (!login) throw new Error("login button not rendered")
-  login.click()
+  const start = [...gate.host.querySelectorAll("button")].find((button) => button.textContent?.includes("SSO 登录"))
+  if (!start) throw new Error("login button not rendered")
+  start.click()
   await settle()
 
-  expect(calls).toEqual(["authorize", "callback", "dispose", "reload"])
-  reload.mockRestore()
+  expect(gate.host.textContent).toContain("PROTECTED CHILD")
+  expect(gate.host.textContent).not.toContain("SSO 登录")
+  gate.dispose()
+})
+
+test("mounted login exposes a fallback url and cancels the pending callback", async () => {
+  const callback = deferred<{ data?: boolean; error?: unknown }>()
+  const calls: string[] = []
+  const current = runtime(false, [])
+  current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
+  current.client.provider.oauth.callback = () => callback.promise
+  current.client.provider.oauth.cancel = async () => {
+    calls.push("cancel")
+    return { data: true }
+  }
+  setSync({ ready: true, bootstrap: async () => undefined })
+  setSdk(current)
+  const gate = mountGate()
+
+  await settle()
+  const start = [...gate.host.querySelectorAll("button")].find((button) => button.textContent?.includes("SSO 登录"))
+  if (!start) throw new Error("login button not rendered")
+  start.click()
+  await settle()
+
+  expect(gate.host.querySelector("a")?.textContent).toBe("https://sso.example/login")
+  const cancel = [...gate.host.querySelectorAll("button")].find((button) => button.textContent?.includes("取消登录"))
+  if (!cancel) throw new Error("cancel button not rendered")
+  cancel.click()
+  await settle()
+
+  expect(calls).toEqual(["cancel"])
+  expect(gate.host.textContent).toContain("SSO 登录")
+  callback.resolve({ error: new Error("canceled") })
   gate.dispose()
 })
 
