@@ -294,6 +294,140 @@ test("mounted login explicitly unlocks the gate without a disposed lifecycle eve
   gate.dispose()
 })
 
+test("disposed lifecycle cannot unlock mounted content before bootstrap and final status", async () => {
+  const bootstrapping = deferred<void>()
+  let loggedIn = false
+  let listener: ((event: { type: string }) => void) | undefined
+  const current = runtime(false, [])
+  current.client.provider.ruying.status = async () => ({ data: { loggedIn } })
+  current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
+  current.client.provider.oauth.callback = async () => {
+    loggedIn = true
+    return { data: true }
+  }
+  current.client.global.dispose = async () => listener?.({ type: "global.disposed" })
+  current.event.on = (_scope, next) => {
+    listener = next
+    return () => undefined
+  }
+  setSync({
+    ready: true,
+    bootstrap: async () => {
+      await bootstrapping.promise
+      return undefined
+    },
+  })
+  setSdk(current)
+  const gate = mountGate()
+  await settle()
+  const start = [...gate.host.querySelectorAll("button")].find((button) => button.textContent?.includes("SSO 登录"))
+  if (!start) throw new Error("login button not rendered")
+
+  start.click()
+  await settle()
+  expect(gate.host.textContent).not.toContain("PROTECTED CHILD")
+  expect(gate.host.textContent).not.toContain("取消登录")
+
+  bootstrapping.resolve()
+  await settle()
+  expect(gate.host.textContent).toContain("PROTECTED CHILD")
+  gate.dispose()
+})
+
+test("disposed lifecycle remains locked when committed bootstrap or status fails", async () => {
+  for (const failure of ["bootstrap", "status"] as const) {
+    let loggedIn = false
+    let listener: ((event: { type: string }) => void) | undefined
+    const current = runtime(false, [])
+    current.client.provider.ruying.status = async () => {
+      if (loggedIn && failure === "status") throw new Error("offline")
+      return { data: { loggedIn } }
+    }
+    current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
+    current.client.provider.oauth.callback = async () => {
+      loggedIn = true
+      return { data: true }
+    }
+    current.client.global.dispose = async () => listener?.({ type: "global.disposed" })
+    current.event.on = (_scope, next) => {
+      listener = next
+      return () => undefined
+    }
+    setSync({
+      ready: true,
+      bootstrap: async () => {
+        if (failure === "bootstrap") throw new Error("offline")
+      },
+    })
+    setSdk(current)
+    const gate = mountGate()
+    await settle()
+    const start = [...gate.host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("SSO 登录"),
+    )
+    if (!start) throw new Error("login button not rendered")
+
+    start.click()
+    await settle()
+
+    expect(gate.host.textContent).toContain("无法刷新登录状态，请重试")
+    expect(gate.host.textContent).not.toContain("PROTECTED CHILD")
+    gate.dispose()
+    gate.host.remove()
+  }
+})
+
+test("mounted finalization cannot invoke cancel at dispose, bootstrap, or status", async () => {
+  for (const boundary of ["dispose", "bootstrap", "status"] as const) {
+    const callback = deferred<{ data?: boolean; error?: unknown }>()
+    const paused = deferred<void>()
+    const calls: string[] = []
+    const current = runtime(false, [])
+    current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
+    current.client.provider.oauth.callback = () => callback.promise
+    current.client.provider.oauth.cancel = async () => {
+      calls.push("cancel")
+      return { data: true }
+    }
+    current.client.global.dispose = async () => {
+      calls.push("dispose")
+      if (boundary === "dispose") await paused.promise
+    }
+    current.client.provider.ruying.status = async () => {
+      calls.push("status")
+      if (boundary === "status") await paused.promise
+      return { data: { loggedIn: true } }
+    }
+    setSync({
+      ready: true,
+      bootstrap: async () => {
+        calls.push("bootstrap")
+        if (boundary === "bootstrap") await paused.promise
+      },
+    })
+    setSdk(current)
+    const login = mountLogin()
+    const start = [...login.host.querySelectorAll("button")].find((button) => button.textContent?.includes("SSO 登录"))
+    if (!start) throw new Error("login button not rendered")
+    start.click()
+    await settle()
+    const cancel = [...login.host.querySelectorAll("button")].find((button) => button.textContent?.includes("取消登录"))
+    if (!cancel) throw new Error("cancel button not rendered while callback is pending")
+
+    callback.resolve({ data: true })
+    while (!calls.includes(boundary)) await Bun.sleep(1)
+    expect(login.host.textContent).toContain("正在完成登录")
+    expect(login.host.textContent).not.toContain("取消登录")
+    cancel.click()
+    expect(calls).not.toContain("cancel")
+
+    paused.resolve()
+    await settle()
+    login.dispose()
+    login.host.remove()
+  }
+})
+
 test("mounted dispose failure leaves the outer gate locked with a retryable error", async () => {
   const current = runtime(false, [])
   current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })

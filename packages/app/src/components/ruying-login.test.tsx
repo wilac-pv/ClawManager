@@ -96,12 +96,62 @@ test("an authenticated handoff cannot unlock a replacement server runtime", asyn
   const pending = deferred<StatusResult>()
   const gate = createRuyingGateState(() => pending.promise)
   gate.activate({ status: () => pending.promise, subscribe: () => () => undefined })
-  const stale = gate.createAuthenticatedHandoff()
+  const stale = gate.createLoginHandoff()
   gate.activate({ status: () => pending.promise, subscribe: () => () => undefined })
 
-  stale()
+  stale.committed()
+  stale.authenticated()
 
   expect(gate.state.status).toBe("checking")
+})
+
+test("a committed login suppresses disposed status refresh until its explicit handoff", async () => {
+  let loggedIn = false
+  let listener: ((event: { type: string }) => void) | undefined
+  const gate = createRuyingGateState(async () => ({ data: { loggedIn } }))
+  gate.activate({
+    status: async () => ({ data: { loggedIn } }),
+    subscribe: (next) => {
+      listener = next
+      return () => undefined
+    },
+  })
+  await Promise.resolve()
+  expect(gate.state.status).toBe("loggedOut")
+  const handoff = gate.createLoginHandoff()
+
+  handoff.committed()
+  loggedIn = true
+  listener?.({ type: "global.disposed" })
+  await Promise.resolve()
+
+  expect(gate.state.status).toBe("loggedOut")
+  handoff.authenticated()
+  expect(gate.state.status).toBe("loggedIn")
+})
+
+test("a failed committed login remains locked despite persisted-credential lifecycle events", async () => {
+  let loggedIn = true
+  let listener: ((event: { type: string }) => void) | undefined
+  const gate = createRuyingGateState(async () => ({ data: { loggedIn } }))
+  gate.activate({
+    status: async () => ({ data: { loggedIn } }),
+    subscribe: (next) => {
+      listener = next
+      return () => undefined
+    },
+  })
+  await Promise.resolve()
+  const handoff = gate.createLoginHandoff()
+  handoff.committed()
+  listener?.({ type: "global.disposed" })
+  await Promise.resolve()
+  handoff.failed()
+
+  expect(gate.state.status).toBe("loggedOut")
+  listener?.({ type: "server.connected" })
+  await Promise.resolve()
+  expect(gate.state.status).toBe("loggedOut")
 })
 
 async function verifyStatusRetry(first: () => Promise<StatusResult>) {
@@ -449,6 +499,68 @@ test("newer attempts ignore older bootstrap and status continuations", async () 
     expect(events).not.toContain("authenticated")
     expect(events.filter((event) => event === "status")).toHaveLength(boundary === "bootstrap" ? 0 : 1)
   }
+})
+
+test("credential finalization cannot be canceled at dispose, bootstrap, or status", async () => {
+  for (const boundary of ["dispose", "bootstrap", "status"] as const) {
+    const paused = deferred<void>()
+    const events: string[] = []
+    const login = createRuyingLoginState({
+      authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+      openLink: () => undefined,
+      callback: async () => ({ data: true }),
+      cancel: async () => {
+        events.push("cancel")
+        return { data: true }
+      },
+      dispose: async () => {
+        events.push("dispose")
+        if (boundary === "dispose") await paused.promise
+      },
+      bootstrap: async () => {
+        events.push("bootstrap")
+        if (boundary === "bootstrap") await paused.promise
+      },
+      status: async () => {
+        events.push("status")
+        if (boundary === "status") await paused.promise
+        return { data: { loggedIn: true } }
+      },
+      committed: () => events.push("committed"),
+      failed: () => events.push("failed"),
+      authenticated: () => events.push("authenticated"),
+    })
+
+    const finalizing = login.login()
+    while (!events.includes(boundary)) await Bun.sleep(1)
+    expect(login.state.status).toBe("refreshing")
+    await login.cancel()
+    expect(events).not.toContain("cancel")
+    paused.resolve()
+    await finalizing
+    expect(events.at(-1)).toBe("authenticated")
+  }
+})
+
+test("refresh failure reports the failed handoff without reporting authentication", async () => {
+  const events: string[] = []
+  const login = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: () => undefined,
+    callback: async () => ({ data: true }),
+    cancel: async () => ({ data: true }),
+    dispose: async () => undefined,
+    bootstrap: async () => Promise.reject(new Error("offline")),
+    status: async () => ({ data: { loggedIn: true } }),
+    committed: () => events.push("committed"),
+    failed: () => events.push("failed"),
+    authenticated: () => events.push("authenticated"),
+  })
+
+  await login.login()
+
+  expect(events).toEqual(["committed", "failed"])
+  expect(login.state.status).toBe("error")
 })
 
 test("dispose failure stays retryable and never reports authentication", async () => {

@@ -10,7 +10,7 @@ const RUYING_PROVIDER_ID = "ruying"
 
 type RuyingUser = { employeeId: string; displayName: string; email: string }
 type GateStatus = "checking" | "error" | "loggedOut" | "loggedIn"
-type LoginStatus = "idle" | "pending" | "canceling" | "error"
+type LoginStatus = "idle" | "pending" | "refreshing" | "canceling" | "error"
 
 export function readRuyingUser(options: unknown): RuyingUser | undefined {
   if (!options || typeof options !== "object" || !("ruyingUser" in options)) return undefined
@@ -35,6 +35,7 @@ export function createRuyingGateState(
       }
     | undefined
   let unsubscribe: (() => void) | undefined
+  let finalizing: typeof active
 
   async function check(next = active?.status ?? status) {
     const current = ++request
@@ -61,8 +62,10 @@ export function createRuyingGateState(
     request++
     unsubscribe?.()
     active = runtime
+    finalizing = undefined
     const stop = runtime.subscribe((event) => {
       if (event.type !== "server.connected" && event.type !== "global.disposed") return
+      if (finalizing === runtime) return
       void check(runtime.status)
     })
     unsubscribe = stop
@@ -71,21 +74,36 @@ export function createRuyingGateState(
       if (active !== runtime) return
       request++
       active = undefined
+      finalizing = undefined
       unsubscribe = undefined
       stop()
     }
   }
 
-  function createAuthenticatedHandoff() {
+  function createLoginHandoff() {
     const runtime = active
-    return () => {
-      if (!runtime || active !== runtime) return
-      request++
-      setState({ status: "loggedIn", message: "" })
+    return {
+      committed: () => {
+        if (!runtime || active !== runtime) return
+        request++
+        finalizing = runtime
+        setState({ status: "loggedOut", message: "" })
+      },
+      failed: () => {
+        if (!runtime || active !== runtime || finalizing !== runtime) return
+        request++
+        setState({ status: "loggedOut", message: "" })
+      },
+      authenticated: () => {
+        if (!runtime || active !== runtime || finalizing !== runtime) return
+        request++
+        finalizing = undefined
+        setState({ status: "loggedIn", message: "" })
+      },
     }
   }
 
-  return { state, check, retry, activate, createAuthenticatedHandoff }
+  return { state, check, retry, activate, createLoginHandoff }
 }
 
 export function createRuyingLoginState(input: {
@@ -97,6 +115,8 @@ export function createRuyingLoginState(input: {
   dispose: () => Promise<unknown>
   bootstrap: () => Promise<unknown>
   status: () => Promise<{ data?: { loggedIn: boolean }; error?: unknown }>
+  committed?: () => void
+  failed?: () => void
   authenticated?: () => void
 }) {
   const [state, setState] = createStore({
@@ -171,6 +191,8 @@ export function createRuyingLoginState(input: {
         return
       }
       committed = current
+      setState("status", "refreshing")
+      input.committed?.()
       phase = "refresh"
       await input.dispose()
       if (current !== attempt) return
@@ -180,6 +202,7 @@ export function createRuyingLoginState(input: {
       if (current !== attempt) return
       if (refreshed.error || !refreshed.data?.loggedIn) {
         committed = 0
+        input.failed?.()
         setState({ status: "error", message: "登录状态未生效，请重试。", authUrl: authorized.data.url })
         return
       }
@@ -189,7 +212,10 @@ export function createRuyingLoginState(input: {
       committed = 0
     } catch {
       if (current !== attempt) return
-      if (phase === "refresh") committed = 0
+      if (phase === "refresh") {
+        committed = 0
+        input.failed?.()
+      }
       setState({
         status: "error",
         message:
@@ -238,8 +264,14 @@ export function createRuyingLoginState(input: {
   return { state, login, cancel, open, invalidate }
 }
 
-export function RuyingLogin(props: { authenticated?: () => void }) {
-  const login = createRuyingLoginController(props.authenticated)
+type LoginHandoff = {
+  committed: () => void
+  failed: () => void
+  authenticated: () => void
+}
+
+export function RuyingLogin(props: { handoff?: LoginHandoff }) {
+  const login = createRuyingLoginController(props.handoff)
 
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6 select-none">
@@ -247,7 +279,11 @@ export function RuyingLogin(props: { authenticated?: () => void }) {
         <Splash class="w-12 h-15" />
         <div class="text-16-medium text-text-strong">如影编码网关</div>
         <Show
-          when={login.state.status === "pending" || login.state.status === "canceling"}
+          when={
+            login.state.status === "pending" ||
+            login.state.status === "refreshing" ||
+            login.state.status === "canceling"
+          }
           fallback={
             <>
               <p class="text-14-regular text-text-weak">请使用 GWM SSO 登录以继续使用</p>
@@ -261,7 +297,9 @@ export function RuyingLogin(props: { authenticated?: () => void }) {
           }
         >
           <Splash class="w-8 h-10 opacity-50 animate-pulse" />
-          <p class="text-14-regular text-text-base">正在等待浏览器完成 SSO 登录…</p>
+          <p class="text-14-regular text-text-base">
+            {login.state.status === "refreshing" ? "正在完成登录…" : "正在等待浏览器完成 SSO 登录…"}
+          </p>
           <Show when={login.state.authUrl}>
             <a
               href={login.state.authUrl}
@@ -277,21 +315,23 @@ export function RuyingLogin(props: { authenticated?: () => void }) {
           <Show when={login.state.message}>
             <p class="text-12-regular text-text-base">{login.state.message}</p>
           </Show>
-          <Button
-            variant="secondary"
-            size="large"
-            disabled={login.state.status === "canceling"}
-            onClick={login.cancel}
-          >
-            {login.state.status === "canceling" ? "正在取消…" : "取消登录"}
-          </Button>
+          <Show when={login.state.status !== "refreshing"}>
+            <Button
+              variant="secondary"
+              size="large"
+              disabled={login.state.status === "canceling"}
+              onClick={login.cancel}
+            >
+              {login.state.status === "canceling" ? "正在取消…" : "取消登录"}
+            </Button>
+          </Show>
         </Show>
       </div>
     </div>
   )
 }
 
-export function createRuyingLoginController(authenticated?: () => void) {
+export function createRuyingLoginController(handoff?: LoginHandoff) {
   const serverSDK = useServerSDK()()
   const serverSync = useServerSync()()
   const platform = usePlatform()
@@ -308,7 +348,9 @@ export function createRuyingLoginController(authenticated?: () => void) {
     dispose: () => serverSDK.client.global.dispose(),
     bootstrap: () => serverSync.bootstrap(),
     status: () => serverSDK.client.provider.ruying.status(),
-    authenticated,
+    committed: handoff?.committed,
+    failed: handoff?.failed,
+    authenticated: handoff?.authenticated,
   })
   onCleanup(login.invalidate)
   return login
@@ -341,7 +383,7 @@ export function RuyingGate(props: ParentProps) {
       >
         <Show
           when={gate.state.status === "loggedIn"}
-          fallback={<RuyingLogin authenticated={gate.createAuthenticatedHandoff()} />}
+          fallback={<RuyingLogin handoff={gate.createLoginHandoff()} />}
         >
           {props.children}
         </Show>
