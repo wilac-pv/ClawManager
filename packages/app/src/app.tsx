@@ -160,9 +160,7 @@ function SelectedServerProviders(props: ParentProps) {
   return (
     <ServerKey>
       <ServerSDKProvider>
-        <ServerSyncProvider>
-          <RuyingGate>{props.children}</RuyingGate>
-        </ServerSyncProvider>
+        <ServerSyncProvider>{props.children}</ServerSyncProvider>
       </ServerSDKProvider>
     </ServerKey>
   )
@@ -333,7 +331,9 @@ function ServerScopedProviders(props: ServerScopedShellProps) {
     <PermissionProvider directory={props.directory}>
       <LayoutProvider>
         {props.serverScoped}
-        <ModelsProvider directory={props.directory}>{props.children}</ModelsProvider>
+        <RuyingGate>
+          <ModelsProvider directory={props.directory}>{props.children}</ModelsProvider>
+        </RuyingGate>
       </LayoutProvider>
     </PermissionProvider>
   )
@@ -347,10 +347,10 @@ function LegacyServerScopedShell(props: ServerScopedShellProps) {
   )
 }
 
-function NewAppLayout(props: ParentProps) {
+function NewAppLayout(props: ParentProps<{ serverScoped?: JSX.Element }>) {
   return (
     <SelectedServerProviders>
-      <ServerScopedProviders>
+      <ServerScopedProviders serverScoped={props.serverScoped}>
         <NewLayout>{props.children}</NewLayout>
       </ServerScopedProviders>
     </SelectedServerProviders>
@@ -577,7 +577,7 @@ export function AppInterface(props: {
                     <NotificationProvider>
                       <ServerShell>
                         <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
-                          <NewAppLayout>{routerProps.children}</NewAppLayout>
+                          <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
                         </Show>
                       </ServerShell>
                     </NotificationProvider>
