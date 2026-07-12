@@ -2,7 +2,7 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { createServer, type ServerResponse } from "http"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "fs"
-import { chmod, rename, rm, stat, writeFile } from "fs/promises"
+import { chmod, readFile, rename, rm, stat, writeFile } from "fs/promises"
 import { basename, dirname, join, resolve } from "path"
 import { tmpdir } from "os"
 import open from "open"
@@ -490,7 +490,7 @@ function queueProviderConfigWrite(target: string, task: () => Promise<void>) {
 
 async function providerConfigEdit(file: string, gatewayApiBase: string, modelIds: string[], user: RuyingUser) {
   const exists = existsSync(file)
-  const source = exists ? await Bun.file(file).text() : "{}"
+  const source = exists ? await readFile(file, "utf8") : "{}"
   const errors: ParseError[] = []
   const config: unknown = parse(source, errors, { allowTrailingComma: true })
   if (errors.length) throw new RuyingConfigPublicationError(file, "invalid-jsonc")
@@ -537,7 +537,7 @@ async function writeTemporaryConfig(file: string, output: string, mode: number) 
 
 async function restoreOwnedConfig(file: string, snapshot: OwnedConfigSnapshot) {
   if (!existsSync(file)) return
-  const source = await Bun.file(file).text()
+  const source = await readFile(file, "utf8")
   const errors: ParseError[] = []
   const config: unknown = parse(source, errors, { allowTrailingComma: true })
   if (errors.length || !isRecord(config)) return

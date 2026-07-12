@@ -59,6 +59,7 @@ describe("plugin.ruying", () => {
     expect(source).not.toContain("DEFAULT_CHECK_TOKEN_URL")
     expect(source).not.toContain("verifyAccessToken")
     expect(source).not.toContain("?access_token=")
+    expect(source).not.toContain("Bun.file(")
   })
 
   describe("globalConfigFile", () => {
