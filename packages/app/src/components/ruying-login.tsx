@@ -9,7 +9,7 @@ const RUYING_PROVIDER_ID = "ruying"
 
 type RuyingUser = { employeeId: string; displayName: string; email: string }
 type GateStatus = "checking" | "error" | "loggedOut" | "loggedIn"
-type LoginStatus = "idle" | "pending" | "error"
+type LoginStatus = "idle" | "pending" | "canceling" | "error"
 
 export function readRuyingUser(options: unknown): RuyingUser | undefined {
   if (!options || typeof options !== "object" || !("ruyingUser" in options)) return undefined
@@ -83,41 +83,95 @@ export function createRuyingGateState(
 
 export function createRuyingLoginState(input: {
   authorize: () => Promise<{ data?: { url?: string }; error?: unknown }>
+  openLink: (url: string) => void
   callback: () => Promise<{ data?: boolean; error?: unknown }>
+  cancel: () => Promise<{ data?: boolean; error?: unknown }>
   dispose: () => Promise<unknown>
-  reload: () => unknown
+  bootstrap: () => Promise<unknown>
+  status: () => Promise<{ data?: { loggedIn: boolean }; error?: unknown }>
 }) {
   const [state, setState] = createStore({
     status: "idle" as LoginStatus,
     message: "",
     authUrl: "",
   })
+  let attempt = 0
 
-  async function login() {
-    setState({ status: "pending", message: "", authUrl: "" })
+  function open() {
+    if (!state.authUrl) return
     try {
-      const authorized = await input.authorize()
-      if (authorized.error) throw new Error("无法启动 GWM SSO 登录，请重试。")
-      if (authorized.data?.url) setState("authUrl", authorized.data.url)
-      const result = await input.callback()
-      if (result.error) {
-        setState({
-          status: "error",
-          message: "登录失败，请重试。若提示待管理员开通，请联系管理员开通后再登录。",
-        })
-        return
-      }
-      // Success. The callback persisted the credential and identity. Dispose the
-      // server's cached config, then reload so the gate performs a fresh
-      // authoritative session check before showing the app.
-      await input.dispose()
-      input.reload()
-    } catch (error) {
-      setState({ status: "error", message: error instanceof Error ? error.message : String(error) })
+      input.openLink(state.authUrl)
+    } catch {
+      setState("message", "未能自动打开浏览器，请点击或复制下方链接继续登录。")
     }
   }
 
-  return { state, login }
+  async function login() {
+    const current = ++attempt
+    setState({ status: "pending", message: "", authUrl: "" })
+    try {
+      const authorized = await input.authorize()
+      if (current !== attempt) return
+      if (authorized.error || !authorized.data?.url) {
+        setState({ status: "error", message: "无法启动 GWM SSO 登录，请重试。", authUrl: "" })
+        return
+      }
+      setState("authUrl", authorized.data.url)
+      open()
+      const result = await input.callback()
+      if (current !== attempt) return
+      if (result.error || result.data !== true) {
+        setState({
+          status: "error",
+          message: "登录失败，请重试。若提示待管理员开通，请联系管理员开通后再登录。",
+          authUrl: authorized.data.url,
+        })
+        return
+      }
+      await input.dispose()
+      if (current !== attempt) return
+      await input.bootstrap()
+      if (current !== attempt) return
+      const refreshed = await input.status()
+      if (current !== attempt) return
+      if (refreshed.error || !refreshed.data?.loggedIn) {
+        setState({ status: "error", message: "登录状态未生效，请重试。", authUrl: authorized.data.url })
+        return
+      }
+      setState({ status: "idle", message: "", authUrl: "" })
+    } catch {
+      if (current !== attempt) return
+      setState({
+        status: "error",
+        message: state.authUrl ? "登录失败，请重试。" : "无法启动 GWM SSO 登录，请重试。",
+        authUrl: state.authUrl,
+      })
+    }
+  }
+
+  async function cancel() {
+    if (state.status !== "pending") return
+    const current = ++attempt
+    setState("status", "canceling")
+    try {
+      const result = await input.cancel()
+      if (current !== attempt) return
+      if (result.error || result.data !== true) {
+        setState({ status: "error", message: "取消登录失败，请重试。", authUrl: state.authUrl })
+        return
+      }
+      setState({ status: "idle", message: "", authUrl: "" })
+    } catch {
+      if (current !== attempt) return
+      setState({
+        status: "error",
+        message: "取消登录失败，请重试。",
+        authUrl: state.authUrl,
+      })
+    }
+  }
+
+  return { state, login, cancel, open }
 }
 
 export function RuyingLogin() {
