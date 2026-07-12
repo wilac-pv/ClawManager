@@ -485,7 +485,11 @@ test("pending login remains bound to the server that authorized it", async () =>
 Run from `packages/app`:
 
 ```bash
-bun test --preload ./happydom.ts ./src/components/ruying-wiring.test.tsx -t "opens the browser and refreshes"
+bun test --conditions=browser \
+  --preload ./happydom.ts \
+  --preload ./solid-test-preload.ts \
+  ./src/components/ruying-wiring.test.tsx \
+  -t "opens the browser and refreshes"
 ```
 
 Expected: FAIL because the controller still uses `reload` and server sync exposes no `bootstrap` method.
@@ -651,10 +655,11 @@ Reuse the `deferred` helper added to this test file in Step 1.
 Run from `packages/app`:
 
 ```bash
-bun test --preload ./happydom.ts \
-  ./src/components/ruying-login.test.tsx \
-  ./src/components/ruying-wiring.test.tsx \
-  ./src/context/server-sync.test.ts
+bun test --preload ./happydom.ts ./src/components/ruying-login.test.tsx ./src/context/server-sync.test.ts
+bun test --conditions=browser \
+  --preload ./happydom.ts \
+  --preload ./solid-test-preload.ts \
+  ./src/components/ruying-wiring.test.tsx
 ```
 
 Expected: all tests PASS with zero failures.
@@ -763,8 +768,10 @@ function NewAppLayout(props: ParentProps) {
 Run from `packages/app`:
 
 ```bash
-bun test --preload ./happydom.ts \
-  ./src/ruying-layout-gate.test.ts \
+bun test ./src/ruying-layout-gate.test.ts
+bun test --conditions=browser \
+  --preload ./happydom.ts \
+  --preload ./solid-test-preload.ts \
   ./src/components/ruying-wiring.test.tsx
 ```
 
@@ -775,7 +782,10 @@ Expected: all tests PASS with zero failures.
 Run from `packages/app`:
 
 ```bash
-bun run test:unit
+bun test --conditions=browser \
+  --preload ./happydom.ts \
+  --preload ./solid-test-preload.ts \
+  ./src
 bun typecheck
 ```
 
@@ -805,10 +815,11 @@ git commit -m "fix(app): gate legacy layout login"
 
 ```bash
 cd packages/app
-bun test --preload ./happydom.ts \
-  ./src/components/ruying-login.test.tsx \
-  ./src/components/ruying-wiring.test.tsx \
-  ./src/ruying-layout-gate.test.ts
+bun test --preload ./happydom.ts ./src/components/ruying-login.test.tsx ./src/ruying-layout-gate.test.ts
+bun test --conditions=browser \
+  --preload ./happydom.ts \
+  --preload ./solid-test-preload.ts \
+  ./src/components/ruying-wiring.test.tsx
 ```
 
 Expected: all tests PASS with zero failures.
