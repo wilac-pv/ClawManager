@@ -176,8 +176,6 @@ export function createRuyingLoginState(input: {
         } catch {
           setState("message", "未能自动打开浏览器，请点击或复制下方链接继续登录。")
         }
-      } else if (!reservable) {
-        open()
       }
       phase = "callback"
       const result = await input.callback()

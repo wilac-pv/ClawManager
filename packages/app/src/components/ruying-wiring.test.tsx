@@ -96,7 +96,7 @@ test("gate controller wires readiness and replaces the active SDK subscription",
   expect(removed).toEqual(["logged-in", "logged-out"])
 })
 
-test("login controller opens the browser and refreshes the captured server in place", async () => {
+test("login controller waits for provider browser auth and refreshes the captured server in place", async () => {
   const calls: string[] = []
   const current = runtime(false, [])
   current.client.provider.oauth.authorize = async () => {
@@ -132,7 +132,6 @@ test("login controller opens the browser and refreshes the captured server in pl
 
   expect(calls).toEqual([
     "authorize",
-    "open:https://sso.example/login",
     "callback",
     "dispose",
     "bootstrap",

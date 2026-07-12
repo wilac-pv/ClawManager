@@ -230,6 +230,27 @@ test("callback failure returns to a retryable login state", async () => {
   expect(login.state.message).toContain("登录失败，请重试")
 })
 
+test("desktop login does not reopen the provider-owned browser URL", async () => {
+  const callback = deferred<{ data: boolean }>()
+  const opened: string[] = []
+  const login = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: (url) => opened.push(url),
+    callback: () => callback.promise,
+    cancel: async () => ({ data: true }),
+    dispose: async () => undefined,
+    bootstrap: async () => undefined,
+    status: async () => ({ data: { loggedIn: true } }),
+  })
+
+  const authenticating = login.login()
+  await Promise.resolve()
+
+  expect(opened).toEqual([])
+  callback.resolve({ data: false })
+  await authenticating
+})
+
 test("successful login awaits dispose before refreshing in place", async () => {
   const disposing = deferred<void>()
   const events: string[] = []
@@ -255,14 +276,14 @@ test("successful login awaits dispose before refreshing in place", async () => {
 
   const authenticating = login.login()
   while (!events.includes("dispose:start")) await Bun.sleep(1)
-  expect(events).toEqual(["open", "callback", "dispose:start"])
+  expect(events).toEqual(["callback", "dispose:start"])
 
   disposing.resolve()
   await authenticating
-  expect(events).toEqual(["open", "callback", "dispose:start", "dispose:end", "bootstrap", "status"])
+  expect(events).toEqual(["callback", "dispose:start", "dispose:end", "bootstrap", "status"])
 })
 
-test("opens the system browser before waiting for the oauth callback", async () => {
+test("waits for the provider-owned browser oauth callback", async () => {
   const callback = deferred<{ data?: boolean; error?: unknown }>()
   const events: string[] = []
   const login = createRuyingLoginState({
@@ -281,7 +302,7 @@ test("opens the system browser before waiting for the oauth callback", async () 
   const pending = login.login()
   await Promise.resolve()
 
-  expect(events).toEqual(["open:https://sso.example/login", "callback"])
+  expect(events).toEqual(["callback"])
   expect(login.state.status).toBe("pending")
 
   callback.resolve({ data: true })
@@ -334,12 +355,12 @@ test("successful callback refreshes in place and requires authoritative login st
 
   await login.login()
 
-  expect(events).toEqual(["open", "callback", "dispose", "bootstrap", "status"])
+  expect(events).toEqual(["callback", "dispose", "bootstrap", "status"])
   expect(login.state.status).toBe("error")
   expect(login.state.message).toContain("登录状态未生效")
 })
 
-test("a failed automatic browser open keeps the fallback url and callback active", async () => {
+test("a failed manual browser reopen keeps the fallback url and callback active", async () => {
   const callback = deferred<{ data?: boolean; error?: unknown }>()
   const login = createRuyingLoginState({
     authorize: async () => ({ data: { url: "https://sso.example/login" } }),
@@ -357,6 +378,7 @@ test("a failed automatic browser open keeps the fallback url and callback active
   await Promise.resolve()
   expect(login.state.status).toBe("pending")
   expect(login.state.authUrl).toBe("https://sso.example/login")
+  login.open()
   expect(login.state.message).toContain("复制")
 
   callback.resolve({ error: new Error("stopped") })
