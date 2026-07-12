@@ -160,7 +160,9 @@ function SelectedServerProviders(props: ParentProps) {
   return (
     <ServerKey>
       <ServerSDKProvider>
-        <ServerSyncProvider>{props.children}</ServerSyncProvider>
+        <ServerSyncProvider>
+          <RuyingGate>{props.children}</RuyingGate>
+        </ServerSyncProvider>
       </ServerSDKProvider>
     </ServerKey>
   )
@@ -336,11 +338,9 @@ function LegacyServerScopedShell(props: ServerScopedShellProps) {
 function NewAppLayout(props: ParentProps) {
   return (
     <SelectedServerProviders>
-      <RuyingGate>
-        <ServerScopedProviders>
-          <NewLayout>{props.children}</NewLayout>
-        </ServerScopedProviders>
-      </RuyingGate>
+      <ServerScopedProviders>
+        <NewLayout>{props.children}</NewLayout>
+      </ServerScopedProviders>
     </SelectedServerProviders>
   )
 }
