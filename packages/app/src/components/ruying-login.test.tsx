@@ -92,6 +92,18 @@ test("gate replaces lifecycle listener and ignores stale status", async () => {
   expect(removed).toEqual(["first", "second"])
 })
 
+test("an authenticated handoff cannot unlock a replacement server runtime", async () => {
+  const pending = deferred<StatusResult>()
+  const gate = createRuyingGateState(() => pending.promise)
+  gate.activate({ status: () => pending.promise, subscribe: () => () => undefined })
+  const stale = gate.createAuthenticatedHandoff()
+  gate.activate({ status: () => pending.promise, subscribe: () => () => undefined })
+
+  stale()
+
+  expect(gate.state.status).toBe("checking")
+})
+
 async function verifyStatusRetry(first: () => Promise<StatusResult>) {
   let calls = 0
   const gate = createRuyingGateState(async () => {
@@ -102,7 +114,7 @@ async function verifyStatusRetry(first: () => Promise<StatusResult>) {
 
   await gate.check()
   expect(gate.state.status).toBe("error")
-  expect(gate.state.message).toContain("重试")
+  expect(gate.state.message).toBe("无法检查 GWM SSO 登录状态，请重试。")
 
   await gate.check()
   expect(gate.state.status).toBe("loggedIn")
@@ -323,4 +335,278 @@ test("a newer login attempt ignores the older callback", async () => {
 
   expect(login.state.status).toBe("idle")
   expect(login.state.message).toBe("")
+})
+
+test("invalidating a pending login prevents its late callback from refreshing the old server", async () => {
+  const callback = deferred<{ data?: boolean; error?: unknown }>()
+  const events: string[] = []
+  const login = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: () => undefined,
+    callback: () => callback.promise,
+    cancel: async () => ({ data: true }),
+    dispose: async () => events.push("dispose"),
+    bootstrap: async () => events.push("bootstrap"),
+    status: async () => {
+      events.push("status")
+      return { data: { loggedIn: true } }
+    },
+    authenticated: () => events.push("authenticated"),
+  })
+
+  const pending = login.login()
+  await Promise.resolve()
+  login.invalidate()
+  callback.resolve({ data: true })
+  await pending
+
+  expect(events).toEqual([])
+  expect(login.state.status).toBe("idle")
+})
+
+test("cleanup during the committed dispose lifecycle preserves successful refresh and unlock", async () => {
+  const events: string[] = []
+  let login!: ReturnType<typeof createRuyingLoginState>
+  login = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: () => undefined,
+    callback: async () => ({ data: true }),
+    cancel: async () => ({ data: true }),
+    dispose: async () => {
+      events.push("dispose")
+      login.invalidate()
+    },
+    bootstrap: async () => events.push("bootstrap"),
+    status: async () => {
+      events.push("status")
+      return { data: { loggedIn: true } }
+    },
+    authenticated: () => events.push("authenticated"),
+  })
+
+  await login.login()
+
+  expect(events).toEqual(["dispose", "bootstrap", "status", "authenticated"])
+})
+
+test("a newer attempt makes an older dispose continuation phase-stale", async () => {
+  const disposing = deferred<void>()
+  const events: string[] = []
+  let callbacks = 0
+  const login = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: () => undefined,
+    callback: async () => ({ data: ++callbacks === 1 }),
+    cancel: async () => ({ data: true }),
+    dispose: async () => {
+      events.push("dispose")
+      await disposing.promise
+    },
+    bootstrap: async () => events.push("bootstrap"),
+    status: async () => ({ data: { loggedIn: true } }),
+    authenticated: () => events.push("authenticated"),
+  })
+
+  const stale = login.login()
+  while (!events.includes("dispose")) await Bun.sleep(1)
+  await login.login()
+  disposing.resolve()
+  await stale
+
+  expect(events).toEqual(["dispose"])
+  expect(login.state.status).toBe("error")
+})
+
+test("newer attempts ignore older bootstrap and status continuations", async () => {
+  for (const boundary of ["bootstrap", "status"] as const) {
+    const paused = deferred<void>()
+    const events: string[] = []
+    let callbacks = 0
+    const login = createRuyingLoginState({
+      authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+      openLink: () => undefined,
+      callback: async () => ({ data: ++callbacks === 1 }),
+      cancel: async () => ({ data: true }),
+      dispose: async () => events.push("dispose"),
+      bootstrap: async () => {
+        events.push("bootstrap")
+        if (boundary === "bootstrap") await paused.promise
+      },
+      status: async () => {
+        events.push("status")
+        if (boundary === "status") await paused.promise
+        return { data: { loggedIn: true } }
+      },
+      authenticated: () => events.push("authenticated"),
+    })
+
+    const stale = login.login()
+    while (!events.includes(boundary)) await Bun.sleep(1)
+    await login.login()
+    paused.resolve()
+    await stale
+
+    expect(events).not.toContain("authenticated")
+    expect(events.filter((event) => event === "status")).toHaveLength(boundary === "bootstrap" ? 0 : 1)
+  }
+})
+
+test("dispose failure stays retryable and never reports authentication", async () => {
+  const events: string[] = []
+  const login = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: () => undefined,
+    callback: async () => ({ data: true }),
+    cancel: async () => ({ data: true }),
+    dispose: async () => Promise.reject(new Error("secret dispose detail")),
+    bootstrap: async () => events.push("bootstrap"),
+    status: async () => ({ data: { loggedIn: true } }),
+    authenticated: () => events.push("authenticated"),
+  })
+
+  await login.login()
+
+  expect(login.state.status).toBe("error")
+  expect(login.state.message).toBe("无法刷新登录状态，请重试。")
+  expect(events).toEqual([])
+})
+
+test("authoritative success explicitly unlocks the owning gate", async () => {
+  const events: string[] = []
+  const login = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: () => undefined,
+    callback: async () => ({ data: true }),
+    cancel: async () => ({ data: true }),
+    dispose: async () => events.push("dispose"),
+    bootstrap: async () => events.push("bootstrap"),
+    status: async () => {
+      events.push("status")
+      return { data: { loggedIn: true } }
+    },
+    authenticated: () => events.push("authenticated"),
+  })
+
+  await login.login()
+
+  expect(events).toEqual(["dispose", "bootstrap", "status", "authenticated"])
+})
+
+test("reserves a web tab before authorize and navigates it after authorization", async () => {
+  const events: string[] = []
+  const login = createRuyingLoginState({
+    reserveLink: () => {
+      events.push("reserve")
+      return { navigate: (url) => events.push(`navigate:${url}`), close: () => events.push("close") }
+    },
+    authorize: async () => {
+      events.push("authorize")
+      return { data: { url: "https://sso.example/login" } }
+    },
+    openLink: () => events.push("open"),
+    callback: async () => {
+      events.push("callback")
+      return { error: new Error("stopped") }
+    },
+    cancel: async () => ({ data: true }),
+    dispose: async () => undefined,
+    bootstrap: async () => undefined,
+    status: async () => ({ data: { loggedIn: true } }),
+  })
+
+  await login.login()
+
+  expect(events).toEqual(["reserve", "authorize", "navigate:https://sso.example/login", "callback"])
+})
+
+test("blocked web tab reservation keeps the credential-safe fallback notice", async () => {
+  const callback = deferred<{ data?: boolean; error?: unknown }>()
+  const login = createRuyingLoginState({
+    reserveLink: () => undefined,
+    authorize: async () => ({ data: { url: "https://sso.example/private?token=secret" } }),
+    openLink: () => undefined,
+    callback: () => callback.promise,
+    cancel: async () => ({ data: true }),
+    dispose: async () => undefined,
+    bootstrap: async () => undefined,
+    status: async () => ({ data: { loggedIn: true } }),
+  })
+
+  const pending = login.login()
+  await Promise.resolve()
+
+  expect(login.state.message).toBe("浏览器阻止了新标签页，请点击或复制下方链接继续登录。")
+  expect(login.state.message).not.toContain("secret")
+  callback.resolve({ error: new Error("stopped") })
+  await pending
+})
+
+test("a stale authorize response cannot close a newer attempt's reserved tab", async () => {
+  const first = deferred<{ data?: { url?: string }; error?: unknown }>()
+  const second = deferred<{ data?: { url?: string }; error?: unknown }>()
+  const events: string[] = []
+  let authorizations = 0
+  let reservations = 0
+  const login = createRuyingLoginState({
+    reserveLink: () => {
+      const id = ++reservations
+      return { navigate: () => undefined, close: () => events.push(`close:${id}`) }
+    },
+    authorize: () => (++authorizations === 1 ? first.promise : second.promise),
+    openLink: () => undefined,
+    callback: async () => ({ data: true }),
+    cancel: async () => ({ data: true }),
+    dispose: async () => undefined,
+    bootstrap: async () => undefined,
+    status: async () => ({ data: { loggedIn: true } }),
+  })
+
+  const stale = login.login()
+  await Promise.resolve()
+  const current = login.login()
+  first.resolve({ data: { url: "https://sso.example/old" } })
+  await stale
+
+  expect(events).not.toContain("close:2")
+  second.resolve({ error: new Error("stop") })
+  await current
+  expect(events).toContain("close:2")
+})
+
+test("cancel, bootstrap, and status failures use bounded retryable messages", async () => {
+  const canceled = deferred<{ data?: boolean; error?: unknown }>()
+  const canceling = createRuyingLoginState({
+    authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+    openLink: () => undefined,
+    callback: () => canceled.promise,
+    cancel: async () => ({ error: new Error("secret cancel detail") }),
+    dispose: async () => undefined,
+    bootstrap: async () => undefined,
+    status: async () => ({ data: { loggedIn: true } }),
+  })
+  const pending = canceling.login()
+  await Promise.resolve()
+  await canceling.cancel()
+  expect(canceling.state.message).toBe("取消登录失败，请重试。")
+  canceled.resolve({ error: new Error("stale callback detail") })
+  await pending
+
+  for (const failure of ["bootstrap", "status"] as const) {
+    const login = createRuyingLoginState({
+      authorize: async () => ({ data: { url: "https://sso.example/login" } }),
+      openLink: () => undefined,
+      callback: async () => ({ data: true }),
+      cancel: async () => ({ data: true }),
+      dispose: async () => undefined,
+      bootstrap: async () => {
+        if (failure === "bootstrap") throw new Error("secret bootstrap detail")
+      },
+      status: async () => {
+        if (failure === "status") throw new Error("secret status detail")
+        return { data: { loggedIn: true } }
+      },
+    })
+    await login.login()
+    expect(login.state.message).toBe("无法刷新登录状态，请重试。")
+  }
 })

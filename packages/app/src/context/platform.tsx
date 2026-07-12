@@ -19,6 +19,11 @@ type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type PlatformName = "web" | "desktop"
 type DesktopOS = "macos" | "windows" | "linux"
 
+export type LinkReservation = {
+  navigate(url: string): void
+  close(): void
+}
+
 export type FatalRendererErrorLog = {
   error: string
   url: string
@@ -33,6 +38,9 @@ type PlatformBase = {
 
   /** Open a URL in the default browser */
   openLink(url: string): void
+
+  /** Reserve a browser tab while transient user activation is available (web only). */
+  reserveLink?(): LinkReservation | undefined
 
   /** Open a local path in a local app (desktop only) */
   openPath?(path: string, app?: string): Promise<void>

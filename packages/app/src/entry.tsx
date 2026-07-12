@@ -8,6 +8,7 @@ import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { authFromToken } from "@/utils/server"
+import { createWebLinkReservation } from "@/utils/web-link"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
 
@@ -81,6 +82,8 @@ const openLink: Platform["openLink"] = (url) => {
   window.open(url, "_blank")
 }
 
+const reserveLink = createWebLinkReservation((url, target) => window.open(url, target))
+
 const back: Platform["back"] = () => {
   window.history.back()
 }
@@ -122,6 +125,7 @@ const platform: Platform = {
   platform: "web",
   version: pkg.version,
   openLink,
+  reserveLink,
   back,
   forward,
   restart,

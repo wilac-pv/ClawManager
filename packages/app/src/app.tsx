@@ -176,6 +176,18 @@ function LegacyServerLayout(props: ParentProps<{ serverScoped?: JSX.Element }>) 
   )
 }
 
+function RuntimeServerLayout(props: ParentProps<{ serverScoped?: JSX.Element }>) {
+  const settings = useSettings()
+  return (
+    <Show
+      when={settings.general.newLayoutDesigns()}
+      fallback={<LegacyServerLayout serverScoped={props.serverScoped}>{props.children}</LegacyServerLayout>}
+    >
+      {props.children}
+    </Show>
+  )
+}
+
 function DraftRoute() {
   const [search] = useSearchParams<{ draftId?: string }>()
   const settings = useSettings()
@@ -589,7 +601,7 @@ function Routes(props: { serverScoped?: JSX.Element }) {
     <>
       <Route
         component={(routeProps) => (
-          <LegacyServerLayout serverScoped={props.serverScoped}>{routeProps.children}</LegacyServerLayout>
+          <RuntimeServerLayout serverScoped={props.serverScoped}>{routeProps.children}</RuntimeServerLayout>
         )}
       >
         <Show when={!settings.general.newLayoutDesigns()}>
@@ -610,7 +622,14 @@ function Routes(props: { serverScoped?: JSX.Element }) {
         <Route path="/:dir/session/:id" component={NewLayoutLegacySessionRedirect} />
         <Route path="/server/:serverKey/session/:id" component={TargetSessionRoute} />
       </Show>
-      <Route path="/new-session" component={DraftRoute} />
+      <Route
+        path="/new-session"
+        component={() => (
+          <RuntimeServerLayout serverScoped={props.serverScoped}>
+            <DraftRoute />
+          </RuntimeServerLayout>
+        )}
+      />
     </>
   )
 }

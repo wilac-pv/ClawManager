@@ -47,12 +47,9 @@ export function createRuyingGateState(
         return
       }
       setState("status", result.data.loggedIn ? "loggedIn" : "loggedOut")
-    } catch (error) {
+    } catch {
       if (current !== request) return
-      setState({
-        status: "error",
-        message: error instanceof Error ? `${error.message}，请重试。` : "无法检查 GWM SSO 登录状态，请重试。",
-      })
+      setState({ status: "error", message: "无法检查 GWM SSO 登录状态，请重试。" })
     }
   }
 
@@ -79,17 +76,28 @@ export function createRuyingGateState(
     }
   }
 
-  return { state, check, retry, activate }
+  function createAuthenticatedHandoff() {
+    const runtime = active
+    return () => {
+      if (!runtime || active !== runtime) return
+      request++
+      setState({ status: "loggedIn", message: "" })
+    }
+  }
+
+  return { state, check, retry, activate, createAuthenticatedHandoff }
 }
 
 export function createRuyingLoginState(input: {
   authorize: () => Promise<{ data?: { url?: string }; error?: unknown }>
   openLink: (url: string) => void
+  reserveLink?: () => { navigate: (url: string) => void; close: () => void } | undefined
   callback: () => Promise<{ data?: boolean; error?: unknown }>
   cancel: () => Promise<{ data?: boolean; error?: unknown }>
   dispose: () => Promise<unknown>
   bootstrap: () => Promise<unknown>
   status: () => Promise<{ data?: { loggedIn: boolean }; error?: unknown }>
+  authenticated?: () => void
 }) {
   const [state, setState] = createStore({
     status: "idle" as LoginStatus,
@@ -97,6 +105,8 @@ export function createRuyingLoginState(input: {
     authUrl: "",
   })
   let attempt = 0
+  let committed = 0
+  let reservation: ReturnType<NonNullable<typeof input.reserveLink>>
 
   function open() {
     if (!state.authUrl) return
@@ -109,16 +119,47 @@ export function createRuyingLoginState(input: {
 
   async function login() {
     const current = ++attempt
+    committed = 0
+    reservation?.close()
+    reservation = undefined
     setState({ status: "pending", message: "", authUrl: "" })
+    const reservable = !!input.reserveLink
+    const reserved = (() => {
+      try {
+        return input.reserveLink?.()
+      } catch {
+        return undefined
+      }
+    })()
+    reservation = reserved
+    let phase: "authorize" | "callback" | "refresh" = "authorize"
     try {
       const authorized = await input.authorize()
-      if (current !== attempt) return
+      if (current !== attempt) {
+        reserved?.close()
+        return
+      }
       if (authorized.error || !authorized.data?.url) {
+        reserved?.close()
+        if (reservation === reserved) reservation = undefined
         setState({ status: "error", message: "无法启动 GWM SSO 登录，请重试。", authUrl: "" })
         return
       }
-      setState("authUrl", authorized.data.url)
-      open()
+      setState({
+        status: "pending",
+        message: reservable && !reserved ? "浏览器阻止了新标签页，请点击或复制下方链接继续登录。" : "",
+        authUrl: authorized.data.url,
+      })
+      if (reserved) {
+        try {
+          reserved.navigate(authorized.data.url)
+        } catch {
+          setState("message", "未能自动打开浏览器，请点击或复制下方链接继续登录。")
+        }
+      } else if (!reservable) {
+        open()
+      }
+      phase = "callback"
       const result = await input.callback()
       if (current !== attempt) return
       if (result.error || result.data !== true) {
@@ -129,6 +170,8 @@ export function createRuyingLoginState(input: {
         })
         return
       }
+      committed = current
+      phase = "refresh"
       await input.dispose()
       if (current !== attempt) return
       await input.bootstrap()
@@ -136,15 +179,25 @@ export function createRuyingLoginState(input: {
       const refreshed = await input.status()
       if (current !== attempt) return
       if (refreshed.error || !refreshed.data?.loggedIn) {
+        committed = 0
         setState({ status: "error", message: "登录状态未生效，请重试。", authUrl: authorized.data.url })
         return
       }
+      input.authenticated?.()
       setState({ status: "idle", message: "", authUrl: "" })
+      if (reservation === reserved) reservation = undefined
+      committed = 0
     } catch {
       if (current !== attempt) return
+      if (phase === "refresh") committed = 0
       setState({
         status: "error",
-        message: state.authUrl ? "登录失败，请重试。" : "无法启动 GWM SSO 登录，请重试。",
+        message:
+          phase === "authorize"
+            ? "无法启动 GWM SSO 登录，请重试。"
+            : phase === "callback"
+              ? "登录失败，请重试。"
+              : "无法刷新登录状态，请重试。",
         authUrl: state.authUrl,
       })
     }
@@ -154,6 +207,8 @@ export function createRuyingLoginState(input: {
     if (state.status !== "pending") return
     const current = ++attempt
     setState("status", "canceling")
+    reservation?.close()
+    reservation = undefined
     try {
       const result = await input.cancel()
       if (current !== attempt) return
@@ -172,11 +227,19 @@ export function createRuyingLoginState(input: {
     }
   }
 
-  return { state, login, cancel, open }
+  function invalidate() {
+    if (committed === attempt) return
+    attempt++
+    reservation?.close()
+    reservation = undefined
+    setState({ status: "idle", message: "", authUrl: "" })
+  }
+
+  return { state, login, cancel, open, invalidate }
 }
 
-export function RuyingLogin() {
-  const login = createRuyingLoginController()
+export function RuyingLogin(props: { authenticated?: () => void }) {
+  const login = createRuyingLoginController(props.authenticated)
 
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6 select-none">
@@ -228,23 +291,27 @@ export function RuyingLogin() {
   )
 }
 
-export function createRuyingLoginController() {
+export function createRuyingLoginController(authenticated?: () => void) {
   const serverSDK = useServerSDK()()
   const serverSync = useServerSync()()
   const platform = usePlatform()
-  return createRuyingLoginState({
+  const login = createRuyingLoginState({
     authorize: () =>
       serverSDK.client.provider.oauth.authorize(
         { providerID: RUYING_PROVIDER_ID, method: 0 },
         { throwOnError: true },
       ),
     openLink: (url) => platform.openLink(url),
+    reserveLink: platform.reserveLink,
     callback: () => serverSDK.client.provider.oauth.callback({ providerID: RUYING_PROVIDER_ID, method: 0 }),
     cancel: () => serverSDK.client.provider.oauth.cancel({ providerID: RUYING_PROVIDER_ID }),
-    dispose: () => serverSDK.client.global.dispose().catch(() => undefined),
+    dispose: () => serverSDK.client.global.dispose(),
     bootstrap: () => serverSync.bootstrap(),
     status: () => serverSDK.client.provider.ruying.status(),
+    authenticated,
   })
+  onCleanup(login.invalidate)
+  return login
 }
 
 export function RuyingGate(props: ParentProps) {
@@ -272,7 +339,10 @@ export function RuyingGate(props: ParentProps) {
           </div>
         }
       >
-        <Show when={gate.state.status === "loggedIn"} fallback={<RuyingLogin />}>
+        <Show
+          when={gate.state.status === "loggedIn"}
+          fallback={<RuyingLogin authenticated={gate.createAuthenticatedHandoff()} />}
+        >
           {props.children}
         </Show>
       </Show>

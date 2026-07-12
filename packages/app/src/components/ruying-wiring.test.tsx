@@ -37,10 +37,13 @@ mock.module("@opencode-ai/ui/logo", () => ({
   Splash: () => document.createElement("div"),
 }))
 
-const { createRuyingGateController, createRuyingLoginController, RuyingGate } = await import("./ruying-login")
+const { createRuyingGateController, createRuyingLoginController, RuyingGate, RuyingLogin } =
+  await import("./ruying-login")
 
 afterEach(() => {
   document.body.innerHTML = ""
+  openLink.mockReset()
+  openLink.mockImplementation((_url: string) => undefined)
 })
 
 function runtime(loggedIn: boolean, removed: string[]): Runtime {
@@ -188,6 +191,36 @@ test("pending login remains bound to the server that authorized it", async () =>
   dispose()
 })
 
+test("unmount invalidates a pending callback before it can refresh the captured server", async () => {
+  const callback = deferred<{ data?: boolean; error?: unknown }>()
+  const calls: string[] = []
+  const current = runtime(false, [])
+  current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
+  current.client.provider.oauth.callback = () => callback.promise
+  current.client.global.dispose = async () => calls.push("dispose")
+  current.client.provider.ruying.status = async () => {
+    calls.push("status")
+    return { data: { loggedIn: true } }
+  }
+  setSync({
+    ready: true,
+    bootstrap: async () => {
+      calls.push("bootstrap")
+    },
+  })
+  setSdk(current)
+  const login = mountLogin()
+  const start = [...login.host.querySelectorAll("button")].find((button) => button.textContent?.includes("SSO 登录"))
+  if (!start) throw new Error("login button not rendered")
+  start.click()
+  await Promise.resolve()
+  login.dispose()
+  callback.resolve({ data: true })
+  await settle()
+
+  expect(calls).toEqual([])
+})
+
 test("mounted RuyingGate renders checking, logged-out, and logged-in child states", async () => {
   const removed: string[] = []
   setSync({ ready: false, bootstrap: async () => undefined })
@@ -236,9 +269,8 @@ test("mounted RuyingGate renders an error and retry unlocks the protected child"
   gate.dispose()
 })
 
-test("mounted login unlocks the gate in place after the disposed lifecycle refresh", async () => {
+test("mounted login explicitly unlocks the gate without a disposed lifecycle event", async () => {
   let loggedIn = false
-  let listener: ((event: { type: string }) => void) | undefined
   const current = runtime(false, [])
   current.client.provider.ruying.status = async () => ({ data: { loggedIn } })
   current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
@@ -246,13 +278,7 @@ test("mounted login unlocks the gate in place after the disposed lifecycle refre
     loggedIn = true
     return { data: true }
   }
-  current.client.global.dispose = async () => {
-    listener?.({ type: "global.disposed" })
-  }
-  current.event.on = (_scope, next) => {
-    listener = next
-    return () => undefined
-  }
+  current.client.global.dispose = async () => undefined
   setSync({ ready: true, bootstrap: async () => undefined })
   setSdk(current)
   const gate = mountGate()
@@ -265,6 +291,26 @@ test("mounted login unlocks the gate in place after the disposed lifecycle refre
 
   expect(gate.host.textContent).toContain("PROTECTED CHILD")
   expect(gate.host.textContent).not.toContain("SSO 登录")
+  gate.dispose()
+})
+
+test("mounted dispose failure leaves the outer gate locked with a retryable error", async () => {
+  const current = runtime(false, [])
+  current.client.provider.oauth.authorize = async () => ({ data: { url: "https://sso.example/login" } })
+  current.client.provider.oauth.callback = async () => ({ data: true })
+  current.client.global.dispose = async () => Promise.reject(new Error("secret dispose detail"))
+  setSync({ ready: true, bootstrap: async () => undefined })
+  setSdk(current)
+  const gate = mountGate()
+
+  await settle()
+  const start = [...gate.host.querySelectorAll("button")].find((button) => button.textContent?.includes("SSO 登录"))
+  if (!start) throw new Error("login button not rendered")
+  start.click()
+  await settle()
+
+  expect(gate.host.textContent).toContain("无法刷新登录状态，请重试")
+  expect(gate.host.textContent).not.toContain("PROTECTED CHILD")
   gate.dispose()
 })
 
@@ -297,6 +343,7 @@ test("mounted login exposes a fallback url and cancels the pending callback", as
   expect(calls).toEqual(["cancel"])
   expect(gate.host.textContent).toContain("SSO 登录")
   callback.resolve({ error: new Error("canceled") })
+  await settle()
   gate.dispose()
 })
 
@@ -314,5 +361,12 @@ function mountGate() {
       }),
     host,
   )
+  return { host, dispose }
+}
+
+function mountLogin() {
+  const host = document.createElement("div")
+  document.body.append(host)
+  const dispose = render(() => createComponent(RuyingLogin, {}), host)
   return { host, dispose }
 }
