@@ -166,7 +166,7 @@ mkdir -p "$output"
 
 if [[ "$skip_checks" -eq 0 ]]; then
   (cd "$desktop" && bun typecheck)
-  (cd "$desktop" && bun run build)
+  (cd "$desktop" && env OPENCODE_CHANNEL="$channel" bun run build)
 fi
 
 case "$arch" in
