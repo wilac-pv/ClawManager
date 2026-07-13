@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 const root = import.meta.dir
 const html = await Bun.file(`${root}/index.html`).text()
+const css = await Bun.file(`${root}/styles.css`).text()
 
 describe("ruying download page content", () => {
   test("contains the approved product structure", () => {
@@ -23,5 +24,12 @@ describe("ruying download page content", () => {
     expect(html).toContain("未签名")
     expect(html).toContain("SmartScreen")
     expect(html).toContain("隐私与安全性")
+  })
+
+  test("defines responsive and accessible presentation", () => {
+    expect(css).toContain("--color-accent")
+    expect(css).toContain(":focus-visible")
+    expect(css).toContain("prefers-reduced-motion: reduce")
+    expect(css).toContain("@media (max-width: 760px)")
   })
 })
