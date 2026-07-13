@@ -26,6 +26,17 @@ export function readRuyingStatusUser(result: RuyingStatusResult) {
   return user
 }
 
+export function ruyingIdentity(user: { employeeId: string; displayName: string }) {
+  const name = user.displayName.trim()
+  const employeeId = user.employeeId.trim()
+  const primary = name || employeeId
+  return {
+    primary,
+    ...(name && employeeId ? { secondary: employeeId } : {}),
+    initial: Array.from(primary)[0] ?? "人",
+  }
+}
+
 export async function logoutRuying(input: { remove: () => Promise<void>; reload: () => void }) {
   try {
     await input.remove()

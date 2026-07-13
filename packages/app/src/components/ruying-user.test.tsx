@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { createRoot } from "solid-js"
-import { createRuyingUserController, logoutRuying, readRuyingStatusUser } from "./ruying-user"
+import { createRuyingUserController, logoutRuying, readRuyingStatusUser, ruyingIdentity } from "./ruying-user"
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -11,6 +11,22 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
+
+test("derives a stable two-line Ruying identity", () => {
+  expect(ruyingIdentity({ employeeId: "GW00378008", displayName: "陈奇琛", email: "" })).toEqual({
+    primary: "陈奇琛",
+    secondary: "GW00378008",
+    initial: "陈",
+  })
+  expect(ruyingIdentity({ employeeId: "GW00378008", displayName: "", email: "" })).toEqual({
+    primary: "GW00378008",
+    initial: "G",
+  })
+  expect(ruyingIdentity({ employeeId: "", displayName: "", email: "" })).toEqual({
+    primary: "",
+    initial: "人",
+  })
+})
 
 test("does not reload when logout fails", async () => {
   const calls: string[] = []
