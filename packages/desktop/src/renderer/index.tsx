@@ -29,8 +29,10 @@ import { availableStartupServer, readyWslConnections } from "./wsl/connections"
 import "./styles.css"
 import { Splash } from "@opencode-ai/ui/logo"
 import { useTheme } from "@opencode-ai/ui/theme/context"
+import { installEmojiFallback } from "../emoji-fallback"
 
 const root = document.getElementById("root")
+if (window.api.emojiTextFallback) installEmojiFallback(document)
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
   throw new Error(t("error.dev.rootNotFound"))
 }

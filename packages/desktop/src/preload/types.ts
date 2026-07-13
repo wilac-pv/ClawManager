@@ -42,6 +42,7 @@ export type FatalRendererError = {
 }
 
 export type ElectronAPI = {
+  emojiTextFallback: boolean
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>

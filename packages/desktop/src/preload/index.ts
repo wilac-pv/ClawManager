@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
+import { needsEmojiFallback } from "../emoji-fallback"
 import type { ElectronAPI, WslServersEvent } from "./types"
 import type { UpdaterState } from "@opencode-ai/app/updater"
 
@@ -11,6 +12,7 @@ const updaterHandler = (_: unknown, state: UpdaterState) => {
 }
 
 const api: ElectronAPI = {
+  emojiTextFallback: needsEmojiFallback(process.platform, process.getSystemVersion()),
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: () => ipcRenderer.invoke("await-initialization"),
