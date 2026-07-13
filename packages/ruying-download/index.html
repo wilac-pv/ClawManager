@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="如影 Code 是面向长城汽车内部研发人员的智能编码工具。" />
+    <title>如影 Code - 桌面客户端下载</title>
+    <link rel="icon" href="./assets/app-icon.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <a href="#top" aria-label="返回如影 Code 首页顶部">
+        <img src="./assets/app-icon.png" alt="如影 Code 图标" width="40" height="40" />
+        <span>如影 Code</span>
+      </a>
+      <nav aria-label="页面导航">
+        <a href="#features">产品能力</a>
+        <a href="#download">下载安装</a>
+        <a href="#install">安装说明</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section aria-labelledby="hero-title">
+        <p>长城汽车内部研发工具</p>
+        <h1 id="hero-title">让每一次编码，都有如影相随。</h1>
+        <p>理解项目上下文，协助修改、运行与验证代码，让研发协作更专注、更顺畅。</p>
+        <div>
+          <a id="primary-download" href="#download">选择下载版本</a>
+          <a href="#download">查看全部版本</a>
+        </div>
+        <p>支持 macOS Apple Silicon 与 Windows x64</p>
+      </section>
+
+      <section id="features" aria-labelledby="features-title">
+        <p>产品能力</p>
+        <h2 id="features-title">从理解到验证，始终与你并肩</h2>
+        <div>
+          <article>
+            <span aria-hidden="true">⌘</span>
+            <h3>读懂项目</h3>
+            <p>理解现有代码、目录结构与项目上下文，快速定位关键实现。</p>
+          </article>
+          <article>
+            <span aria-hidden="true">↗</span>
+            <h3>协作修改</h3>
+            <p>协助修改、运行与验证代码，让每一次变更都有清晰依据。</p>
+          </article>
+          <article>
+            <span aria-hidden="true">✓</span>
+            <h3>企业 SSO</h3>
+            <p>使用企业内部身份安全登录，快速进入专属研发环境。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="download" aria-labelledby="download-title">
+        <p>下载安装</p>
+        <h2 id="download-title">选择适合你的桌面版本</h2>
+        <p>系统识别只用于推荐，你可以随时下载任一平台版本。</p>
+        <div>
+          <article data-platform="mac">
+            <p>macOS</p>
+            <h3>Apple Silicon</h3>
+            <p>适用于搭载 Apple 芯片的 Mac，安装包格式为 DMG。</p>
+            <a
+              data-download-link
+              href="http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-mac-arm64.dmg"
+            >下载 macOS 版</a>
+          </article>
+          <article data-platform="windows">
+            <p>Windows</p>
+            <h3>x64</h3>
+            <p>适用于 64 位 Windows 设备，安装包格式为 EXE。</p>
+            <a
+              data-download-link
+              href="http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-win-x64.exe"
+            >下载 Windows 版</a>
+          </article>
+        </div>
+      </section>
+
+      <section id="install" aria-labelledby="install-title">
+        <p>安装说明</p>
+        <h2 id="install-title">首次安装指引</h2>
+        <p>当前安装包未签名，首次打开时系统可能显示安全提示。</p>
+        <div>
+          <article>
+            <h3>macOS</h3>
+            <ol>
+              <li>打开下载的 DMG，将如影 Code 拖入“应用程序”。</li>
+              <li>首次打开如遇安全限制，前往“系统设置”中的“隐私与安全性”。</li>
+              <li>确认允许打开如影 Code，然后重新启动应用。</li>
+            </ol>
+          </article>
+          <article>
+            <h3>Windows</h3>
+            <ol>
+              <li>运行下载的 EXE 安装程序。</li>
+              <li>如出现 Windows SmartScreen 提示，请确认应用来源后选择继续运行。</li>
+              <li>按照安装向导完成安装并启动如影 Code。</li>
+            </ol>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>如影 Code</p>
+      <p>仅供长城汽车内部研发使用</p>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
