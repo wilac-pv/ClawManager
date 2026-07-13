@@ -337,6 +337,23 @@ describe("provider HttpApi", () => {
     expect(visibleProviderIDs(["ruying", "openai"], new Set(["ruying"]), new Set())).toEqual(["ruying"])
   })
 
+  test("successful Ruying OAuth invalidates only the branded config cache", async () => {
+    const module = await import("../../src/server/routes/instance/httpapi/handlers/provider")
+    const invalidate = Reflect.get(module, "invalidateRuyingConfigAfterCallback")
+    expect(invalidate).toBeFunction()
+    if (typeof invalidate !== "function") return
+    const calls: string[] = []
+
+    await Effect.runPromise(
+      invalidate({ providerID: "ruying", invalidate: () => Effect.sync(() => calls.push("ruying")) }),
+    )
+    await Effect.runPromise(
+      invalidate({ providerID: "other", invalidate: () => Effect.sync(() => calls.push("other")) }),
+    )
+
+    expect(calls).toEqual(["ruying"])
+  })
+
   it.instance.skip(
     "returns public v2 provider not found errors",
     Effect.gen(function* () {

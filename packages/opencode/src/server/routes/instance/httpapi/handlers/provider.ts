@@ -30,6 +30,14 @@ export function scheduleRuyingLogoutDisposal<R>(input: {
   )
 }
 
+export function invalidateRuyingConfigAfterCallback<R>(input: {
+  providerID: string
+  invalidate: () => Effect.Effect<void, never, R>
+}) {
+  if (input.providerID !== Brand.profile.providerID) return Effect.void
+  return input.invalidate()
+}
+
 function mapProviderAuthError<A, R>(self: Effect.Effect<A, ProviderAuth.Error, R>) {
   return self.pipe(
     Effect.mapError((error) => {
@@ -170,6 +178,10 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
           code: ctx.payload.code,
         }),
       )
+      yield* invalidateRuyingConfigAfterCallback({
+        providerID: ctx.params.providerID,
+        invalidate: () => cfg.invalidate(),
+      })
       return true
     })
 
