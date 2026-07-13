@@ -11,11 +11,13 @@
 ## Global Constraints
 
 - 页面必须是无服务端、无第三方运行时依赖的静态目录。
+- 页面必须按 HTTP-only 契约从 HTTP 来源部署，直到两个安装包获得浏览器可信的 HTTPS 地址或部署方提供同源 HTTPS 代理；不得将当前地址替换为证书链不受信任的 HTTPS 地址。
 - 页面只使用简体中文，定位为“长城汽车内部研发工具”。
 - macOS 下载地址固定为 `http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-mac-arm64.dmg`。
 - Windows 下载地址固定为 `http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-win-x64.exe`。
 - 系统识别只改变推荐状态，两个平台的普通 `<a>` 下载链接必须始终存在。
 - 页面不得请求身份、分析或业务接口，不得添加埋点。
+- 生产 HTML、JavaScript 和 CSS 只能包含两个批准的安装包外部 URL；初始页面加载只能请求同源 HTML、CSS、JavaScript 和本地图标。
 - 必须提示当前安装包未签名，并覆盖 macOS 安全限制与 Windows SmartScreen。
 - 必须遵循 `prefers-reduced-motion` 并提供清晰键盘焦点。
 
@@ -31,17 +33,20 @@
 - `packages/ruying-download/app.test.ts`：验证 macOS、Windows 和未知平台推荐逻辑。
 - `packages/ruying-download/playwright.config.ts`：本地静态预览和浏览器测试配置。
 - `packages/ruying-download/download-page.e2e.ts`：验证真实页面推荐态、双下载入口、键盘焦点与响应式无溢出。
+- `packages/ruying-download/README.md`：记录 HTTP-only 部署原因、固定地址和未来 HTTPS 迁移清单。
 
 ---
 
 ### Task 1: 页面内容与品牌资源
 
 **Files:**
+
 - Create: `packages/ruying-download/index.html`
 - Create: `packages/ruying-download/assets/app-icon.png`
 - Create: `packages/ruying-download/content.test.ts`
 
 **Interfaces:**
+
 - Consumes: `packages/desktop/icons/prod/icon.png` 正式图标和 Global Constraints 中的固定下载地址。
 - Produces: `#download`, `#features`, `#install` 三个区块；`#primary-download` 主动作；`[data-platform="mac"]` 和 `[data-platform="windows"]` 下载卡片，供后续脚本和浏览器测试使用。
 
@@ -100,11 +105,13 @@ cp packages/desktop/icons/prod/icon.png packages/ruying-download/assets/app-icon
 <a
   data-download-link
   href="http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-mac-arm64.dmg"
->下载 macOS 版</a>
+  >下载 macOS 版</a
+>
 <a
   data-download-link
   href="http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-win-x64.exe"
->下载 Windows 版</a>
+  >下载 Windows 版</a
+>
 ```
 
 首屏、三项能力、双平台下载、双平台安装说明和内部使用页脚全部使用设计文档中的已确认中文文案。通过 `<link rel="stylesheet" href="./styles.css">` 加载样式，通过 `<script type="module" src="./app.js"></script>` 加载交互。
@@ -127,10 +134,12 @@ git commit -m "feat(web): add ruying download content"
 ### Task 2: 深色沉浸视觉与响应式布局
 
 **Files:**
+
 - Create: `packages/ruying-download/styles.css`
 - Modify: `packages/ruying-download/content.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1 的语义区块、类名和品牌图标。
 - Produces: `--color-accent` 等页面令牌、`.hero`、`.feature-card`、`.download-card`、`:focus-visible` 与减弱动画规则。
 
@@ -178,7 +187,9 @@ Expected: FAIL，因为 `styles.css` 尚不存在。
 
 ```css
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
@@ -207,10 +218,12 @@ git commit -m "feat(web): style ruying download page"
 ### Task 3: 操作系统识别与推荐态
 
 **Files:**
+
 - Create: `packages/ruying-download/app.js`
 - Create: `packages/ruying-download/app.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1 的 `#primary-download`、`#download` 和 `[data-platform]` 元素。
 - Produces: `detectPlatform(userAgent: string): "mac" | "windows" | "unknown"` 与 `recommendationFor(platform)`；浏览器启动时应用主链接、按钮文案和 `.is-recommended` 卡片状态。
 
@@ -295,12 +308,14 @@ git commit -m "feat(web): recommend ruying download"
 ### Task 4: 真实浏览器验收与交付检查
 
 **Files:**
+
 - Create: `packages/ruying-download/playwright.config.ts`
 - Create: `packages/ruying-download/download-page.e2e.ts`
 - Modify: `packages/ruying-download/index.html`
 - Modify: `packages/ruying-download/styles.css`
 
 **Interfaces:**
+
 - Consumes: 完整静态页面和 Task 3 的推荐行为。
 - Produces: 可重复执行的 Chromium 验收套件，以及在 1440×1000 与 390×844 视口下通过的最终页面。
 
@@ -339,7 +354,9 @@ test("keeps both platform downloads available", async ({ page }) => {
 test("renders without horizontal overflow on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/")
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
+    true,
+  )
 })
 
 test("shows keyboard focus on the primary action", async ({ page }) => {

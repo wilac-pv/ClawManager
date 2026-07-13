@@ -3,6 +3,16 @@ import { describe, expect, test } from "bun:test"
 const root = import.meta.dir
 const html = await Bun.file(`${root}/index.html`).text()
 const css = await Bun.file(`${root}/styles.css`).text()
+const javascript = await Bun.file(`${root}/app.js`).text()
+const playwright = await Bun.file(`${root}/playwright.config.ts`).text()
+const design = await Bun.file(
+  `${root}/../../docs/superpowers/specs/2026-07-13-ruying-code-download-page-design.md`,
+).text()
+const plan = await Bun.file(`${root}/../../docs/superpowers/plans/2026-07-13-ruying-code-download-page.md`).text()
+const downloads = [
+  "http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-mac-arm64.dmg",
+  "http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-win-x64.exe",
+]
 
 function expectPresentationContract(source: string) {
   const css = source.replace(/\/\*[\s\S]*?\*\//g, "")
@@ -109,6 +119,30 @@ describe("ruying download page content", () => {
     expect(html).toContain("ruying-code-desktop-mac-arm64.dmg")
     expect(html).toContain("ruying-code-desktop-win-x64.exe")
     expect(html.match(/data-download-link/g)?.length).toBe(2)
+  })
+
+  test("documents the HTTP-only deployment contract", async () => {
+    const file = Bun.file(`${root}/README.md`)
+    expect(await file.exists()).toBe(true)
+    const readme = await file.text()
+
+    expect(design).toContain("HTTP-only")
+    expect(plan).toContain("HTTP-only")
+    expect(readme).toContain("HTTP-only")
+    downloads.forEach((download) => expect(readme).toContain(download))
+    expect(readme).toContain("index.html")
+    expect(readme).toContain("app.js")
+    expect(readme).toContain("测试")
+    expect(readme).toContain("浏览器可信")
+    expect(readme).toContain("同源 HTTPS 代理")
+  })
+
+  test("limits production and preview URLs to the approved HTTP boundary", () => {
+    expect([...new Set(`${html}\n${javascript}\n${css}`.match(/https?:\/\/[^\s"']+/g) ?? [])].sort()).toEqual(
+      downloads.toSorted(),
+    )
+    expect(playwright).toContain('baseURL: "http://localhost:4173"')
+    expect(playwright).not.toContain('baseURL: "https://')
   })
 
   test("documents unsigned installation behavior", () => {

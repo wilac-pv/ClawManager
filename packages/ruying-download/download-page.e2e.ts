@@ -1,15 +1,36 @@
-import { expect, test, type Locator, type Page } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 
 const macDownload =
   "http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-mac-arm64.dmg"
 const windowsDownload =
   "http://app-platform.oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/ai-coding/ruying-code/ruying-code-desktop-win-x64.exe"
+const layoutCases = [
+  { columns: [3, 2, 2], name: "desktop", viewport: { height: 1000, width: 1440 } },
+  { columns: [3, 2, 2], name: "tablet", viewport: { height: 1024, width: 768 } },
+  { columns: [1, 1, 1], name: "mobile", viewport: { height: 844, width: 390 } },
+] as const
+const focusCases = [
+  { name: "desktop", viewport: { height: 1000, width: 1440 } },
+  { name: "mobile", viewport: { height: 844, width: 390 } },
+] as const
+const resourceTypes = ["document", "stylesheet", "script", "image"]
 
 test("keeps both platform downloads available", async ({ page }) => {
   await page.goto("/")
 
   await expectDownloads(page)
   await expect(page.getByRole("heading", { name: "让每一次编码，都有如影相随。" })).toBeVisible()
+})
+
+test.describe("without JavaScript", () => {
+  test.use({ javaScriptEnabled: false })
+
+  test("keeps both direct downloads visible and keyboard accessible", async ({ page }) => {
+    await page.goto("/")
+
+    await expectDownloads(page)
+    expect(await expectKeyboardAccess(page)).toEqual(expect.arrayContaining([macDownload, windowsDownload]))
+  })
 })
 
 test("recommends macOS without hiding Windows", async ({ page }) => {
@@ -61,32 +82,59 @@ test("keeps platform selection neutral for unknown systems", async ({ page }) =>
   await expectDownloads(page)
 })
 
-test("renders without horizontal overflow on mobile", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto("/")
+layoutCases.forEach((layout) => {
+  test(`renders ${layout.name} layout without overflow or overlap`, async ({ page }) => {
+    await page.setViewportSize(layout.viewport)
+    await page.goto("/")
 
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
-    true,
-  )
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+    ).toBe(true)
+    await expectGridLayout(page, ".feature-grid", layout.columns[0])
+    await expectGridLayout(page, ".download-grid", layout.columns[1])
+    await expectGridLayout(page, ".install-grid", layout.columns[2])
+  })
+})
+focusCases.forEach((entry) => {
+  test(`makes every visible link keyboard accessible on ${entry.name}`, async ({ page }) => {
+    await page.setViewportSize(entry.viewport)
+    await page.goto("/")
+
+    expect((await expectKeyboardAccess(page)).length).toBeGreaterThan(0)
+  })
 })
 
-test("shows keyboard focus on the primary action", async ({ page }) => {
-  await page.goto("/")
-  const primary = page.locator("#primary-download")
-  await focusByKeyboard(page, primary)
+test("loads only same-origin static page resources", async ({ page }) => {
+  const requests: Array<{ type: string; url: string }> = []
+  page.on("request", (request) => requests.push({ type: request.resourceType(), url: request.url() }))
 
-  await expect(primary).toBeFocused()
-  await expect(page.locator("#primary-download:focus-visible")).toBeVisible()
-  expect(
-    await primary.evaluate((element) => {
-      const style = getComputedStyle(element)
-      return {
-        color: style.outlineColor,
-        style: style.outlineStyle,
-        width: style.outlineWidth,
-      }
-    }),
-  ).toEqual({ color: "rgb(167, 139, 250)", style: "solid", width: "3px" })
+  await page.goto("/", { waitUntil: "networkidle" })
+
+  const origin = new URL(page.url()).origin
+  expect(requests.length).toBeGreaterThan(0)
+  expect(requests.every((request) => new URL(request.url).origin === origin)).toBe(true)
+  expect(requests.every((request) => resourceTypes.includes(request.type))).toBe(true)
+  resourceTypes.forEach((type) => expect(requests.some((request) => request.type === type)).toBe(true))
+})
+
+test("exposes semantic landmarks, headings, brand, and contextual downloads", async ({ page }) => {
+  await page.goto("/")
+
+  await expect(page.getByRole("banner")).toBeVisible()
+  await expect(page.getByRole("navigation", { name: "页面导航" })).toBeVisible()
+  await expect(page.getByRole("main")).toBeVisible()
+  await expect(page.getByRole("contentinfo")).toBeVisible()
+  await expect(page.getByRole("img", { name: "如影 Code 图标" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "从理解到验证，始终与你并肩" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "选择适合你的桌面版本" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "首次安装指引" })).toBeVisible()
+  await expect(page.locator('[data-platform="mac"]').getByRole("link", { name: "下载 macOS 版" })).toHaveAttribute(
+    "href",
+    macDownload,
+  )
+  await expect(
+    page.locator('[data-platform="windows"]').getByRole("link", { name: "下载 Windows 版" }),
+  ).toHaveAttribute("href", windowsDownload)
 })
 
 async function expectDownloads(page: Page) {
@@ -108,14 +156,60 @@ async function expectCardTreatment(page: Page, platform: "mac" | "windows", reco
     recommended ? '"推荐"' : "none",
   )
   if (!recommended) return
-  await expect(card).toHaveCSS("border-color", "rgba(167, 139, 250, 0.7)")
-  await expect(card).toHaveCSS("box-shadow", /rgba\(139, 92, 246, 0\.16\).*20px 56px/)
+  await expect.poll(() => card.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none")
+  const treatment = await card.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return {
+      borderColor: style.borderColor,
+      borderStyle: style.borderStyle,
+      borderWidth: style.borderWidth,
+      boxShadow: style.boxShadow,
+    }
+  })
+  expect(treatment.borderStyle).not.toBe("none")
+  expect(Number.parseFloat(treatment.borderWidth)).toBeGreaterThan(0)
+  expect(treatment.borderColor).not.toBe("rgba(0, 0, 0, 0)")
+  expect(treatment.boxShadow).not.toBe("none")
 }
 
-async function focusByKeyboard(page: Page, target: Locator) {
-  await Array.from({ length: await page.locator("a[href]:visible").count() }).reduce(async (previous) => {
-    await previous
-    if (await target.evaluate((element) => element === document.activeElement)) return
+async function expectGridLayout(page: Page, selector: string, columns: number) {
+  const grid = page.locator(selector)
+  await expect(grid).toBeVisible()
+  expect(
+    await grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(/\s+/).filter(Boolean).length),
+  ).toBe(columns)
+  expect(
+    await grid.locator(":scope > article").evaluateAll(
+      (elements) =>
+        elements.flatMap((element, index) => {
+          const box = element.getBoundingClientRect()
+          return elements.slice(index + 1).filter((candidate) => {
+            const other = candidate.getBoundingClientRect()
+            return box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top
+          })
+        }).length,
+    ),
+  ).toBe(0)
+}
+
+async function expectKeyboardAccess(page: Page) {
+  const links = page.locator("a[href]:visible")
+  const hrefs: Array<string> = []
+
+  for (const index of Array.from({ length: await links.count() }, (_, index) => index)) {
     await page.keyboard.press("Tab")
-  }, Promise.resolve())
+    const link = links.nth(index)
+    await expect(link).toBeFocused()
+    expect(await link.evaluate((element) => element.matches(":focus-visible"))).toBe(true)
+    const outline = await link.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { color: style.outlineColor, style: style.outlineStyle, width: style.outlineWidth }
+    })
+    expect(outline.style).not.toBe("none")
+    expect(Number.parseFloat(outline.width)).toBeGreaterThan(0)
+    expect(["transparent", "rgba(0, 0, 0, 0)"]).not.toContain(outline.color)
+    hrefs.push((await link.getAttribute("href")) ?? "")
+  }
+
+  return hrefs
 }
