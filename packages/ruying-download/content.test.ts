@@ -41,6 +41,60 @@ function cssBlock(source: string, header: RegExp) {
   throw new Error(`Missing closing brace for ${header}`)
 }
 
+const validFocus = `
+  a:focus-visible {
+    outline: 3px solid var(--color-accent-bright);
+    outline-offset: 4px;
+  }
+`
+const validMobile = `
+  @media (max-width: 760px) {
+    .feature-grid, .download-grid, .install-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+`
+const validReducedMotion = `
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+`
+
+function presentationFixture(focus = validFocus, mobile = validMobile, reducedMotion = validReducedMotion) {
+  return `
+    :root { --color-accent: #8b5cf6; }
+    ${focus}
+    ${mobile}
+    ${reducedMotion}
+  `
+}
+
+const invalidPresentations = [
+  { name: "empty focus-visible rule", source: presentationFixture("a:focus-visible {}") },
+  {
+    name: "comment-only mobile grid rule",
+    source: presentationFixture(
+      validFocus,
+      `
+        @media (max-width: 760px) {
+          .feature-grid, .download-grid, .install-grid {
+            /* grid-template-columns: 1fr; */
+          }
+        }
+      `,
+    ),
+  },
+  {
+    name: "empty reduced-motion rule",
+    source: presentationFixture(validFocus, validMobile, "@media (prefers-reduced-motion: reduce) {}"),
+  },
+]
+
 describe("ruying download page content", () => {
   test("contains the approved product structure", () => {
     expect(html).toContain("让每一次编码，都有如影相随。")
@@ -67,14 +121,9 @@ describe("ruying download page content", () => {
     expectPresentationContract(css)
   })
 
-  test("rejects incomplete presentation rules", () => {
-    const incomplete = `
-      :root { --color-accent: #8b5cf6; }
-      a:focus-visible {}
-      @media (max-width: 760px) {}
-      @media (prefers-reduced-motion: reduce) {}
-    `
-
-    expect(() => expectPresentationContract(incomplete)).toThrow()
+  invalidPresentations.forEach((invalid) => {
+    test(`rejects ${invalid.name}`, () => {
+      expect(() => expectPresentationContract(invalid.source)).toThrow()
+    })
   })
 })
