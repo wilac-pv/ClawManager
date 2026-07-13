@@ -339,6 +339,26 @@ main > section {
   transform: translateY(-4px);
 }
 
+.download-card.is-recommended {
+  border-color: rgba(167, 139, 250, 0.7);
+  box-shadow: 0 20px 56px rgba(139, 92, 246, 0.16);
+}
+
+.download-card.is-recommended::after {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: rgba(139, 92, 246, 0.14);
+  color: var(--color-accent-bright);
+  content: "推荐";
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
 .platform-name {
   margin: 0;
   color: var(--color-accent-bright);
