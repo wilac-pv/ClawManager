@@ -1,0 +1,11 @@
+{
+  "name": "@opencode-ai/ruying-download",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test --config playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "catalog:"
+  }
+}
