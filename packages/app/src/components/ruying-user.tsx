@@ -1,5 +1,7 @@
 import { createComputed, createMemo, Match, onCleanup, Show, Switch, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useServerSDK } from "@/context/server-sdk"
 import { readRuyingUser } from "./ruying-login"
 
@@ -35,6 +37,50 @@ export function ruyingIdentity(user: { employeeId: string; displayName: string; 
     ...(name && employeeId ? { secondary: employeeId } : {}),
     initial: Array.from(primary)[0] ?? "人",
   }
+}
+
+export function RuyingIdentityBlock(props: {
+  user: { employeeId: string; displayName: string; email: string }
+  loggingOut: boolean
+  logoutMessage: string
+  onLogout: () => void
+}) {
+  const identity = createMemo(() => ruyingIdentity(props.user))
+  return (
+    <div class="border-t border-border-weak-base px-2 pt-2 pb-1">
+      <div class="flex min-w-0 items-center gap-2">
+        <div aria-hidden="true" class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-surface-raised-base text-11-medium text-text-base">
+          {identity().initial}
+        </div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div data-slot="ruying-name" class="truncate text-12-medium text-text-base" title={identity().primary}>
+            {identity().primary}
+          </div>
+          <Show when={identity().secondary}>
+            <div data-slot="ruying-employee-id" class="mt-0.5 truncate font-mono text-11-regular text-text-weak" title={identity().secondary}>
+              {identity().secondary}
+            </div>
+          </Show>
+        </div>
+        <DropdownMenu gutter={4} placement="top-end">
+          <DropdownMenu.Trigger as={IconButton} icon="dot-grid" variant="ghost" size="small" class="size-7 shrink-0 rounded-md" aria-label="用户操作" />
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content>
+              <DropdownMenu.Item disabled={props.loggingOut} onSelect={props.onLogout}>
+                <DropdownMenu.ItemLabel>{props.loggingOut ? "正在退出…" : "退出登录"}</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu>
+      </div>
+      <Show when={props.logoutMessage}>
+        <div class="mt-1 pl-[38px] pr-1">
+          <div role="alert" class="truncate text-11-regular text-text-base" title={props.logoutMessage}>{props.logoutMessage}</div>
+          <button class="text-11-regular text-text-weak hover:text-text-base" onClick={props.onLogout}>重试退出</button>
+        </div>
+      </Show>
+    </div>
+  )
 }
 
 export async function logoutRuying(input: { remove: () => Promise<void>; reload: () => void }) {
@@ -154,12 +200,12 @@ export function RuyingUser() {
   return (
     <Switch>
       <Match when={user.state.status === "checking"}>
-        <div role="status" class="px-3 py-1 text-11-regular text-text-weak">
+        <div role="status" class="flex min-h-12 items-center border-t border-border-weak-base px-3 text-11-regular text-text-weak">
           正在检查登录状态…
         </div>
       </Match>
       <Match when={user.state.status === "error"}>
-        <div class="flex flex-col gap-1 px-3 py-1">
+        <div class="flex min-h-12 flex-col gap-1 border-t border-border-weak-base px-3 py-2">
           <div role="alert" class="text-11-regular text-text-base">
             {user.state.message}
           </div>
@@ -173,29 +219,12 @@ export function RuyingUser() {
         </div>
       </Match>
       <Match when={user.state.status === "user" && user.state.user}>
-        <div class="flex flex-col gap-1">
-          <div class="px-3 leading-tight">
-            <div class="text-12-medium text-text-base">
-              {user.state.user?.displayName || user.state.user?.employeeId}
-            </div>
-            <Show when={user.state.user?.displayName && user.state.user?.employeeId}>
-              <div class="text-11-regular text-text-weak">{user.state.user?.employeeId}</div>
-            </Show>
-          </div>
-          <button
-            type="button"
-            onClick={user.logout}
-            disabled={user.state.loggingOut}
-            class="px-3 py-1 text-left text-11-regular text-text-weak hover:text-text-base disabled:opacity-50"
-          >
-            {user.state.loggingOut ? "正在退出…" : "退出登录"}
-          </button>
-          <Show when={user.state.logoutMessage}>
-            <div role="alert" class="px-3 text-11-regular text-text-base">
-              {user.state.logoutMessage}
-            </div>
-          </Show>
-        </div>
+        <RuyingIdentityBlock
+          user={user.state.user!}
+          loggingOut={user.state.loggingOut}
+          logoutMessage={user.state.logoutMessage}
+          onLogout={() => void user.logout()}
+        />
       </Match>
     </Switch>
   )

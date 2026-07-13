@@ -1,6 +1,10 @@
-import { expect, test } from "bun:test"
+import { expect, mock, test } from "bun:test"
 import { createRoot } from "solid-js"
-import { createRuyingUserController, logoutRuying, readRuyingStatusUser, ruyingIdentity } from "./ruying-user"
+
+mock.module("@opencode-ai/ui/dropdown-menu", () => ({ DropdownMenu: () => undefined }))
+mock.module("@opencode-ai/ui/icon-button", () => ({ IconButton: () => undefined }))
+
+const { createRuyingUserController, logoutRuying, readRuyingStatusUser, ruyingIdentity } = await import("./ruying-user")
 
 function deferred<T>() {
   let resolve!: (value: T) => void
