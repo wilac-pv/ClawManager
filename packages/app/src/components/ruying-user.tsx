@@ -26,7 +26,7 @@ export function readRuyingStatusUser(result: RuyingStatusResult) {
   return user
 }
 
-export function ruyingIdentity(user: { employeeId: string; displayName: string }) {
+export function ruyingIdentity(user: { employeeId: string; displayName: string; email: string }) {
   const name = user.displayName.trim()
   const employeeId = user.employeeId.trim()
   const primary = name || employeeId
