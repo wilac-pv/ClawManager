@@ -1,7 +1,6 @@
 import { createComputed, createMemo, Match, onCleanup, Show, Switch, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useServerSDK } from "@/context/server-sdk"
 import { readRuyingUser } from "./ruying-login"
 
@@ -47,39 +46,44 @@ export function RuyingIdentityBlock(props: {
 }) {
   const identity = createMemo(() => ruyingIdentity(props.user))
   return (
-    <div class="border-t border-border-weak-base px-2 pt-2 pb-1">
-      <div class="flex min-w-0 items-center gap-2">
-        <div aria-hidden="true" class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-surface-raised-base text-11-medium text-text-base">
+    <DropdownMenu gutter={4} placement="top-end">
+      <DropdownMenu.Trigger
+        class="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-raised-base text-11-medium text-text-base"
+        aria-label={`用户操作：${identity().primary}`}
+        title={identity().primary}
+      >
+        <span aria-hidden="true">
           {identity().initial}
-        </div>
-        <div class="min-w-0 flex-1 leading-tight">
-          <div data-slot="ruying-name" class="truncate text-12-medium text-text-base" title={identity().primary}>
-            {identity().primary}
+        </span>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content class="w-56">
+          <div class="min-w-0 px-2 py-1.5 leading-tight">
+            <div data-slot="ruying-name" class="truncate text-12-medium text-text-base" title={identity().primary}>
+              {identity().primary}
+            </div>
+            <Show when={identity().secondary}>
+              <div data-slot="ruying-employee-id" class="mt-0.5 truncate font-mono text-11-regular text-text-weak" title={identity().secondary}>
+                {identity().secondary}
+              </div>
+            </Show>
           </div>
-          <Show when={identity().secondary}>
-            <div data-slot="ruying-employee-id" class="mt-0.5 truncate font-mono text-11-regular text-text-weak" title={identity().secondary}>
-              {identity().secondary}
+          <DropdownMenu.Item disabled={props.loggingOut} onSelect={props.onLogout}>
+            <DropdownMenu.ItemLabel>{props.loggingOut ? "正在退出…" : "退出登录"}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <Show when={props.logoutMessage}>
+            <div class="min-w-0 px-2 py-1.5">
+              <div role="alert" class="truncate text-11-regular text-text-base" title={props.logoutMessage}>
+                {props.logoutMessage}
+              </div>
+              <button type="button" class="text-11-regular text-text-weak hover:text-text-base" onClick={props.onLogout}>
+                重试退出
+              </button>
             </div>
           </Show>
-        </div>
-        <DropdownMenu gutter={4} placement="top-end">
-          <DropdownMenu.Trigger as={IconButton} icon="dot-grid" variant="ghost" size="small" class="size-7 shrink-0 rounded-md" aria-label="用户操作" />
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content>
-              <DropdownMenu.Item disabled={props.loggingOut} onSelect={props.onLogout}>
-                <DropdownMenu.ItemLabel>{props.loggingOut ? "正在退出…" : "退出登录"}</DropdownMenu.ItemLabel>
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu>
-      </div>
-      <Show when={props.logoutMessage}>
-        <div class="mt-1 pl-[38px] pr-1">
-          <div role="alert" class="truncate text-11-regular text-text-base" title={props.logoutMessage}>{props.logoutMessage}</div>
-          <button class="text-11-regular text-text-weak hover:text-text-base" onClick={props.onLogout}>重试退出</button>
-        </div>
-      </Show>
-    </div>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu>
   )
 }
 
@@ -183,7 +187,51 @@ function errorMessage(error: unknown) {
   return String(error)
 }
 
-// Compact two-line GWM SSO identity and logout block shared by both App layouts.
+export function RuyingUserView(props: {
+  status: RuyingUserStatus
+  user?: ReturnType<typeof readRuyingStatusUser>
+  message: string
+  loggingOut: boolean
+  logoutMessage: string
+  onRefresh: () => void
+  onLogout: () => void
+}) {
+  return (
+    <Switch>
+      <Match when={props.status === "checking"}>
+        <div
+          role="status"
+          class="grid size-8 shrink-0 place-items-center rounded-lg text-11-regular text-text-weak"
+          aria-label="正在检查登录状态"
+          title="正在检查登录状态"
+        >
+          <span aria-hidden="true">…</span>
+        </div>
+      </Match>
+      <Match when={props.status === "error"}>
+        <button
+          type="button"
+          role="button"
+          class="grid size-8 shrink-0 place-items-center rounded-lg text-11-medium text-text-base hover:bg-surface-raised-base"
+          aria-label={`登录状态错误：${props.message}，点击重试`}
+          title={`登录状态错误：${props.message}，点击重试`}
+          onClick={props.onRefresh}
+        >
+          <span aria-hidden="true">!</span>
+        </button>
+      </Match>
+      <Match when={props.status === "user" && props.user}>
+        <RuyingIdentityBlock
+          user={props.user!}
+          loggingOut={props.loggingOut}
+          logoutMessage={props.logoutMessage}
+          onLogout={props.onLogout}
+        />
+      </Match>
+    </Switch>
+  )
+}
+
 export function RuyingUser() {
   const serverSDK = useServerSDK()
   const runtime = createMemo<RuyingUserRuntime>(() => {
@@ -198,34 +246,14 @@ export function RuyingUser() {
   const user = createRuyingUserController({ runtime, reload: () => window.location.reload() })
 
   return (
-    <Switch>
-      <Match when={user.state.status === "checking"}>
-        <div role="status" class="flex min-h-12 items-center border-t border-border-weak-base px-3 text-11-regular text-text-weak">
-          正在检查登录状态…
-        </div>
-      </Match>
-      <Match when={user.state.status === "error"}>
-        <div class="flex min-h-12 flex-col gap-1 border-t border-border-weak-base px-3 py-2">
-          <div role="alert" class="text-11-regular text-text-base">
-            {user.state.message}
-          </div>
-          <button
-            type="button"
-            class="text-left text-11-regular text-text-weak hover:text-text-base"
-            onClick={() => void user.refresh()}
-          >
-            重试
-          </button>
-        </div>
-      </Match>
-      <Match when={user.state.status === "user" && user.state.user}>
-        <RuyingIdentityBlock
-          user={user.state.user!}
-          loggingOut={user.state.loggingOut}
-          logoutMessage={user.state.logoutMessage}
-          onLogout={() => void user.logout()}
-        />
-      </Match>
-    </Switch>
+    <RuyingUserView
+      status={user.state.status}
+      user={user.state.user}
+      message={user.state.message}
+      loggingOut={user.state.loggingOut}
+      logoutMessage={user.state.logoutMessage}
+      onRefresh={() => void user.refresh()}
+      onLogout={() => void user.logout()}
+    />
   )
 }
