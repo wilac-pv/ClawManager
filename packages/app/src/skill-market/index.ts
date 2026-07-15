@@ -1,6 +1,12 @@
 import "./styles.css"
 
 export { installPrompt, SkillMarketDetail } from "./detail"
+export {
+  createDesktopSkillMarket,
+  MarketLocalError,
+  marketLocalErrorCodes,
+  type MarketLocalErrorCode,
+} from "./desktop-source"
 export { SkillMarketList } from "./list"
 export { MarketMarkdown } from "./markdown"
 export { SkillMarketProvider, useSkillMarket } from "./provider"

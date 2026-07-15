@@ -2787,6 +2787,24 @@ export type ProviderNotFoundError = {
   message: string
 }
 
+export type SkillMarketUnavailableError = {
+  name: "SkillMarketUnavailableError"
+  code: "network-unavailable" | "market-unavailable"
+  message: string
+}
+
+export type SkillMarketConflictError = {
+  name: "SkillMarketConflictError"
+  code: "skill-delisted" | "risk-confirmation-required" | "hash-mismatch" | "version-conflict" | "not-market-owned"
+  message: string
+}
+
+export type SkillMarketOperationError = {
+  name: "SkillMarketOperationError"
+  code: "unsafe-archive" | "archive-limit" | "invalid-skill" | "disk-unavailable" | "refresh-failed"
+  message: string
+}
+
 export type OutputFormat1 =
   | {
       type: "text"
@@ -13065,6 +13083,564 @@ export type V2SkillListResponses = {
 }
 
 export type V2SkillListResponse = V2SkillListResponses[keyof V2SkillListResponses]
+
+export type ServerSkillMarketSkillMarketListData = {
+  body?: never
+  path?: never
+  query?: {
+    query?: string
+    source?: "skillhub" | "enterprise"
+    category?: string
+    requiresApiKey?: "true" | "false"
+    featured?: "true" | "false"
+    enterprise?: "true" | "false"
+    sort?: "score" | "featured" | "trending" | "downloads" | "recent"
+    page?: string
+    limit?: string
+  }
+  url: "/api/skill/market/skills"
+}
+
+export type ServerSkillMarketSkillMarketListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketListError =
+  ServerSkillMarketSkillMarketListErrors[keyof ServerSkillMarketSkillMarketListErrors]
+
+export type ServerSkillMarketSkillMarketListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    revision: string
+    sourceStatus: {
+      skillhub: "fresh" | "stale" | "unavailable"
+      enterprise: "fresh" | "stale" | "unavailable"
+    }
+    total: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    page: number
+    limit: number
+    items: Array<{
+      id: string
+      source: "skillhub" | "enterprise"
+      sourceUrl: string
+      name: string
+      description: string
+      iconUrl?: string
+      categories: Array<string>
+      tags: Array<string>
+      aliases?: Array<string>
+      requiresApiKey: boolean
+      risk: "unknown" | "safe" | "warning" | "danger"
+      version: string
+      updatedAt: string
+      downloads: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      favorites: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      score: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      featured: boolean
+      enterprise: boolean
+      delisted: boolean
+      installedVersion?: string
+      updateAvailable?: boolean
+    }>
+  }
+}
+
+export type ServerSkillMarketSkillMarketListResponse =
+  ServerSkillMarketSkillMarketListResponses[keyof ServerSkillMarketSkillMarketListResponses]
+
+export type ServerSkillMarketSkillMarketFacetsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/skill/market/facets"
+}
+
+export type ServerSkillMarketSkillMarketFacetsErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketFacetsError =
+  ServerSkillMarketSkillMarketFacetsErrors[keyof ServerSkillMarketSkillMarketFacetsErrors]
+
+export type ServerSkillMarketSkillMarketFacetsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    revision: string
+    sourceStatus: {
+      skillhub: "fresh" | "stale" | "unavailable"
+      enterprise: "fresh" | "stale" | "unavailable"
+    }
+    sources: Array<{
+      value: "skillhub" | "enterprise"
+      count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    categories: Array<{
+      value: string
+      count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    requiresApiKey: {
+      yes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      no: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type ServerSkillMarketSkillMarketFacetsResponse =
+  ServerSkillMarketSkillMarketFacetsResponses[keyof ServerSkillMarketSkillMarketFacetsResponses]
+
+export type ServerSkillMarketSkillMarketDetailData = {
+  body?: never
+  path: {
+    source: "skillhub" | "enterprise"
+    id: string
+  }
+  query?: never
+  url: "/api/skill/market/skills/{source}/{id}"
+}
+
+export type ServerSkillMarketSkillMarketDetailErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketDetailError =
+  ServerSkillMarketSkillMarketDetailErrors[keyof ServerSkillMarketSkillMarketDetailErrors]
+
+export type ServerSkillMarketSkillMarketDetailResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    source: "skillhub" | "enterprise"
+    sourceUrl: string
+    name: string
+    description: string
+    iconUrl?: string
+    categories: Array<string>
+    tags: Array<string>
+    aliases?: Array<string>
+    requiresApiKey: boolean
+    risk: "unknown" | "safe" | "warning" | "danger"
+    version: string
+    updatedAt: string
+    downloads: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    favorites: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    score: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    featured: boolean
+    enterprise: boolean
+    delisted: boolean
+    installedVersion?: string
+    updateAvailable?: boolean
+    readme: string
+    license?: string
+    author: {
+      name: string
+      url?: string
+    }
+    versions: Array<{
+      version: string
+      publishedAt: string
+      sha256: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    securityReports: Array<{
+      provider: string
+      verdict: "unknown" | "safe" | "warning" | "danger"
+      summary: string
+      reportUrl?: string
+    }>
+    riskReason?: string
+    package: {
+      url: string
+      sha256: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      files: Array<{
+        path: string
+        sha256: string
+        size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+    }
+    publicDetailUrl: string
+  }
+}
+
+export type ServerSkillMarketSkillMarketDetailResponse =
+  ServerSkillMarketSkillMarketDetailResponses[keyof ServerSkillMarketSkillMarketDetailResponses]
+
+export type ServerSkillMarketSkillMarketInstalledData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/skill/market/installed"
+}
+
+export type ServerSkillMarketSkillMarketInstalledErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketInstalledError =
+  ServerSkillMarketSkillMarketInstalledErrors[keyof ServerSkillMarketSkillMarketInstalledErrors]
+
+export type ServerSkillMarketSkillMarketInstalledResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    source: "skillhub" | "enterprise"
+    id: string
+    name: string
+    version: string
+    installedAt: string
+    updateAvailable: boolean
+    loadState: "ready" | "refresh-failed"
+  }>
+}
+
+export type ServerSkillMarketSkillMarketInstalledResponse =
+  ServerSkillMarketSkillMarketInstalledResponses[keyof ServerSkillMarketSkillMarketInstalledResponses]
+
+export type ServerSkillMarketSkillMarketUpdatesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/skill/market/updates"
+}
+
+export type ServerSkillMarketSkillMarketUpdatesErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketUpdatesError =
+  ServerSkillMarketSkillMarketUpdatesErrors[keyof ServerSkillMarketSkillMarketUpdatesErrors]
+
+export type ServerSkillMarketSkillMarketUpdatesResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    source: "skillhub" | "enterprise"
+    id: string
+    name: string
+    version: string
+    installedAt: string
+    updateAvailable: boolean
+    loadState: "ready" | "refresh-failed"
+  }>
+}
+
+export type ServerSkillMarketSkillMarketUpdatesResponse =
+  ServerSkillMarketSkillMarketUpdatesResponses[keyof ServerSkillMarketSkillMarketUpdatesResponses]
+
+export type ServerSkillMarketSkillMarketInstallData = {
+  body: {
+    source: "skillhub" | "enterprise"
+    id: string
+    version: string
+    sha256: string
+    riskConfirmed?: boolean
+  }
+  path?: never
+  query?: never
+  url: "/api/skill/market/install"
+}
+
+export type ServerSkillMarketSkillMarketInstallErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketInstallError =
+  ServerSkillMarketSkillMarketInstallErrors[keyof ServerSkillMarketSkillMarketInstallErrors]
+
+export type ServerSkillMarketSkillMarketInstallResponses = {
+  /**
+   * Success
+   */
+  200: {
+    installed: {
+      source: "skillhub" | "enterprise"
+      id: string
+      name: string
+      version: string
+      installedAt: string
+      updateAvailable: boolean
+      loadState: "ready" | "refresh-failed"
+    }
+    changed: boolean
+  }
+}
+
+export type ServerSkillMarketSkillMarketInstallResponse =
+  ServerSkillMarketSkillMarketInstallResponses[keyof ServerSkillMarketSkillMarketInstallResponses]
+
+export type ServerSkillMarketSkillMarketUpdateData = {
+  body: {
+    source: "skillhub" | "enterprise"
+    id: string
+    version: string
+    sha256: string
+    riskConfirmed?: boolean
+  }
+  path?: never
+  query?: never
+  url: "/api/skill/market/update"
+}
+
+export type ServerSkillMarketSkillMarketUpdateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketUpdateError =
+  ServerSkillMarketSkillMarketUpdateErrors[keyof ServerSkillMarketSkillMarketUpdateErrors]
+
+export type ServerSkillMarketSkillMarketUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    installed: {
+      source: "skillhub" | "enterprise"
+      id: string
+      name: string
+      version: string
+      installedAt: string
+      updateAvailable: boolean
+      loadState: "ready" | "refresh-failed"
+    }
+    changed: boolean
+  }
+}
+
+export type ServerSkillMarketSkillMarketUpdateResponse =
+  ServerSkillMarketSkillMarketUpdateResponses[keyof ServerSkillMarketSkillMarketUpdateResponses]
+
+export type ServerSkillMarketSkillMarketUninstallData = {
+  body?: never
+  path: {
+    source: "skillhub" | "enterprise"
+    id: string
+  }
+  query?: never
+  url: "/api/skill/market/install/{source}/{id}"
+}
+
+export type ServerSkillMarketSkillMarketUninstallErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketUninstallError =
+  ServerSkillMarketSkillMarketUninstallErrors[keyof ServerSkillMarketSkillMarketUninstallErrors]
+
+export type ServerSkillMarketSkillMarketUninstallResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type ServerSkillMarketSkillMarketUninstallResponse =
+  ServerSkillMarketSkillMarketUninstallResponses[keyof ServerSkillMarketSkillMarketUninstallResponses]
+
+export type ServerSkillMarketSkillMarketRefreshData = {
+  body?: never
+  path: {
+    source: "skillhub" | "enterprise"
+    id: string
+  }
+  query?: never
+  url: "/api/skill/market/install/{source}/{id}/refresh"
+}
+
+export type ServerSkillMarketSkillMarketRefreshErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SkillMarketConflictError
+   */
+  409: SkillMarketConflictError
+  /**
+   * SkillMarketOperationError
+   */
+  422: SkillMarketOperationError
+  /**
+   * SkillMarketUnavailableError
+   */
+  503: SkillMarketUnavailableError
+}
+
+export type ServerSkillMarketSkillMarketRefreshError =
+  ServerSkillMarketSkillMarketRefreshErrors[keyof ServerSkillMarketSkillMarketRefreshErrors]
+
+export type ServerSkillMarketSkillMarketRefreshResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type ServerSkillMarketSkillMarketRefreshResponse =
+  ServerSkillMarketSkillMarketRefreshResponses[keyof ServerSkillMarketSkillMarketRefreshResponses]
 
 export type V2EventSubscribeData = {
   body?: never

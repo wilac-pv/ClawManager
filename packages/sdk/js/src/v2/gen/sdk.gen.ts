@@ -181,6 +181,24 @@ import type {
   QuestionReplyErrors,
   QuestionReplyResponses,
   QuestionV2Reply,
+  ServerSkillMarketSkillMarketDetailErrors,
+  ServerSkillMarketSkillMarketDetailResponses,
+  ServerSkillMarketSkillMarketFacetsErrors,
+  ServerSkillMarketSkillMarketFacetsResponses,
+  ServerSkillMarketSkillMarketInstalledErrors,
+  ServerSkillMarketSkillMarketInstalledResponses,
+  ServerSkillMarketSkillMarketInstallErrors,
+  ServerSkillMarketSkillMarketInstallResponses,
+  ServerSkillMarketSkillMarketListErrors,
+  ServerSkillMarketSkillMarketListResponses,
+  ServerSkillMarketSkillMarketRefreshErrors,
+  ServerSkillMarketSkillMarketRefreshResponses,
+  ServerSkillMarketSkillMarketUninstallErrors,
+  ServerSkillMarketSkillMarketUninstallResponses,
+  ServerSkillMarketSkillMarketUpdateErrors,
+  ServerSkillMarketSkillMarketUpdateResponses,
+  ServerSkillMarketSkillMarketUpdatesErrors,
+  ServerSkillMarketSkillMarketUpdatesResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -7189,6 +7207,256 @@ export class V2 extends HeyApiClient {
   }
 }
 
+export class SkillMarket extends HeyApiClient {
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query?: string
+      source?: "skillhub" | "enterprise"
+      category?: string
+      requiresApiKey?: "true" | "false"
+      featured?: "true" | "false"
+      enterprise?: "true" | "false"
+      sort?: "score" | "featured" | "trending" | "downloads" | "recent"
+      page?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "query" },
+            { in: "query", key: "source" },
+            { in: "query", key: "category" },
+            { in: "query", key: "requiresApiKey" },
+            { in: "query", key: "featured" },
+            { in: "query", key: "enterprise" },
+            { in: "query", key: "sort" },
+            { in: "query", key: "page" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ServerSkillMarketSkillMarketListResponses,
+      ServerSkillMarketSkillMarketListErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/market/skills",
+      ...options,
+      ...params,
+    })
+  }
+
+  public facets<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      ServerSkillMarketSkillMarketFacetsResponses,
+      ServerSkillMarketSkillMarketFacetsErrors,
+      ThrowOnError
+    >({ url: "/api/skill/market/facets", ...options })
+  }
+
+  public detail<ThrowOnError extends boolean = false>(
+    parameters: {
+      source: "skillhub" | "enterprise"
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "source" },
+            { in: "path", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ServerSkillMarketSkillMarketDetailResponses,
+      ServerSkillMarketSkillMarketDetailErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/market/skills/{source}/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public installed<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      ServerSkillMarketSkillMarketInstalledResponses,
+      ServerSkillMarketSkillMarketInstalledErrors,
+      ThrowOnError
+    >({ url: "/api/skill/market/installed", ...options })
+  }
+
+  public updates<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      ServerSkillMarketSkillMarketUpdatesResponses,
+      ServerSkillMarketSkillMarketUpdatesErrors,
+      ThrowOnError
+    >({ url: "/api/skill/market/updates", ...options })
+  }
+
+  public install<ThrowOnError extends boolean = false>(
+    parameters?: {
+      source?: "skillhub" | "enterprise"
+      id?: string
+      version?: string
+      sha256?: string
+      riskConfirmed?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "source" },
+            { in: "body", key: "id" },
+            { in: "body", key: "version" },
+            { in: "body", key: "sha256" },
+            { in: "body", key: "riskConfirmed" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ServerSkillMarketSkillMarketInstallResponses,
+      ServerSkillMarketSkillMarketInstallErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/market/install",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      source?: "skillhub" | "enterprise"
+      id?: string
+      version?: string
+      sha256?: string
+      riskConfirmed?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "source" },
+            { in: "body", key: "id" },
+            { in: "body", key: "version" },
+            { in: "body", key: "sha256" },
+            { in: "body", key: "riskConfirmed" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ServerSkillMarketSkillMarketUpdateResponses,
+      ServerSkillMarketSkillMarketUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/market/update",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public uninstall<ThrowOnError extends boolean = false>(
+    parameters: {
+      source: "skillhub" | "enterprise"
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "source" },
+            { in: "path", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      ServerSkillMarketSkillMarketUninstallResponses,
+      ServerSkillMarketSkillMarketUninstallErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/market/install/{source}/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters: {
+      source: "skillhub" | "enterprise"
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "source" },
+            { in: "path", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ServerSkillMarketSkillMarketRefreshResponses,
+      ServerSkillMarketSkillMarketRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/api/skill/market/install/{source}/{id}/refresh",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class SkillMarket2 extends HeyApiClient {
+  private _skillMarket?: SkillMarket
+  get skillMarket(): SkillMarket {
+    return (this._skillMarket ??= new SkillMarket({ client: this.client }))
+  }
+}
+
+export class Server extends HeyApiClient {
+  private _skillMarket?: SkillMarket2
+  get skillMarket(): SkillMarket2 {
+    return (this._skillMarket ??= new SkillMarket2({ client: this.client }))
+  }
+}
+
 export class OpencodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<OpencodeClient>()
 
@@ -7330,5 +7598,10 @@ export class OpencodeClient extends HeyApiClient {
   private _v2?: V2
   get v2(): V2 {
     return (this._v2 ??= new V2({ client: this.client }))
+  }
+
+  private _server?: Server
+  get server(): Server {
+    return (this._server ??= new Server({ client: this.client }))
   }
 }
