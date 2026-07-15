@@ -332,6 +332,8 @@ git commit -m "feat(core): install global market skills"
 - Consumes: `SkillMarketInstaller.Service`, remote `SkillMarketCatalogApi`, OEM market URL/allowed hosts, local Location middleware.
 - Produces: approved `/api/skill/market/*` endpoints plus the list UI's facet proxy, `SkillMarketLocalError`, and catalog cache at `Global.Service.cache/skill-market/catalog.json`.
 
+Import `SkillMarketCatalogQuery` and `normalizeSkillMarketCatalogQuery` from `@opencode-ai/protocol/groups/skill-market-catalog`; use the transport schema on the local list endpoint and normalize `ctx.query` before passing it to the catalog service.
+
 - [ ] **Step 1: Write local API tests against real HTTP layers**
 
 ```ts
@@ -372,7 +374,7 @@ export const SkillMarketLocalError = Schema.Union([SkillMarketUnavailableError, 
 export type SkillMarketLocalError = typeof SkillMarketLocalError.Type
 
 export const SkillMarketLocalGroup = HttpApiGroup.make("server.skillMarket")
-  .add(HttpApiEndpoint.get("skillMarket.list", "/api/skill/market/skills", { query: SkillMarket.PageQuery, success: SkillMarket.Page, error: SkillMarketLocalError }))
+  .add(HttpApiEndpoint.get("skillMarket.list", "/api/skill/market/skills", { query: SkillMarketCatalogQuery, success: SkillMarket.Page, error: SkillMarketLocalError }))
   .add(HttpApiEndpoint.get("skillMarket.facets", "/api/skill/market/facets", { success: SkillMarket.Facets, error: SkillMarketLocalError }))
   .add(HttpApiEndpoint.get("skillMarket.detail", "/api/skill/market/skills/:source/:id", { params: Key, success: SkillMarket.Detail, error: SkillMarketLocalError }))
   .add(HttpApiEndpoint.get("skillMarket.installed", "/api/skill/market/installed", { success: Schema.Array(SkillMarket.Installed), error: SkillMarketLocalError }))

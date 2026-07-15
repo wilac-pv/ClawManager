@@ -107,7 +107,7 @@ Create schemas with these exact fields and literals:
 ```ts
 export * as SkillMarket from "./skill-market"
 
-import { Effect, Schema, SchemaGetter } from "effect"
+import { Schema } from "effect"
 import { optional } from "./schema"
 
 export const Source = Schema.Literals(["skillhub", "enterprise"])
@@ -120,14 +120,8 @@ export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))
 export const HttpsUrl = Schema.String.check(Schema.isPattern(/^https:\/\/[^\s]+$/))
 export const Timestamp = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/))
 const NonNegative = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))
-const PageNumber = Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100_000))
-const PageLimit = Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100))
-const QueryBoolean = Schema.Literals(["true", "false"]).pipe(
-  Schema.decodeTo(Schema.Boolean, {
-    decode: SchemaGetter.transform((value) => value === "true"),
-    encode: SchemaGetter.transform((value) => value ? "true" : "false"),
-  }),
-)
+const PageNumber = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100_000))
+const PageLimit = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100))
 
 export const SecurityReport = Schema.Struct({
   provider: Schema.String,
@@ -196,12 +190,12 @@ export const PageQuery = Schema.Struct({
   query: Schema.String.pipe(optional),
   source: Source.pipe(optional),
   category: Schema.String.pipe(optional),
-  requiresApiKey: QueryBoolean.pipe(optional),
-  featured: QueryBoolean.pipe(optional),
-  enterprise: QueryBoolean.pipe(optional),
-  sort: Sort.pipe(Schema.withDecodingDefault(Effect.succeed("score" as const))),
-  page: PageNumber.pipe(Schema.withDecodingDefault(Effect.succeed(1))),
-  limit: PageLimit.pipe(Schema.withDecodingDefault(Effect.succeed(30))),
+  requiresApiKey: Schema.Boolean.pipe(optional),
+  featured: Schema.Boolean.pipe(optional),
+  enterprise: Schema.Boolean.pipe(optional),
+  sort: Sort,
+  page: PageNumber,
+  limit: PageLimit,
 })
 export type PageQuery = typeof PageQuery.Type
 
@@ -254,6 +248,7 @@ git commit -m "feat(schema): add skill market contracts"
 ```ts
 import { expect, test } from "bun:test"
 import { HttpApi } from "effect/unstable/httpapi"
+import { normalizeSkillMarketCatalogQuery } from "../src/groups/skill-market-catalog"
 import { SkillMarketCatalogApi } from "../src/skill-market-api"
 
 test("catalog api contains five public operations", () => {
@@ -263,6 +258,20 @@ test("catalog api contains five public operations", () => {
     onEndpoint({ endpoint }) { endpoints.push(endpoint.name) },
   })
   expect(endpoints.toSorted()).toEqual(["skillMarket.catalog.detail", "skillMarket.catalog.download", "skillMarket.catalog.facets", "skillMarket.catalog.list", "skillMarket.catalog.versions"])
+})
+
+test("normalizes portable query strings into domain values", () => {
+  expect(normalizeSkillMarketCatalogQuery({ requiresApiKey: "false", featured: "true", page: 2 })).toEqual({
+    query: undefined,
+    source: undefined,
+    category: undefined,
+    requiresApiKey: false,
+    featured: true,
+    enterprise: undefined,
+    sort: "score",
+    page: 2,
+    limit: 30,
+  })
 })
 ```
 
@@ -280,13 +289,39 @@ import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 
 const Key = { source: SkillMarket.Source, id: Schema.String }
+export const SkillMarketCatalogQuery = Schema.Struct({
+  query: Schema.String.pipe(Schema.optional),
+  source: SkillMarket.Source.pipe(Schema.optional),
+  category: Schema.String.pipe(Schema.optional),
+  requiresApiKey: Schema.Literals(["true", "false"]).pipe(Schema.optional),
+  featured: Schema.Literals(["true", "false"]).pipe(Schema.optional),
+  enterprise: Schema.Literals(["true", "false"]).pipe(Schema.optional),
+  sort: SkillMarket.Sort.pipe(Schema.optional),
+  page: Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100_000)).pipe(Schema.optional),
+  limit: Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100)).pipe(Schema.optional),
+})
+
+export function normalizeSkillMarketCatalogQuery(query: typeof SkillMarketCatalogQuery.Type): SkillMarket.PageQuery {
+  return {
+    query: query.query,
+    source: query.source,
+    category: query.category,
+    requiresApiKey: query.requiresApiKey === undefined ? undefined : query.requiresApiKey === "true",
+    featured: query.featured === undefined ? undefined : query.featured === "true",
+    enterprise: query.enterprise === undefined ? undefined : query.enterprise === "true",
+    sort: query.sort ?? "score",
+    page: query.page ?? 1,
+    limit: query.limit ?? 30,
+  }
+}
+
 export class SkillMarketNotFound extends Schema.ErrorClass<SkillMarketNotFound>("SkillMarketNotFound")(
   { source: SkillMarket.Source, id: Schema.String },
   { httpApiStatus: 404 },
 ) {}
 
 export const SkillMarketCatalogGroup = HttpApiGroup.make("skillMarket.catalog")
-  .add(HttpApiEndpoint.get("skillMarket.catalog.list", "/v1/catalog/skills", { query: SkillMarket.PageQuery, success: SkillMarket.Page }))
+  .add(HttpApiEndpoint.get("skillMarket.catalog.list", "/v1/catalog/skills", { query: SkillMarketCatalogQuery, success: SkillMarket.Page }))
   .add(HttpApiEndpoint.get("skillMarket.catalog.facets", "/v1/catalog/facets", { success: SkillMarket.Facets }))
   .add(HttpApiEndpoint.get("skillMarket.catalog.detail", "/v1/catalog/skills/:source/:id", { params: Key, success: SkillMarket.Detail, error: SkillMarketNotFound }))
   .add(HttpApiEndpoint.get("skillMarket.catalog.versions", "/v1/catalog/skills/:source/:id/versions", { params: Key, success: Schema.Array(SkillMarket.Version), error: SkillMarketNotFound }))
@@ -638,7 +673,7 @@ Expected: HTTP test fails for missing server layer; performance test establishes
 ```ts
 export const handlers = HttpApiBuilder.group(SkillMarketCatalogApi, "skillMarket.catalog", (handlers) =>
   handlers
-    .handle("skillMarket.catalog.list", (ctx) => Catalog.Service.use((catalog) => catalog.list(ctx.query)))
+    .handle("skillMarket.catalog.list", (ctx) => Catalog.Service.use((catalog) => catalog.list(normalizeSkillMarketCatalogQuery(ctx.query))))
     .handle("skillMarket.catalog.facets", () => Catalog.Service.use((catalog) => catalog.facets()))
     .handle("skillMarket.catalog.detail", (ctx) => Catalog.Service.use((catalog) => catalog.detail(ctx.params)))
     .handle("skillMarket.catalog.versions", (ctx) => Catalog.Service.use((catalog) => catalog.versions(ctx.params)))

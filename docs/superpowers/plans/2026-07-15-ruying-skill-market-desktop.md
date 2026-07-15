@@ -95,7 +95,12 @@ export function createDesktopSkillMarket(client: ServerClient) {
 
   return {
     source: {
-      list: (query, signal) => data(client.skillMarket.list({ query }, { signal })),
+      list: (query, signal) => data(client.skillMarket.list({ query: {
+        ...query,
+        requiresApiKey: query.requiresApiKey === undefined ? undefined : String(query.requiresApiKey) as "true" | "false",
+        featured: query.featured === undefined ? undefined : String(query.featured) as "true" | "false",
+        enterprise: query.enterprise === undefined ? undefined : String(query.enterprise) as "true" | "false",
+      } }, { signal })),
       facets: (signal) => data(client.skillMarket.facets(undefined, { signal })),
       detail: (key, signal) => data(client.skillMarket.detail({ path: key }, { signal })),
       versions: (key, signal) => data(client.skillMarket.detail({ path: key }, { signal })).then((detail) => detail.versions),
