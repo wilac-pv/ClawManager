@@ -158,6 +158,7 @@ export const Summary = Schema.Struct({
   iconUrl: HttpsUrl.pipe(optional),
   categories: Schema.Array(Schema.String),
   tags: Schema.Array(Schema.String),
+  aliases: Schema.Array(Schema.String).pipe(optional),
   requiresApiKey: Schema.Boolean,
   risk: Risk,
   version: Schema.String,
@@ -534,7 +535,7 @@ function comparator(sort: SkillMarket.Sort) {
 }
 ```
 
-`mergeCatalog` must only accept verified public details, apply enterprise references after package materialization, set `enterprise: true`, allow display/category/featured/delisted/license overrides, and choose the stricter risk by rank; an enterprise override can never reduce the SkillHub risk. Enterprise-only index entries are materialized into verified details by Task 5 before merge. Generate `revision` from a SHA-256 of canonical sorted complete details so identical inputs produce identical revisions and any immutable detail change produces a new object key.
+`mergeCatalog` must only accept verified public details, apply enterprise references after package materialization, set `enterprise: true`, allow display/category/featured/delisted/license overrides, and choose the stricter risk by rank; an enterprise override can never reduce the SkillHub risk. Enterprise-only index entries are materialized into verified details by Task 5 before merge. Generate `revision` from a SHA-256 of canonical sorted complete details plus source status so identical inputs produce identical revisions and any immutable detail or facets status change produces a new object key.
 
 - [ ] **Step 5: Run adapter and catalog tests**
 

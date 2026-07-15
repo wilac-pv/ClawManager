@@ -22,6 +22,7 @@ describe("SkillMarket", () => {
       featured: false,
       enterprise: false,
       delisted: false,
+      aliases: ["code-review-slug"],
     }
     const page = Schema.decodeUnknownSync(SkillMarket.Page)({
       revision: "r1",
@@ -32,6 +33,7 @@ describe("SkillMarket", () => {
       items: [summary],
     })
     expect(page.items).toHaveLength(1)
+    expect(Object.hasOwn(page.items[0], "aliases")).toBe(true)
     expect(() =>
       Schema.decodeUnknownSync(SkillMarket.Package)({
         url: "http://example.com/a.zip",

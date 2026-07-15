@@ -22,10 +22,15 @@ export function mergeCatalog(
     enterprise.skills.map((skill) => [key(skill.source, skill.referenceId ?? skill.id), skill] as const),
   )
   const details = verifiedDetails
-    .map((detail) => applyEnterprise(detail, overrides.get(key(detail.source, detail.id))))
+    .map((detail) =>
+      applyEnterprise(
+        detail,
+        [detail.id, ...(detail.aliases ?? [])].map((id) => overrides.get(key(detail.source, id))).find(Boolean),
+      ),
+    )
     .toSorted((left, right) => key(left.source, left.id).localeCompare(key(right.source, right.id)))
   const items = details.map(toSummary)
-  const revision = new Bun.CryptoHasher("sha256").update(JSON.stringify(details)).digest("hex")
+  const revision = new Bun.CryptoHasher("sha256").update(JSON.stringify({ details, sourceStatus })).digest("hex")
   const visible = items.filter((item) => !item.delisted)
   const facets = buildFacets(revision, sourceStatus, visible)
   return {
@@ -50,7 +55,7 @@ export function queryCatalog(snapshot: CatalogSnapshot, query: SkillMarket.PageQ
     .filter(
       (item) =>
         !keyword ||
-        `${item.name}\n${item.description}\n${item.categories.join(" ")}\n${item.tags.join(" ")}`
+        `${item.name}\n${item.description}\n${item.categories.join(" ")}\n${item.tags.join(" ")}\n${item.aliases?.join(" ") ?? ""}`
           .toLocaleLowerCase()
           .includes(keyword),
     )
@@ -97,6 +102,7 @@ function toSummary(detail: SkillMarket.Detail): SkillMarket.Summary {
     iconUrl: detail.iconUrl,
     categories: detail.categories,
     tags: detail.tags,
+    aliases: detail.aliases,
     requiresApiKey: detail.requiresApiKey,
     risk: detail.risk,
     version: detail.version,

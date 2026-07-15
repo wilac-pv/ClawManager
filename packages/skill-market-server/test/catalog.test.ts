@@ -35,6 +35,12 @@ describe("catalog", () => {
     expect(snapshot.details.get("skillhub:code-review")?.license).toBe("MIT")
   })
 
+  test("applies enterprise references through a verified source alias", () => {
+    const snapshot = mergeCatalog([sampleDetail({ id: "verified-review", aliases: ["code-review"] })], enterprise)
+    expect(snapshot.items[0]?.name).toBe("企业 Code Review")
+    expect(snapshot.items[0]?.enterprise).toBe(true)
+  })
+
   test("produces a deterministic revision independent of input order", () => {
     const first = sampleDetail()
     const second = sampleDetail({ id: "typescript-review", name: "TypeScript Review", score: 8 })
@@ -44,6 +50,12 @@ describe("catalog", () => {
   test("changes revision when immutable detail content changes", () => {
     expect(mergeCatalog([sampleDetail()], enterprise).revision).not.toBe(
       mergeCatalog([sampleDetail({ readme: "# Updated Code Review" })], enterprise).revision,
+    )
+  })
+
+  test("changes revision when source status changes", () => {
+    expect(mergeCatalog([sampleDetail()], enterprise).revision).not.toBe(
+      mergeCatalog([sampleDetail()], enterprise, { skillhub: "fresh", enterprise: "stale" }).revision,
     )
   })
 

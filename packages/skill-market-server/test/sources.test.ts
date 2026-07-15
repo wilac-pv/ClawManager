@@ -11,7 +11,7 @@ describe("catalog sources", () => {
   test("normalizes SkillHub metadata without fabricating verified package fields", async () => {
     const calls: string[] = []
     const records = await loadSkillHub(async (input) => {
-      const url = String(input)
+      const url = requestUrl(input)
       calls.push(url)
       const file = url.includes("/api/skills?")
         ? "skillhub-page.json"
@@ -31,7 +31,7 @@ describe("catalog sources", () => {
 
     const reused = await loadSkillHub(
       async (input) => {
-        const url = String(input)
+        const url = requestUrl(input)
         if (!url.includes("/api/skills?")) throw new Error(`unexpected refresh ${url}`)
         return new Response(Bun.file(new URL("skillhub-page.json", fixtures)), {
           headers: { "content-type": "application/json" },
@@ -81,3 +81,9 @@ describe("catalog sources", () => {
     expect(Schema.decodeUnknownSync(SkillMarket.EnterpriseIndex)(value).schemaVersion).toBe(1)
   })
 })
+
+function requestUrl(input: string | URL | Request) {
+  if (typeof input === "string") return input
+  if (input instanceof URL) return input.href
+  return input.url
+}

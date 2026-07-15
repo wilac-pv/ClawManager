@@ -8,7 +8,11 @@ export async function loadEnterprise(fetcher: Fetcher, input: string, allowedHos
   const response = await fetcher(input, { headers: { accept: "application/json" } })
   if (!response.ok) throw new Error(`enterprise index request failed with ${response.status}`)
   if (response.url) assertAllowed(response.url, allowedHosts)
-  const index = await Schema.decodeUnknownPromise(SkillMarket.EnterpriseIndex)(await response.json())
+  return decodeEnterpriseIndex(await response.json(), allowedHosts)
+}
+
+export async function decodeEnterpriseIndex(input: unknown, allowedHosts: ReadonlySet<string>) {
+  const index = await Schema.decodeUnknownPromise(SkillMarket.EnterpriseIndex)(input)
   index.skills.forEach((skill) => {
     if (skill.package) assertAllowed(skill.package.url, allowedHosts)
   })

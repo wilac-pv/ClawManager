@@ -33,28 +33,35 @@ describe("OSS snapshots", () => {
 })
 
 function memoryObjectStore() {
-  const store = {
-    objects: new Map<string, Uint8Array>(),
-    writes: [] as Array<{ key: string; contentType: string; cacheControl: string }>,
-    failOn: undefined as RegExp | undefined,
-    client: undefined as unknown as ObjectStore,
-  }
-  store.client = {
+  const objects = new Map<string, Uint8Array>()
+  const writes: Array<{ key: string; contentType: string; cacheControl: string }> = []
+  const state: { failOn?: RegExp } = {}
+  const client: ObjectStore = {
     async put(key, body, contentType, cacheControl) {
-      if (store.failOn?.test(key)) throw new Error(`configured failure for ${key}`)
-      store.objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
-      store.writes.push({ key, contentType, cacheControl })
+      if (state.failOn?.test(key)) throw new Error(`configured failure for ${key}`)
+      objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
+      writes.push({ key, contentType, cacheControl })
     },
     async get(key) {
-      const value = store.objects.get(key)
+      const value = objects.get(key)
       if (!value) throw new Error(`missing object ${key}`)
       return value
     },
     async head(key) {
-      const value = store.objects.get(key)
+      const value = objects.get(key)
       if (!value) throw new Error(`missing object ${key}`)
       return { size: value.byteLength }
     },
   }
-  return store
+  return {
+    objects,
+    writes,
+    client,
+    get failOn() {
+      return state.failOn
+    },
+    set failOn(value: RegExp | undefined) {
+      state.failOn = value
+    },
+  }
 }

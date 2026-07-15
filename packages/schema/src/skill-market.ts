@@ -58,6 +58,7 @@ export const Summary = Schema.Struct({
   iconUrl: HttpsUrl.pipe(optional),
   categories: Schema.Array(Schema.String),
   tags: Schema.Array(Schema.String),
+  aliases: Schema.Array(Schema.String).pipe(optional),
   requiresApiKey: Schema.Boolean,
   risk: Risk,
   version: Schema.String,

@@ -852,6 +852,7 @@
         "@opencode-ai/protocol": "workspace:*",
         "@opencode-ai/schema": "workspace:*",
         "effect": "catalog:",
+        "gray-matter": "4.0.3",
       },
       "devDependencies": {
         "@tsconfig/node22": "catalog:",

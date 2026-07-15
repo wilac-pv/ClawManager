@@ -23,6 +23,8 @@ export function loadConfig(environment: Environment = process.env) {
   })
 }
 
+export type SkillMarketConfig = ReturnType<typeof loadConfig>
+
 function httpsUrl(name: string, value: string | undefined) {
   if (!value) throw new Error(`${name} is required`)
   if (!URL.canParse(value)) throw new Error(`${name} must be an HTTPS URL without credentials`)
