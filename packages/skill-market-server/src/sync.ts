@@ -83,6 +83,31 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
   })
 }
 
+export async function materializeSkillHubRecords(
+  records: readonly SkillHubRecord[],
+  options: MaterializeOptions,
+  previous: ReadonlyMap<string, SkillMarket.Detail> = new Map(),
+) {
+  const details = await materializeInBatches(records, (record) =>
+    materializeSkillHubRecord(record, options).then(
+      (detail) => detail,
+      (error: unknown) => {
+        console.warn(
+          JSON.stringify({
+            skill_market_materialize_error: {
+              source: "skillhub",
+              id: record.slug,
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+        )
+        return previous.get(record.slug)
+      },
+    ),
+  )
+  return details.filter((detail): detail is SkillMarket.Detail => detail !== undefined)
+}
+
 export function verifySkillArchive(body: Uint8Array) {
   if (body.byteLength > compressedLimit) throw new Error("skill archive exceeds compressed size limit")
   const view = new DataView(body.buffer, body.byteOffset, body.byteLength)
@@ -167,6 +192,13 @@ export async function synchronize(options: SyncOptions) {
   const now = (options.now ?? (() => new Date()))()
   const state = await loadState(options.store, options.config.ossPrefix)
   const previous = await settled(loadCurrentSnapshot(options.store, { prefix: options.config.ossPrefix }))
+  const previousSkillhub = new Map<string, SkillMarket.Detail>(
+    previous.ok
+      ? sourceDetails(previous.value, "skillhub").flatMap((detail) =>
+          [detail.id, ...(detail.aliases ?? [])].map((id) => [id, detail] as const),
+        )
+      : [],
+  )
   const canReuseSkillhub =
     previous.ok &&
     state.lastSkillhubAt !== undefined &&
@@ -180,9 +212,7 @@ export async function synchronize(options: SyncOptions) {
         loadSkillHub(options.fetcher, options.config.skillhubBaseUrl, undefined, options.config.skillhubLimit).then(
           async (records) => ({
             value: records.length,
-            details: await materializeInBatches(records, (record) =>
-              materializeSkillHubRecord(record, materializeOptions(options)),
-            ),
+            details: await materializeSkillHubRecords(records, materializeOptions(options), previousSkillhub),
             reused: false as const,
           }),
         ),

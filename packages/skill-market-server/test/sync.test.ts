@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { loadConfig } from "../src/config"
 import type { ObjectStore } from "../src/oss"
 import { publishSnapshot } from "../src/oss"
-import { materializeSkillHubRecord, synchronize, verifySkillArchive } from "../src/sync"
+import { materializeSkillHubRecord, materializeSkillHubRecords, synchronize, verifySkillArchive } from "../src/sync"
 import type { SkillHubRecord } from "../src/skillhub"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
@@ -66,6 +66,28 @@ describe("catalog synchronization", () => {
         publicBaseUrl: "https://oss.example.com/skill-market/",
       }),
     ).rejects.toThrow("not allowed")
+  })
+
+  test("isolates invalid SkillHub packages and retains their prior verified detail", async () => {
+    const skill = "---\nname: verified-review\ndescription: Verified review\n---\n# Verified Review\n"
+    const guide = "Review carefully."
+    const archive = makeStoredZip({ "SKILL.md": skill, "references/guide.md": guide })
+    const valid = sampleRecord(skill, guide)
+    const invalid = { ...valid, slug: "invalid", downloadUrl: "https://api.skillhub.cn/api/v1/download?slug=invalid" }
+    const previous = sampleDetail({ id: "invalid", name: "Previously verified" })
+    const details = await materializeSkillHubRecords(
+      [valid, invalid],
+      {
+        fetcher: async (input) =>
+          requestUrl(input).includes("slug=invalid") ? new Response(null, { status: 500 }) : new Response(archive),
+        store: memoryStore(new Map()),
+        allowedHosts: new Set(["api.skillhub.cn"]),
+        ossPrefix: "skill-market",
+        publicBaseUrl: "https://oss.example.com/skill-market/",
+      },
+      new Map([["invalid", previous]]),
+    )
+    expect(details.map((detail) => detail.id)).toEqual(["verified-review", "invalid"])
   })
 
   test("rejects a local filename that differs from its central directory entry", () => {
