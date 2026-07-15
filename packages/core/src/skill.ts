@@ -10,6 +10,7 @@ import { FSUtil } from "./fs-util"
 import { PermissionV2 } from "./permission"
 import { AbsolutePath } from "./schema"
 import { SkillDiscovery } from "./skill/discovery"
+import { SkillGeneration } from "./skill/generation"
 import { State } from "./state"
 
 export const DirectorySource = Skill.DirectorySource
@@ -58,6 +59,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const discovery = yield* SkillDiscovery.Service
     const fs = yield* FSUtil.Service
+    const generation = yield* SkillGeneration.Service
 
     const state = State.create<Data, Draft>({
       initial: () => ({ sources: [] }),
@@ -107,7 +109,13 @@ const layer = Layer.effect(
     // QUESTION(Dax): Should local skill sources invalidate on filesystem watch
     // events, following the reload policy chosen for other context sources?
     const cache = new Map<string, Info[]>()
+    let seenGeneration = generation.current()
     const list = Effect.fn("SkillV2.list")(function* () {
+      const currentGeneration = generation.current()
+      if (currentGeneration !== seenGeneration) {
+        cache.clear()
+        seenGeneration = currentGeneration
+      }
       const skills = new Map<string, Info>()
       for (const source of state.get().sources) {
         const key = Source.key(source)
@@ -120,7 +128,11 @@ const layer = Layer.effect(
 
     return Service.of({
       transform: state.transform,
-      reload: state.reload,
+      reload: Effect.fn("SkillV2.reload")(function* () {
+        cache.clear()
+        seenGeneration = yield* generation.bump()
+        yield* state.reload()
+      }),
       sources: Effect.fn("SkillV2.sources")(function* () {
         return state.get().sources
       }),
@@ -129,4 +141,8 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [SkillDiscovery.node, FSUtil.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [SkillDiscovery.node, FSUtil.node, SkillGeneration.node],
+})
