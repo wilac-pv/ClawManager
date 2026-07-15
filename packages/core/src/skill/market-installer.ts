@@ -2,7 +2,7 @@ export * as SkillMarketInstaller from "./market-installer"
 
 import path from "node:path"
 import { Cause, Context, Effect, Layer, Schema, Semaphore, Stream } from "effect"
-import { HttpClient, HttpClientRequest } from "effect/unstable/http"
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { ConfigMarkdown } from "../config/markdown"
 import { KeyedMutex } from "../effect/keyed-mutex"
@@ -115,6 +115,7 @@ const layer = Layer.effect(
     const download = Effect.fn("SkillMarketInstaller.download")(function* (url: string, destination: string) {
       const response = yield* HttpClientRequest.get(url).pipe(
         http.execute,
+        Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
         Effect.mapError(() => new InstallerError({ code: "network-unavailable", message: "Skill 安装包下载失败" })),
       )
       const declared = response.headers["content-length"]
