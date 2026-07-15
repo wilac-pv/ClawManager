@@ -20,7 +20,7 @@ export const marketLocalErrorCodes = [
 export type MarketLocalErrorCode = (typeof marketLocalErrorCodes)[number]
 
 export class MarketLocalError extends Error {
-  readonly name = "MarketLocalError"
+  override readonly name = "MarketLocalError"
 
   constructor(
     readonly code: MarketLocalErrorCode,
