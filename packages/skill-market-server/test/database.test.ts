@@ -24,7 +24,13 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(1)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2)
+    expect(
+      database.connection
+        .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
+        .all()
+        .map((column) => column.name),
+    ).toContain("private_icon_json")
 
     const tables = database.connection
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
@@ -171,7 +177,7 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([1, 1])
+    ).toEqual([2, 2])
     databases.forEach((database) => database.close())
   })
 })
