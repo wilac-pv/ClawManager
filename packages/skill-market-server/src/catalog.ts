@@ -29,6 +29,8 @@ export function mergeCatalog(
       ),
     )
     .toSorted((left, right) => key(left.source, left.id).localeCompare(key(right.source, right.id)))
+  if (new Set(details.map((detail) => key(detail.source, detail.id))).size !== details.length)
+    throw new Error("duplicate catalog key")
   const items = details.map(toSummary)
   const revision = new Bun.CryptoHasher("sha256").update(JSON.stringify({ details, sourceStatus })).digest("hex")
   const visible = items.filter((item) => !item.delisted)
@@ -115,6 +117,9 @@ function toSummary(detail: SkillMarket.Detail): SkillMarket.Summary {
     delisted: detail.delisted,
     installedVersion: detail.installedVersion,
     updateAvailable: detail.updateAvailable,
+    submittedBy: detail.submittedBy,
+    reviewedAt: detail.reviewedAt,
+    reviewRisk: detail.reviewRisk,
   }
 }
 

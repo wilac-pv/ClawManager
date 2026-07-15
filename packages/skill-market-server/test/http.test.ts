@@ -64,4 +64,24 @@ describe("catalog HTTP", () => {
     )
     expect(response.status).toBe(404)
   })
+
+  test("serves community detail routes and source freshness headers", async () => {
+    const snapshot = sampleSnapshot("r1")
+    const detail = sampleDetail({
+      source: "community",
+      sourceUrl: "https://market.example.com/skills/community/code-review",
+      publicDetailUrl: "https://market.example.com/skills/community/code-review",
+      submittedBy: { displayName: "CONTRIBUTOR" },
+      author: { name: "CONTRIBUTOR" },
+    })
+    snapshot.details.set("community:code-review", detail)
+    snapshot.sourceStatus = { ...snapshot.sourceStatus, community: "fresh" }
+    const response = await createCatalogHandler(async () => snapshot)(
+      new Request("https://market.example.com/v1/catalog/skills/community/code-review"),
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-skill-market-source-community")).toBe("fresh")
+    expect(Schema.decodeUnknownSync(SkillMarket.Detail)(await response.json()).source).toBe("community")
+  })
 })

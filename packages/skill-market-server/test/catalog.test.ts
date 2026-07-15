@@ -80,4 +80,38 @@ describe("catalog", () => {
     expect(page.items[0]?.id).toBe("code-review")
     expect(page.items.every((item) => !Object.hasOwn(item, "readme"))).toBe(true)
   })
+
+  test("keeps same-ID sources distinct and exposes community review metadata", () => {
+    const community = sampleDetail({
+      source: "community",
+      sourceUrl: "https://market.example.com/skills/community/code-review",
+      publicDetailUrl: "https://market.example.com/skills/community/code-review",
+      name: "Community Code Review",
+      submittedBy: { displayName: "CONTRIBUTOR" },
+      reviewedAt: "2026-07-15T01:00:00.000Z",
+      reviewRisk: "safe",
+      risk: "safe",
+      author: { name: "CONTRIBUTOR" },
+    })
+    const snapshot = mergeCatalog([sampleDetail(), community], enterprise, {
+      skillhub: "fresh",
+      enterprise: "fresh",
+      community: "fresh",
+    })
+
+    expect(snapshot.details.size).toBe(2)
+    expect(snapshot.facets.sources).toEqual([
+      { value: "community", count: 1 },
+      { value: "skillhub", count: 1 },
+    ])
+    expect(snapshot.items.find((item) => item.source === "community")).toMatchObject({
+      submittedBy: { displayName: "CONTRIBUTOR" },
+      reviewedAt: "2026-07-15T01:00:00.000Z",
+      reviewRisk: "safe",
+    })
+  })
+
+  test("rejects duplicate source and ID keys", () => {
+    expect(() => mergeCatalog([sampleDetail(), sampleDetail()], enterprise)).toThrow("duplicate catalog key")
+  })
 })

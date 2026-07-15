@@ -2,7 +2,10 @@ import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import matter from "gray-matter"
 import { type CatalogSnapshot, key, mergeCatalog } from "./catalog"
+import { listPublishedCommunity } from "./community"
 import { type SkillMarketConfig, loadConfig } from "./config"
+import type { MarketDatabase } from "./database"
+import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import { type SkillHubRecord, loadSkillHub } from "./skillhub"
@@ -22,6 +25,7 @@ type SyncOptions = {
   readonly fetcher: Fetcher
   readonly store: ObjectStore
   readonly config: SkillMarketConfig
+  readonly database?: MarketDatabase
   readonly now?: () => Date
 }
 
@@ -173,11 +177,21 @@ export async function synchronize(options: SyncOptions) {
       ),
     })),
   )
+  const community = options.database
+    ? await settled(
+        listPublishedCommunity(options.database, {
+          store: options.store,
+          publicPrefix: options.config.ossPrefix,
+          publicBaseUrl: options.config.publicBaseUrl,
+          webBaseUrl: options.config.publicBaseUrl,
+        }),
+      )
+    : ({ ok: false, error: new Error("community database is unavailable") } as const)
 
-  if (!skillhub.ok && !enterprise.ok && !previous.ok)
+  if (!skillhub.ok && !enterprise.ok && !community.ok && !previous.ok)
     throw new Error("all skill market sources failed and no prior snapshot exists")
-  if (!skillhub.ok && !enterprise.ok && previous.ok) {
-    emitMetrics(performance.now() - started, previous.value, false, false)
+  if (!skillhub.ok && !enterprise.ok && !community.ok && previous.ok) {
+    emitMetrics(performance.now() - started, previous.value, false, false, false)
     return { snapshot: previous.value, published: false }
   }
 
@@ -190,6 +204,11 @@ export async function synchronize(options: SyncOptions) {
     ? skillhub.value.details
     : previous.ok
       ? sourceDetails(previous.value, "skillhub")
+      : []
+  const communityDetails = community.ok
+    ? community.value
+    : previous.ok
+      ? sourceDetails(previous.value, "community")
       : []
   const preservedSkillhub =
     enterprise.ok || !previous.ok
@@ -206,9 +225,13 @@ export async function synchronize(options: SyncOptions) {
           ? "fresh"
           : "stale"
         : "unavailable",
-    community: "unavailable",
+    community: community.ok ? "fresh" : communityDetails.length ? "stale" : "unavailable",
   }
-  const snapshot = mergeCatalog(dedupe([...preservedSkillhub, ...enterpriseDetails]), index, sourceStatus)
+  const snapshot = mergeCatalog(
+    dedupe([...preservedSkillhub, ...enterpriseDetails, ...communityDetails]),
+    index,
+    sourceStatus,
+  )
   await publishSnapshot(options.store, { prefix: options.config.ossPrefix }, snapshot)
   const nextState: SyncState = {
     lastSkillhubAt: skillhub.ok && !skillhub.value.reused ? now.toISOString() : state.lastSkillhubAt,
@@ -216,7 +239,7 @@ export async function synchronize(options: SyncOptions) {
     enterpriseIndex: enterprise.ok ? enterprise.value.index : state.enterpriseIndex,
   }
   await saveState(options.store, options.config.ossPrefix, nextState).catch(() => undefined)
-  emitMetrics(performance.now() - started, snapshot, skillhub.ok, enterprise.ok)
+  emitMetrics(performance.now() - started, snapshot, skillhub.ok, enterprise.ok, community.ok)
   return { snapshot, published: true }
 }
 
@@ -505,11 +528,21 @@ async function settled<T>(promise: Promise<T>) {
   )
 }
 
-function emitMetrics(duration: number, snapshot: CatalogSnapshot, skillhub: boolean, enterprise: boolean) {
+function emitMetrics(
+  duration: number,
+  snapshot: CatalogSnapshot,
+  skillhub: boolean,
+  enterprise: boolean,
+  community: boolean,
+) {
   console.info(
     JSON.stringify({
       skill_market_sync_duration_ms: Math.round(duration),
-      skill_market_source_success: { skillhub: Number(skillhub), enterprise: Number(enterprise) },
+      skill_market_source_success: {
+        skillhub: Number(skillhub),
+        enterprise: Number(enterprise),
+        community: Number(community),
+      },
       skill_market_catalog_count: snapshot.items.length,
     }),
   )
@@ -518,7 +551,13 @@ function emitMetrics(duration: number, snapshot: CatalogSnapshot, skillhub: bool
 async function production() {
   const config = loadConfig()
   const store = makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket })
-  await synchronize({ fetcher: (input, init) => fetch(input, init), store, config })
+  const database = await openDatabase({
+    databasePath: config.databasePath,
+    migrationBackupDirectory: config.migrationBackupDirectory,
+  })
+  await synchronize({ fetcher: (input, init) => fetch(input, init), store, config, database }).finally(() =>
+    database.close(),
+  )
 }
 
 if (import.meta.main) await production()

@@ -34,7 +34,8 @@ function route(request: Request, url: URL, snapshot: CatalogSnapshot) {
   if (segments[0] !== "v1" || segments[1] !== "catalog" || segments[2] !== "skills")
     return json({ code: "not-found" }, 404, head, headers)
   const source = segments[3]
-  if (source !== "skillhub" && source !== "enterprise") return json({ code: "not-found" }, 404, head, headers)
+  if (source !== "skillhub" && source !== "enterprise" && source !== "community")
+    return json({ code: "not-found" }, 404, head, headers)
   const id = segments[4]
   if (!id) return json({ code: "not-found" }, 404, head, headers)
   const detail = snapshot.details.get(key(source, decodeURIComponent(id)))
@@ -59,6 +60,7 @@ function snapshotHeaders(snapshot: CatalogSnapshot) {
     "x-skill-market-revision": snapshot.revision,
     "x-skill-market-source-skillhub": snapshot.sourceStatus.skillhub,
     "x-skill-market-source-enterprise": snapshot.sourceStatus.enterprise,
+    "x-skill-market-source-community": snapshot.sourceStatus.community,
   }
 }
 

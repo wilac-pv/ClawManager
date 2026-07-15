@@ -1,11 +1,21 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { loadConfig } from "../src/config"
+import { openDatabase } from "../src/database"
 import type { ObjectStore } from "../src/oss"
 import { publishSnapshot } from "../src/oss"
 import { materializeSkillHubRecord, materializeSkillHubRecords, synchronize, verifySkillArchive } from "../src/sync"
 import type { SkillHubRecord } from "../src/skillhub"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
+
+const directories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })))
+})
 
 describe("catalog synchronization", () => {
   test("follows approved redirects and materializes a verified SkillHub package", async () => {
@@ -184,6 +194,44 @@ describe("catalog synchronization", () => {
     })
     expect(conditional).toBe(true)
     expect(result.snapshot.sourceStatus.enterprise).toBe("fresh")
+  })
+
+  test("marks the community source fresh when the control database is available", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-sync-community-"))
+    directories.push(directory)
+    const database = await openDatabase({
+      databasePath: join(directory, "market.db"),
+      migrationBackupDirectory: join(directory, "backups"),
+    })
+    const objects = new Map<string, Uint8Array>()
+    const store = memoryStore(objects)
+    await publishSnapshot(store, { prefix: "skill-market" }, sampleSnapshot("prior"))
+    await store.put(
+      "skill-market/sync-state.json",
+      JSON.stringify({
+        lastSkillhubAt: "2026-07-15T00:00:00.000Z",
+        enterpriseEtag: '"e1"',
+        enterpriseIndex: { schemaVersion: 1, updatedAt: "2026-07-15T00:00:00.000Z", skills: [] },
+      }),
+      "application/json",
+      "no-store",
+    )
+    const result = await synchronize({
+      config: loadConfig({
+        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+        SKILL_MARKET_PUBLIC_BASE_URL: "https://oss.example.com/skill-market/",
+        SKILL_MARKET_OSS_PREFIX: "skill-market",
+        SKILL_MARKET_ALLOWED_HOSTS: "api.skillhub.cn,oss.example.com",
+      }),
+      database,
+      store,
+      now: () => new Date("2026-07-15T00:05:00.000Z"),
+      fetcher: async () => new Response(null, { status: 304 }),
+    })
+
+    expect(result.snapshot.sourceStatus.community).toBe("fresh")
+    database.close()
   })
 })
 
