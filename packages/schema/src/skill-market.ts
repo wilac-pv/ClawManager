@@ -3,7 +3,7 @@ export * as SkillMarket from "./skill-market"
 import { Schema } from "effect"
 import { optional } from "./schema"
 
-export const Source = Schema.Literals(["skillhub", "enterprise"])
+export const Source = Schema.Literals(["skillhub", "enterprise", "community"])
 export type Source = typeof Source.Type
 
 export const Risk = Schema.Literals(["unknown", "safe", "warning", "danger"])
@@ -71,6 +71,9 @@ export const Summary = Schema.Struct({
   delisted: Schema.Boolean,
   installedVersion: Schema.String.pipe(optional),
   updateAvailable: Schema.Boolean.pipe(optional),
+  submittedBy: Schema.Struct({ displayName: Schema.String }).pipe(optional),
+  reviewedAt: Timestamp.pipe(optional),
+  reviewRisk: Risk.pipe(optional),
 })
 export type Summary = typeof Summary.Type
 
@@ -103,6 +106,7 @@ export type PageQuery = typeof PageQuery.Type
 export const SourceStatus = Schema.Struct({
   skillhub: Schema.Literals(["fresh", "stale", "unavailable"]),
   enterprise: Schema.Literals(["fresh", "stale", "unavailable"]),
+  community: Schema.Literals(["fresh", "stale", "unavailable"]),
 })
 export type SourceStatus = typeof SourceStatus.Type
 

@@ -26,7 +26,7 @@ describe("SkillMarket", () => {
     }
     const page = Schema.decodeUnknownSync(SkillMarket.Page)({
       revision: "r1",
-      sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+      sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
       total: 1,
       page: 1,
       limit: 30,
@@ -42,6 +42,10 @@ describe("SkillMarket", () => {
         files: [],
       }),
     ).toThrow()
+  })
+
+  test("accepts community as a public source", () => {
+    expect(Schema.decodeUnknownSync(SkillMarket.Source)("community")).toBe("community")
   })
 
   test("keeps domain query booleans and validates pagination", () => {
