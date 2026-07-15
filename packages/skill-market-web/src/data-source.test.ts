@@ -79,9 +79,8 @@ test("preserves abort signals", async () => {
   const server = serve(() => new Promise<Response>(() => undefined))
   const source = createRemoteSkillMarketDataSource(server.url)
   const controller = new AbortController()
-  const request = source.facets(controller.signal)
-
   controller.abort()
+  const request = source.facets(controller.signal)
   await expect(request).rejects.toMatchObject({ name: "AbortError" })
   await server.stop()
 })
@@ -101,6 +100,13 @@ test("escapes detail keys and decodes versions", async () => {
 
 test("allows insecure HTTP only for loopback development", () => {
   expect(() => createRemoteSkillMarketDataSource("http://market.example.com")).toThrow("must use HTTPS")
+  expect(() => createRemoteSkillMarketDataSource("http://10.246.13.226:4210")).toThrow("must use HTTPS")
+  expect(() =>
+    createRemoteSkillMarketDataSource("http://10.246.13.226:4210", { allowInsecurePrivateHttp: true }),
+  ).not.toThrow()
+  expect(() =>
+    createRemoteSkillMarketDataSource("http://market.example.com", { allowInsecurePrivateHttp: true }),
+  ).toThrow("must use HTTPS")
   expect(() => createRemoteSkillMarketDataSource("http://localhost:4210")).not.toThrow()
   expect(() => createRemoteSkillMarketDataSource("https://market.example.com")).not.toThrow()
 })

@@ -12,6 +12,7 @@ import { SkillMarket } from "@opencode-ai/schema/skill-market"
 export type Config = {
   readonly baseUrl?: string
   readonly allowedHosts: ReadonlySet<string>
+  readonly allowInsecurePrivateHttp?: boolean
 }
 
 const Cache = Schema.Struct({
@@ -172,6 +173,7 @@ function environmentConfig(): Config {
   const baseHost = baseUrl && URL.canParse(baseUrl) ? new URL(baseUrl).hostname : undefined
   return {
     baseUrl,
+    allowInsecurePrivateHttp: process.env.RUYING_SKILL_MARKET_ALLOW_INSECURE_HTTP === "true",
     allowedHosts: new Set(
       (process.env.RUYING_SKILL_MARKET_ALLOWED_HOSTS ?? baseHost ?? "")
         .split(",")
@@ -199,12 +201,23 @@ function validateDetail(config: Config, detail: SkillMarket.Detail): Effect.Effe
 }
 
 function allowed(config: Config, url: URL) {
+  const transport =
+    url.protocol === "https:" ||
+    (config.allowInsecurePrivateHttp === true && url.protocol === "http:" && privateIpv4(url.hostname))
   return (
-    url.protocol === "https:" &&
+    transport &&
     !url.username &&
     !url.password &&
     config.allowedHosts.has(url.hostname.toLocaleLowerCase("en-US"))
   )
+}
+
+function privateIpv4(hostname: string) {
+  const parts = hostname.split(".").map(Number)
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false
+  if (parts[0] === 10) return true
+  if (parts[0] === 172 && parts[1] !== undefined && parts[1] >= 16 && parts[1] <= 31) return true
+  return parts[0] === 192 && parts[1] === 168
 }
 
 function queryString(query: SkillMarket.PageQuery) {

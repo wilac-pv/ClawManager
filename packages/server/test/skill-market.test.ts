@@ -64,8 +64,9 @@ it.live("decodes remote catalog data and uses the last successful cache while of
         Effect.provide(
           AppNodeBuilder.build(
             SkillMarketCatalog.makeNode({
-              baseUrl: "https://market.example.com",
-              allowedHosts: new Set(["market.example.com", "downloads.example.com"]),
+              baseUrl: "http://10.246.13.226:4210",
+              allowedHosts: new Set(["10.246.13.226", "downloads.example.com"]),
+              allowInsecurePrivateHttp: true,
             }),
             [
               [Global.node, Global.layerWith({ cache: tmp.path })],

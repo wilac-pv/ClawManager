@@ -8,7 +8,7 @@
 VITE_SKILL_MARKET_API_URL=http://127.0.0.1:4200 bun run dev
 ```
 
-`VITE_SKILL_MARKET_API_URL` 在生产构建中必须是 HTTPS 地址。本地开发允许使用 loopback HTTP。
+`VITE_SKILL_MARKET_API_URL` 在生产构建中必须是 HTTPS 地址。本地开发允许使用 loopback HTTP。仅测试内网 IP 时可同时设置 `VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP=true`；该开关只放行 RFC 1918 IPv4 地址，不允许公网 HTTP。
 
 ```bash
 bun test

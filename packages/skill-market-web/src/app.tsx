@@ -11,7 +11,9 @@ import type { ParentProps } from "solid-js"
 import { createRemoteSkillMarketDataSource } from "./data-source"
 
 export function App() {
-  const source = createRemoteSkillMarketDataSource(import.meta.env.VITE_SKILL_MARKET_API_URL)
+  const source = createRemoteSkillMarketDataSource(import.meta.env.VITE_SKILL_MARKET_API_URL, {
+    allowInsecurePrivateHttp: import.meta.env.VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP === "true",
+  })
   const actions: SkillMarketActions = {
     kind: "web",
     copyPrompt: async (detail) => navigator.clipboard.writeText(installPrompt(detail)),

@@ -9,8 +9,11 @@ export class MarketHttpError extends Error {
   }
 }
 
-export function createRemoteSkillMarketDataSource(baseUrl: string): SkillMarketDataSource {
-  const base = requireSecureBaseUrl(baseUrl)
+export function createRemoteSkillMarketDataSource(
+  baseUrl: string,
+  options: { allowInsecurePrivateHttp?: boolean } = {},
+): SkillMarketDataSource {
+  const base = requireSecureBaseUrl(baseUrl, options.allowInsecurePrivateHttp)
   const get = async <S extends Schema.Decoder<unknown>>(path: string, schema: S, signal?: AbortSignal) => {
     const response = await fetch(new URL(path, base), {
       signal,
@@ -36,11 +39,20 @@ export function createRemoteSkillMarketDataSource(baseUrl: string): SkillMarketD
   }
 }
 
-function requireSecureBaseUrl(value: string) {
+function requireSecureBaseUrl(value: string, allowInsecurePrivateHttp?: boolean) {
   const url = new URL(value)
   if (url.protocol === "https:") return url
   if (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) return url
+  if (url.protocol === "http:" && allowInsecurePrivateHttp && privateIpv4(url.hostname)) return url
   throw new Error("Skill market API must use HTTPS outside loopback development")
+}
+
+function privateIpv4(hostname: string) {
+  const parts = hostname.split(".").map(Number)
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false
+  if (parts[0] === 10) return true
+  if (parts[0] === 172 && parts[1] !== undefined && parts[1] >= 16 && parts[1] <= 31) return true
+  return parts[0] === 192 && parts[1] === 168
 }
 
 function encodePageQuery(query: SkillMarket.PageQuery) {
