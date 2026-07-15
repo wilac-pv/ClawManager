@@ -122,13 +122,13 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
                         onKeyDown={(event) => {
                           if (event.key === "ArrowRight") {
                             event.preventDefault()
-                            selectTab(tabs[(index() + 1) % tabs.length].id, (index() + 1) % tabs.length)
+                            selectTab(tabs[(index() + 1) % tabs.length]!.id, (index() + 1) % tabs.length)
                             return
                           }
                           if (event.key === "ArrowLeft") {
                             event.preventDefault()
                             const previous = (index() - 1 + tabs.length) % tabs.length
-                            selectTab(tabs[previous].id, previous)
+                            selectTab(tabs[previous]!.id, previous)
                             return
                           }
                           if (event.key === "Home") {

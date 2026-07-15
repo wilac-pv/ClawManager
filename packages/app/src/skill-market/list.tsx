@@ -327,7 +327,9 @@ function CatalogResults(props: {
               class="ruying-skill-market__virtual-row"
               style={{ transform: `translateY(${row.start}px)` }}
             >
-              <SkillCard item={props.items[row.index]} view={props.view} onOpen={props.onOpen} />
+              <Show when={props.items[row.index]} keyed>
+                {(item) => <SkillCard item={item} view={props.view} onOpen={props.onOpen} />}
+              </Show>
             </div>
           )}
         </For>

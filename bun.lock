@@ -866,6 +866,27 @@
         "typescript": "catalog:",
       },
     },
+    "packages/skill-market-web": {
+      "name": "@opencode-ai/skill-market-web",
+      "dependencies": {
+        "@aws-sdk/client-s3": "3.933.0",
+        "@opencode-ai/app": "workspace:*",
+        "@opencode-ai/schema": "workspace:*",
+        "@solidjs/router": "catalog:",
+        "@tanstack/solid-query": "5.91.4",
+        "effect": "catalog:",
+        "solid-js": "catalog:",
+      },
+      "devDependencies": {
+        "@playwright/test": "catalog:",
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plugin-solid": "catalog:",
+      },
+    },
     "packages/slack": {
       "name": "@opencode-ai/slack",
       "version": "1.17.18",
@@ -2026,6 +2047,8 @@
     "@opencode-ai/session-ui": ["@opencode-ai/session-ui@workspace:packages/session-ui"],
 
     "@opencode-ai/skill-market-server": ["@opencode-ai/skill-market-server@workspace:packages/skill-market-server"],
+
+    "@opencode-ai/skill-market-web": ["@opencode-ai/skill-market-web@workspace:packages/skill-market-web"],
 
     "@opencode-ai/slack": ["@opencode-ai/slack@workspace:packages/slack"],
 
