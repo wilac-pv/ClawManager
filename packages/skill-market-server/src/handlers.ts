@@ -3,9 +3,148 @@ import {
   normalizeSkillMarketCatalogQuery,
 } from "@opencode-ai/protocol/groups/skill-market-catalog"
 import { Option, Schema } from "effect"
+import { Effect, Layer } from "effect"
+import { HttpEffect, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
+import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
+import type { createAuth } from "./auth"
 import { type CatalogSnapshot, key, queryCatalog } from "./catalog"
+import type { Moderation } from "./moderation"
+import type { PrivateObjectStore } from "./oss"
+import type { MarketSecurity } from "./security"
+import { randomSecret } from "./security"
+import type { Submissions } from "./submissions"
+import { createAdminHttp } from "./http/admin"
+import { createAuthHttp } from "./http/auth"
+import { createCatalogHttp } from "./http/catalog"
+import { createSecurityLayers } from "./http/middleware"
+import { createSubmissionsHttp } from "./http/submissions"
 
 type SnapshotLoader = () => Promise<CatalogSnapshot>
+
+export interface MarketHttpOptions {
+  readonly loadSnapshot: SnapshotLoader
+  readonly auth: ReturnType<typeof createAuth>
+  readonly security: MarketSecurity
+  readonly submissions: Submissions
+  readonly moderation: Moderation
+  readonly store: PrivateObjectStore
+  readonly privatePrefix: string
+  readonly webOrigin: string
+  readonly sessionCookieName: string
+  readonly cookieSecure: boolean
+}
+
+export function createMarketRoutes(options: MarketHttpOptions) {
+  const groups = [
+    createCatalogHttp(options.loadSnapshot),
+    createAuthHttp(options),
+    createSubmissionsHttp(options),
+    createAdminHttp(options),
+  ] as const
+  const api = HttpApiBuilder.layer(SkillMarketApi).pipe(
+    Layer.provide([...groups]),
+    Layer.provide([...createSecurityLayers(options)]),
+  )
+  return Layer.mergeAll(
+    api,
+    HttpRouter.add("GET", "/health", HttpServerResponse.jsonUnsafe({ status: "ok", ready: true })),
+  ).pipe(
+    Layer.provide(controlHeaders(options.webOrigin)),
+    // HttpApi's inherited group middleware leaves the provided principal in the
+    // route build type. Auth middleware always replaces this expired sentinel
+    // before a protected handler can run.
+    Layer.provide(
+      Layer.succeed(SkillMarketPrincipal, {
+        user: { employeeID: "anonymous", displayName: "Anonymous" },
+        roles: [],
+        csrfToken: "_".repeat(43),
+        createdAt: "1970-01-01T00:00:00.000Z",
+        absoluteExpiresAt: "1970-01-01T00:00:00.000Z",
+        idleExpiresAt: "1970-01-01T00:00:00.000Z",
+      }),
+    ),
+  )
+}
+
+export function createMarketWebHandler(options: MarketHttpOptions) {
+  return HttpRouter.toWebHandler(createMarketRoutes(options).pipe(Layer.provide(HttpServer.layerServices)), {
+    disableLogger: true,
+  })
+}
+
+function controlHeaders(webOrigin: string) {
+  return HttpRouter.middleware(
+    (effect) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const url = new URL(request.url, "http://localhost")
+        const catalog = url.pathname.startsWith("/v1/catalog/")
+        const control =
+          url.pathname.startsWith("/v1/auth/") ||
+          url.pathname.startsWith("/v1/submissions") ||
+          url.pathname.startsWith("/v1/admin/")
+        const origin = request.headers.origin
+        const baseHeaders = {
+          "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+        }
+        const corsHeaders = catalog
+          ? {
+              "access-control-allow-origin": "*",
+              "access-control-allow-methods": "GET, HEAD, OPTIONS",
+              "access-control-allow-headers": "Accept, Content-Type",
+            }
+          : control
+            ? {
+                ...(origin === webOrigin ? { "access-control-allow-origin": webOrigin } : {}),
+                "access-control-allow-credentials": "true",
+                "access-control-allow-methods": "GET, HEAD, POST, DELETE, OPTIONS",
+                "access-control-allow-headers": "Accept, Content-Type, Idempotency-Key, X-CSRF-Token",
+                vary: "Origin",
+                "cache-control": "no-store",
+              }
+            : {}
+        if (request.method === "OPTIONS")
+          return HttpServerResponse.empty({ status: 204, headers: { ...baseHeaders, ...corsHeaders } })
+        yield* HttpEffect.appendPreResponseHandler((_request, response) => {
+          const invalidBody =
+            control &&
+            ((response.body._tag === "Empty" &&
+              (response.status === 400 ||
+                (response.status >= 500 &&
+                  (request.headers["content-type"]?.startsWith("application/json") ||
+                    request.headers["content-type"]?.startsWith("multipart/form-data"))))) ||
+              response.status === 415)
+              ? HttpServerResponse.jsonUnsafe(
+                  {
+                    code: "invalid-request",
+                    message: "请求内容无效",
+                    requestId: `req_${randomSecret().slice(0, 16)}`,
+                  },
+                  { status: 400 },
+                )
+              : response
+          const safeBody =
+            control && invalidBody.body._tag === "Empty" && invalidBody.status >= 500
+              ? HttpServerResponse.jsonUnsafe(
+                  {
+                    code: "dependency-unavailable",
+                    message: "服务暂不可用",
+                    requestId: `req_${randomSecret().slice(0, 16)}`,
+                  },
+                  { status: 503 },
+                )
+              : invalidBody
+          return Effect.succeed(HttpServerResponse.setHeaders(safeBody, { ...baseHeaders, ...corsHeaders }))
+        })
+        return yield* effect
+      }),
+    { global: true },
+  )
+}
 
 export function createCatalogHandler(loadSnapshot: SnapshotLoader) {
   return (request: Request) => {
