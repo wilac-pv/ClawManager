@@ -39,6 +39,11 @@ export function MarketMarkdown(props: { value: string }) {
     })
     const template = document.createElement("template")
     template.innerHTML = clean
+    template.content.querySelectorAll("h1").forEach((heading) => {
+      const replacement = document.createElement("h2")
+      replacement.innerHTML = heading.innerHTML
+      heading.replaceWith(replacement)
+    })
     template.content.querySelectorAll("a").forEach((anchor) => {
       if (!anchor.getAttribute("href")?.startsWith("https://")) {
         anchor.removeAttribute("href")

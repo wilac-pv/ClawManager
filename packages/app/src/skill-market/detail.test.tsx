@@ -93,7 +93,7 @@ test("sanitizes markdown and exposes only web copy and download actions", async 
     },
   })
 
-  expect(await view.findByRole("heading", { name: detail.name })).toBeTruthy()
+  expect(await view.findByRole("heading", { name: detail.name, level: 1 })).toBeTruthy()
   expect(view.container.querySelector("script")).toBeNull()
   expect(view.container.querySelector('a[href^="javascript:"]')).toBeNull()
   expect(view.container.querySelector('img[src^="http:"]')).toBeNull()
@@ -155,7 +155,7 @@ test("renders loading and unavailable states", async () => {
 
   expect(loading.getByRole("status").textContent).toContain("正在加载")
   resolve?.(detail)
-  await loading.findByRole("heading", { name: detail.name })
+  await loading.findByRole("heading", { name: detail.name, level: 1 })
 
   const unavailable = renderDetail(
     { ...source(), detail: async () => Promise.reject(new Error("not found")) },
