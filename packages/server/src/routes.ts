@@ -22,6 +22,7 @@ import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
 import { layer as locationLayer } from "./location"
 import { sessionLocationLayer } from "./middleware/session-location"
+import { SkillMarketCatalog } from "./skill-market/catalog"
 
 const applicationServices = LayerNode.group([
   Database.node,
@@ -34,6 +35,7 @@ const applicationServices = LayerNode.group([
   Credential.node,
   PtyEnvironment.node,
   LocationServiceMap.node,
+  SkillMarketCatalog.node,
 ])
 
 export function createRoutes(password?: string) {
