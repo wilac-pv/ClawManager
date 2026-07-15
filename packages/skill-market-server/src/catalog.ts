@@ -16,7 +16,7 @@ export function key(source: SkillMarket.Source, id: string) {
 export function mergeCatalog(
   verifiedDetails: ReadonlyArray<SkillMarket.Detail>,
   enterprise: SkillMarket.EnterpriseIndex,
-  sourceStatus: SkillMarket.SourceStatus = { skillhub: "fresh", enterprise: "fresh" },
+  sourceStatus: SkillMarket.SourceStatus = { skillhub: "fresh", enterprise: "fresh", community: "unavailable" },
 ): CatalogSnapshot {
   const overrides = new Map(
     enterprise.skills.map((skill) => [key(skill.source, skill.referenceId ?? skill.id), skill] as const),

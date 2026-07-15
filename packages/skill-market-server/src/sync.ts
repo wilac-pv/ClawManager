@@ -259,6 +259,7 @@ export async function synchronize(options: SyncOptions) {
           ? "fresh"
           : "stale"
         : "unavailable",
+    community: "unavailable",
   }
   const snapshot = mergeCatalog(dedupe([...preservedSkillhub, ...enterpriseDetails]), index, sourceStatus)
   await publishSnapshot(options.store, { prefix: options.config.ossPrefix }, snapshot)
@@ -508,7 +509,9 @@ function assertSkillHubMetadata(record: SkillHubRecord, metadata: typeof SkillHu
 }
 
 function parseSkillHubMetadata(content: Uint8Array) {
-  const json = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(new TextDecoder("utf-8", { fatal: true }).decode(content))
+  const json = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(
+    new TextDecoder("utf-8", { fatal: true }).decode(content),
+  )
   if (Option.isNone(json)) throw new Error("SkillHub archive metadata is invalid")
   const metadata = Schema.decodeUnknownOption(SkillHubArchiveMetadata)(json.value)
   if (Option.isNone(metadata)) throw new Error("SkillHub archive metadata is invalid")

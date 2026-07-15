@@ -55,7 +55,11 @@ describe("catalog", () => {
 
   test("changes revision when source status changes", () => {
     expect(mergeCatalog([sampleDetail()], enterprise).revision).not.toBe(
-      mergeCatalog([sampleDetail()], enterprise, { skillhub: "fresh", enterprise: "stale" }).revision,
+      mergeCatalog([sampleDetail()], enterprise, {
+        skillhub: "fresh",
+        enterprise: "stale",
+        community: "unavailable",
+      }).revision,
     )
   })
 

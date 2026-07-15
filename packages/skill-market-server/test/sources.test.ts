@@ -10,21 +10,26 @@ const fixtures = new URL("../fixtures/", import.meta.url)
 describe("catalog sources", () => {
   test("normalizes SkillHub metadata without fabricating verified package fields", async () => {
     const calls: string[] = []
-    const records = await loadSkillHub(async (input) => {
-      const url = requestUrl(input)
-      calls.push(url)
-      if (url.includes("/api/skills?")) {
-        const page = await Bun.file(new URL("skillhub-page.json", fixtures)).json()
-        page.data.total = 101
-        return new Response(JSON.stringify(page), { headers: { "content-type": "application/json" } })
-      }
-      const file = url.includes("/files?")
-        ? "skillhub-files.json"
-        : url.endsWith("/versions")
-          ? "skillhub-versions.json"
-          : "skillhub-detail.json"
-      return new Response(Bun.file(new URL(file, fixtures)), { headers: { "content-type": "application/json" } })
-    }, "https://api.skillhub.cn", undefined, 1)
+    const records = await loadSkillHub(
+      async (input) => {
+        const url = requestUrl(input)
+        calls.push(url)
+        if (url.includes("/api/skills?")) {
+          const page = await Bun.file(new URL("skillhub-page.json", fixtures)).json()
+          page.data.total = 101
+          return new Response(JSON.stringify(page), { headers: { "content-type": "application/json" } })
+        }
+        const file = url.includes("/files?")
+          ? "skillhub-files.json"
+          : url.endsWith("/versions")
+            ? "skillhub-versions.json"
+            : "skillhub-detail.json"
+        return new Response(Bun.file(new URL(file, fixtures)), { headers: { "content-type": "application/json" } })
+      },
+      "https://api.skillhub.cn",
+      undefined,
+      1,
+    )
 
     expect(records).toHaveLength(1)
     expect(records[0]?.risk).toBe("warning")
@@ -58,9 +63,12 @@ describe("catalog sources", () => {
       new Set(["oss.example.com"]),
     )
     expect(enterprise.skills).toHaveLength(2)
-    await expect(
-      loadEnterprise(fetcher, "https://oss.example.com/enterprise-index.json", new Set(["other.example.com"])),
-    ).rejects.toThrow("not allowed")
+    const error = await loadEnterprise(
+      fetcher,
+      "https://oss.example.com/enterprise-index.json",
+      new Set(["other.example.com"]),
+    ).then(() => "", String)
+    expect(error).toContain("not allowed")
   })
 
   test("validates required HTTPS configuration", () => {
@@ -87,6 +95,66 @@ describe("catalog sources", () => {
         SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
       }),
     ).toThrow("SKILL_MARKET_SKILLHUB_LIMIT must be a positive integer")
+  })
+
+  test("normalizes control-plane configuration and applies safe defaults", () => {
+    const config = loadConfig({
+      SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+      SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+      SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
+      SKILL_MARKET_OSS_PREFIX: "/ai-coding/ruying-code/skill-market/",
+      SKILL_MARKET_PRIVATE_OSS_PREFIX: "/ai-coding/ruying-code/skill-market-private/",
+      SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS: " E000001,E000002,E000001 ",
+    })
+
+    expect(config.databasePath).toBe("/var/lib/ruying-skill-market/market.db")
+    expect(config.migrationBackupDirectory).toBe("/var/backups/ruying-skill-market/migrations")
+    expect(config.ossPrefix).toBe("ai-coding/ruying-code/skill-market")
+    expect(config.privateOssPrefix).toBe("ai-coding/ruying-code/skill-market-private")
+    expect(config.webOrigin).toBe("http://127.0.0.1:4211")
+    expect(config.apiPublicUrl).toBe("http://127.0.0.1:4210/")
+    expect(config.cookieSecure).toBe(false)
+    expect(config.sessionIdleMilliseconds).toBe(2 * 60 * 60 * 1_000)
+    expect(config.sessionAbsoluteMilliseconds).toBe(12 * 60 * 60 * 1_000)
+    expect(config.dailyUploadLimit).toBe(20)
+    expect(config.activeSubmissionLimit).toBe(5)
+    expect(config.bootstrapAdmins).toEqual(["E000001", "E000002"])
+  })
+
+  test("rejects overlapping public and private OSS prefixes", () => {
+    expect(() =>
+      loadConfig({
+        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+        SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
+        SKILL_MARKET_OSS_PREFIX: "skill-market",
+        SKILL_MARKET_PRIVATE_OSS_PREFIX: "skill-market/private",
+      }),
+    ).toThrow("SKILL_MARKET_PRIVATE_OSS_PREFIX must not overlap SKILL_MARKET_OSS_PREFIX")
+  })
+
+  test("allows insecure cookies only for explicit private-IP testing", () => {
+    const base = {
+      SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+      SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+      SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
+      SKILL_MARKET_WEB_ORIGIN: "http://10.246.13.226:4211",
+      SKILL_MARKET_API_PUBLIC_URL: "http://10.246.13.226:4210",
+    }
+    expect(() => loadConfig(base)).toThrow("SKILL_MARKET_ALLOW_INSECURE_IP_HTTP=true")
+
+    const config = loadConfig({ ...base, SKILL_MARKET_ALLOW_INSECURE_IP_HTTP: "true" })
+    expect(config.cookieSecure).toBe(false)
+    expect(config.webOrigin).toBe("http://10.246.13.226:4211")
+
+    expect(() =>
+      loadConfig({
+        ...base,
+        SKILL_MARKET_WEB_ORIGIN: "http://market.example.com",
+        SKILL_MARKET_API_PUBLIC_URL: "http://market.example.com",
+        SKILL_MARKET_ALLOW_INSECURE_IP_HTTP: "true",
+      }),
+    ).toThrow("must use HTTPS unless it is a loopback or private IPv4 address")
   })
 
   test("enterprise fixture satisfies the public schema", async () => {
