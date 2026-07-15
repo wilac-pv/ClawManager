@@ -616,6 +616,22 @@ function Routes(props: { serverScoped?: JSX.Element }) {
   return (
     <>
       <Route
+        path="/skills"
+        component={() => (
+          <RuntimeServerLayout serverScoped={props.serverScoped}>
+            <SkillMarketRouteGuard />
+          </RuntimeServerLayout>
+        )}
+      />
+      <Route
+        path="/skills/:source/:id"
+        component={() => (
+          <RuntimeServerLayout serverScoped={props.serverScoped}>
+            <SkillMarketRouteGuard />
+          </RuntimeServerLayout>
+        )}
+      />
+      <Route
         component={(routeProps) => (
           <RuntimeServerLayout serverScoped={props.serverScoped}>{routeProps.children}</RuntimeServerLayout>
         )}
@@ -628,8 +644,6 @@ function Routes(props: { serverScoped?: JSX.Element }) {
             </>
           }
         </Show>
-        <Route path="/skills" component={SkillMarketRouteGuard} />
-        <Route path="/skills/:source/:id" component={SkillMarketRouteGuard} />
         <Route path="/:dir" component={DirectoryLayout}>
           <Route path="/" component={() => <Navigate href="session" />} />
           <Route path="/session/:id?" component={SessionRoute} />

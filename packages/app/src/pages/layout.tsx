@@ -12,7 +12,7 @@ import {
   type Accessor,
 } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useServerSync } from "@/context/server-sync"
 import { Persist, persisted } from "@/utils/persist"
@@ -116,6 +116,7 @@ export default function LegacyLayout(props: ParentProps) {
   const server = useServer()
   const notification = useNotification()
   const permission = usePermission()
+  const location = useLocation()
   const navigate = useNavigate()
   setNavigate(navigate)
   const dialog = useDialog()
@@ -539,6 +540,7 @@ export default function LegacyLayout(props: ParentProps) {
   const [autoselecting] = createResource(async () => {
     await ready.promise
     await layout.ready.promise
+    if (location.pathname !== "/") return
     if (!untrack(() => state.autoselect)) return
 
     const list = layout.projects.list()
