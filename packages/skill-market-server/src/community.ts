@@ -66,60 +66,35 @@ export async function listPublishedCommunity(database: MarketDatabase, options: 
     versions: readVersions(connection),
   }))
   const versions = Map.groupBy(rows.versions, (version) => version.skill_id)
-  return Promise.all(
-    rows.current.map(async (row) => {
-      const metadata = decodeJson(SkillMarketControl.SubmissionMetadata, row.metadata_json)
-      const manifest = decodeJson(SkillMarketControl.Manifest, row.manifest_json)
-      const scan = decodeJson(SkillMarketControl.ScanReport, row.scan_json)
-      const packageKey = communityPackageKey(options.publicPrefix, row.skill_id, row.target_version, row.package_sha256)
-      const archive = await verifiedPackage(options.store, packageKey, row, metadata, manifest)
-      const iconUrl = row.private_icon_json
-        ? await verifiedIcon(options, decodeJson(StoredIcon, row.private_icon_json))
-        : undefined
-      const reason = scan.reasons.join("; ")
-      return Schema.decodeUnknownPromise(SkillMarket.Detail)({
-        id: row.skill_id,
-        source: "community",
-        sourceUrl: webUrl(options.webBaseUrl, row.skill_id),
-        name: metadata.displayName,
-        description: metadata.description,
-        ...(iconUrl ? { iconUrl } : {}),
-        categories: [metadata.category],
-        tags: metadata.tags,
-        requiresApiKey: metadata.requiresApiKey,
-        risk: scan.risk,
-        version: row.target_version,
-        updatedAt: timestamp(row.updated_at),
-        downloads: 0,
-        favorites: 0,
-        score: 0,
-        featured: false,
-        enterprise: false,
-        delisted: false,
-        submittedBy: { displayName: row.display_name },
-        reviewedAt: timestamp(row.reviewed_at),
-        reviewRisk: scan.risk,
-        readme: archive.readme,
-        ...(metadata.license ? { license: metadata.license } : {}),
-        author: { name: row.display_name },
-        versions: (versions.get(row.skill_id) ?? []).map((version) => ({
-          version: version.target_version,
-          publishedAt: timestamp(version.published_at),
-          sha256: version.package_sha256,
-          size: version.package_size,
-        })),
-        securityReports: reason ? [{ provider: "Ruying Static Scan", verdict: scan.risk, summary: reason }] : [],
-        ...(reason ? { riskReason: reason } : {}),
-        package: {
-          url: publicUrl(options.publicBaseUrl, packageKey, options.publicPrefix),
-          sha256: row.package_sha256,
-          size: row.package_size,
-          files: manifest.files.map((file) => ({ path: file.path, sha256: file.sha256, size: file.size })),
-        },
-        publicDetailUrl: webUrl(options.webBaseUrl, row.skill_id),
-      })
-    }),
-  )
+  return Promise.all(rows.current.map((row) => materialize(row, versions.get(row.skill_id) ?? [], options)))
+}
+
+export async function materializeCommunitySubmission(
+  database: MarketDatabase,
+  options: CommunityOptions,
+  submissionID: string,
+) {
+  const rows = database.read((connection) => ({
+    current: connection
+      .query<
+        CurrentRow,
+        [string]
+      >(`${currentSelect()} WHERE submissions.id = ? AND submissions.status IN ('publishing', 'published')`)
+      .get(submissionID),
+    versions: readVersions(connection),
+  }))
+  const current = rows.current
+  if (!current) throw new Error("community publication submission is not materializable")
+  const versions = rows.versions.filter((version) => version.skill_id === current.skill_id)
+  if (!versions.some((version) => version.target_version === current.target_version))
+    versions.push({
+      skill_id: current.skill_id,
+      target_version: current.target_version,
+      package_sha256: current.package_sha256,
+      package_size: current.package_size,
+      published_at: current.updated_at,
+    })
+  return materialize(current, versions, options)
 }
 
 export async function publishCommunityObjects(database: MarketDatabase, options: PublishOptions, submissionID: string) {
@@ -205,42 +180,45 @@ export function communityIconKey(prefix: string, iconSha256: string, mime: typeo
 function readCurrent(connection: Database) {
   return connection
     .query<CurrentRow, []>(
-      `SELECT
-        community_skills.skill_id,
-        users.display_name,
-        submissions.target_version,
-        submissions.updated_at,
-        reviews.created_at AS reviewed_at,
-        submission_revisions.private_package_key,
-        submission_revisions.package_sha256,
-        submission_revisions.package_size,
-        submission_revisions.metadata_json,
-        submission_revisions.manifest_json,
-        submission_revisions.scan_json,
-        submission_revisions.private_icon_json
-       FROM community_skills
-       INNER JOIN submissions
-         ON submissions.id = community_skills.current_submission_id
-        AND submissions.target_version = community_skills.current_version
-        AND submissions.status = 'published'
-       INNER JOIN submission_revisions
-         ON submission_revisions.submission_id = submissions.id
-        AND submission_revisions.revision_number = submissions.current_revision
-       INNER JOIN users ON users.employee_id = community_skills.owner_employee_id
-       INNER JOIN reviews
-         ON reviews.id = (
-           SELECT review.id
-           FROM reviews AS review
-           WHERE review.submission_id = submissions.id
-             AND review.revision_number = submissions.current_revision
-             AND review.decision = 'approve'
-           ORDER BY review.created_at DESC, review.id DESC
-           LIMIT 1
-         )
-       WHERE community_skills.public_status = 'published'
-       ORDER BY community_skills.skill_id`,
+      `${currentSelect()}
+       INNER JOIN community_skills
+         ON community_skills.current_submission_id = submissions.id
+        AND community_skills.current_version = submissions.target_version
+       WHERE submissions.status = 'published' AND community_skills.public_status = 'published'
+       ORDER BY submissions.skill_id`,
     )
     .all()
+}
+
+function currentSelect() {
+  return `SELECT
+    submissions.skill_id,
+    users.display_name,
+    submissions.target_version,
+    submissions.updated_at,
+    reviews.created_at AS reviewed_at,
+    submission_revisions.private_package_key,
+    submission_revisions.package_sha256,
+    submission_revisions.package_size,
+    submission_revisions.metadata_json,
+    submission_revisions.manifest_json,
+    submission_revisions.scan_json,
+    submission_revisions.private_icon_json
+   FROM submissions
+   INNER JOIN submission_revisions
+     ON submission_revisions.submission_id = submissions.id
+    AND submission_revisions.revision_number = submissions.current_revision
+   INNER JOIN users ON users.employee_id = submissions.owner_employee_id
+   INNER JOIN reviews
+     ON reviews.id = (
+       SELECT review.id
+       FROM reviews AS review
+       WHERE review.submission_id = submissions.id
+         AND review.revision_number = submissions.current_revision
+         AND review.decision = 'approve'
+       ORDER BY review.created_at DESC, review.id DESC
+       LIMIT 1
+     )`
 }
 
 function readVersions(connection: Database) {
@@ -261,6 +239,59 @@ function readVersions(connection: Database) {
        ORDER BY submissions.skill_id, submissions.updated_at, submissions.id`,
     )
     .all()
+}
+
+async function materialize(row: CurrentRow, versions: ReadonlyArray<VersionRow>, options: CommunityOptions) {
+  const metadata = decodeJson(SkillMarketControl.SubmissionMetadata, row.metadata_json)
+  const manifest = decodeJson(SkillMarketControl.Manifest, row.manifest_json)
+  const scan = decodeJson(SkillMarketControl.ScanReport, row.scan_json)
+  const packageKey = communityPackageKey(options.publicPrefix, row.skill_id, row.target_version, row.package_sha256)
+  const archive = await verifiedPackage(options.store, packageKey, row, metadata, manifest)
+  const iconUrl = row.private_icon_json
+    ? await verifiedIcon(options, decodeJson(StoredIcon, row.private_icon_json))
+    : undefined
+  const reason = scan.reasons.join("; ")
+  return Schema.decodeUnknownPromise(SkillMarket.Detail)({
+    id: row.skill_id,
+    source: "community",
+    sourceUrl: webUrl(options.webBaseUrl, row.skill_id),
+    name: metadata.displayName,
+    description: metadata.description,
+    ...(iconUrl ? { iconUrl } : {}),
+    categories: [metadata.category],
+    tags: metadata.tags,
+    requiresApiKey: metadata.requiresApiKey,
+    risk: scan.risk,
+    version: row.target_version,
+    updatedAt: timestamp(row.updated_at),
+    downloads: 0,
+    favorites: 0,
+    score: 0,
+    featured: false,
+    enterprise: false,
+    delisted: false,
+    submittedBy: { displayName: row.display_name },
+    reviewedAt: timestamp(row.reviewed_at),
+    reviewRisk: scan.risk,
+    readme: archive.readme,
+    ...(metadata.license ? { license: metadata.license } : {}),
+    author: { name: row.display_name },
+    versions: versions.map((version) => ({
+      version: version.target_version,
+      publishedAt: timestamp(version.published_at),
+      sha256: version.package_sha256,
+      size: version.package_size,
+    })),
+    securityReports: reason ? [{ provider: "Ruying Static Scan", verdict: scan.risk, summary: reason }] : [],
+    ...(reason ? { riskReason: reason } : {}),
+    package: {
+      url: publicUrl(options.publicBaseUrl, packageKey, options.publicPrefix),
+      sha256: row.package_sha256,
+      size: row.package_size,
+      files: manifest.files.map((file) => ({ path: file.path, sha256: file.sha256, size: file.size })),
+    },
+    publicDetailUrl: webUrl(options.webBaseUrl, row.skill_id),
+  })
 }
 
 async function verifiedPackage(

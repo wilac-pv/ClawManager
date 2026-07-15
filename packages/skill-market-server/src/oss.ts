@@ -114,6 +114,12 @@ const CatalogObject = Schema.Struct({
 })
 
 export async function publishSnapshot(client: ObjectStore, config: PublishConfig, snapshot: CatalogSnapshot) {
+  await publishSnapshotObjects(client, config, snapshot)
+  await publishSnapshotPointer(client, config, snapshot)
+  return { revision: snapshot.revision, pointerKey: keys(config, snapshot.revision).current }
+}
+
+export async function publishSnapshotObjects(client: ObjectStore, config: PublishConfig, snapshot: CatalogSnapshot) {
   const objectKeys = keys(config, snapshot.revision)
   await Promise.all([
     client.put(
@@ -138,6 +144,11 @@ export async function publishSnapshot(client: ObjectStore, config: PublishConfig
     ),
   ])
   await validatePublished(client, objectKeys, snapshot)
+  return { revision: snapshot.revision }
+}
+
+export async function publishSnapshotPointer(client: ObjectStore, config: PublishConfig, snapshot: CatalogSnapshot) {
+  const objectKeys = keys(config, snapshot.revision)
   await client.put(
     objectKeys.current,
     JSON.stringify({ revision: snapshot.revision, createdAt: snapshot.createdAt }),
@@ -145,6 +156,10 @@ export async function publishSnapshot(client: ObjectStore, config: PublishConfig
     "public, max-age=60",
   )
   return { revision: snapshot.revision, pointerKey: objectKeys.current }
+}
+
+export async function loadCurrentPointer(client: ObjectStore, config: PublishConfig) {
+  return loadObject(client, `${normalizePrefix(config.prefix)}/current.json`, Pointer)
 }
 
 export async function loadCurrentSnapshot(client: ObjectStore, config: PublishConfig): Promise<CatalogSnapshot> {

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { loadCurrentSnapshot, publishSnapshot, type ObjectStore } from "../src/oss"
+import {
+  loadCurrentSnapshot,
+  publishSnapshot,
+  publishSnapshotObjects,
+  publishSnapshotPointer,
+  type ObjectStore,
+} from "../src/oss"
 import { sampleSnapshot } from "./fixture"
 
 const config = { prefix: "skill-market" }
@@ -29,6 +35,16 @@ describe("OSS snapshots", () => {
 
     store.objects.set("skill-market/indexes/r1/catalog.json", new TextEncoder().encode("{}"))
     await expect(loadCurrentSnapshot(store.client, config)).rejects.toThrow()
+  })
+
+  test("writes immutable snapshot objects before moving the current pointer", async () => {
+    const store = memoryObjectStore()
+    const snapshot = sampleSnapshot("r1")
+
+    await publishSnapshotObjects(store.client, config, snapshot)
+    expect(store.objects.has("skill-market/current.json")).toBe(false)
+    await publishSnapshotPointer(store.client, config, snapshot)
+    expect(JSON.parse(new TextDecoder().decode(store.objects.get("skill-market/current.json"))).revision).toBe("r1")
   })
 })
 
