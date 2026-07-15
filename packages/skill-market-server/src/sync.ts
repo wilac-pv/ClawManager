@@ -8,6 +8,8 @@ import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
+import type { Publisher } from "./publisher"
+import { createPublisher } from "./publisher"
 import { type SkillHubRecord, loadSkillHub } from "./skillhub"
 import { inspectZipArchive } from "./submission-archive"
 
@@ -26,6 +28,7 @@ type SyncOptions = {
   readonly store: ObjectStore
   readonly config: SkillMarketConfig
   readonly database?: MarketDatabase
+  readonly publisher?: Publisher
   readonly now?: () => Date
 }
 
@@ -139,6 +142,18 @@ export function verifySkillArchive(body: Uint8Array) {
 }
 
 export async function synchronize(options: SyncOptions) {
+  if (options.database && !options.publisher)
+    throw new Error("community synchronization requires the shared catalog publisher")
+  if (!options.publisher)
+    return synchronizeUnlocked(options, (snapshot) =>
+      publishSnapshot(options.store, { prefix: options.config.ossPrefix }, snapshot).then(() => undefined),
+    )
+  await options.publisher.recover()
+  await drainPublisher(options.publisher)
+  return options.publisher.withCatalogLease("sync", (publish) => synchronizeUnlocked(options, publish))
+}
+
+async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: CatalogSnapshot) => Promise<void>) {
   const started = performance.now()
   const now = (options.now ?? (() => new Date()))()
   const state = await loadState(options.store, options.config.ossPrefix)
@@ -232,7 +247,7 @@ export async function synchronize(options: SyncOptions) {
     index,
     sourceStatus,
   )
-  await publishSnapshot(options.store, { prefix: options.config.ossPrefix }, snapshot)
+  await publish(snapshot)
   const nextState: SyncState = {
     lastSkillhubAt: skillhub.ok && !skillhub.value.reused ? now.toISOString() : state.lastSkillhubAt,
     enterpriseEtag: enterprise.ok ? enterprise.value.etag : state.enterpriseEtag,
@@ -528,6 +543,12 @@ async function settled<T>(promise: Promise<T>) {
   )
 }
 
+async function drainPublisher(publisher: Publisher): Promise<void> {
+  const result = await publisher.runOne("sync-recovery")
+  if (!result) return
+  return drainPublisher(publisher)
+}
+
 function emitMetrics(
   duration: number,
   snapshot: CatalogSnapshot,
@@ -555,7 +576,14 @@ async function production() {
     databasePath: config.databasePath,
     migrationBackupDirectory: config.migrationBackupDirectory,
   })
-  await synchronize({ fetcher: (input, init) => fetch(input, init), store, config, database }).finally(() =>
+  const publisher = createPublisher({
+    database,
+    store,
+    ossPrefix: config.ossPrefix,
+    publicBaseUrl: config.publicBaseUrl,
+    webBaseUrl: config.publicBaseUrl,
+  })
+  await synchronize({ fetcher: (input, init) => fetch(input, init), store, config, database, publisher }).finally(() =>
     database.close(),
   )
 }

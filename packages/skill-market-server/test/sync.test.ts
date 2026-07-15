@@ -4,8 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { loadConfig } from "../src/config"
 import { openDatabase } from "../src/database"
-import type { ObjectStore } from "../src/oss"
+import type { PrivateObjectStore } from "../src/oss"
 import { publishSnapshot } from "../src/oss"
+import { createPublisher } from "../src/publisher"
 import { materializeSkillHubRecord, materializeSkillHubRecords, synchronize, verifySkillArchive } from "../src/sync"
 import type { SkillHubRecord } from "../src/skillhub"
 import { sampleDetail, sampleSnapshot } from "./fixture"
@@ -206,6 +207,13 @@ describe("catalog synchronization", () => {
     const objects = new Map<string, Uint8Array>()
     const store = memoryStore(objects)
     await publishSnapshot(store, { prefix: "skill-market" }, sampleSnapshot("prior"))
+    database.transaction((connection) =>
+      connection.run(
+        `INSERT INTO publish_jobs (id, kind, status, attempts, created_at, updated_at)
+         VALUES ('job_rebuild_before_sync', 'catalog_rebuild', 'pending', 0, ?, ?)`,
+        [Date.parse("2026-07-15T00:04:00.000Z"), Date.parse("2026-07-15T00:04:00.000Z")],
+      ),
+    )
     await store.put(
       "skill-market/sync-state.json",
       JSON.stringify({
@@ -225,12 +233,28 @@ describe("catalog synchronization", () => {
         SKILL_MARKET_ALLOWED_HOSTS: "api.skillhub.cn,oss.example.com",
       }),
       database,
+      publisher: createPublisher({
+        database,
+        store,
+        ossPrefix: "skill-market",
+        publicBaseUrl: "https://oss.example.com/skill-market/",
+        webBaseUrl: "https://market.example.com/",
+        now: () => Date.parse("2026-07-15T00:05:00.000Z"),
+      }),
       store,
       now: () => new Date("2026-07-15T00:05:00.000Z"),
       fetcher: async () => new Response(null, { status: 304 }),
     })
 
     expect(result.snapshot.sourceStatus.community).toBe("fresh")
+    expect(
+      database.connection
+        .query<
+          { count: number },
+          []
+        >("SELECT count(*) AS count FROM publish_jobs WHERE status IN ('pending', 'running')")
+        .get()?.count,
+    ).toBe(0)
     database.close()
   })
 })
@@ -266,7 +290,7 @@ function sha256(input: string) {
   return new Bun.CryptoHasher("sha256").update(input).digest("hex")
 }
 
-function memoryStore(objects: Map<string, Uint8Array>): ObjectStore {
+function memoryStore(objects: Map<string, Uint8Array>): PrivateObjectStore {
   return {
     async put(key, body) {
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
@@ -280,6 +304,23 @@ function memoryStore(objects: Map<string, Uint8Array>): ObjectStore {
       const body = objects.get(key)
       if (!body) throw new Error(`missing ${key}`)
       return { size: body.byteLength }
+    },
+    async putPrivate(key, body) {
+      const chunks = await Array.fromAsync(body)
+      const output = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))
+      chunks.reduce((offset, chunk) => {
+        output.set(chunk, offset)
+        return offset + chunk.byteLength
+      }, 0)
+      objects.set(key, output)
+    },
+    async copy(source, target) {
+      const body = objects.get(source)
+      if (!body) throw new Error(`missing ${source}`)
+      objects.set(target, body.slice())
+    },
+    async delete(key) {
+      objects.delete(key)
     },
   }
 }

@@ -635,7 +635,7 @@ function enqueueCatalogRebuild(connection: Database, now: number) {
     .query<
       { count: number },
       []
-    >("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status IN ('pending', 'running')")
+    >("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'")
     .get()!.count
   if (active > 0) return
   connection.run(

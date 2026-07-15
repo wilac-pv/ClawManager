@@ -218,6 +218,12 @@ describe("submission moderation", () => {
     const published = seedSubmission(fixture, { owner: "author", risk: "safe", salt: "published" })
     const skillID = publishSubmission(fixture, published)
     const auditMarker = `sk-${"Z9y8".repeat(12)}`
+    fixture.database.connection.run(
+      `INSERT INTO publish_jobs
+        (id, kind, status, lease_owner, lease_expires_at, attempts, created_at, updated_at)
+       VALUES ('job_running_rebuild', 'catalog_rebuild', 'running', 'worker-a', ?, 1, ?, ?)`,
+      [fixture.clock.value + 60_000, fixture.clock.value, fixture.clock.value],
+    )
 
     await expectCode(
       () => moderation.delist(fixture.reviewer, skillID, { expectedVersion: 1, reason: "Policy review" }),
@@ -237,6 +243,7 @@ describe("submission moderation", () => {
     expect(rowCount(fixture, "submissions")).toBe(1)
     expect(rowCount(fixture, "submission_revisions")).toBe(1)
     expect(jobCount(fixture, "catalog_rebuild", "pending")).toBe(1)
+    expect(jobCount(fixture, "catalog_rebuild", "running")).toBe(1)
     await expectCode(
       () => moderation.restore(fixture.admin, skillID, { expectedVersion: 1, reason: "Stale restore" }),
       "submission-conflict",
