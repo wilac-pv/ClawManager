@@ -309,7 +309,7 @@ function DesktopCommands() {
       ? [
           {
             id: "skillMarket.open",
-            title: "Skills",
+            title: language.t("skillMarket.open"),
             category: language.t("command.category.view"),
             onSelect: () => navigate("/skills"),
           },

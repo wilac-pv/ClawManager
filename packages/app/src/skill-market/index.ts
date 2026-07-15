@@ -9,6 +9,7 @@ export {
 } from "./desktop-source"
 export { DesktopInstalledActions, DesktopSkillActions, desktopActionState } from "./desktop-actions"
 export { DesktopSkillMarketProvider, useDesktopSkillMarket } from "./desktop-provider"
+export { skillMarketErrorKey, skillMarketErrorMessage, type SkillMarketErrorKey } from "./errors"
 export { SkillMarketList } from "./list"
 export { MarketMarkdown } from "./markdown"
 export { SkillMarketProvider, useSkillMarket } from "./provider"

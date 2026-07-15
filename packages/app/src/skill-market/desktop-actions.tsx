@@ -19,15 +19,15 @@ export function DesktopSkillActions(props: { detail: SkillMarket.Detail }) {
     risk?: "install" | "update"
     riskAccepted: boolean
     uninstall: boolean
-    error: boolean
-  }>({ riskAccepted: false, uninstall: false, error: false })
+    error: string
+  }>({ riskAccepted: false, uninstall: false, error: "" })
   const installed = () => market.item(props.detail)
   const state = () => desktopActionState(props.detail, installed(), market.pending(props.detail))
   const run = (operation: () => Promise<unknown>) => {
-    setDialog("error", false)
+    setDialog("error", "")
     void operation().then(
       () => setDialog({ risk: undefined, riskAccepted: false, uninstall: false }),
-      () => setDialog("error", true),
+      (error) => setDialog("error", market.errorMessage(error)),
     )
   }
   const mutate = (operation: "install" | "update") => {
@@ -139,7 +139,7 @@ export function DesktopSkillActions(props: { detail: SkillMarket.Detail }) {
 
       <Show when={dialog.error}>
         <span class="ruying-skill-market__action-error" role="alert">
-          操作失败，请重试。
+          {dialog.error}
         </span>
       </Show>
     </div>
@@ -148,12 +148,12 @@ export function DesktopSkillActions(props: { detail: SkillMarket.Detail }) {
 
 export function DesktopInstalledActions(props: { item: SkillMarket.Installed }) {
   const market = useDesktopSkillMarket()
-  const [state, setState] = createStore({ confirm: false, error: false })
+  const [state, setState] = createStore({ confirm: false, error: "" })
   const run = (operation: () => Promise<unknown>) => {
-    setState("error", false)
+    setState("error", "")
     void operation().then(
       () => setState("confirm", false),
-      () => setState("error", true),
+      (error) => setState("error", market.errorMessage(error)),
     )
   }
 
@@ -196,7 +196,7 @@ export function DesktopInstalledActions(props: { item: SkillMarket.Installed }) 
       </Show>
       <Show when={state.error}>
         <span class="ruying-skill-market__action-error" role="alert">
-          操作失败，请重试。
+          {state.error}
         </span>
       </Show>
     </div>

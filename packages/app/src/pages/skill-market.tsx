@@ -2,6 +2,7 @@ import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { useNavigate, useParams } from "@solidjs/router"
 import { createMemo, Show } from "solid-js"
 import { useServerSDK } from "@/context/server-sdk"
+import { useLanguage } from "@/context/language"
 import {
   createDesktopSkillMarket,
   DesktopSkillMarketProvider,
@@ -13,6 +14,7 @@ import {
 
 export function SkillMarketRoute() {
   const serverSDK = useServerSDK()
+  const language = useLanguage()
   const params = useParams<{ source?: string; id?: string }>()
   const navigate = useNavigate()
   const market = createMemo(() => createDesktopSkillMarket(serverSDK().client))
@@ -28,7 +30,7 @@ export function SkillMarketRoute() {
 
   return (
     <SkillMarketProvider source={market().source} actions={market().actions}>
-      <DesktopSkillMarketProvider>
+      <DesktopSkillMarketProvider translate={(key) => language.t(key)}>
         <div class="size-full min-h-0 overflow-hidden">
           <Show
             when={requestedDetail()}

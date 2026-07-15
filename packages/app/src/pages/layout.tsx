@@ -2191,7 +2191,7 @@ export default function LegacyLayout(props: ParentProps) {
       openProjectKeybind={() => command.keybind("project.open")}
       onOpenProject={chooseProject}
       renderProjectOverlay={projectOverlay}
-      skillsLabel={skillMarketEnabled ? () => "Skills" : undefined}
+      skillsLabel={skillMarketEnabled ? () => language.t("skillMarket.open") : undefined}
       onOpenSkills={skillMarketEnabled ? () => navigate("/skills") : undefined}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}

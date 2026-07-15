@@ -3,6 +3,7 @@ import { createQuery, useQueryClient } from "@tanstack/solid-query"
 import { createContext, createMemo, type ParentProps, useContext } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useSkillMarket } from "./provider"
+import { skillMarketErrorMessage, type SkillMarketErrorKey } from "./errors"
 import type { SkillKey } from "./types"
 
 export type DesktopOperation = "install" | "update" | "uninstall" | "refresh"
@@ -15,9 +16,10 @@ const DesktopSkillMarketContext = createContext<{
   update: (detail: SkillMarket.Detail, riskConfirmed: boolean) => Promise<SkillMarket.OperationResult>
   uninstall: (key: SkillKey) => Promise<void>
   refresh: (key: SkillKey) => Promise<void>
+  errorMessage: (error: unknown) => string
 }>()
 
-export function DesktopSkillMarketProvider(props: ParentProps) {
+export function DesktopSkillMarketProvider(props: ParentProps<{ translate?: (key: SkillMarketErrorKey) => string }>) {
   const market = useSkillMarket()
   const actions = market.actions.kind === "desktop" ? market.actions : undefined
   const client = useQueryClient()
@@ -81,6 +83,7 @@ export function DesktopSkillMarketProvider(props: ParentProps) {
           if (!actions) return Promise.reject(new Error("Desktop market actions are missing"))
           return run(key, "refresh", () => actions.refresh(key))
         },
+        errorMessage: (error) => skillMarketErrorMessage(error, props.translate ?? ((key) => key)),
       }}
     >
       {props.children}

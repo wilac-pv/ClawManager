@@ -145,7 +145,7 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
     skills: {
       visible: skillMarketEnabled,
       active: location.pathname === "/skills" || location.pathname.startsWith("/skills/"),
-      label: "Skills",
+      label: language.t("skillMarket.open"),
       onOpen: () => navigate("/skills"),
     },
     update: updateState(),
