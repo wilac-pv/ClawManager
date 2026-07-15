@@ -366,7 +366,7 @@ git commit -m "feat(protocol): add skill market catalog api"
 
 **Interfaces:**
 - Consumes: SkillHub endpoints `/api/skills`, `/api/v1/skills/:slug`, `/files`, `/versions`; `SkillMarket.EnterpriseIndex` from Task 1.
-- Produces: `loadSkillHub(fetcher, baseUrl, previous?): Promise<SkillMarket.Detail[]>`, `loadEnterprise(fetcher, url, allowedHosts): Promise<SkillMarket.EnterpriseIndex>`, `mergeCatalog(skillhub, enterprise): CatalogSnapshot`, and `queryCatalog(snapshot, query): SkillMarket.Page`; `previous` is `ReadonlyMap<string, SkillMarket.Detail> | undefined` and `allowedHosts` is `ReadonlySet<string>`.
+- Produces: `loadSkillHub(fetcher, baseUrl, previous?): Promise<SkillHubRecord[]>`, `loadEnterprise(fetcher, url, allowedHosts): Promise<SkillMarket.EnterpriseIndex>`, `mergeCatalog(verifiedDetails, enterprise): CatalogSnapshot`, and `queryCatalog(snapshot, query): SkillMarket.Page`; `SkillHubRecord` contains normalized metadata plus unresolved download/file/version metadata, `previous` is `ReadonlyMap<string, SkillHubRecord> | undefined`, `verifiedDetails` contains only package-verified public `SkillMarket.Detail` values produced by Task 5, and `allowedHosts` is `ReadonlySet<string>`.
 
 - [ ] **Step 1: Add source and merge tests using fixed fixtures**
 
@@ -428,7 +428,9 @@ describe("catalog sources", () => {
     }
     const skillhub = await loadSkillHub(fetcher, "https://api.skillhub.cn")
     const enterprise = await loadEnterprise(fetcher, "https://oss.example.com/enterprise.json", new Set(["oss.example.com"]))
-    const snapshot = mergeCatalog(skillhub, enterprise)
+    expect(skillhub[0]?.risk).toBe("warning")
+    expect(skillhub[0]?.files[0]?.path).toBe("SKILL.md")
+    const snapshot = mergeCatalog([sampleDetail({ risk: "warning" })], enterprise)
     expect(snapshot.items.find((item) => item.id === "code-review")?.featured).toBe(true)
     expect(snapshot.details.get("skillhub:code-review")?.risk).toBe("warning")
   })
@@ -448,7 +450,7 @@ describe("catalog sources", () => {
         package: { url: "https://oss.example.com/enterprise-review.zip", sha256: "a".repeat(64) },
       }],
     })
-    const snapshot = mergeCatalog([], enterprise)
+    const snapshot = mergeCatalog([sampleEnterpriseDetail()], enterprise)
     const page = queryCatalog(snapshot, { query: "企业", sort: "score", page: 1, limit: 30 })
     expect(page.items.every((item) => !Object.hasOwn(item, "readme"))).toBe(true)
   })
@@ -487,7 +489,7 @@ export const config = {
 }
 ```
 
-`skillhub.ts` must page through `GET /api/skills?page=N&pageSize=100&sortBy=score`, fetch changed detail/files/versions with concurrency 8, reuse `previous` details when version and `updated_at` are unchanged, preserve `sourceUrl` and license text, and map external risk with `safe < unknown < warning < danger`. Before publication, the verified package's root `SKILL.md` frontmatter name becomes the stable `id`; a slug/name mismatch is recorded as an alias but the installable ID is always the frontmatter name. `enterprise.ts` must decode with `Schema.decodeUnknownPromise(SkillMarket.EnterpriseIndex)` and reject package hosts outside `allowedHosts`.
+`skillhub.ts` must page through `GET /api/skills?page=N&pageSize=100&sortBy=score`, fetch changed detail/files/versions with concurrency 8, reuse `previous` records when version and `updated_at` are unchanged, preserve `sourceUrl`, expose the unresolved `/api/v1/download` URL, and map external risk with `safe < unknown < warning < danger`. It must not fabricate archive SHA-256, ZIP size, `SKILL.md` content, license, or historical package hashes because SkillHub does not expose those in JSON. Task 5 materializes those fields from verified packages; the verified package's root `SKILL.md` frontmatter name becomes the stable `id`, a slug/name mismatch is recorded as an alias, and the installable ID is always the frontmatter name. `enterprise.ts` must decode with `Schema.decodeUnknownPromise(SkillMarket.EnterpriseIndex)` and reject package hosts outside `allowedHosts`.
 
 - [ ] **Step 4: Implement deterministic merge, facets, search and pagination**
 
@@ -508,6 +510,7 @@ export function key(source: SkillMarket.Source, id: string) {
 export function queryCatalog(snapshot: CatalogSnapshot, query: SkillMarket.PageQuery): SkillMarket.Page {
   const keyword = query.query?.trim().toLocaleLowerCase()
   const filtered = snapshot.items
+    .filter((item) => !item.delisted)
     .filter((item) => !query.source || item.source === query.source)
     .filter((item) => !query.category || item.categories.includes(query.category))
     .filter((item) => query.requiresApiKey === undefined || item.requiresApiKey === query.requiresApiKey)
@@ -531,7 +534,7 @@ function comparator(sort: SkillMarket.Sort) {
 }
 ```
 
-`mergeCatalog` must apply enterprise references after SkillHub normalization, set `enterprise: true`, allow display/category/featured/delisted/license overrides, and choose the stricter risk by rank; an enterprise override can never reduce the SkillHub risk. Generate `revision` from a SHA-256 of canonical sorted summaries so identical inputs produce identical revisions.
+`mergeCatalog` must only accept verified public details, apply enterprise references after package materialization, set `enterprise: true`, allow display/category/featured/delisted/license overrides, and choose the stricter risk by rank; an enterprise override can never reduce the SkillHub risk. Enterprise-only index entries are materialized into verified details by Task 5 before merge. Generate `revision` from a SHA-256 of canonical sorted summaries so identical inputs produce identical revisions.
 
 - [ ] **Step 5: Run adapter and catalog tests**
 
@@ -683,7 +686,7 @@ export const handlers = HttpApiBuilder.group(SkillMarketCatalogApi, "skillMarket
 
 - [ ] **Step 4: Add process and one-shot sync entrypoints**
 
-`sync.ts` performs one SkillHub sync and one ETag-aware enterprise fetch, merges with any stale source snapshot if exactly one source fails, and rejects publication when both sources fail and no prior snapshot exists. For each package it follows redirects only within `allowedHosts`, enforces the 50 MiB compressed cap, computes SHA-256 while streaming, verifies any enterprise-provided hash, checks the SkillHub file manifest, and writes the immutable OSS package/icon before publishing catalog references; it derives package `size`, `files` and installable frontmatter ID during this step. Only then call `publishSnapshot`. `server.ts` serves the read API plus a health probe; production scheduling invokes `bun run sync` every 2 minutes and `sync.ts` skips SkillHub when its last successful sync is less than 10 minutes old.
+`sync.ts` performs one SkillHub sync and one ETag-aware enterprise fetch, merges with any stale source snapshot if exactly one source fails, and rejects publication when both sources fail and no prior snapshot exists. For each internal SkillHub record and enterprise-only index entry it follows redirects only within `allowedHosts`, enforces the 50 MiB compressed cap, computes SHA-256 while streaming, verifies any enterprise-provided hash, checks the SkillHub file manifest, reads and validates the root `SKILL.md`, and writes the immutable OSS package/icon. It derives the public `SkillMarket.Detail`, package `size`, `files`, current `Version` hash/size, license text, readme and installable frontmatter ID during this step; historical versions without a verified package are not published as installable versions. Only after every record is materialized does it call `mergeCatalog` and `publishSnapshot`. `server.ts` serves the read API plus a health probe; production scheduling invokes `bun run sync` every 2 minutes and `sync.ts` skips SkillHub when its last successful sync is less than 10 minutes old.
 
 The read server returns `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: GET, HEAD, OPTIONS`, never enables credentials, and handles OPTIONS without touching catalog state so the standalone Web can call it cross-origin.
 
