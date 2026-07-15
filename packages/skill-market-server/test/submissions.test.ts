@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { Schema } from "effect"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -107,22 +108,22 @@ describe("submission lifecycle", () => {
       { revision_number: 1, validation_completed_at: Date.parse("2026-07-15T00:00:00.000Z") },
       { revision_number: 2, validation_completed_at: fixture.clock.value },
     ])
-    expect(
-      fixture.database.connection
-        .query<
-          { action: string; before_json: string | null },
-          []
-        >("SELECT action, before_json FROM audit_events ORDER BY created_at, rowid")
-        .all(),
-    ).toEqual([
-      { action: "submission.created", before_json: null },
-      { action: "submission.validation-failed", before_json: JSON.stringify({ status: "validating", revision: 1 }) },
+    const audits = fixture.database.connection
+      .query<
+        { action: string; before_json: string | null },
+        []
+      >("SELECT action, before_json FROM audit_events ORDER BY created_at, rowid")
+      .all()
+    expect(audits.every((audit) => Schema.is(SkillMarketControl.AuditAction)(audit.action))).toBe(true)
+    expect(audits).toEqual([
+      { action: "submission-created", before_json: null },
+      { action: "validation-failed", before_json: JSON.stringify({ status: "validating", revision: 1 }) },
       {
-        action: "submission.revision-added",
+        action: "revision-uploaded",
         before_json: JSON.stringify({ status: "validation_failed", revision: 1 }),
       },
       {
-        action: "submission.validation-completed",
+        action: "validation-succeeded",
         before_json: JSON.stringify({ status: "validating", revision: 2 }),
       },
     ])

@@ -327,7 +327,7 @@ export class Submissions {
       insertRevision(connection, submissionID, 1, metadata, packageObject, icon, now)
       insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
-        action: "submission.created",
+        action: "submission-created",
         submissionID,
         after: { status: "validating", revision: 1 },
         now,
@@ -384,7 +384,7 @@ export class Submissions {
       insertRevision(connection, submissionID, revision, metadata, packageObject, icon, now)
       insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
-        action: "submission.revision-added",
+        action: "revision-uploaded",
         submissionID,
         before: { status: submission.status, revision: submission.current_revision },
         after: { status: "validating", revision },
@@ -481,7 +481,7 @@ export class Submissions {
         input.submissionID,
       ])
       insertAudit(connection, {
-        action: status === "pending_review" ? "submission.validation-completed" : "submission.validation-failed",
+        action: status === "pending_review" ? "validation-succeeded" : "validation-failed",
         submissionID: input.submissionID,
         before: { status: submission.status, revision: input.revision },
         after: { status, revision: input.revision },

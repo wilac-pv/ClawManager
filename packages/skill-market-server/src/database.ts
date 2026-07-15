@@ -12,6 +12,10 @@ export interface OpenDatabaseOptions {
 export class MarketDatabase {
   constructor(readonly connection: Database) {}
 
+  read<T>(callback: (connection: Database) => T) {
+    return this.connection.transaction(() => callback(this.connection))()
+  }
+
   transaction<T>(callback: (connection: Database) => T) {
     return this.connection.transaction(() => callback(this.connection)).immediate()
   }
