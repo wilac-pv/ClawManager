@@ -83,6 +83,7 @@ import {
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
+import { skillMarketEnabled } from "@/skill-market/feature"
 
 export default function LegacyLayout(props: ParentProps) {
   const serverSDK = useServerSDK()
@@ -2168,7 +2169,6 @@ export default function LegacyLayout(props: ParentProps) {
             </>
           )}
         </Show>
-
       </div>
     )
   }
@@ -2191,6 +2191,8 @@ export default function LegacyLayout(props: ParentProps) {
       openProjectKeybind={() => command.keybind("project.open")}
       onOpenProject={chooseProject}
       renderProjectOverlay={projectOverlay}
+      skillsLabel={skillMarketEnabled ? () => "Skills" : undefined}
+      onOpenSkills={skillMarketEnabled ? () => navigate("/skills") : undefined}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}

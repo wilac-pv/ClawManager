@@ -25,6 +25,8 @@ export const SidebarContent = (props: {
   openProjectKeybind: Accessor<string | undefined>
   onOpenProject: () => void
   renderProjectOverlay: () => JSX.Element
+  skillsLabel?: Accessor<string>
+  onOpenSkills?: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
@@ -92,6 +94,19 @@ export const SidebarContent = (props: {
         </div>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
           <Show when={props.renderUser}>{(render) => render()()}</Show>
+          <Show when={props.onOpenSkills} keyed>
+            {(openSkills) => (
+              <Tooltip placement={placement()} value={props.skillsLabel?.() ?? "Skills"}>
+                <IconButton
+                  icon="brain"
+                  variant="ghost"
+                  size="large"
+                  onClick={openSkills}
+                  aria-label={props.skillsLabel?.() ?? "Skills"}
+                />
+              </Tooltip>
+            )}
+          </Show>
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton
               icon="settings-gear"

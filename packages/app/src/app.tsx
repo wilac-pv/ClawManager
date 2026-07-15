@@ -59,6 +59,8 @@ import { createSessionLineage } from "@/pages/session/session-lineage"
 import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } from "@/pages/session"
 import { NewHome, LegacyHome } from "@/pages/home"
 import { RuyingGate } from "@/components/ruying-login"
+import { skillMarketEnabled } from "@/skill-market/feature"
+import { SkillMarketRoute } from "@/pages/skill-market"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 
@@ -300,6 +302,20 @@ function DesktopCommands() {
   const command = useCommand()
   const language = useLanguage()
   const platform = usePlatform()
+  const navigate = useNavigate()
+
+  command.register("skill-market", () =>
+    skillMarketEnabled
+      ? [
+          {
+            id: "skillMarket.open",
+            title: "Skills",
+            category: language.t("command.category.view"),
+            onSelect: () => navigate("/skills"),
+          },
+        ]
+      : [],
+  )
 
   command.register("desktop", () => {
     const commands: CommandOption[] = []
@@ -612,6 +628,8 @@ function Routes(props: { serverScoped?: JSX.Element }) {
             </>
           }
         </Show>
+        <Route path="/skills" component={SkillMarketRouteGuard} />
+        <Route path="/skills/:source/:id" component={SkillMarketRouteGuard} />
         <Route path="/:dir" component={DirectoryLayout}>
           <Route path="/" component={() => <Navigate href="session" />} />
           <Route path="/session/:id?" component={SessionRoute} />
@@ -632,6 +650,11 @@ function Routes(props: { serverScoped?: JSX.Element }) {
       />
     </>
   )
+}
+
+function SkillMarketRouteGuard() {
+  if (!skillMarketEnabled) return <Navigate href="/" />
+  return <SkillMarketRoute />
 }
 
 function NewLayoutLegacySessionRedirect() {

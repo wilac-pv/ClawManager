@@ -28,6 +28,7 @@ import { tabKey, useTabs } from "@/context/tabs"
 import type { PromptSession } from "@/context/prompt"
 import "./titlebar.css"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
+import { skillMarketEnabled } from "@/skill-market/feature"
 
 type TauriDesktopWindow = {
   startDragging?: () => Promise<void>
@@ -141,6 +142,12 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
     }
   })
   const v2RightState = createMemo<TitlebarV2RightState>(() => ({
+    skills: {
+      visible: skillMarketEnabled,
+      active: location.pathname === "/skills" || location.pathname.startsWith("/skills/"),
+      label: "Skills",
+      onOpen: () => navigate("/skills"),
+    },
     update: updateState(),
   }))
 
@@ -704,12 +711,33 @@ type TitlebarUpdatePillState = {
 }
 
 type TitlebarV2RightState = {
+  skills: {
+    visible: boolean
+    active: boolean
+    label: string
+    onOpen: () => void
+  }
   update: TitlebarUpdatePillState
 }
 
 function TitlebarV2Right(props: { state: TitlebarV2RightState }) {
   return (
     <div class="relative z-20 flex shrink-0 items-center justify-end gap-0 overflow-visible">
+      <Show when={props.state.skills.visible}>
+        <TooltipV2 placement="bottom" value={props.state.skills.label}>
+          <IconButtonV2
+            type="button"
+            variant="ghost-muted"
+            size="large"
+            class="shrink-0"
+            icon={<IconV2 name="brain" />}
+            state={props.state.skills.active ? "pressed" : undefined}
+            onClick={props.state.skills.onOpen}
+            aria-label={props.state.skills.label}
+            aria-pressed={props.state.skills.active}
+          />
+        </TooltipV2>
+      </Show>
       <Show when={props.state.update.visible}>
         <TitlebarUpdateIconButton state={props.state.update} />
       </Show>
