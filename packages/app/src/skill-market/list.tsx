@@ -260,7 +260,7 @@ export function SkillMarketList(props: { onOpen: (key: SkillKey) => void; instal
               上一页
             </button>
             <span>
-              第 {state.page} 页 · 共 {result.data?.total ?? 0} 个 Skill
+              第 {state.page} 页 · 共 {formatTotal(result.data?.total ?? 0)} 个 Skill
             </span>
             <button
               type="button"
@@ -504,4 +504,8 @@ function riskLabel(risk: SkillMarket.Risk) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value)
+}
+
+function formatTotal(value: number) {
+  return new Intl.NumberFormat("zh-CN").format(value)
 }
