@@ -1,7 +1,8 @@
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createQuery } from "@tanstack/solid-query"
-import { createMemo, For, Show } from "solid-js"
+import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
+import { DesktopSkillActions } from "./desktop-actions"
 import { MarketMarkdown } from "./markdown"
 import { useSkillMarket } from "./provider"
 import type { SkillKey, SkillMarketActions } from "./types"
@@ -100,7 +101,12 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
                   </Show>
                 </div>
               </div>
-              <DetailActions detail={record} actions={market.actions} />
+              <Show
+                when={market.actions.kind === "desktop"}
+                fallback={<WebDetailActions detail={record} actions={market.actions} />}
+              >
+                <DesktopSkillActions detail={record} />
+              </Show>
             </header>
 
             <div class="ruying-skill-market__detail-layout">
@@ -269,33 +275,7 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
   )
 }
 
-function DetailActions(props: { detail: SkillMarket.Detail; actions: SkillMarketActions }) {
-  const [state, setState] = createStore({ pending: false, confirmRisk: false, confirmed: false, error: "" })
-  const request = createMemo<SkillMarket.InstallRequest>(() => ({
-    source: props.detail.source,
-    id: props.detail.id,
-    version: props.detail.version,
-    sha256: props.detail.package.sha256,
-    riskConfirmed: props.detail.risk === "safe" ? undefined : true,
-  }))
-
-  const run = async (operation: () => Promise<unknown>) => {
-    setState({ pending: true, error: "" })
-    return operation().then(
-      () => setState({ pending: false, confirmRisk: false }),
-      () => setState({ pending: false, error: "操作失败，请重试。" }),
-    )
-  }
-
-  const install = () => {
-    if (props.actions.kind !== "desktop") return
-    if (props.detail.risk !== "safe" && !state.confirmed) {
-      setState("confirmRisk", true)
-      return
-    }
-    void run(() => (props.actions.kind === "desktop" ? props.actions.install(request()) : Promise.resolve()))
-  }
-
+function WebDetailActions(props: { detail: SkillMarket.Detail; actions: SkillMarketActions }) {
   return (
     <div class="ruying-skill-market__detail-actions">
       <Show when={props.actions.kind === "web"}>
@@ -312,60 +292,6 @@ function DetailActions(props: { detail: SkillMarket.Detail; actions: SkillMarket
         >
           下载 ZIP
         </button>
-      </Show>
-      <Show when={props.actions.kind === "desktop" && !props.detail.delisted && !props.detail.installedVersion}>
-        <button type="button" class="ruying-skill-market__primary-action" disabled={state.pending} onClick={install}>
-          {state.pending ? "安装中…" : "安装"}
-        </button>
-      </Show>
-      <Show when={props.actions.kind === "desktop" && props.detail.updateAvailable}>
-        <button
-          type="button"
-          class="ruying-skill-market__primary-action"
-          disabled={state.pending}
-          onClick={() => {
-            if (props.actions.kind !== "desktop") return
-            void run(() => (props.actions.kind === "desktop" ? props.actions.update(request()) : Promise.resolve()))
-          }}
-        >
-          更新
-        </button>
-      </Show>
-      <Show when={props.actions.kind === "desktop" && props.detail.installedVersion}>
-        <button
-          type="button"
-          disabled={state.pending}
-          onClick={() => {
-            if (props.actions.kind !== "desktop") return
-            void run(() =>
-              props.actions.kind === "desktop" ? props.actions.uninstall(props.detail) : Promise.resolve(),
-            )
-          }}
-        >
-          卸载
-        </button>
-      </Show>
-      <Show when={state.confirmRisk}>
-        <div class="ruying-skill-market__risk-confirm" role="dialog" aria-label="风险确认">
-          <strong>安装前请确认风险</strong>
-          <p>{props.detail.riskReason ?? "该 Skill 尚未被标记为安全。"}</p>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.confirmed}
-              onChange={(event) => setState("confirmed", event.currentTarget.checked)}
-            />
-            我已阅读并理解安全报告
-          </label>
-          <button type="button" disabled={!state.confirmed || state.pending} onClick={install}>
-            确认风险并安装
-          </button>
-        </div>
-      </Show>
-      <Show when={state.error}>
-        <span class="ruying-skill-market__action-error" role="alert">
-          {state.error}
-        </span>
       </Show>
     </div>
   )

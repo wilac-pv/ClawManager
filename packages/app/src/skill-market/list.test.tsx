@@ -3,6 +3,7 @@ import { fireEvent, render, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
+import { DesktopSkillMarketProvider } from "./desktop-provider"
 import { SkillMarketList } from "./list"
 import { SkillMarketProvider } from "./provider"
 import type { SkillKey, SkillMarketActions, SkillMarketDataSource } from "./types"
@@ -72,10 +73,11 @@ function renderMarket(
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
+  const content = () => <SkillMarketList onOpen={onOpen} installedOnly={installedOnly} />
   return render(() => (
     <QueryClientProvider client={client}>
       <SkillMarketProvider source={source} actions={actions}>
-        <SkillMarketList onOpen={onOpen} installedOnly={installedOnly} />
+        {actions.kind === "desktop" ? <DesktopSkillMarketProvider>{content()}</DesktopSkillMarketProvider> : content()}
       </SkillMarketProvider>
     </QueryClientProvider>
   ))
@@ -181,7 +183,9 @@ test("manages installed skills offline without calling the catalog", async () =>
   expect(await view.findByText("GWM Review")).toBeTruthy()
   await userEvent.click(view.getByRole("button", { name: "重试加载 GWM Review" }))
   await userEvent.click(view.getByRole("button", { name: "卸载 GWM Review" }))
+  expect(calls).toEqual(["refresh:gwm-review"])
+  await userEvent.click(view.getByRole("button", { name: "确认卸载" }))
 
-  expect(calls).toEqual(["refresh:gwm-review", "uninstall:gwm-review"])
+  await waitFor(() => expect(calls).toEqual(["refresh:gwm-review", "uninstall:gwm-review"]))
   expect(listCalls).toBe(0)
 })

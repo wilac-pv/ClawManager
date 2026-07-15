@@ -7,6 +7,8 @@ export {
   marketLocalErrorCodes,
   type MarketLocalErrorCode,
 } from "./desktop-source"
+export { DesktopInstalledActions, DesktopSkillActions, desktopActionState } from "./desktop-actions"
+export { DesktopSkillMarketProvider, useDesktopSkillMarket } from "./desktop-provider"
 export { SkillMarketList } from "./list"
 export { MarketMarkdown } from "./markdown"
 export { SkillMarketProvider, useSkillMarket } from "./provider"

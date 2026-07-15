@@ -3,6 +3,7 @@ import { createQuery } from "@tanstack/solid-query"
 import { createVirtualizer } from "@tanstack/solid-virtual"
 import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
+import { DesktopInstalledActions } from "./desktop-actions"
 import { useSkillMarket } from "./provider"
 import type { SkillKey } from "./types"
 
@@ -372,6 +373,9 @@ function SkillCard(props: { item: SkillMarket.Summary; view: MarketView; onOpen:
       <div class="ruying-skill-market__card-body">
         <div class="ruying-skill-market__card-title">
           <strong>{props.item.name}</strong>
+          <Show when={props.item.installedVersion}>
+            <span class="ruying-skill-market__installed-state">{props.item.updateAvailable ? "可更新" : "已安装"}</span>
+          </Show>
           <span class={`ruying-skill-market__risk ruying-skill-market__risk--${props.item.risk}`}>
             {riskLabel(props.item.risk)}
           </span>
@@ -422,24 +426,8 @@ function InstalledSkills(props: {
             <Show when={item.loadState === "refresh-failed"}>
               <span class="ruying-skill-market__load-failed">加载失败</span>
             </Show>
-            <Show when={props.actions.kind === "desktop" && item.loadState === "refresh-failed"}>
-              <button
-                type="button"
-                aria-label={`重试加载 ${item.name}`}
-                onClick={() => props.actions.kind === "desktop" && void props.actions.refresh(item)}
-              >
-                重试加载
-              </button>
-            </Show>
             <Show when={props.actions.kind === "desktop"}>
-              <button
-                type="button"
-                class="ruying-skill-market__danger-action"
-                aria-label={`卸载 ${item.name}`}
-                onClick={() => props.actions.kind === "desktop" && void props.actions.uninstall(item)}
-              >
-                卸载
-              </button>
+              <DesktopInstalledActions item={item} />
             </Show>
           </article>
         )}
