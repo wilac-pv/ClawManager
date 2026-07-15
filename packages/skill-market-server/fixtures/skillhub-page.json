@@ -1,0 +1,29 @@
+{
+  "code": 0,
+  "data": {
+    "skills": [
+      {
+        "category": "dev-programming",
+        "description": "Systematic code review patterns.",
+        "description_zh": "系统化代码评审模式。",
+        "downloads": 18644,
+        "homepage": "https://api.skillhub.cn/wpank/code-review",
+        "iconUrl": "https://cloudcache.tencent-cloud.com/code-review.png",
+        "installs": 1972,
+        "labels": { "requires_api_key": "false" },
+        "name": "Code Review",
+        "ownerName": "wpank",
+        "score": 98.5,
+        "slug": "code-review",
+        "source": "clawhub",
+        "stars": 34,
+        "subCategories": [{ "key": "dev-code-review", "name": "代码审查" }],
+        "tags": ["typescript", "review"],
+        "updated_at": 1784064101275,
+        "version": "1.0.0"
+      }
+    ],
+    "total": 1
+  },
+  "message": "success"
+}

@@ -1,0 +1,16 @@
+{
+  "slug": "code-review",
+  "source": "clawhub",
+  "versions": [
+    {
+      "changelog": "Initial release",
+      "createdAt": 1774627163139,
+      "securityReports": {
+        "keen": { "status": "benign", "statusText": "安全，无风险", "reportUrl": "" },
+        "sanbu": { "status": "suspicious", "statusText": "可疑，存在潜在风险", "reportUrl": "" }
+      },
+      "version": "1.0.0",
+      "versionId": 100
+    }
+  ]
+}

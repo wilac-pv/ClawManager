@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@opencode-ai/skill-market-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "sync": "bun src/sync.ts",
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.933.0",
+    "@effect/platform-node": "catalog:",
+    "@opencode-ai/protocol": "workspace:*",
+    "@opencode-ai/schema": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@tsconfig/node22": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "catalog:"
+  }
+}

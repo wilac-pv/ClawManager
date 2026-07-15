@@ -1,0 +1,48 @@
+{
+  "contentZhAvailable": true,
+  "latestVersion": {
+    "changelog": "Initial release",
+    "createdAt": 1774627163139,
+    "version": "1.0.0"
+  },
+  "owner": {
+    "displayName": "wpank",
+    "handle": "wpank",
+    "image": null
+  },
+  "securityReports": {
+    "keen": {
+      "reportUrl": "https://tix.qq.com/search/skill?keyword=code-review",
+      "status": "benign",
+      "statusText": "安全，无风险"
+    },
+    "sanbu": {
+      "reportUrl": "https://static.cloudsec.tencent.com/code-review.html",
+      "status": "suspicious",
+      "statusText": "可疑，存在潜在风险"
+    }
+  },
+  "skill": {
+    "category": "dev-programming",
+    "createdAt": 1772744517733,
+    "displayName": "Code Review",
+    "iconUrl": "https://cloudcache.tencent-cloud.com/code-review.png",
+    "labels": { "requires_api_key": "false" },
+    "slug": "code-review",
+    "source": "clawhub",
+    "sourceUrl": "https://clawhub.ai/wpank/code-review",
+    "stats": {
+      "comments": 0,
+      "downloads": 18644,
+      "installs": 1972,
+      "stars": 34,
+      "versions": 1
+    },
+    "subCategories": [{ "key": "dev-code-review", "name": "代码审查" }],
+    "summary": "Systematic code review patterns.",
+    "summary_zh": "系统化代码评审模式。",
+    "tags": { "latest": "1.0.0" },
+    "updatedAt": 1784064101275,
+    "upstream_url": "https://clawhub.ai/wpank/code-review"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "count": 2,
+  "files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 1200
+    },
+    {
+      "path": "references/checklist.md",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "size": 800
+    }
+  ],
+  "version": "1.0.0"
+}

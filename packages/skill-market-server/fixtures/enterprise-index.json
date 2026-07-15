@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-07-15T00:00:00.000Z",
+  "skills": [
+    {
+      "id": "code-review",
+      "source": "skillhub",
+      "referenceId": "code-review",
+      "featured": true,
+      "name": "企业 Code Review",
+      "description": "企业精选代码评审",
+      "category": "企业效率",
+      "version": "1.0.0",
+      "risk": "safe",
+      "riskReason": "企业精选",
+      "license": "MIT"
+    },
+    {
+      "id": "enterprise-review",
+      "source": "enterprise",
+      "featured": true,
+      "name": "企业 Review",
+      "description": "企业代码评审",
+      "category": "企业效率",
+      "version": "1.0.0",
+      "package": {
+        "url": "https://oss.example.com/enterprise-review.zip",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  ]
+}
