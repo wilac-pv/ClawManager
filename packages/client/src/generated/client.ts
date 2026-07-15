@@ -85,6 +85,21 @@ import type {
   CommandsListOutput,
   SkillsListInput,
   SkillsListOutput,
+  SkillMarketListInput,
+  SkillMarketListOutput,
+  SkillMarketFacetsOutput,
+  SkillMarketDetailInput,
+  SkillMarketDetailOutput,
+  SkillMarketInstalledOutput,
+  SkillMarketUpdatesOutput,
+  SkillMarketInstallInput,
+  SkillMarketInstallOutput,
+  SkillMarketUpdateInput,
+  SkillMarketUpdateOutput,
+  SkillMarketUninstallInput,
+  SkillMarketUninstallOutput,
+  SkillMarketRefreshInput,
+  SkillMarketRefreshOutput,
   EventsSubscribeOutput,
   PtysListInput,
   PtysListOutput,
@@ -804,6 +819,132 @@ export function make(options: ClientOptions) {
             successStatus: 200,
             declaredStatuses: [401, 400],
             empty: false,
+          },
+          requestOptions,
+        ),
+    },
+    skillMarket: {
+      list: (input?: SkillMarketListInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketListOutput>(
+          {
+            method: "GET",
+            path: `/api/skill/market/skills`,
+            query: {
+              query: input?.["query"],
+              source: input?.["source"],
+              category: input?.["category"],
+              requiresApiKey: input?.["requiresApiKey"],
+              featured: input?.["featured"],
+              enterprise: input?.["enterprise"],
+              sort: input?.["sort"],
+              page: input?.["page"],
+              limit: input?.["limit"],
+            },
+            successStatus: 200,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      facets: (requestOptions?: RequestOptions) =>
+        request<SkillMarketFacetsOutput>(
+          {
+            method: "GET",
+            path: `/api/skill/market/facets`,
+            successStatus: 200,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      detail: (input: SkillMarketDetailInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketDetailOutput>(
+          {
+            method: "GET",
+            path: `/api/skill/market/skills/${encodeURIComponent(input.source)}/${encodeURIComponent(input.id)}`,
+            successStatus: 200,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      installed: (requestOptions?: RequestOptions) =>
+        request<SkillMarketInstalledOutput>(
+          {
+            method: "GET",
+            path: `/api/skill/market/installed`,
+            successStatus: 200,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      updates: (requestOptions?: RequestOptions) =>
+        request<SkillMarketUpdatesOutput>(
+          {
+            method: "GET",
+            path: `/api/skill/market/updates`,
+            successStatus: 200,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      install: (input: SkillMarketInstallInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketInstallOutput>(
+          {
+            method: "POST",
+            path: `/api/skill/market/install`,
+            body: {
+              source: input["source"],
+              id: input["id"],
+              version: input["version"],
+              sha256: input["sha256"],
+              riskConfirmed: input["riskConfirmed"],
+            },
+            successStatus: 200,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      update: (input: SkillMarketUpdateInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketUpdateOutput>(
+          {
+            method: "POST",
+            path: `/api/skill/market/update`,
+            body: {
+              source: input["source"],
+              id: input["id"],
+              version: input["version"],
+              sha256: input["sha256"],
+              riskConfirmed: input["riskConfirmed"],
+            },
+            successStatus: 200,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      uninstall: (input: SkillMarketUninstallInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketUninstallOutput>(
+          {
+            method: "DELETE",
+            path: `/api/skill/market/install/${encodeURIComponent(input.source)}/${encodeURIComponent(input.id)}`,
+            successStatus: 204,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      refresh: (input: SkillMarketRefreshInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketRefreshOutput>(
+          {
+            method: "POST",
+            path: `/api/skill/market/install/${encodeURIComponent(input.source)}/${encodeURIComponent(input.id)}/refresh`,
+            successStatus: 204,
+            declaredStatuses: [503, 409, 422, 401, 400],
+            empty: true,
           },
           requestOptions,
         ),

@@ -82,6 +82,35 @@ export type PermissionNotFoundError = {
 export const isPermissionNotFoundError = (value: unknown): value is PermissionNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PermissionNotFoundError"
 
+export type SkillMarketUnavailableError = {
+  readonly name: "SkillMarketUnavailableError"
+  readonly code: "network-unavailable" | "market-unavailable"
+  readonly message: string
+}
+export const isSkillMarketUnavailableError = (value: unknown): value is SkillMarketUnavailableError =>
+  typeof value === "object" && value !== null && "name" in value && value["name"] === "SkillMarketUnavailableError"
+
+export type SkillMarketConflictError = {
+  readonly name: "SkillMarketConflictError"
+  readonly code:
+    | "skill-delisted"
+    | "risk-confirmation-required"
+    | "hash-mismatch"
+    | "version-conflict"
+    | "not-market-owned"
+  readonly message: string
+}
+export const isSkillMarketConflictError = (value: unknown): value is SkillMarketConflictError =>
+  typeof value === "object" && value !== null && "name" in value && value["name"] === "SkillMarketConflictError"
+
+export type SkillMarketOperationError = {
+  readonly name: "SkillMarketOperationError"
+  readonly code: "unsafe-archive" | "archive-limit" | "invalid-skill" | "disk-unavailable" | "refresh-failed"
+  readonly message: string
+}
+export const isSkillMarketOperationError = (value: unknown): value is SkillMarketOperationError =>
+  typeof value === "object" && value !== null && "name" in value && value["name"] === "SkillMarketOperationError"
+
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PtyNotFoundError"
@@ -2537,6 +2566,345 @@ export type SkillsListOutput = {
     readonly content: string
   }>
 }
+
+export type SkillMarketListInput = {
+  readonly query?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["query"]
+  readonly source?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["source"]
+  readonly category?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["category"]
+  readonly requiresApiKey?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["requiresApiKey"]
+  readonly featured?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["featured"]
+  readonly enterprise?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["enterprise"]
+  readonly sort?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["sort"]
+  readonly page?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["page"]
+  readonly limit?: {
+    readonly query?: string | undefined
+    readonly source?: "skillhub" | "enterprise" | undefined
+    readonly category?: string | undefined
+    readonly requiresApiKey?: "true" | "false" | undefined
+    readonly featured?: "true" | "false" | undefined
+    readonly enterprise?: "true" | "false" | undefined
+    readonly sort?: "score" | "featured" | "trending" | "downloads" | "recent" | undefined
+    readonly page?: number | undefined
+    readonly limit?: number | undefined
+  }["limit"]
+}
+
+export type SkillMarketListOutput = {
+  readonly revision: string
+  readonly sourceStatus: {
+    readonly skillhub: "fresh" | "stale" | "unavailable"
+    readonly enterprise: "fresh" | "stale" | "unavailable"
+  }
+  readonly total: number | "Infinity" | "-Infinity" | "NaN"
+  readonly page: number
+  readonly limit: number
+  readonly items: ReadonlyArray<{
+    readonly id: string
+    readonly source: "skillhub" | "enterprise"
+    readonly sourceUrl: string
+    readonly name: string
+    readonly description: string
+    readonly iconUrl?: string
+    readonly categories: ReadonlyArray<string>
+    readonly tags: ReadonlyArray<string>
+    readonly aliases?: ReadonlyArray<string>
+    readonly requiresApiKey: boolean
+    readonly risk: "unknown" | "safe" | "warning" | "danger"
+    readonly version: string
+    readonly updatedAt: string
+    readonly downloads: number | "Infinity" | "-Infinity" | "NaN"
+    readonly favorites: number | "Infinity" | "-Infinity" | "NaN"
+    readonly score: number | "Infinity" | "-Infinity" | "NaN"
+    readonly featured: boolean
+    readonly enterprise: boolean
+    readonly delisted: boolean
+    readonly installedVersion?: string
+    readonly updateAvailable?: boolean
+  }>
+}
+
+export type SkillMarketFacetsOutput = {
+  readonly revision: string
+  readonly sourceStatus: {
+    readonly skillhub: "fresh" | "stale" | "unavailable"
+    readonly enterprise: "fresh" | "stale" | "unavailable"
+  }
+  readonly sources: ReadonlyArray<{ readonly value: "skillhub" | "enterprise"; readonly count: number }>
+  readonly categories: ReadonlyArray<{ readonly value: string; readonly count: number }>
+  readonly requiresApiKey: { readonly yes: number; readonly no: number }
+}
+
+export type SkillMarketDetailInput = {
+  readonly source: { readonly source: "skillhub" | "enterprise"; readonly id: string }["source"]
+  readonly id: { readonly source: "skillhub" | "enterprise"; readonly id: string }["id"]
+}
+
+export type SkillMarketDetailOutput = {
+  readonly id: string
+  readonly source: "skillhub" | "enterprise"
+  readonly sourceUrl: string
+  readonly name: string
+  readonly description: string
+  readonly iconUrl?: string
+  readonly categories: ReadonlyArray<string>
+  readonly tags: ReadonlyArray<string>
+  readonly aliases?: ReadonlyArray<string>
+  readonly requiresApiKey: boolean
+  readonly risk: "unknown" | "safe" | "warning" | "danger"
+  readonly version: string
+  readonly updatedAt: string
+  readonly downloads: number | "Infinity" | "-Infinity" | "NaN"
+  readonly favorites: number | "Infinity" | "-Infinity" | "NaN"
+  readonly score: number | "Infinity" | "-Infinity" | "NaN"
+  readonly featured: boolean
+  readonly enterprise: boolean
+  readonly delisted: boolean
+  readonly installedVersion?: string
+  readonly updateAvailable?: boolean
+  readonly readme: string
+  readonly license?: string
+  readonly author: { readonly name: string; readonly url?: string }
+  readonly versions: ReadonlyArray<{
+    readonly version: string
+    readonly publishedAt: string
+    readonly sha256: string
+    readonly size: number | "Infinity" | "-Infinity" | "NaN"
+  }>
+  readonly securityReports: ReadonlyArray<{
+    readonly provider: string
+    readonly verdict: "unknown" | "safe" | "warning" | "danger"
+    readonly summary: string
+    readonly reportUrl?: string
+  }>
+  readonly riskReason?: string
+  readonly package: {
+    readonly url: string
+    readonly sha256: string
+    readonly size: number | "Infinity" | "-Infinity" | "NaN"
+    readonly files: ReadonlyArray<{
+      readonly path: string
+      readonly sha256: string
+      readonly size: number | "Infinity" | "-Infinity" | "NaN"
+    }>
+  }
+  readonly publicDetailUrl: string
+}
+
+export type SkillMarketInstalledOutput = ReadonlyArray<{
+  readonly source: "skillhub" | "enterprise"
+  readonly id: string
+  readonly name: string
+  readonly version: string
+  readonly installedAt: string
+  readonly updateAvailable: boolean
+  readonly loadState: "ready" | "refresh-failed"
+}>
+
+export type SkillMarketUpdatesOutput = ReadonlyArray<{
+  readonly source: "skillhub" | "enterprise"
+  readonly id: string
+  readonly name: string
+  readonly version: string
+  readonly installedAt: string
+  readonly updateAvailable: boolean
+  readonly loadState: "ready" | "refresh-failed"
+}>
+
+export type SkillMarketInstallInput = {
+  readonly source: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["source"]
+  readonly id: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["id"]
+  readonly version: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["version"]
+  readonly sha256: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["sha256"]
+  readonly riskConfirmed?: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["riskConfirmed"]
+}
+
+export type SkillMarketInstallOutput = {
+  readonly installed: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly name: string
+    readonly version: string
+    readonly installedAt: string
+    readonly updateAvailable: boolean
+    readonly loadState: "ready" | "refresh-failed"
+  }
+  readonly changed: boolean
+}
+
+export type SkillMarketUpdateInput = {
+  readonly source: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["source"]
+  readonly id: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["id"]
+  readonly version: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["version"]
+  readonly sha256: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["sha256"]
+  readonly riskConfirmed?: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly version: string
+    readonly sha256: string
+    readonly riskConfirmed?: boolean
+  }["riskConfirmed"]
+}
+
+export type SkillMarketUpdateOutput = {
+  readonly installed: {
+    readonly source: "skillhub" | "enterprise"
+    readonly id: string
+    readonly name: string
+    readonly version: string
+    readonly installedAt: string
+    readonly updateAvailable: boolean
+    readonly loadState: "ready" | "refresh-failed"
+  }
+  readonly changed: boolean
+}
+
+export type SkillMarketUninstallInput = {
+  readonly source: { readonly source: "skillhub" | "enterprise"; readonly id: string }["source"]
+  readonly id: { readonly source: "skillhub" | "enterprise"; readonly id: string }["id"]
+}
+
+export type SkillMarketUninstallOutput = void
+
+export type SkillMarketRefreshInput = {
+  readonly source: { readonly source: "skillhub" | "enterprise"; readonly id: string }["source"]
+  readonly id: { readonly source: "skillhub" | "enterprise"; readonly id: string }["id"]
+}
+
+export type SkillMarketRefreshOutput = void
 
 export type EventsSubscribeOutput = OpenCodeEventEncoded
 

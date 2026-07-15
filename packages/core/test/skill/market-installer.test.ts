@@ -173,6 +173,7 @@ it.live("keeps manual skills untouched and supports offline inventory, refresh a
         yield* env.installer.uninstall({ source: "skillhub", id: "code-review" })
         expect(env.requests.length).toBe(requests)
         expect(yield* Effect.promise(() => Bun.file(path.join(env.config, "skills/code-review")).exists())).toBe(false)
+        expect((yield* env.skills.list()).map((skill) => skill.name)).not.toContain("code-review")
         expect(yield* Effect.promise(() => Bun.file(manual).exists())).toBe(true)
       }),
     ),
