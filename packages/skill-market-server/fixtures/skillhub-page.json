@@ -10,7 +10,7 @@
         "homepage": "https://api.skillhub.cn/wpank/code-review",
         "iconUrl": "https://cloudcache.tencent-cloud.com/code-review.png",
         "installs": 1972,
-        "labels": { "requires_api_key": "false" },
+        "labels": null,
         "name": "Code Review",
         "ownerName": "wpank",
         "score": 98.5,

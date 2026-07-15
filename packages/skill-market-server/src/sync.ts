@@ -28,6 +28,7 @@ type SyncOptions = {
 const compressedLimit = 50 * 1024 * 1024
 const expandedLimit = 100 * 1024 * 1024
 const fileLimit = 1_000
+const SkillHubArchiveMetadata = Schema.Struct({ slug: Schema.String, version: Schema.String })
 
 const SyncState = Schema.Struct({
   lastSkillhubAt: SkillMarket.Timestamp.pipe(Schema.optional),
@@ -40,6 +41,7 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
   const downloaded = await download(options.fetcher, record.downloadUrl, options.allowedHosts, compressedLimit)
   const archive = verifySkillArchive(downloaded.body)
   assertManifest(record.files, archive.files)
+  assertSkillHubMetadata(record, archive.metadata)
   const packageKey = `${normalizePrefix(options.ossPrefix)}/packages/${downloaded.sha256}.zip`
   await options.store.put(packageKey, downloaded.body, "application/zip", "public, max-age=31536000, immutable")
   const iconUrl = record.iconUrl ? await mirrorIcon(record.iconUrl, options).catch(() => undefined) : undefined
@@ -101,6 +103,7 @@ export function verifySkillArchive(body: Uint8Array) {
   let position = centralOffset
   let expanded = 0
   let skill: Uint8Array | undefined
+  let archiveMetadata: typeof SkillHubArchiveMetadata.Type | undefined
   for (let index = 0; index < entries; index++) {
     requireRange(body, position, 46)
     if (view.getUint32(position, true) !== 0x02014b50) throw new Error("invalid ZIP central directory")
@@ -138,6 +141,7 @@ export function verifySkillArchive(body: Uint8Array) {
     const file = { path, sha256: new Bun.CryptoHasher("sha256").update(content).digest("hex"), size }
     files.push(file)
     if (path === "SKILL.md") skill = content
+    if (path === "_meta.json") archiveMetadata = parseSkillHubMetadata(content)
     position += 46 + nameLength + extraLength + commentLength
   }
   if (position !== centralOffset + centralSize) throw new Error("ZIP central directory size mismatch")
@@ -154,6 +158,7 @@ export function verifySkillArchive(body: Uint8Array) {
     ...(license ? { license } : {}),
     readme: markdown.content,
     files: files.toSorted((a, b) => a.path.localeCompare(b.path)),
+    metadata: archiveMetadata,
   }
 }
 
@@ -172,13 +177,15 @@ export async function synchronize(options: SyncOptions) {
         value: { value: previous.value.items.length, details: sourceDetails(previous.value, "skillhub"), reused: true },
       } as const)
     : await settled(
-        loadSkillHub(options.fetcher, options.config.skillhubBaseUrl).then(async (records) => ({
-          value: records.length,
-          details: await materializeInBatches(records, (record) =>
-            materializeSkillHubRecord(record, materializeOptions(options)),
-          ),
-          reused: false as const,
-        })),
+        loadSkillHub(options.fetcher, options.config.skillhubBaseUrl, undefined, options.config.skillhubLimit).then(
+          async (records) => ({
+            value: records.length,
+            details: await materializeInBatches(records, (record) =>
+              materializeSkillHubRecord(record, materializeOptions(options)),
+            ),
+            reused: false as const,
+          }),
+        ),
       )
   const enterprise = await settled(
     loadEnterpriseConditional(options, state).then(async (value) => ({
@@ -455,13 +462,27 @@ function assertManifest(
   expected: ReadonlyArray<{ readonly path: string; readonly sha256: string; readonly size: number }>,
   actual: ReadonlyArray<{ readonly path: string; readonly sha256: string; readonly size: number }>,
 ) {
-  const files = new Map(actual.map((file) => [file.path, file]))
+  const files = new Map(actual.filter((file) => file.path !== "_meta.json").map((file) => [file.path, file]))
   if (files.size !== expected.length) throw new Error("SkillHub file manifest count mismatch")
   expected.forEach((file) => {
     const value = files.get(file.path)
     if (!value || value.sha256 !== file.sha256 || value.size !== file.size)
       throw new Error(`SkillHub file manifest mismatch: ${file.path}`)
   })
+}
+
+function assertSkillHubMetadata(record: SkillHubRecord, metadata: typeof SkillHubArchiveMetadata.Type | undefined) {
+  if (!metadata) return
+  if (metadata.slug !== record.slug || metadata.version !== record.version)
+    throw new Error("SkillHub archive metadata mismatch")
+}
+
+function parseSkillHubMetadata(content: Uint8Array) {
+  const json = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(new TextDecoder("utf-8", { fatal: true }).decode(content))
+  if (Option.isNone(json)) throw new Error("SkillHub archive metadata is invalid")
+  const metadata = Schema.decodeUnknownOption(SkillHubArchiveMetadata)(json.value)
+  if (Option.isNone(metadata)) throw new Error("SkillHub archive metadata is invalid")
+  return metadata.value
 }
 
 function metadataString(input: unknown, field: string) {

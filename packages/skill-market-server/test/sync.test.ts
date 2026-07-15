@@ -11,7 +11,11 @@ describe("catalog synchronization", () => {
   test("follows approved redirects and materializes a verified SkillHub package", async () => {
     const skill = "---\nname: verified-review\ndescription: Verified review\nlicense: MIT\n---\n# Verified Review\n"
     const guide = "Review carefully."
-    const archive = makeStoredZip({ "SKILL.md": skill, "references/guide.md": guide })
+    const archive = makeStoredZip({
+      "SKILL.md": skill,
+      "references/guide.md": guide,
+      "_meta.json": JSON.stringify({ ownerId: "1", slug: "code-review", version: "1.0.0", publishedAt: 1 }),
+    })
     const writes = new Map<string, Uint8Array>()
     const detail = await materializeSkillHubRecord(sampleRecord(skill, guide), {
       fetcher: async (input) => {
@@ -33,7 +37,7 @@ describe("catalog synchronization", () => {
     expect(detail.readme.trim()).toBe("# Verified Review")
     expect(detail.license).toBe("MIT")
     expect(detail.aliases).toContain("code-review")
-    expect(detail.package.files).toHaveLength(2)
+    expect(detail.package.files).toHaveLength(3)
     expect(writes.has(`skill-market/packages/${detail.package.sha256}.zip`)).toBe(true)
   })
 

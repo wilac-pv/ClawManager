@@ -40,7 +40,7 @@ const ListSkill = Schema.Struct({
   homepage: Schema.String.pipe(Schema.optional),
   iconUrl: Schema.NullOr(Schema.String).pipe(Schema.optional),
   installs: Schema.Number,
-  labels: Schema.Struct({ requires_api_key: Schema.String }).pipe(Schema.optional),
+  labels: Schema.NullOr(Schema.Struct({ requires_api_key: Schema.String })).pipe(Schema.optional),
   name: Schema.String,
   ownerName: Schema.String,
   score: Schema.Number,
@@ -71,7 +71,7 @@ const DetailResponse = Schema.Struct({
     category: Schema.String,
     displayName: Schema.String,
     iconUrl: Schema.NullOr(Schema.String).pipe(Schema.optional),
-    labels: Schema.Struct({ requires_api_key: Schema.String }).pipe(Schema.optional),
+    labels: Schema.NullOr(Schema.Struct({ requires_api_key: Schema.String })).pipe(Schema.optional),
     slug: Schema.String,
     sourceUrl: Schema.NullOr(Schema.String).pipe(Schema.optional),
     stats: Schema.Struct({
@@ -106,17 +106,19 @@ export async function loadSkillHub(
   fetcher: Fetcher,
   input: string,
   previous?: ReadonlyMap<string, SkillHubRecord>,
+  limit?: number,
 ): Promise<SkillHubRecord[]> {
   const baseUrl = requireBaseUrl(input)
   const first = await loadPage(fetcher, baseUrl, 1)
+  const total = Math.min(first.data.total, limit ?? first.data.total)
   const pages = await Promise.all(
-    Array.from({ length: Math.max(0, Math.ceil(first.data.total / 100) - 1) }, (_, index) =>
+    Array.from({ length: Math.max(0, Math.ceil(total / 100) - 1) }, (_, index) =>
       loadPage(fetcher, baseUrl, index + 2),
     ),
   )
   const skills = Array.from(
     new Map([first, ...pages].flatMap((page) => page.data.skills).map((skill) => [skill.slug, skill])).values(),
-  )
+  ).slice(0, total)
   const chunks = Array.from({ length: Math.ceil(skills.length / 8) }, (_, index) =>
     skills.slice(index * 8, index * 8 + 8),
   )

@@ -8,6 +8,7 @@ export function loadConfig(environment: Environment = process.env) {
   return Object.freeze({
     port,
     skillhubBaseUrl: httpsUrl("SKILLHUB_BASE_URL", environment.SKILLHUB_BASE_URL ?? "https://api.skillhub.cn"),
+    skillhubLimit: optionalPositiveInteger("SKILL_MARKET_SKILLHUB_LIMIT", environment.SKILL_MARKET_SKILLHUB_LIMIT),
     enterpriseIndexUrl: httpsUrl("SKILL_MARKET_ENTERPRISE_INDEX_URL", environment.SKILL_MARKET_ENTERPRISE_INDEX_URL),
     ossEndpoint: httpsUrl("SKILL_MARKET_OSS_ENDPOINT", environment.SKILL_MARKET_OSS_ENDPOINT),
     ossRegion: environment.SKILL_MARKET_OSS_REGION ?? "cn-baoding",
@@ -21,6 +22,13 @@ export function loadConfig(environment: Environment = process.env) {
         .filter(Boolean),
     ) as ReadonlySet<string>,
   })
+}
+
+function optionalPositiveInteger(name: string, value: string | undefined) {
+  if (value === undefined) return
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} must be a positive integer`)
+  return parsed
 }
 
 export type SkillMarketConfig = ReturnType<typeof loadConfig>

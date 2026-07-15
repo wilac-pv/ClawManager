@@ -13,18 +13,22 @@ describe("catalog sources", () => {
     const records = await loadSkillHub(async (input) => {
       const url = requestUrl(input)
       calls.push(url)
-      const file = url.includes("/api/skills?")
-        ? "skillhub-page.json"
-        : url.includes("/files?")
-          ? "skillhub-files.json"
-          : url.endsWith("/versions")
-            ? "skillhub-versions.json"
-            : "skillhub-detail.json"
+      if (url.includes("/api/skills?")) {
+        const page = await Bun.file(new URL("skillhub-page.json", fixtures)).json()
+        page.data.total = 101
+        return new Response(JSON.stringify(page), { headers: { "content-type": "application/json" } })
+      }
+      const file = url.includes("/files?")
+        ? "skillhub-files.json"
+        : url.endsWith("/versions")
+          ? "skillhub-versions.json"
+          : "skillhub-detail.json"
       return new Response(Bun.file(new URL(file, fixtures)), { headers: { "content-type": "application/json" } })
-    }, "https://api.skillhub.cn")
+    }, "https://api.skillhub.cn", undefined, 1)
 
     expect(records).toHaveLength(1)
     expect(records[0]?.risk).toBe("warning")
+    expect(records[0]?.requiresApiKey).toBe(false)
     expect(records[0]?.files[0]?.path).toBe("SKILL.md")
     expect(records[0]?.downloadUrl).toBe("https://api.skillhub.cn/api/v1/download?slug=code-review&version=1.0.0")
     expect(calls).toHaveLength(4)
@@ -75,6 +79,14 @@ describe("catalog sources", () => {
     expect(config.port).toBe(4210)
     expect(config.skillhubBaseUrl).toBe("https://api.skillhub.cn/")
     expect(config.allowedHosts).toEqual(new Set(["api.skillhub.cn"]))
+    expect(() =>
+      loadConfig({
+        SKILL_MARKET_SKILLHUB_LIMIT: "0",
+        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+        SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
+      }),
+    ).toThrow("SKILL_MARKET_SKILLHUB_LIMIT must be a positive integer")
   })
 
   test("enterprise fixture satisfies the public schema", async () => {
