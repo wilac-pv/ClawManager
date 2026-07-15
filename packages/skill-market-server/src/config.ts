@@ -7,7 +7,7 @@ export function loadConfig(environment: Environment = process.env) {
 
   return Object.freeze({
     port,
-    skillhubBaseUrl: httpsUrl("SKILLHUB_BASE_URL", environment.SKILLHUB_BASE_URL ?? "https://skillhub.cn"),
+    skillhubBaseUrl: httpsUrl("SKILLHUB_BASE_URL", environment.SKILLHUB_BASE_URL ?? "https://api.skillhub.cn"),
     enterpriseIndexUrl: httpsUrl("SKILL_MARKET_ENTERPRISE_INDEX_URL", environment.SKILL_MARKET_ENTERPRISE_INDEX_URL),
     ossEndpoint: httpsUrl("SKILL_MARKET_OSS_ENDPOINT", environment.SKILL_MARKET_OSS_ENDPOINT),
     ossRegion: environment.SKILL_MARKET_OSS_REGION ?? "cn-baoding",
@@ -15,7 +15,7 @@ export function loadConfig(environment: Environment = process.env) {
     ossPrefix: environment.SKILL_MARKET_OSS_PREFIX ?? "ai-coding/ruying-code/skill-market",
     publicBaseUrl: httpsUrl("SKILL_MARKET_PUBLIC_BASE_URL", environment.SKILL_MARKET_PUBLIC_BASE_URL),
     allowedHosts: new Set(
-      (environment.SKILL_MARKET_ALLOWED_HOSTS ?? "skillhub.cn")
+      (environment.SKILL_MARKET_ALLOWED_HOSTS ?? "api.skillhub.cn")
         .split(",")
         .map((value) => value.trim().toLocaleLowerCase())
         .filter(Boolean),

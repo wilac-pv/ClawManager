@@ -73,8 +73,8 @@ describe("catalog sources", () => {
       SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
     })
     expect(config.port).toBe(4210)
-    expect(config.skillhubBaseUrl).toBe("https://skillhub.cn/")
-    expect(config.allowedHosts).toEqual(new Set(["skillhub.cn"]))
+    expect(config.skillhubBaseUrl).toBe("https://api.skillhub.cn/")
+    expect(config.allowedHosts).toEqual(new Set(["api.skillhub.cn"]))
   })
 
   test("enterprise fixture satisfies the public schema", async () => {
