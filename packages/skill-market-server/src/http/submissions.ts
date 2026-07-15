@@ -15,6 +15,7 @@ import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Effect, Schema, Stream } from "effect"
 import { HttpServerRequest, Multipart } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
+import type { MarketMetricEmitter } from "../metrics"
 import type { PrivateObjectStore } from "../oss"
 import { randomSecret, SkillMarketSecurityError } from "../security"
 import {
@@ -30,6 +31,7 @@ interface SubmissionsHttpOptions {
   readonly submissions: Submissions
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
+  readonly emit?: MarketMetricEmitter
 }
 
 export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
@@ -64,7 +66,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             "create",
           )
           const validated = yield* Effect.tryPromise({
-            try: () => validateQuarantinedSubmission(received, options.store),
+            try: () => validateQuarantinedSubmission(received, options.store, Date.now, { persist: false }),
             catch: validationProblem,
           }).pipe(Effect.tapError(() => cleanup(options.store, received)))
           const result = yield* Effect.tryPromise({
@@ -80,6 +82,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             catch: createProblem,
           }).pipe(Effect.tapError(() => cleanup(options.store, received)))
           if (result.submission.id !== submissionID) yield* cleanup(options.store, received)
+          options.emit?.({ skill_market_upload_count: 1 })
           return result
         }),
       )
@@ -119,7 +122,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
               requestId: requestID(),
             })
           }
-          return yield* Effect.tryPromise({
+          const result = yield* Effect.tryPromise({
             try: () =>
               options.submissions.addRevision(principal, context.params.submissionID, {
                 idempotencyKey,
@@ -130,6 +133,8 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
               }),
             catch: reviseProblem,
           }).pipe(Effect.tapError(() => cleanup(options.store, received)))
+          options.emit?.({ skill_market_upload_count: 1 })
+          return result
         }),
       ),
   )

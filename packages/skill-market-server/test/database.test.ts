@@ -135,10 +135,12 @@ describe("control-plane database", () => {
       join(migrations, "002_broken.sql"),
       "CREATE TABLE should_rollback (id TEXT PRIMARY KEY); THIS IS NOT VALID SQL;",
     )
+    const metrics: unknown[] = []
     const migrationError = await openDatabase({
       databasePath: path,
       migrationBackupDirectory: backups,
       migrationDirectory: migrations,
+      emit: (metric) => metrics.push(metric),
     }).then(() => "", String)
     expect(migrationError).toContain('near "THIS": syntax error')
 
@@ -161,6 +163,7 @@ describe("control-plane database", () => {
     const backup = new Database(join(backups, files[0]), { readonly: true })
     expect(backup.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check).toBe("ok")
     expect(backup.query<{ count: number }, []>("SELECT count(*) AS count FROM stable").get()?.count).toBe(1)
+    expect(metrics).toEqual([{ skill_market_database_backup_result: { success: 1 } }])
     backup.close()
   })
 

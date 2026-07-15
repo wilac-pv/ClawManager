@@ -10,12 +10,15 @@ import {
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
+import type { MarketMetricEmitter } from "../metrics"
 import type { Moderation } from "../moderation"
 import { SkillMarketSecurityError } from "../security"
 import { principalFromSession, requestID } from "./middleware"
 
 interface AdminHttpOptions {
   readonly moderation: Moderation
+  readonly onWorkReady?: () => void
+  readonly emit?: MarketMetricEmitter
 }
 
 export function createAdminHttp(options: AdminHttpOptions) {
@@ -47,19 +50,35 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.submissions.decision", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
-            try: () => options.moderation.decide(principal, context.params.submissionID, context.payload),
+          const reviewed = yield* Effect.try({
+            try: () => {
+              const before = options.moderation.get(principal, context.params.submissionID)
+              const result = options.moderation.decide(principal, context.params.submissionID, context.payload)
+              const pending = before.timeline.findLast((event) => event.status === "pending_review")
+              return {
+                result,
+                ...(pending ? { wait: Math.max(0, Date.parse(result.updatedAt) - Date.parse(pending.at)) } : {}),
+              }
+            },
             catch: reviewProblem,
           })
+          options.emit?.({
+            skill_market_review_decision: { [context.payload.decision]: 1 },
+            ...(reviewed.wait === undefined ? {} : { skill_market_review_wait_ms: reviewed.wait }),
+          })
+          if (reviewed.result.status === "publishing") options.onWorkReady?.()
+          return reviewed.result
         }),
       )
       .handle("skillMarket.admin.submissions.retry", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          const result = yield* Effect.try({
             try: () => options.moderation.retryPublish(principal, context.params.submissionID, context.payload),
             catch: reviewProblem,
           })
+          options.onWorkReady?.()
+          return result
         }),
       )
       .handle("skillMarket.admin.roles.list", () =>
@@ -103,19 +122,23 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.community.delist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          const result = yield* Effect.try({
             try: () => options.moderation.delist(principal, context.params.skillID, context.payload),
             catch: reviewProblem,
           })
+          options.onWorkReady?.()
+          return result
         }),
       )
       .handle("skillMarket.admin.community.restore", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          const result = yield* Effect.try({
             try: () => options.moderation.restore(principal, context.params.skillID, context.payload),
             catch: reviewProblem,
           })
+          options.onWorkReady?.()
+          return result
         }),
       ),
   )

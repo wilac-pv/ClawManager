@@ -78,20 +78,32 @@ export async function validateQuarantinedSubmission(
   received: ReceivedSubmission,
   store: PrivateObjectStore,
   now: () => number = Date.now,
+  options: { readonly body?: Uint8Array; readonly persist?: boolean } = {},
 ) {
-  const body = await store.get(received.package.key)
+  const body = options.body ?? (await store.get(received.package.key))
   if (
     body.byteLength !== received.package.size ||
     new Bun.CryptoHasher("sha256").update(body).digest("hex") !== received.package.sha256
   )
     throw new Error("quarantine package does not match upload")
   const result = validateSubmissionArchive(body, received.metadata, now)
+  if (options.persist !== false) await persistQuarantinedValidation(received, store, result)
+  return result
+}
+
+export async function persistQuarantinedValidation(
+  received: ReceivedSubmission,
+  store: PrivateObjectStore,
+  result: {
+    readonly manifest: SkillMarketControl.Manifest
+    readonly scan: SkillMarketControl.ScanReport
+  },
+) {
   const directory = received.package.key.replace(/package\.zip$/, "")
   await Promise.all([
     putJson(store, `${directory}manifest.json`, result.manifest),
     putJson(store, `${directory}scan.json`, result.scan),
   ])
-  return result
 }
 
 async function receive(
@@ -401,12 +413,21 @@ function crc32(body: Uint8Array) {
 
 async function putJson(store: PrivateObjectStore, key: string, value: unknown) {
   const body = new TextEncoder().encode(JSON.stringify(value))
-  await store.putPrivate(
-    key,
-    (async function* () {
-      yield body
-    })(),
-    "application/json",
-    { sha256: new Bun.CryptoHasher("sha256").update(body).digest("hex") },
-  )
+  await store
+    .putPrivate(
+      key,
+      (async function* () {
+        yield body
+      })(),
+      "application/json",
+      { sha256: new Bun.CryptoHasher("sha256").update(body).digest("hex") },
+    )
+    .then(
+      () => undefined,
+      async (error: unknown) => {
+        const existing = await store.get(key)
+        if (existing.byteLength === body.byteLength && existing.every((value, index) => value === body[index])) return
+        throw error
+      },
+    )
 }

@@ -2,11 +2,13 @@ import { Database } from "bun:sqlite"
 import { chmod, mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import type { MarketMetricEmitter } from "./metrics"
 
 export interface OpenDatabaseOptions {
   readonly databasePath: string
   readonly migrationBackupDirectory: string
   readonly migrationDirectory?: string
+  readonly emit?: MarketMetricEmitter
 }
 
 export class MarketDatabase {
@@ -56,7 +58,14 @@ async function initialize(connection: Database, options: OpenDatabaseOptions, ex
 
   const pending = migrations.slice(currentVersion)
   if (pending.length === 0) return
-  if (existed) await backupDatabase(connection, options.migrationBackupDirectory, currentVersion, migrations.length)
+  if (existed)
+    await backupDatabase(connection, options.migrationBackupDirectory, currentVersion, migrations.length).then(
+      () => safeEmit(options.emit, { skill_market_database_backup_result: { success: 1 } }),
+      async (error: unknown) => {
+        await safeEmit(options.emit, { skill_market_database_backup_result: { failure: 1 } })
+        throw error
+      },
+    )
 
   connection
     .transaction(() => {
@@ -119,4 +128,13 @@ function verifyBackup(path: string) {
   } finally {
     backup.close()
   }
+}
+
+function safeEmit(emit: MarketMetricEmitter | undefined, metric: Readonly<Record<string, unknown>>) {
+  return Promise.resolve()
+    .then(() => emit?.(metric))
+    .then(
+      () => undefined,
+      () => undefined,
+    )
 }

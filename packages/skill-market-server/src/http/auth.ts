@@ -8,6 +8,7 @@ import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { createAuth } from "../auth"
+import type { MarketMetricEmitter } from "../metrics"
 import { SkillMarketSecurityError } from "../security"
 import { readCookies, requestID } from "./middleware"
 
@@ -16,6 +17,7 @@ interface AuthHttpOptions {
   readonly webOrigin: string
   readonly sessionCookieName: string
   readonly cookieSecure: boolean
+  readonly emit?: MarketMetricEmitter
 }
 
 export function createAuthHttp(options: AuthHttpOptions) {
@@ -29,7 +31,8 @@ export function createAuthHttp(options: AuthHttpOptions) {
         }),
       )
       .handle("skillMarket.auth.callback", (context) => {
-        if (context.query.error)
+        if (context.query.error) {
+          options.emit?.({ skill_market_sso_result: { failure: 1 } })
           return Effect.fail(
             new SkillMarketUnauthenticated({
               code: "unauthenticated",
@@ -37,8 +40,10 @@ export function createAuthHttp(options: AuthHttpOptions) {
               requestId: requestID(),
             }),
           )
+        }
         const token = context.query.access_token ?? context.query.token
-        if (!token)
+        if (!token) {
+          options.emit?.({ skill_market_sso_result: { failure: 1 } })
           return Effect.fail(
             new SkillMarketInvalidRequest({
               code: "invalid-request",
@@ -46,10 +51,13 @@ export function createAuthHttp(options: AuthHttpOptions) {
               requestId: requestID(),
             }),
           )
+        }
         return Effect.tryPromise({
           try: () => options.auth.complete(context.params.attemptID, token),
           catch: authProblem,
         }).pipe(
+          Effect.tap(() => Effect.sync(() => options.emit?.({ skill_market_sso_result: { success: 1 } }))),
+          Effect.tapError(() => Effect.sync(() => options.emit?.({ skill_market_sso_result: { failure: 1 } }))),
           Effect.map((result) =>
             HttpServerResponse.redirect(new URL(result.returnTo, options.webOrigin), {
               cookies: HttpServerResponse.setCookiesUnsafe(HttpServerResponse.empty(), [

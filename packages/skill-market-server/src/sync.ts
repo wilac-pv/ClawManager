@@ -7,11 +7,14 @@ import { type SkillMarketConfig, loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
+import { emitMarketMetric } from "./metrics"
 import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
 import { createPublisher } from "./publisher"
 import { type SkillHubRecord, loadSkillHub } from "./skillhub"
 import { inspectZipArchive } from "./submission-archive"
+import { createSubmissions } from "./submissions"
+import { createWorker } from "./worker"
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -198,7 +201,7 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
           store: options.store,
           publicPrefix: options.config.ossPrefix,
           publicBaseUrl: options.config.publicBaseUrl,
-          webBaseUrl: options.config.publicBaseUrl,
+          webBaseUrl: options.config.webOrigin,
         }),
       )
     : ({ ok: false, error: new Error("community database is unavailable") } as const)
@@ -575,14 +578,24 @@ async function production() {
   const database = await openDatabase({
     databasePath: config.databasePath,
     migrationBackupDirectory: config.migrationBackupDirectory,
+    emit: emitMarketMetric,
   })
   const publisher = createPublisher({
     database,
     store,
     ossPrefix: config.ossPrefix,
     publicBaseUrl: config.publicBaseUrl,
-    webBaseUrl: config.publicBaseUrl,
+    webBaseUrl: config.webOrigin,
   })
+  const worker = createWorker({
+    database,
+    submissions: createSubmissions({ database }),
+    store,
+    publisher,
+    sessionIdleMilliseconds: config.sessionIdleMilliseconds,
+  })
+  worker.cleanup()
+  await worker.drain("sync-startup")
   await synchronize({ fetcher: (input, init) => fetch(input, init), store, config, database, publisher }).finally(() =>
     database.close(),
   )

@@ -12,12 +12,14 @@ import {
 } from "@opencode-ai/protocol/skill-market-errors"
 import { Effect, Layer, Redacted } from "effect"
 import { HttpServerRequest } from "effect/unstable/http"
+import type { MarketMetricEmitter } from "../metrics"
 import type { MarketSecurity, Principal } from "../security"
 import { randomSecret, SkillMarketSecurityError } from "../security"
 
 interface MiddlewareOptions {
   readonly security: MarketSecurity
   readonly sessionCookieName: string
+  readonly emit?: MarketMetricEmitter
 }
 
 export function createSecurityLayers(options: MiddlewareOptions) {
@@ -35,7 +37,10 @@ export function createSecurityLayers(options: MiddlewareOptions) {
                 sessionToken: cookies.get(options.sessionCookieName) ?? "",
                 csrfToken: cookies.get(csrfCookieName) ?? "",
               }),
-            catch: () => unauthenticated(),
+            catch: () => {
+              options.emit?.({ skill_market_session_rejection: { unauthenticated: 1 } })
+              return unauthenticated()
+            },
           })
           return yield* Effect.provideService(effect, SkillMarketPrincipal, principal.session)
         }),
@@ -75,7 +80,10 @@ export function createSecurityLayers(options: MiddlewareOptions) {
         const principal = principalFromSession(yield* SkillMarketPrincipal)
         yield* Effect.try({
           try: () => options.security.requireReviewer(principal),
-          catch: () => forbidden(),
+          catch: () => {
+            options.emit?.({ skill_market_role_rejection: { reviewer: 1 } })
+            return forbidden()
+          },
         })
         return yield* effect
       }),
@@ -88,7 +96,10 @@ export function createSecurityLayers(options: MiddlewareOptions) {
         const principal = principalFromSession(yield* SkillMarketPrincipal)
         yield* Effect.try({
           try: () => options.security.requireAdmin(principal),
-          catch: () => forbidden(),
+          catch: () => {
+            options.emit?.({ skill_market_role_rejection: { admin: 1 } })
+            return forbidden()
+          },
         })
         return yield* effect
       }),

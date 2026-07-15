@@ -10,6 +10,7 @@ import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import type { createAuth } from "./auth"
 import { type CatalogSnapshot, key, queryCatalog } from "./catalog"
+import type { MarketMetricEmitter } from "./metrics"
 import type { Moderation } from "./moderation"
 import type { PrivateObjectStore } from "./oss"
 import type { MarketSecurity } from "./security"
@@ -34,6 +35,8 @@ export interface MarketHttpOptions {
   readonly webOrigin: string
   readonly sessionCookieName: string
   readonly cookieSecure: boolean
+  readonly onWorkReady?: () => void
+  readonly emit?: MarketMetricEmitter
 }
 
 export function createMarketRoutes(options: MarketHttpOptions) {

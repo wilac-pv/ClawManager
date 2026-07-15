@@ -6,10 +6,13 @@ import { createAuth } from "./auth"
 import { loadConfig } from "./config"
 import { openDatabase } from "./database"
 import { createMarketRoutes } from "./handlers"
+import { emitMarketMetric } from "./metrics"
 import { createModeration } from "./moderation"
 import { loadCurrentSnapshot, makeS3ObjectStore } from "./oss"
+import { createPublisher } from "./publisher"
 import { bootstrapAdmins, createSecurity } from "./security"
 import { createSubmissions } from "./submissions"
+import { createWorker, type Worker } from "./worker"
 
 const main = Effect.scoped(
   Effect.gen(function* () {
@@ -20,6 +23,7 @@ const main = Effect.scoped(
           openDatabase({
             databasePath: config.databasePath,
             migrationBackupDirectory: config.migrationBackupDirectory,
+            emit: emitMarketMetric,
           }),
         catch: (error) => error,
       }),
@@ -48,8 +52,29 @@ const main = Effect.scoped(
       loginAttemptMilliseconds: config.loginAttemptMilliseconds,
       sessionAbsoluteMilliseconds: config.sessionAbsoluteMilliseconds,
     })
-    const submissions = createSubmissions({ database })
+    const state: { worker?: Worker } = {}
+    const wake = () => {
+      void state.worker?.wake("server").catch(() => undefined)
+    }
+    const submissions = createSubmissions({ database, onValidationReady: wake })
     const moderation = createModeration({ database, security })
+    const worker = createWorker({
+      database,
+      submissions,
+      store,
+      publisher: createPublisher({
+        database,
+        store,
+        ossPrefix: config.ossPrefix,
+        publicBaseUrl: config.publicBaseUrl,
+        webBaseUrl: config.webOrigin,
+      }),
+      emit: emitMarketMetric,
+      sessionIdleMilliseconds: config.sessionIdleMilliseconds,
+    })
+    state.worker = worker
+    worker.cleanup()
+    yield* Effect.promise(() => worker.drain("server-startup"))
     const routes = createMarketRoutes({
       loadSnapshot: () => loadCurrentSnapshot(store, { prefix: config.ossPrefix }),
       auth,
@@ -61,6 +86,8 @@ const main = Effect.scoped(
       webOrigin: config.webOrigin,
       sessionCookieName: config.sessionCookieName,
       cookieSecure: config.cookieSecure,
+      onWorkReady: wake,
+      emit: emitMarketMetric,
     })
     return yield* Layer.launch(
       HttpRouter.serve(routes, { disableLogger: true }).pipe(
