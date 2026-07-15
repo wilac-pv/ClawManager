@@ -34,6 +34,7 @@ export interface PrivateObjectStore extends ObjectStore {
     target: string,
     contentType?: string,
     metadata?: Readonly<Record<string, string>>,
+    cacheControl?: string,
   ) => Promise<void>
   readonly delete: (key: string) => Promise<void>
 }
@@ -86,13 +87,13 @@ export function makeS3ObjectStore(config: {
         }),
       )
     },
-    async copy(source, target, contentType, metadata) {
+    async copy(source, target, contentType, metadata, cacheControl) {
       await client.send(
         new CopyObjectCommand({
           Bucket: config.bucket,
           CopySource: encodeURIComponent(`${config.bucket}/${source}`),
           Key: target,
-          CacheControl: "private, no-store",
+          CacheControl: cacheControl ?? "private, no-store",
           ContentType: contentType,
           Metadata: metadata,
           MetadataDirective: "REPLACE",
