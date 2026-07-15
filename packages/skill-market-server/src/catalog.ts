@@ -25,7 +25,7 @@ export function mergeCatalog(
     .map((detail) => applyEnterprise(detail, overrides.get(key(detail.source, detail.id))))
     .toSorted((left, right) => key(left.source, left.id).localeCompare(key(right.source, right.id)))
   const items = details.map(toSummary)
-  const revision = new Bun.CryptoHasher("sha256").update(JSON.stringify(items)).digest("hex")
+  const revision = new Bun.CryptoHasher("sha256").update(JSON.stringify(details)).digest("hex")
   const visible = items.filter((item) => !item.delisted)
   const facets = buildFacets(revision, sourceStatus, visible)
   return {

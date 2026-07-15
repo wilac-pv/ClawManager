@@ -1,0 +1,60 @@
+import { describe, expect, test } from "bun:test"
+import { loadCurrentSnapshot, publishSnapshot, type ObjectStore } from "../src/oss"
+import { sampleSnapshot } from "./fixture"
+
+const config = { prefix: "skill-market" }
+
+describe("OSS snapshots", () => {
+  test("updates current.json only after every immutable object validates", async () => {
+    const store = memoryObjectStore()
+    await publishSnapshot(store.client, config, sampleSnapshot("r1"))
+    expect(store.writes.at(-1)).toEqual({
+      key: "skill-market/current.json",
+      contentType: "application/json",
+      cacheControl: "public, max-age=60",
+    })
+
+    store.failOn = /details/
+    await expect(publishSnapshot(store.client, config, sampleSnapshot("r2"))).rejects.toThrow("configured failure")
+    expect(JSON.parse(new TextDecoder().decode(store.objects.get("skill-market/current.json"))).revision).toBe("r1")
+  })
+
+  test("loads and validates a complete snapshot through the current pointer", async () => {
+    const store = memoryObjectStore()
+    await publishSnapshot(store.client, config, sampleSnapshot("r1"))
+    const loaded = await loadCurrentSnapshot(store.client, config)
+    expect(loaded.revision).toBe("r1")
+    expect(loaded.items).toHaveLength(1)
+    expect(loaded.details.get("skillhub:code-review")?.package.sha256).toBe("a".repeat(64))
+
+    store.objects.set("skill-market/indexes/r1/catalog.json", new TextEncoder().encode("{}"))
+    await expect(loadCurrentSnapshot(store.client, config)).rejects.toThrow()
+  })
+})
+
+function memoryObjectStore() {
+  const store = {
+    objects: new Map<string, Uint8Array>(),
+    writes: [] as Array<{ key: string; contentType: string; cacheControl: string }>,
+    failOn: undefined as RegExp | undefined,
+    client: undefined as unknown as ObjectStore,
+  }
+  store.client = {
+    async put(key, body, contentType, cacheControl) {
+      if (store.failOn?.test(key)) throw new Error(`configured failure for ${key}`)
+      store.objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
+      store.writes.push({ key, contentType, cacheControl })
+    },
+    async get(key) {
+      const value = store.objects.get(key)
+      if (!value) throw new Error(`missing object ${key}`)
+      return value
+    },
+    async head(key) {
+      const value = store.objects.get(key)
+      if (!value) throw new Error(`missing object ${key}`)
+      return { size: value.byteLength }
+    },
+  }
+  return store
+}
