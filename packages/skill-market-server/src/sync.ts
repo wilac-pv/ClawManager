@@ -1,12 +1,12 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import matter from "gray-matter"
-import { inflateRawSync } from "node:zlib"
 import { type CatalogSnapshot, key, mergeCatalog } from "./catalog"
 import { type SkillMarketConfig, loadConfig } from "./config"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import { type SkillHubRecord, loadSkillHub } from "./skillhub"
+import { inspectZipArchive } from "./submission-archive"
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -109,81 +109,28 @@ export async function materializeSkillHubRecords(
 }
 
 export function verifySkillArchive(body: Uint8Array) {
-  if (body.byteLength > compressedLimit) throw new Error("skill archive exceeds compressed size limit")
-  const view = new DataView(body.buffer, body.byteOffset, body.byteLength)
-  const endOffset = findEndRecord(view)
-  const entries = view.getUint16(endOffset + 10, true)
-  const centralSize = view.getUint32(endOffset + 12, true)
-  const centralOffset = view.getUint32(endOffset + 16, true)
-  const endCommentLength = view.getUint16(endOffset + 20, true)
-  if (endOffset + 22 + endCommentLength !== body.byteLength) throw new Error("invalid ZIP end record")
-  if (entries === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff)
-    throw new Error("ZIP64 archives are not supported")
-  if (entries > fileLimit) throw new Error("skill archive exceeds file limit")
-  requireRange(body, centralOffset, centralSize)
-  if (centralOffset + centralSize !== endOffset) throw new Error("ZIP central directory offset mismatch")
-
-  const files: Array<{ path: string; sha256: string; size: number }> = []
-  const names = new Set<string>()
-  let position = centralOffset
-  let expanded = 0
-  let skill: Uint8Array | undefined
-  let archiveMetadata: typeof SkillHubArchiveMetadata.Type | undefined
-  for (let index = 0; index < entries; index++) {
-    requireRange(body, position, 46)
-    if (view.getUint32(position, true) !== 0x02014b50) throw new Error("invalid ZIP central directory")
-    const flags = view.getUint16(position + 8, true)
-    const method = view.getUint16(position + 10, true)
-    const compressedSize = view.getUint32(position + 20, true)
-    const size = view.getUint32(position + 24, true)
-    const nameLength = view.getUint16(position + 28, true)
-    const extraLength = view.getUint16(position + 30, true)
-    const commentLength = view.getUint16(position + 32, true)
-    const externalAttributes = view.getUint32(position + 38, true)
-    const localOffset = view.getUint32(position + 42, true)
-    requireRange(body, position + 46, nameLength + extraLength + commentLength)
-    const path = new TextDecoder("utf-8", { fatal: true }).decode(
-      body.subarray(position + 46, position + 46 + nameLength),
-    )
-    assertZipPath(path)
-    assertExtraFields(body.subarray(position + 46 + nameLength, position + 46 + nameLength + extraLength))
-    if (flags & 1) throw new Error("encrypted ZIP entries are not supported")
-    if (method !== 0 && method !== 8) throw new Error(`unsupported ZIP compression method: ${method}`)
-    const mode = (externalAttributes >>> 16) & 0xffff
-    const kind = mode & 0o170000
-    if (kind === 0o120000) throw new Error(`ZIP symlink is not allowed: ${path}`)
-    if (kind !== 0 && kind !== 0o040000 && kind !== 0o100000) throw new Error(`unsupported ZIP entry type: ${path}`)
-    if (names.has(path)) throw new Error(`duplicate ZIP path: ${path}`)
-    names.add(path)
-    if (path.endsWith("/")) {
-      if (size !== 0) throw new Error(`ZIP directory contains data: ${path}`)
-      position += 46 + nameLength + extraLength + commentLength
-      continue
-    }
-    expanded += size
-    if (expanded > expandedLimit) throw new Error("skill archive exceeds expanded size limit")
-    const content = readEntry(body, view, localOffset, flags, method, compressedSize, size, path)
-    const file = { path, sha256: new Bun.CryptoHasher("sha256").update(content).digest("hex"), size }
-    files.push(file)
-    if (path === "SKILL.md") skill = content
-    if (path === "_meta.json") archiveMetadata = parseSkillHubMetadata(content)
-    position += 46 + nameLength + extraLength + commentLength
-  }
-  if (position !== centralOffset + centralSize) throw new Error("ZIP central directory size mismatch")
-  if (!skill) throw new Error("skill archive must contain root SKILL.md")
-  const markdown = matter(new TextDecoder("utf-8", { fatal: true }).decode(skill))
+  const archive = inspectZipArchive(body, {
+    compressed: compressedLimit,
+    expanded: expandedLimit,
+    files: fileLimit,
+    ratio: Number.POSITIVE_INFINITY,
+  })
+  const markdown = matter(new TextDecoder("utf-8", { fatal: true }).decode(archive.skill.content))
   const metadata: unknown = markdown.data
   const name = metadataString(metadata, "name")
   const description = metadataString(metadata, "description")
   const license = optionalMetadataString(metadata, "license")
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) throw new Error("SKILL.md name is not a safe skill id")
+  const archiveMetadata = archive.entries.find((entry) => entry.path === "_meta.json")
   return {
     name,
     description,
     ...(license ? { license } : {}),
     readme: markdown.content,
-    files: files.toSorted((a, b) => a.path.localeCompare(b.path)),
-    metadata: archiveMetadata,
+    files: archive.entries
+      .map((entry) => ({ path: entry.path, sha256: entry.sha256, size: entry.size }))
+      .toSorted((a, b) => a.path.localeCompare(b.path)),
+    metadata: archiveMetadata ? parseSkillHubMetadata(archiveMetadata.content) : undefined,
   }
 }
 
@@ -422,73 +369,6 @@ async function readLimited(response: Response, limit: number) {
   return { body, sha256: hasher.digest("hex") }
 }
 
-function readEntry(
-  body: Uint8Array,
-  view: DataView,
-  offset: number,
-  flags: number,
-  method: number,
-  compressedSize: number,
-  size: number,
-  path: string,
-) {
-  requireRange(body, offset, 30)
-  if (view.getUint32(offset, true) !== 0x04034b50) throw new Error(`invalid ZIP local header: ${path}`)
-  if (view.getUint16(offset + 6, true) !== flags || view.getUint16(offset + 8, true) !== method)
-    throw new Error(`ZIP header mismatch: ${path}`)
-  const nameLength = view.getUint16(offset + 26, true)
-  const extraLength = view.getUint16(offset + 28, true)
-  requireRange(body, offset + 30, nameLength + extraLength + compressedSize)
-  const localPath = new TextDecoder("utf-8", { fatal: true }).decode(
-    body.subarray(offset + 30, offset + 30 + nameLength),
-  )
-  if (localPath !== path) throw new Error(`ZIP local filename mismatch: ${path}`)
-  assertExtraFields(body.subarray(offset + 30 + nameLength, offset + 30 + nameLength + extraLength))
-  const start = offset + 30 + nameLength + extraLength
-  const compressed = body.subarray(start, start + compressedSize)
-  const content =
-    method === 0
-      ? compressed.slice()
-      : new Uint8Array(inflateRawSync(compressed, { maxOutputLength: Math.max(size, 1) }))
-  if (content.byteLength !== size) throw new Error(`ZIP entry size mismatch: ${path}`)
-  return content
-}
-
-function findEndRecord(view: DataView) {
-  const start = Math.max(0, view.byteLength - 65_557)
-  for (let offset = view.byteLength - 22; offset >= start; offset--) {
-    if (view.getUint32(offset, true) === 0x06054b50) return offset
-  }
-  throw new Error("invalid ZIP end record")
-}
-
-function assertZipPath(path: string) {
-  const parts = path.split("/")
-  const directory = path.endsWith("/")
-  if (
-    !path ||
-    path.includes("\\") ||
-    path.includes("\0") ||
-    path.startsWith("/") ||
-    /^[a-zA-Z]:/.test(path) ||
-    parts.some((part, index) => part === "." || part === ".." || (!part && (!directory || index !== parts.length - 1)))
-  )
-    throw new Error(`unsafe ZIP path: ${path}`)
-}
-
-function assertExtraFields(extra: Uint8Array) {
-  const view = new DataView(extra.buffer, extra.byteOffset, extra.byteLength)
-  let offset = 0
-  while (offset < extra.byteLength) {
-    if (offset + 4 > extra.byteLength) throw new Error("invalid ZIP extra field")
-    const id = view.getUint16(offset, true)
-    const size = view.getUint16(offset + 2, true)
-    if (id === 1) throw new Error("ZIP64 archives are not supported")
-    offset += 4 + size
-    if (offset > extra.byteLength) throw new Error("invalid ZIP extra field")
-  }
-}
-
 function assertManifest(
   expected: ReadonlyArray<{ readonly path: string; readonly sha256: string; readonly size: number }>,
   actual: ReadonlyArray<{ readonly path: string; readonly sha256: string; readonly size: number }>,
@@ -531,10 +411,6 @@ function optionalMetadataString(input: unknown, field: string) {
   if (value === undefined) return undefined
   if (typeof value !== "string") throw new Error(`SKILL.md ${field} must be a string`)
   return value.trim() || undefined
-}
-
-function requireRange(body: Uint8Array, offset: number, size: number) {
-  if (offset < 0 || size < 0 || offset + size > body.byteLength) throw new Error("ZIP entry is out of bounds")
 }
 
 function assertAllowedUrl(input: string, allowedHosts: ReadonlySet<string>) {

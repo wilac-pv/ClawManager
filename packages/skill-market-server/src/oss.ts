@@ -1,12 +1,41 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
+import { Readable } from "node:stream"
 import { type CatalogSnapshot, key } from "./catalog"
 
 export type ObjectStore = {
   readonly put: (key: string, body: string | Uint8Array, contentType: string, cacheControl: string) => Promise<void>
   readonly get: (key: string) => Promise<Uint8Array>
-  readonly head: (key: string) => Promise<{ size: number }>
+  readonly head: (key: string) => Promise<{
+    size: number
+    contentType?: string
+    etag?: string
+    metadata?: Readonly<Record<string, string>>
+  }>
+}
+
+export interface PrivateObjectStore extends ObjectStore {
+  readonly putPrivate: (
+    key: string,
+    body: AsyncIterable<Uint8Array>,
+    contentType: string,
+    metadata?: Readonly<Record<string, string>>,
+  ) => Promise<void>
+  readonly copy: (
+    source: string,
+    target: string,
+    contentType?: string,
+    metadata?: Readonly<Record<string, string>>,
+  ) => Promise<void>
+  readonly delete: (key: string) => Promise<void>
 }
 
 export type PublishConfig = { readonly prefix: string }
@@ -37,9 +66,43 @@ export function makeS3ObjectStore(config: {
     async head(key) {
       const output = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }))
       if (output.ContentLength === undefined) throw new Error(`OSS object has no content length: ${key}`)
-      return { size: output.ContentLength }
+      return {
+        size: output.ContentLength,
+        ...(output.ContentType ? { contentType: output.ContentType } : {}),
+        ...(output.ETag ? { etag: output.ETag } : {}),
+        ...(output.Metadata ? { metadata: output.Metadata } : {}),
+      }
     },
-  } satisfies ObjectStore
+    async putPrivate(key, body, contentType, metadata) {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: config.bucket,
+          Key: key,
+          Body: Readable.from(body),
+          ContentType: contentType,
+          CacheControl: "private, no-store",
+          Metadata: metadata,
+          IfNoneMatch: "*",
+        }),
+      )
+    },
+    async copy(source, target, contentType, metadata) {
+      await client.send(
+        new CopyObjectCommand({
+          Bucket: config.bucket,
+          CopySource: encodeURIComponent(`${config.bucket}/${source}`),
+          Key: target,
+          CacheControl: "private, no-store",
+          ContentType: contentType,
+          Metadata: metadata,
+          MetadataDirective: "REPLACE",
+        }),
+      )
+    },
+    async delete(key) {
+      await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }))
+    },
+  } satisfies PrivateObjectStore
 }
 
 const Pointer = Schema.Struct({ revision: Schema.String, createdAt: SkillMarket.Timestamp })
