@@ -8,10 +8,12 @@ import {
 } from "@opencode-ai/app/skill-market"
 import { Navigate, Route, Router, useNavigate, useParams } from "@solidjs/router"
 import { createSignal, type ParentProps } from "solid-js"
-import { createSkillMarketControlDataSource } from "./control-data-source"
+import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
 import { RequireAdmin, RequireReviewer, RequireSession, SkillMarketSessionProvider } from "./session"
 import { MarketShell } from "./shell"
+import { SubmissionForm } from "./submissions/form"
+import { SubmissionList } from "./submissions/list"
 
 export function App() {
   const [csrfToken, setCsrfToken] = createSignal<string>()
@@ -43,9 +45,9 @@ export function App() {
     <Router base={import.meta.env.BASE_URL.replace(/\/$/, "")} root={Root}>
       <Route path="/skills" component={SkillListRoute} />
       <Route path="/skills/:source/:id" component={SkillDetailRoute} />
-      <Route path="/submissions" component={SubmissionHomeRoute} />
-      <Route path="/submissions/new" component={SubmissionHomeRoute} />
-      <Route path="/submissions/:id" component={SubmissionHomeRoute} />
+      <Route path="/submissions" component={() => <SubmissionListRoute source={control} />} />
+      <Route path="/submissions/new" component={() => <SubmissionFormRoute source={control} />} />
+      <Route path="/submissions/:id" component={SubmissionDetailRoute} />
       <Route path="/admin" component={ReviewHomeRoute} />
       <Route path="/admin/submissions/:id" component={ReviewHomeRoute} />
       <Route path="/admin/roles" component={RoleHomeRoute} />
@@ -55,10 +57,30 @@ export function App() {
   )
 }
 
-function SubmissionHomeRoute() {
+function SubmissionListRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireSession>
-      <ProtectedPlaceholder title="我的投稿" description="投稿功能正在加载。" />
+      <SubmissionList source={props.source.submissions} />
+    </RequireSession>
+  )
+}
+
+function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
+  const navigate = useNavigate()
+  return (
+    <RequireSession>
+      <SubmissionForm
+        source={props.source.submissions}
+        onAccepted={(submissionID) => navigate(`/submissions/${submissionID}`)}
+      />
+    </RequireSession>
+  )
+}
+
+function SubmissionDetailRoute() {
+  return (
+    <RequireSession>
+      <ProtectedPlaceholder title="投稿详情" description="正在加载投稿详情。" />
     </RequireSession>
   )
 }
