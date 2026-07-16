@@ -86,7 +86,11 @@
 }
 
 .ruying-skill-market__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
+  box-sizing: border-box;
   height: 50px;
   padding: 0 20px;
   border: 0;
@@ -95,6 +99,7 @@
   box-shadow: 0 8px 24px rgba(109, 93, 252, 0.22);
   color: #fff;
   font-weight: 700;
+  text-decoration: none;
   cursor: pointer;
 }
 

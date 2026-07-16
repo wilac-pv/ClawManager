@@ -22,6 +22,7 @@ const sortTabs = [
 export function SkillMarketList(props: {
   onOpen: (key: SkillKey) => void
   onSubmit?: () => void
+  submitHref?: string
   installedOnly?: boolean
 }) {
   const market = useSkillMarket()
@@ -121,11 +122,22 @@ export function SkillMarketList(props: {
               placeholder="搜索 Skill、场景或标签"
             />
           </label>
-          <Show when={props.onSubmit}>
-            {(onSubmit) => (
-              <button type="button" class="ruying-skill-market__submit" onClick={onSubmit()}>
+          <Show
+            when={props.submitHref}
+            fallback={
+              <Show when={props.onSubmit}>
+                {(onSubmit) => (
+                  <button type="button" class="ruying-skill-market__submit" onClick={onSubmit()}>
+                    投稿 Skill
+                  </button>
+                )}
+              </Show>
+            }
+          >
+            {(href) => (
+              <a class="ruying-skill-market__submit" href={href()}>
                 投稿 Skill
-              </button>
+              </a>
             )}
           </Show>
         </div>

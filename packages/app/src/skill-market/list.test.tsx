@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { fireEvent, render, waitFor } from "@solidjs/testing-library"
+import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
@@ -81,11 +81,19 @@ function renderMarket(
   },
   installedOnly = false,
   onSubmit?: () => void,
+  submitHref?: string,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
-  const content = () => <SkillMarketList onOpen={onOpen} installedOnly={installedOnly} onSubmit={onSubmit} />
+  const content = () => (
+    <SkillMarketList
+      onOpen={onOpen}
+      installedOnly={installedOnly}
+      onSubmit={onSubmit}
+      submitHref={submitHref}
+    />
+  )
   return render(() => (
     <QueryClientProvider client={client}>
       <SkillMarketProvider source={source} actions={actions}>
@@ -173,6 +181,32 @@ test("filters community skills and exposes the optional submission action", asyn
 
   expect(submitted).toBe(1)
   expect(opened).toEqual([{ source: "community", id: "safe-community-skill" }])
+})
+
+test("prefers a submission link while preserving callback-only actions", async () => {
+  let submitted = 0
+  const linked = renderMarket(
+    dataSource(async () => page([communitySkill])),
+    () => undefined,
+    undefined,
+    false,
+    () => submitted++,
+    "/ai-coding/ruying-code/skill-market/submissions/new",
+  )
+  const link = await linked.findByRole("link", { name: "投稿 Skill" })
+  expect(link.getAttribute("href")).toBe("/ai-coding/ruying-code/skill-market/submissions/new")
+  expect(submitted).toBe(0)
+  cleanup()
+
+  const callback = renderMarket(
+    dataSource(async () => page([communitySkill])),
+    () => undefined,
+    undefined,
+    false,
+    () => submitted++,
+  )
+  await userEvent.click(await callback.findByRole("button", { name: "投稿 Skill" }))
+  expect(submitted).toBe(1)
 })
 
 test("hides the submission action when no handler is provided", async () => {

@@ -205,7 +205,7 @@ function SkillListRoute() {
   return (
     <SkillMarketList
       onOpen={(key) => navigate(`/skills/${key.source}/${encodeURIComponent(key.id)}`)}
-      onSubmit={() => navigate("/submissions/new")}
+      submitHref={`${import.meta.env.BASE_URL}submissions/new`}
     />
   )
 }
