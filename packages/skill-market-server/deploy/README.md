@@ -190,8 +190,17 @@ Start in this order:
 1. API service;
 2. `/health` readiness check;
 3. verified Web release and `web/current` symlink;
-4. worker and sync timers;
-5. backup, cleanup, and restore-drill timers.
+4. for an empty OSS prefix, run `ruying-skill-market-sync.service` once and
+   require a non-empty 2xx catalog response;
+5. HTTP smoke and private OSS canary;
+6. worker and sync timers;
+7. backup, cleanup, and restore-drill timers.
+
+Do not treat a `503` catalog response as a CORS failure during first install.
+The API cannot serve a catalog until the initial synchronization has published
+and verified `current.json` plus its immutable snapshot objects. Keep the prior
+sync timer stopped while initializing a replacement prefix so it cannot move
+the new pointer with incompatible output.
 
 Record the previous API and Web symlink targets before switching them.
 
