@@ -1,0 +1,40 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": [
+        "${service_principal}"
+      ],
+      "Action": [
+        "oss:GetObject",
+        "oss:PutObject",
+        "oss:DeleteObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/*",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-private-test/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Principal": [
+        "${service_principal}"
+      ],
+      "Action": [
+        "oss:ListObjects"
+      ],
+      "Resource": [
+        "acs:oss:*:*:${bucket}"
+      ],
+      "Condition": {
+        "StringLike": {
+          "oss:Prefix": [
+            "ai-coding/ruying-code/skill-market-test/*",
+            "ai-coding/ruying-code/skill-market-private-test/*"
+          ]
+        }
+      }
+    }
+  ]
+}

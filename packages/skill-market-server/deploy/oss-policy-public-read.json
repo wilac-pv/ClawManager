@@ -1,0 +1,25 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": [
+        "*"
+      ],
+      "Action": [
+        "oss:GetObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/current.json",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/indexes/*",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/packages/*",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/icons/*",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/assets/icons/*",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/web/current.json",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/web/*/manifest.json",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/web/*/index.html",
+        "acs:oss:*:*:${bucket}/ai-coding/ruying-code/skill-market-test/web/*/assets/*"
+      ]
+    }
+  ]
+}
