@@ -234,7 +234,7 @@ describe("submission moderation", () => {
         expectedVersion: 1,
         reason: `Policy review ${auditMarker}`,
       }),
-    ).toEqual({ source: "community", id: skillID, version: "1.0.0", status: "delisted" })
+    ).toEqual({ source: "community", id: skillID, version: "1.0.0", rowVersion: 2, status: "delisted" })
     expect(
       fixture.database.connection
         .query<{ after_json: string }, []>("SELECT after_json FROM audit_events WHERE action = 'community-delisted'")
@@ -254,6 +254,7 @@ describe("submission moderation", () => {
       source: "community",
       id: skillID,
       version: "1.0.0",
+      rowVersion: 3,
       status: "published",
     })
     expect(jobCount(fixture, "catalog_rebuild", "pending")).toBe(1)

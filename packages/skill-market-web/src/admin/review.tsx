@@ -6,11 +6,17 @@ import { MarketControlError, type SkillMarketControlDataSource } from "../contro
 import { SubmissionStatusTimeline } from "../submissions/status"
 
 export type ModerationReviewSource = Pick<SkillMarketControlDataSource["moderation"], "detail" | "decide">
+export type ModerationOperationsSource = Pick<
+  SkillMarketControlDataSource["moderation"],
+  "retryPublish" | "delist" | "restore"
+>
 
 interface ModerationReviewProps {
   readonly submissionID: string
   readonly source: ModerationReviewSource
   readonly actor: string
+  readonly admin?: boolean
+  readonly operations?: ModerationOperationsSource
   readonly onDecided?: (detail: SkillMarketControl.SubmissionDetail) => void
 }
 
@@ -114,6 +120,25 @@ export function ModerationReview(props: ModerationReviewProps) {
               </header>
 
               <SubmissionStatusTimeline status={detail().status} timeline={detail().timeline} />
+
+              <Show when={props.admin && props.operations}>
+                {(operations) => (
+                  <AdminOperations
+                    detail={detail()}
+                    source={operations()}
+                    onDetail={(result) =>
+                      client.setQueryData(["skill-market", "moderation", "detail", detail().id], result)
+                    }
+                    onPublicSkill={(result) =>
+                      client.setQueryData<SkillMarketControl.SubmissionDetail>(
+                        ["skill-market", "moderation", "detail", detail().id],
+                        (current) => (current ? { ...current, publicSkill: result } : current),
+                      )
+                    }
+                    onConflict={() => void submission.refetch()}
+                  />
+                )}
+              </Show>
 
               <section class="submission-detail__section moderation-review__overview">
                 <h2>投稿概览</h2>
@@ -311,6 +336,149 @@ export function ModerationReview(props: ModerationReviewProps) {
         }}
       </Match>
     </Switch>
+  )
+}
+
+function AdminOperations(props: {
+  detail: SkillMarketControl.SubmissionDetail
+  source: ModerationOperationsSource
+  onDetail: (detail: SkillMarketControl.SubmissionDetail) => void
+  onPublicSkill: (skill: SkillMarketControl.PublicSkill) => void
+  onConflict: () => void
+}) {
+  const [action, setAction] = createSignal<"delist" | "restore">()
+  const [reason, setReason] = createSignal("")
+  const [error, setError] = createSignal<string>()
+  const [pending, setPending] = createSignal(false)
+  const retry = () => {
+    if (pending()) return
+    setPending(true)
+    setError(undefined)
+    void props.source
+      .retryPublish(props.detail.id, { expectedVersion: props.detail.version })
+      .then(props.onDetail)
+      .catch((cause: unknown) => operationError(cause, setError, props.onConflict))
+      .finally(() => setPending(false))
+  }
+  const updatePublicStatus = () => {
+    const kind = action()
+    const publicSkill = props.detail.publicSkill
+    if (!kind || !publicSkill || pending()) return
+    if (!reason().trim()) {
+      setError("请填写操作原因")
+      return
+    }
+    setPending(true)
+    setError(undefined)
+    const request =
+      kind === "delist"
+        ? props.source.delist(publicSkill.id, { expectedVersion: publicSkill.rowVersion, reason: reason().trim() })
+        : props.source.restore(publicSkill.id, { expectedVersion: publicSkill.rowVersion, reason: reason().trim() })
+    void request
+      .then((result) => {
+        props.onPublicSkill(result)
+        setAction(undefined)
+        setReason("")
+      })
+      .catch((cause: unknown) => operationError(cause, setError, props.onConflict))
+      .finally(() => setPending(false))
+  }
+
+  return (
+    <section class="submission-detail__section admin-operations" aria-labelledby="admin-operations-title">
+      <div class="submission-detail__section-heading">
+        <div>
+          <h2 id="admin-operations-title">Admin 操作</h2>
+          <p>运营操作会写入审计日志并使用乐观并发控制。</p>
+        </div>
+        <div class="admin-operations__actions">
+          <Show when={props.detail.status === "publish_failed"}>
+            <button type="button" class="market-primary-action" disabled={pending()} onClick={retry}>
+              重试发布
+            </button>
+          </Show>
+          <Show when={props.detail.publicSkill?.status === "published"}>
+            <button
+              type="button"
+              class="admin-danger-action"
+              disabled={pending()}
+              onClick={() => {
+                setError(undefined)
+                setAction("delist")
+              }}
+            >
+              下架 Skill
+            </button>
+          </Show>
+          <Show when={props.detail.publicSkill?.status === "delisted"}>
+            <button
+              type="button"
+              class="market-primary-action"
+              disabled={pending()}
+              onClick={() => {
+                setError(undefined)
+                setAction("restore")
+              }}
+            >
+              恢复 Skill
+            </button>
+          </Show>
+        </div>
+      </div>
+
+      <Show when={action()}>
+        {(kind) => (
+          <div class="admin-operation-confirmation">
+            <strong>{kind() === "delist" ? "确认下架" : "确认恢复"}</strong>
+            <p>
+              {kind() === "delist"
+                ? "下架会移除公开可见性，但保留包与全部历史。"
+                : "恢复会重新公开当前已发布版本，并触发目录重建。"}
+            </p>
+            <label class="submission-form__field">
+              <span>操作原因</span>
+              <textarea
+                aria-label="操作原因"
+                rows="3"
+                value={reason()}
+                onInput={(event) => {
+                  setReason(event.currentTarget.value)
+                  setError(undefined)
+                }}
+              />
+            </label>
+            <div>
+              <button type="button" onClick={() => setAction(undefined)}>
+                取消
+              </button>
+              <button type="button" class="market-primary-action" disabled={pending()} onClick={updatePublicStatus}>
+                {kind() === "delist" ? "确认下架" : "确认恢复"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Show>
+      <Show when={error()}>
+        {(message) => (
+          <div class="submission-form__errors" role="alert">
+            {message()}
+          </div>
+        )}
+      </Show>
+    </section>
+  )
+}
+
+function operationError(cause: unknown, setError: (value: string) => void, onConflict: () => void) {
+  if (cause instanceof MarketControlError && cause.code === "submission-conflict") {
+    setError(`对象已更新，已刷新最新状态（请求编号：${cause.requestId}）`)
+    onConflict()
+    return
+  }
+  setError(
+    cause instanceof MarketControlError
+      ? `${cause.message}（请求编号：${cause.requestId}）`
+      : "Admin 操作失败，请检查网络后重试。",
   )
 }
 

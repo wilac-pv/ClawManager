@@ -203,6 +203,7 @@ describe("skill market control data source", () => {
           source: "community",
           id: "safe-skill",
           version: "1.0.0",
+          rowVersion: 2,
           status: path.endsWith("/delist") ? "delisted" : "published",
         })
       return Response.json(detail)

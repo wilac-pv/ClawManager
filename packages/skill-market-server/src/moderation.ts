@@ -530,6 +530,7 @@ export class Moderation {
         source: "community",
         id: skillID,
         version: skill.current_version,
+        rowVersion: skill.version + 1,
         status,
       })
     })

@@ -169,6 +169,7 @@ export const PublicSkill = Schema.Struct({
   source: Schema.Literal("community"),
   id: bounded(1, 128),
   version: SemVer,
+  rowVersion: Positive,
   status: PublicStatus,
 }).annotate({ identifier: "SkillMarketControl.PublicSkill" })
 

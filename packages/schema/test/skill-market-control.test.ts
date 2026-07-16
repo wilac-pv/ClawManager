@@ -76,6 +76,18 @@ describe("SkillMarketControl", () => {
     })
   })
 
+  test("exposes community row versions for optimistic status operations", () => {
+    expect(
+      Schema.decodeUnknownSync(SkillMarketControl.PublicSkill)({
+        source: "community",
+        id: "safe-skill",
+        version: "1.2.0",
+        rowVersion: 3,
+        status: "published",
+      }).rowVersion,
+    ).toBe(3)
+  })
+
   test("decodes stable public problems without internal details", () => {
     const problem = Schema.decodeUnknownSync(SkillMarketControl.Problem)({
       code: "submission-conflict",

@@ -4,7 +4,7 @@ import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-contro
 import { MemoryRouter, Route, createMemoryHistory } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { MarketControlError } from "../control-data-source"
-import type { ModerationReviewSource } from "./review"
+import type { ModerationOperationsSource, ModerationReviewSource } from "./review"
 import { ModerationReview } from "./review"
 
 afterEach(() => cleanup())
@@ -89,9 +89,80 @@ describe("moderation review", () => {
     expect((await view.findByRole("alert")).textContent).toContain("投稿已更新，已刷新到最新版本")
     await waitFor(() => expect(details.value).toBe(2))
   })
+
+  test("lets Admin retry publication and delist/restore with returned row versions", async () => {
+    const retryCalls: SkillMarketControl.ExpectedVersionInput[] = []
+    const statusCalls: Array<{ kind: "delist" | "restore"; input: SkillMarketControl.ReasonInput }> = []
+    const operations: ModerationOperationsSource = {
+      retryPublish: (_id, input) => {
+        retryCalls.push(input)
+        return Promise.resolve({ ...detail(), status: "publishing", version: 4 })
+      },
+      delist: (_id, input) => {
+        statusCalls.push({ kind: "delist", input })
+        return Promise.resolve({
+          source: "community",
+          id: "safe-skill",
+          version: "1.2.0",
+          rowVersion: 2,
+          status: "delisted",
+        })
+      },
+      restore: (_id, input) => {
+        statusCalls.push({ kind: "restore", input })
+        return Promise.resolve({
+          source: "community",
+          id: "safe-skill",
+          version: "1.2.0",
+          rowVersion: 3,
+          status: "published",
+        })
+      },
+    }
+    const failed = { ...detail(), status: "publish_failed" as const, risk: "safe" as const }
+    const retry = renderReview(source(failed), "E000009", { admin: true, operations })
+    await retry.findByRole("heading", { name: "审核 Safe Skill" })
+    fireEvent.click(retry.getByRole("button", { name: "重试发布" }))
+    await waitFor(() => expect(retryCalls).toEqual([{ expectedVersion: 3 }]))
+    cleanup()
+
+    const published = {
+      ...detail(),
+      status: "published" as const,
+      risk: "safe" as const,
+      publicSkill: {
+        source: "community" as const,
+        id: "safe-skill",
+        version: "1.2.0",
+        rowVersion: 1,
+        status: "published" as const,
+      },
+    }
+    const operation = renderReview(source(published), "E000009", { admin: true, operations })
+    await operation.findByRole("heading", { name: "审核 Safe Skill" })
+    fireEvent.click(operation.getByRole("button", { name: "下架 Skill" }))
+    expect(operation.getByText("下架会移除公开可见性，但保留包与全部历史。")).toBeTruthy()
+    fireEvent.input(operation.getByLabelText("操作原因"), { target: { value: "Policy review" } })
+    fireEvent.click(operation.getByRole("button", { name: "确认下架" }))
+    expect(await operation.findByRole("button", { name: "恢复 Skill" })).toBeTruthy()
+
+    fireEvent.click(operation.getByRole("button", { name: "恢复 Skill" }))
+    fireEvent.input(operation.getByLabelText("操作原因"), { target: { value: "Policy issue resolved" } })
+    fireEvent.click(operation.getByRole("button", { name: "确认恢复" }))
+    await waitFor(() =>
+      expect(statusCalls).toEqual([
+        { kind: "delist", input: { expectedVersion: 1, reason: "Policy review" } },
+        { kind: "restore", input: { expectedVersion: 2, reason: "Policy issue resolved" } },
+      ]),
+    )
+  })
 })
 
-function renderReview(source: ModerationReviewSource, actor = "E000009") {
+function renderReview(
+  source: ModerationReviewSource,
+  actor = "E000009",
+  admin?: { admin: boolean; operations: ModerationOperationsSource },
+) {
   const history = createMemoryHistory()
   history.set({ value: "/admin/submissions/sub_abcdefgh", replace: true })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
@@ -100,7 +171,15 @@ function renderReview(source: ModerationReviewSource, actor = "E000009") {
       <MemoryRouter history={history}>
         <Route
           path="*"
-          component={() => <ModerationReview submissionID="sub_abcdefgh" source={source} actor={actor} />}
+          component={() => (
+            <ModerationReview
+              submissionID="sub_abcdefgh"
+              source={source}
+              actor={actor}
+              admin={admin?.admin}
+              operations={admin?.operations}
+            />
+          )}
         />
       </MemoryRouter>
     </QueryClientProvider>

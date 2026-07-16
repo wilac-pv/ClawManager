@@ -9,9 +9,11 @@ import {
 import { Navigate, Route, Router, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { Match, Show, Switch, createSignal, type ParentProps } from "solid-js"
-import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
+import { AuditLog } from "./admin/audit"
 import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
+import { RoleAdministration } from "./admin/roles"
+import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
 import {
   RequireAdmin,
@@ -60,8 +62,8 @@ export function App() {
       <Route path="/submissions/:id" component={() => <SubmissionDetailRoute source={control} />} />
       <Route path="/admin" component={() => <ReviewQueueRoute source={control} />} />
       <Route path="/admin/submissions/:id" component={() => <ReviewDetailRoute source={control} />} />
-      <Route path="/admin/roles" component={RoleHomeRoute} />
-      <Route path="/admin/audit" component={RoleHomeRoute} />
+      <Route path="/admin/roles" component={() => <RoleAdministrationRoute source={control} />} />
+      <Route path="/admin/audit" component={() => <AuditRoute source={control} />} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
     </Router>
   )
@@ -156,15 +158,25 @@ function ReviewDetailContent(props: { submissionID: string; source: SkillMarketC
       submissionID={props.submissionID}
       source={props.source.moderation}
       actor={session.session()?.user.employeeID ?? ""}
+      admin={session.admin()}
+      operations={props.source.moderation}
       onDecided={() => navigate("/admin")}
     />
   )
 }
 
-function RoleHomeRoute() {
+function RoleAdministrationRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireAdmin>
-      <ProtectedPlaceholder title="Admin 管理" description="管理功能正在加载。" />
+      <RoleAdministration source={props.source.roles} />
+    </RequireAdmin>
+  )
+}
+
+function AuditRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireAdmin>
+      <AuditLog source={props.source.audit} />
     </RequireAdmin>
   )
 }

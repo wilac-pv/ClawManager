@@ -269,9 +269,9 @@ export class Submissions {
       })
     const community = this.options.database.connection
       .query<
-        { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null },
+        { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null; row_version: number },
         [string]
-      >("SELECT current_version, public_status FROM community_skills WHERE skill_id = ?")
+      >("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?")
       .get(row.skill_id)
     const currentMetadata = revisions.find((revision) => revision.number === row.current_revision)?.metadata
     if (!currentMetadata) throw new Error("submission current revision is missing")
@@ -287,6 +287,7 @@ export class Submissions {
               source: "community",
               id: row.skill_id,
               version: community.current_version,
+              rowVersion: community.row_version,
               status: community.public_status,
             },
           }

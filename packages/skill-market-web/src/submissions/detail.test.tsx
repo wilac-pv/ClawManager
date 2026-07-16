@@ -155,7 +155,15 @@ function detail(status: SkillMarketControl.SubmissionStatus): SkillMarketControl
       { status: "changes_requested", at: "2026-07-16T03:00:00.000Z", message: "请补充使用示例" },
     ],
     ...(status === "published"
-      ? { publicSkill: { source: "community", id: "safe-skill", version: "1.2.0", status: "published" } }
+      ? {
+          publicSkill: {
+            source: "community",
+            id: "safe-skill",
+            version: "1.2.0",
+            rowVersion: 1,
+            status: "published",
+          },
+        }
       : {}),
   }
 }

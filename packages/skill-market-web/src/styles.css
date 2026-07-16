@@ -875,6 +875,225 @@ a {
   justify-self: end;
 }
 
+.admin-role-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 220px) auto;
+  align-items: end;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid #e1e5eb;
+  border-radius: 12px;
+  background: white;
+}
+
+.admin-role-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-role-form label > span {
+  font-weight: 650;
+}
+
+.admin-role-form input,
+.admin-role-form select {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #cfd5de;
+  border-radius: 8px;
+  background: white;
+}
+
+.admin-role-error {
+  margin-bottom: 18px;
+}
+
+.admin-role-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid #e8ca83;
+  border-radius: 10px;
+  background: #fff8e7;
+}
+
+.admin-role-confirmation p {
+  margin: 0;
+}
+
+.admin-role-confirmation > div {
+  display: flex;
+  gap: 10px;
+}
+
+.admin-role-confirmation button:not(.market-primary-action) {
+  border: 0;
+  background: transparent;
+  color: #59626f;
+  cursor: pointer;
+}
+
+.admin-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #b12f2f;
+  cursor: pointer;
+}
+
+.admin-disabled-user {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #ffebeb;
+  color: #a32b2b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.audit-filters {
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+}
+
+.audit-events {
+  display: grid;
+  gap: 14px;
+}
+
+.audit-event {
+  padding: 20px;
+  border: 1px solid #e1e5eb;
+  border-radius: 12px;
+  background: white;
+}
+
+.audit-event > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #eceff3;
+}
+
+.audit-event > header div {
+  display: grid;
+  gap: 4px;
+}
+
+.audit-event > header span,
+.audit-event > header time {
+  color: #6c7480;
+  font-size: 13px;
+}
+
+.audit-event dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 36px;
+  margin: 14px 0;
+}
+
+.audit-event dl > div {
+  display: grid;
+  gap: 3px;
+}
+
+.audit-event dt {
+  color: #727b87;
+  font-size: 12px;
+}
+
+.audit-event dd {
+  margin: 0;
+}
+
+.audit-event__changes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.audit-event__changes > div {
+  min-width: 0;
+}
+
+.audit-event__changes pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 7px 0 0;
+  padding: 12px;
+  border-radius: 7px;
+  background: #f5f7f9;
+  color: #4c5663;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-operations .submission-detail__section-heading {
+  align-items: flex-start;
+}
+
+.admin-operations .submission-detail__section-heading h2,
+.admin-operations .submission-detail__section-heading p {
+  margin: 0;
+}
+
+.admin-operations .submission-detail__section-heading p {
+  margin-top: 5px;
+  color: #6c7480;
+}
+
+.admin-operations__actions {
+  display: flex;
+  flex: none;
+  gap: 10px;
+}
+
+.admin-danger-action {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #c84343;
+  border-radius: 9px;
+  background: white;
+  color: #a32b2b;
+  cursor: pointer;
+}
+
+.admin-operation-confirmation {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 17px;
+  border: 1px solid #e8ca83;
+  border-radius: 10px;
+  background: #fffaf0;
+}
+
+.admin-operation-confirmation p {
+  margin: 0;
+  color: #71500c;
+}
+
+.admin-operation-confirmation > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.admin-operation-confirmation > div button:not(.market-primary-action) {
+  border: 0;
+  background: transparent;
+  color: #59626f;
+  cursor: pointer;
+}
+
 @media (max-width: 760px) {
   .market-shell__header {
     grid-template-columns: auto 1fr;
@@ -955,6 +1174,24 @@ a {
   }
 
   .moderation-decision fieldset {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-role-form,
+  .audit-filters,
+  .audit-event__changes {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-role-confirmation,
+  .audit-event > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-operations .submission-detail__section-heading,
+  .admin-operations__actions {
     align-items: flex-start;
     flex-direction: column;
   }

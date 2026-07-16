@@ -82,7 +82,7 @@ export function readSubmissionSummary(connection: Database, submissionID: string
   const row = connection
     .query<SubmissionSummaryRow, [string]>(`${submissionSummarySelect()} WHERE submissions.id = ?`)
     .get(submissionID)
-  if (!row) return
+  if (!row) return undefined
   return toSubmissionSummary(row)
 }
 
@@ -105,7 +105,7 @@ export function toSubmissionSummary(row: SubmissionSummaryRow) {
 
 export function readSubmissionDetail(connection: Database, submissionID: string) {
   const summary = readSubmissionSummary(connection, submissionID)
-  if (!summary) return
+  if (!summary) return undefined
   const revisions = connection
     .query<RevisionRow, [string]>(
       `SELECT revision_number, metadata_json, manifest_json, scan_json, validation_errors_json, created_at
@@ -189,9 +189,9 @@ export function readSubmissionDetail(connection: Database, submissionID: string)
     })
   const community = connection
     .query<
-      { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null },
+      { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null; row_version: number },
       [string]
-    >("SELECT current_version, public_status FROM community_skills WHERE skill_id = ?")
+    >("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?")
     .get(summary.skillID)
   const metadata = revisions.find((revision) => revision.number === summary.currentRevision)?.metadata
   if (!metadata) throw new Error("submission current revision is missing")
@@ -207,6 +207,7 @@ export function readSubmissionDetail(connection: Database, submissionID: string)
             source: "community",
             id: summary.skillID,
             version: community.current_version,
+            rowVersion: community.row_version,
             status: community.public_status,
           },
         }
