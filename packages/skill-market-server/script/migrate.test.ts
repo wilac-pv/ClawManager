@@ -31,6 +31,29 @@ describe("database migration command", () => {
     const manifest = await Bun.file(new URL("../package.json", import.meta.url)).json()
     expect(manifest.scripts.migrate).toBe("bun script/migrate.ts")
   })
+
+  test("runs with only migration-specific environment", async () => {
+    const directory = await temporaryDirectory()
+    const databasePath = join(directory, "market.db")
+    const subprocess = Bun.spawn([process.execPath, "script/migrate.ts"], {
+      cwd: new URL("..", import.meta.url).pathname,
+      env: {
+        PATH: process.env.PATH,
+        SKILL_MARKET_DATABASE_PATH: databasePath,
+        SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY: join(directory, "backups"),
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    expect(await subprocess.exited).toBe(0)
+    expect(await new Response(subprocess.stdout).json()).toEqual({
+      userVersion: 2,
+      integrity: "ok",
+      foreignKeyViolations: 0,
+    })
+    expect(await new Response(subprocess.stderr).text()).toBe("")
+  })
 })
 
 async function temporaryDirectory() {

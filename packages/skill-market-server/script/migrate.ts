@@ -20,13 +20,12 @@ export async function migrateDatabase(options: {
 }
 
 if (import.meta.main) {
-  const { loadConfig } = await import("../src/config")
-  const config = loadConfig()
   console.log(
     JSON.stringify(
       await migrateDatabase({
-        databasePath: config.databasePath,
-        migrationBackupDirectory: config.migrationBackupDirectory,
+        databasePath: process.env.SKILL_MARKET_DATABASE_PATH ?? "/var/lib/ruying-skill-market/market.db",
+        migrationBackupDirectory:
+          process.env.SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY ?? "/var/backups/ruying-skill-market/migrations",
       }),
     ),
   )
