@@ -23,11 +23,17 @@ afterEach(() => cleanup())
 
 describe("skill market session", () => {
   test("keeps an anonymous protected route and starts full-page SSO with its safe return path", async () => {
-    const fixture = renderSession(null, "/submissions/new", () => (
-      <RequireSession>
-        <div>Private submission form</div>
-      </RequireSession>
-    ))
+    const basePath = "/ai-coding/ruying-code/skill-market/"
+    const fixture = renderSession(
+      null,
+      `${basePath}submissions/new`,
+      () => (
+        <RequireSession>
+          <div>Private submission form</div>
+        </RequireSession>
+      ),
+      basePath,
+    )
 
     expect(await fixture.view.findByRole("button", { name: "使用 GWM SSO 登录" })).toBeTruthy()
     expect(fixture.view.queryByText("Private submission form")).toBeNull()
@@ -72,6 +78,22 @@ describe("skill market session", () => {
     )).view
     expect(await adminView.findByText("Review queue")).toBeTruthy()
     expect(adminView.getByText("Role administration")).toBeTruthy()
+    cleanup()
+
+    const basePath = "/ai-coding/ruying-code/skill-market/"
+    const basedView = renderSession(
+      contributor,
+      `${basePath}admin/roles`,
+      () => (
+        <RequireAdmin>
+          <div>Role administration</div>
+        </RequireAdmin>
+      ),
+      basePath,
+    ).view
+    expect((await basedView.findByRole("link", { name: "返回 Skill 市场" })).getAttribute("href")).toBe(
+      `${basePath}skills`,
+    )
   })
 
   test("refetches an expired session and clears it after logout", async () => {
@@ -94,6 +116,12 @@ describe("skill market session", () => {
     expect(safeReturnTo("/skills/community/safe-skill")).toBe("/skills/community/safe-skill")
     expect(safeReturnTo("/submissions/sub_abcdefgh?tab=history")).toBe("/submissions/sub_abcdefgh?tab=history")
     expect(safeReturnTo("/admin/audit?page=2")).toBe("/admin/audit?page=2")
+    expect(
+      safeReturnTo(
+        "/ai-coding/ruying-code/skill-market/submissions/new?from=market",
+        "/ai-coding/ruying-code/skill-market/",
+      ),
+    ).toBe("/submissions/new?from=market")
     expect(safeReturnTo("https://attacker.example/submissions")).toBe("/skills")
     expect(safeReturnTo("//attacker.example/admin")).toBe("/skills")
     expect(safeReturnTo("/unknown")).toBe("/skills")
@@ -115,7 +143,12 @@ function SessionProbe() {
   )
 }
 
-function renderSession(initial: SkillMarketControl.SessionState, path: string, content: () => JSX.Element) {
+function renderSession(
+  initial: SkillMarketControl.SessionState,
+  path: string,
+  content: () => JSX.Element,
+  basePath?: string,
+) {
   const state: { value: SkillMarketControl.SessionState } = { value: initial }
   const logoutCalls = { value: 0 }
   const navigations: string[] = []
@@ -135,11 +168,11 @@ function renderSession(initial: SkillMarketControl.SessionState, path: string, c
   history.set({ value: path, replace: true })
   const view = render(() => (
     <QueryClientProvider client={client}>
-      <MemoryRouter history={history}>
+      <MemoryRouter base={basePath?.replace(/\/$/, "")} history={history}>
         <Route
           path="*"
           component={() => (
-            <SkillMarketSessionProvider source={source} navigate={(url) => navigations.push(url)}>
+            <SkillMarketSessionProvider source={source} basePath={basePath} navigate={(url) => navigations.push(url)}>
               {content()}
             </SkillMarketSessionProvider>
           )}

@@ -33,6 +33,7 @@ export interface MarketHttpOptions {
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
   readonly webOrigin: string
+  readonly webBaseUrl: string
   readonly sessionCookieName: string
   readonly cookieSecure: boolean
   readonly onWorkReady?: () => void

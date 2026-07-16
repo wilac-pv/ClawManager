@@ -17,6 +17,7 @@ import { makeStoredZip } from "./zip"
 
 const directories: string[] = []
 const webOrigin = "http://127.0.0.1:4211"
+const webBaseUrl = `${webOrigin}/ai-coding/ruying-code/skill-market/`
 const now = Date.parse("2026-07-15T00:00:00.000Z")
 
 afterEach(async () => {
@@ -240,7 +241,7 @@ async function loginSession(
     redirect: "manual",
   })
   expect(response.status).toBe(302)
-  expect(response.headers.get("location")).toBe(`${webOrigin}${returnTo}`)
+  expect(response.headers.get("location")).toBe(new URL(returnTo.slice(1), webBaseUrl).href)
   const cookies = response.headers.getSetCookie().map((value) => value.split(";", 1)[0])
   const csrf = cookies.find((value) => value.startsWith("ruying_market_csrf="))?.split("=", 2)[1]
   expect(cookies).toHaveLength(2)
@@ -321,6 +322,7 @@ async function marketFixture() {
     store,
     privatePrefix: "skill-market-private",
     webOrigin,
+    webBaseUrl,
     sessionCookieName: "ruying_market_session",
     cookieSecure: false,
   })

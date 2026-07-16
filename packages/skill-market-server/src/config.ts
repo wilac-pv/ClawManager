@@ -26,6 +26,10 @@ export function loadConfig(environment: Environment = process.env) {
     throw new Error("SKILL_MARKET_PRIVATE_OSS_PREFIX must not overlap SKILL_MARKET_OSS_PREFIX")
 
   const webUrl = originUrl("SKILL_MARKET_WEB_ORIGIN", environment.SKILL_MARKET_WEB_ORIGIN ?? "http://127.0.0.1:4211")
+  const webBasePath = routeBasePath(
+    "SKILL_MARKET_WEB_BASE_PATH",
+    environment.SKILL_MARKET_WEB_BASE_PATH ?? "/",
+  )
   const apiUrl = originUrl(
     "SKILL_MARKET_API_PUBLIC_URL",
     environment.SKILL_MARKET_API_PUBLIC_URL ?? `http://127.0.0.1:${port}`,
@@ -71,6 +75,8 @@ export function loadConfig(environment: Environment = process.env) {
       allowInsecurePublicHttp,
     ),
     webOrigin: webUrl.origin,
+    webBasePath,
+    webBaseUrl: new URL(webBasePath, webUrl).href,
     apiPublicUrl: apiUrl.href,
     ssoLoginUrl: httpsUrl(
       "SKILL_MARKET_SSO_LOGIN_URL",
@@ -135,6 +141,19 @@ function objectPrefix(name: string, value: string) {
   if (!prefix || prefix.split("/").some((segment) => segment === "." || segment === ".."))
     throw new Error(`${name} must be a non-empty object prefix without dot segments`)
   return prefix
+}
+
+function routeBasePath(name: string, value: string) {
+  const segments = value.split("/").filter(Boolean)
+  if (
+    !value.startsWith("/") ||
+    value.includes("?") ||
+    value.includes("#") ||
+    value.includes("\\") ||
+    segments.some((segment) => segment === "." || segment === ".." || !/^[a-zA-Z0-9._~-]+$/.test(segment))
+  )
+    throw new Error(`${name} must be an absolute URL path without credentials, query, fragment, or dot segments`)
+  return segments.length === 0 ? "/" : `/${segments.join("/")}/`
 }
 
 function uniqueEmployeeIDs(value: string | undefined) {

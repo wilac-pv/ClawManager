@@ -139,6 +139,7 @@ describe("catalog sources", () => {
       SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
       SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
       SKILL_MARKET_WEB_ORIGIN: "http://10.246.13.226:4211",
+      SKILL_MARKET_WEB_BASE_PATH: "/ai-coding/ruying-code/skill-market",
       SKILL_MARKET_API_PUBLIC_URL: "http://10.246.13.226:4210",
     }
     expect(() => loadConfig(base)).toThrow("SKILL_MARKET_ALLOW_INSECURE_IP_HTTP=true")
@@ -146,6 +147,19 @@ describe("catalog sources", () => {
     const config = loadConfig({ ...base, SKILL_MARKET_ALLOW_INSECURE_IP_HTTP: "true" })
     expect(config.cookieSecure).toBe(false)
     expect(config.webOrigin).toBe("http://10.246.13.226:4211")
+    expect(config.webBasePath).toBe("/ai-coding/ruying-code/skill-market/")
+    expect(config.webBaseUrl).toBe("http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/")
+
+    ;["relative/path", "/safe/../admin", "/safe?query=1", "/safe#fragment", "/safe\\admin"].forEach(
+      (webBasePath) =>
+        expect(() =>
+          loadConfig({
+            ...base,
+            SKILL_MARKET_WEB_BASE_PATH: webBasePath,
+            SKILL_MARKET_ALLOW_INSECURE_IP_HTTP: "true",
+          }),
+        ).toThrow("SKILL_MARKET_WEB_BASE_PATH"),
+    )
 
     expect(() =>
       loadConfig({

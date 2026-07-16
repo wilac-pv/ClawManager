@@ -16,12 +16,12 @@ export function MarketShell(props: ParentProps) {
   return (
     <div class="market-shell">
       <header class="market-shell__header">
-        <a class="market-shell__brand" href="/skills" aria-label="如影 Code Skill 市场首页">
+        <A class="market-shell__brand" href="/skills" aria-label="如影 Code Skill 市场首页">
           <span class="market-shell__brand-mark" aria-hidden="true">
             如
           </span>
           <span>如影 Code</span>
-        </a>
+        </A>
         <nav class="market-shell__nav" aria-label="Skill 市场主导航">
           <For each={links().filter((link) => link.visible)}>
             {(link) => (

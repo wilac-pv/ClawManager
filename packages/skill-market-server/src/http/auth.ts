@@ -15,6 +15,7 @@ import { readCookies, requestID } from "./middleware"
 interface AuthHttpOptions {
   readonly auth: ReturnType<typeof createAuth>
   readonly webOrigin: string
+  readonly webBaseUrl: string
   readonly sessionCookieName: string
   readonly cookieSecure: boolean
   readonly emit?: MarketMetricEmitter
@@ -59,7 +60,7 @@ export function createAuthHttp(options: AuthHttpOptions) {
           Effect.tap(() => Effect.sync(() => options.emit?.({ skill_market_sso_result: { success: 1 } }))),
           Effect.tapError(() => Effect.sync(() => options.emit?.({ skill_market_sso_result: { failure: 1 } }))),
           Effect.map((result) =>
-            HttpServerResponse.redirect(new URL(result.returnTo, options.webOrigin), {
+            HttpServerResponse.redirect(new URL(result.returnTo.slice(1), options.webBaseUrl), {
               cookies: HttpServerResponse.setCookiesUnsafe(HttpServerResponse.empty(), [
                 [
                   options.sessionCookieName,

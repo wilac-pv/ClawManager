@@ -47,7 +47,11 @@ export function App() {
   }
   const Root = (props: ParentProps) => (
     <SkillMarketProvider source={source} actions={actions}>
-      <SkillMarketSessionProvider source={control} onSessionChange={setCsrfToken}>
+      <SkillMarketSessionProvider
+        source={control}
+        basePath={import.meta.env.BASE_URL}
+        onSessionChange={setCsrfToken}
+      >
         <MarketShell>{props.children}</MarketShell>
       </SkillMarketSessionProvider>
     </SkillMarketProvider>

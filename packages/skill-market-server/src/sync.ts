@@ -201,7 +201,7 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
           store: options.store,
           publicPrefix: options.config.ossPrefix,
           publicBaseUrl: options.config.publicBaseUrl,
-          webBaseUrl: options.config.webOrigin,
+          webBaseUrl: options.config.webBaseUrl,
         }),
       )
     : ({ ok: false, error: new Error("community database is unavailable") } as const)
@@ -585,7 +585,7 @@ async function production() {
     store,
     ossPrefix: config.ossPrefix,
     publicBaseUrl: config.publicBaseUrl,
-    webBaseUrl: config.webOrigin,
+    webBaseUrl: config.webBaseUrl,
   })
   const worker = createWorker({
     database,

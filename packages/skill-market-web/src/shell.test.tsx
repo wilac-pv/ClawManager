@@ -13,9 +13,13 @@ afterEach(() => cleanup())
 
 describe("market shell", () => {
   test("shows public navigation and a login action for anonymous users", async () => {
-    const fixture = renderShell(null, "/skills")
+    const basePath = "/ai-coding/ruying-code/skill-market/"
+    const fixture = renderShell(null, `${basePath}skills`, basePath)
 
-    expect((await fixture.view.findByRole("link", { name: "Skill 市场" })).getAttribute("aria-current")).toBe("page")
+    expect(await fixture.view.findByRole("link", { name: "Skill 市场" })).toBeTruthy()
+    expect(fixture.view.getByRole("link", { name: "如影 Code Skill 市场首页" }).getAttribute("href")).toBe(
+      `${basePath}skills`,
+    )
     expect(fixture.view.queryByRole("link", { name: "我的投稿" })).toBeNull()
     expect(fixture.view.queryByRole("link", { name: "管理后台" })).toBeNull()
     fireEvent.click(await fixture.view.findByRole("button", { name: "使用 GWM SSO 登录" }))
@@ -46,7 +50,7 @@ describe("market shell", () => {
   })
 })
 
-function renderShell(sessionState: SkillMarketControl.SessionState, path: string) {
+function renderShell(sessionState: SkillMarketControl.SessionState, path: string, basePath?: string) {
   const navigations: string[] = []
   const source = createSkillMarketControlDataSource("http://127.0.0.1:4210", {
     csrfToken: () => sessionState?.csrfToken,
@@ -57,7 +61,7 @@ function renderShell(sessionState: SkillMarketControl.SessionState, path: string
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   const view = render(() => (
     <QueryClientProvider client={client}>
-      <MemoryRouter history={history}>
+      <MemoryRouter base={basePath?.replace(/\/$/, "")} history={history}>
         <Route
           path="*"
           component={() => (

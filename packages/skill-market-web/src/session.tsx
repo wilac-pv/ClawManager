@@ -1,10 +1,11 @@
-import { useLocation } from "@solidjs/router"
+import { A, useLocation } from "@solidjs/router"
 import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-query"
 import { Match, Switch, createContext, createEffect, type ParentProps, useContext } from "solid-js"
 import type { SkillMarketControlDataSource } from "./control-data-source"
 
 interface SessionProviderProps {
   readonly source: SkillMarketControlDataSource
+  readonly basePath?: string
   readonly navigate?: (url: string) => void
   readonly onSessionChange?: (csrfToken: string | undefined) => void
 }
@@ -45,7 +46,7 @@ export function SkillMarketSessionProvider(props: ParentProps<SessionProviderPro
         admin: () => session.data?.roles.includes("admin") ?? false,
         login: (returnTo) =>
           (props.navigate ?? ((url) => window.location.assign(url)))(
-            props.source.auth.loginUrl(safeReturnTo(returnTo)),
+            props.source.auth.loginUrl(safeReturnTo(returnTo, props.basePath)),
           ),
         logout: () => logout.mutateAsync(),
         refetch: () => session.refetch(),
@@ -98,7 +99,7 @@ function SessionGuard(props: ParentProps<{ role?: "reviewer" | "admin" }>) {
       <Match when={!allowed()}>
         <GuardState status="alert" title="没有访问权限">
           <p>当前账号没有访问此页面所需的角色。</p>
-          <a href="/skills">返回 Skill 市场</a>
+          <A href="/skills">返回 Skill 市场</A>
         </GuardState>
       </Match>
     </Switch>
@@ -114,16 +115,21 @@ function GuardState(props: ParentProps<{ title: string; status?: "alert" | "stat
   )
 }
 
-export function safeReturnTo(value: string) {
+export function safeReturnTo(value: string, basePath = "/") {
   const base = "https://market.invalid"
   if (!URL.canParse(value, base)) return "/skills"
   const url = new URL(value, base)
   if (url.origin !== base || value.startsWith("//")) return "/skills"
+  const normalizedBasePath = basePath === "/" ? "/" : `${basePath.replace(/\/+$/, "")}/`
+  const pathname =
+    normalizedBasePath !== "/" && normalizedBasePath.startsWith("/") && url.pathname.startsWith(normalizedBasePath)
+      ? `/${url.pathname.slice(normalizedBasePath.length)}`
+      : url.pathname
   const known = [
     /^\/skills(?:\/(?:skillhub|enterprise|community)\/[^/]+)?$/,
     /^\/submissions(?:\/new|\/sub_[a-zA-Z0-9_-]{8,64})?$/,
     /^\/admin(?:\/submissions\/sub_[a-zA-Z0-9_-]{8,64}|\/roles|\/audit)?$/,
   ]
-  if (!known.some((pattern) => pattern.test(url.pathname))) return "/skills"
-  return `${url.pathname}${url.search}`
+  if (!known.some((pattern) => pattern.test(pathname))) return "/skills"
+  return `${pathname}${url.search}`
 }
