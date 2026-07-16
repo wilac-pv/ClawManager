@@ -10,11 +10,36 @@ import { ModerationReview } from "./review"
 afterEach(() => cleanup())
 
 describe("moderation review", () => {
-  test("disables self-review with a server-identity explanation", async () => {
+  test("disables Reviewer self-review with a server-identity explanation", async () => {
     const view = renderReview(source(detail()), "E000001")
 
     expect(await view.findByText("不能审核自己的投稿")).toBeTruthy()
     expect(view.getByRole("button", { name: "提交审核决定" }).hasAttribute("disabled")).toBe(true)
+  })
+
+  test("allows Admin to review an owned submission", async () => {
+    const calls: SkillMarketControl.DecisionInput[] = []
+    const fixture = { ...detail(), risk: "safe" as const }
+    const view = renderReview(
+      source(fixture, (_id, input) => {
+        calls.push(input)
+        return Promise.resolve({ ...fixture, status: "publishing", version: 4 })
+      }),
+      "E000001",
+      { admin: true },
+    )
+
+    await view.findByRole("heading", { name: "审核 Safe Skill" })
+    expect(view.queryByText("不能审核自己的投稿")).toBeNull()
+    fireEvent.click(view.getByLabelText("通过"))
+    fireEvent.input(view.getByLabelText("审核意见"), { target: { value: "Admin reviewed the package" } })
+    fireEvent.click(view.getByRole("button", { name: "提交审核决定" }))
+
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { expectedVersion: 3, decision: "approve", comment: "Admin reviewed the package" },
+      ]),
+    )
   })
 
   test("requires a comment and typed risk confirmation before approval", async () => {
@@ -161,7 +186,7 @@ describe("moderation review", () => {
 function renderReview(
   source: ModerationReviewSource,
   actor = "E000009",
-  admin?: { admin: boolean; operations: ModerationOperationsSource },
+  admin?: { admin: boolean; operations?: ModerationOperationsSource },
 ) {
   const history = createMemoryHistory()
   history.set({ value: "/admin/submissions/sub_abcdefgh", replace: true })

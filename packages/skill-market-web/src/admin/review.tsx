@@ -32,10 +32,12 @@ export function ModerationReview(props: ModerationReviewProps) {
     queryKey: ["skill-market", "moderation", "detail", props.submissionID] as const,
     queryFn: ({ signal }) => props.source.detail(props.submissionID, signal),
   }))
+  const blockedSelfReview = (detail: SkillMarketControl.SubmissionDetail) =>
+    detail.owner.employeeID === props.actor && !props.admin
   const submit = (event: SubmitEvent) => {
     event.preventDefault()
     const detail = submission.data
-    if (!detail || pending() || detail.owner.employeeID === props.actor || detail.status !== "pending_review") return
+    if (!detail || pending() || blockedSelfReview(detail) || detail.status !== "pending_review") return
     if (!comment().trim()) {
       setError("请填写审核意见")
       return
@@ -105,7 +107,7 @@ export function ModerationReview(props: ModerationReviewProps) {
           const files = () => revision()?.manifest?.files ?? []
           const pageFiles = () => files().slice((filePage() - 1) * 100, filePage() * 100)
           const pages = () => Math.max(1, Math.ceil(files().length / 100))
-          const selfReview = () => detail().owner.employeeID === props.actor
+          const selfReview = () => blockedSelfReview(detail())
           return (
             <main class="submission-page moderation-review">
               <header class="submission-detail__header">
