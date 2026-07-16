@@ -24,7 +24,7 @@ const summary = {
 
 const page = {
   revision: "revision-1",
-  sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+  sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
   total: 1,
   page: 1,
   limit: 30,

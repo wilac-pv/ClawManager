@@ -13089,7 +13089,7 @@ export type ServerSkillMarketSkillMarketListData = {
   path?: never
   query?: {
     query?: string
-    source?: "skillhub" | "enterprise"
+    source?: "skillhub" | "enterprise" | "community"
     category?: string
     requiresApiKey?: "true" | "false"
     featured?: "true" | "false"
@@ -13136,13 +13136,14 @@ export type ServerSkillMarketSkillMarketListResponses = {
     sourceStatus: {
       skillhub: "fresh" | "stale" | "unavailable"
       enterprise: "fresh" | "stale" | "unavailable"
+      community: "fresh" | "stale" | "unavailable"
     }
     total: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     page: number
     limit: number
     items: Array<{
       id: string
-      source: "skillhub" | "enterprise"
+      source: "skillhub" | "enterprise" | "community"
       sourceUrl: string
       name: string
       description: string
@@ -13162,6 +13163,11 @@ export type ServerSkillMarketSkillMarketListResponses = {
       delisted: boolean
       installedVersion?: string
       updateAvailable?: boolean
+      submittedBy?: {
+        displayName: string
+      }
+      reviewedAt?: string
+      reviewRisk?: "unknown" | "safe" | "warning" | "danger"
     }>
   }
 }
@@ -13211,9 +13217,10 @@ export type ServerSkillMarketSkillMarketFacetsResponses = {
     sourceStatus: {
       skillhub: "fresh" | "stale" | "unavailable"
       enterprise: "fresh" | "stale" | "unavailable"
+      community: "fresh" | "stale" | "unavailable"
     }
     sources: Array<{
-      value: "skillhub" | "enterprise"
+      value: "skillhub" | "enterprise" | "community"
       count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     }>
     categories: Array<{
@@ -13233,7 +13240,7 @@ export type ServerSkillMarketSkillMarketFacetsResponse =
 export type ServerSkillMarketSkillMarketDetailData = {
   body?: never
   path: {
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     id: string
   }
   query?: never
@@ -13272,7 +13279,7 @@ export type ServerSkillMarketSkillMarketDetailResponses = {
    */
   200: {
     id: string
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     sourceUrl: string
     name: string
     description: string
@@ -13292,6 +13299,11 @@ export type ServerSkillMarketSkillMarketDetailResponses = {
     delisted: boolean
     installedVersion?: string
     updateAvailable?: boolean
+    submittedBy?: {
+      displayName: string
+    }
+    reviewedAt?: string
+    reviewRisk?: "unknown" | "safe" | "warning" | "danger"
     readme: string
     license?: string
     author: {
@@ -13366,7 +13378,7 @@ export type ServerSkillMarketSkillMarketInstalledResponses = {
    * Success
    */
   200: Array<{
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     id: string
     name: string
     version: string
@@ -13417,7 +13429,7 @@ export type ServerSkillMarketSkillMarketUpdatesResponses = {
    * Success
    */
   200: Array<{
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     id: string
     name: string
     version: string
@@ -13432,7 +13444,7 @@ export type ServerSkillMarketSkillMarketUpdatesResponse =
 
 export type ServerSkillMarketSkillMarketInstallData = {
   body: {
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     id: string
     version: string
     sha256: string
@@ -13475,7 +13487,7 @@ export type ServerSkillMarketSkillMarketInstallResponses = {
    */
   200: {
     installed: {
-      source: "skillhub" | "enterprise"
+      source: "skillhub" | "enterprise" | "community"
       id: string
       name: string
       version: string
@@ -13492,7 +13504,7 @@ export type ServerSkillMarketSkillMarketInstallResponse =
 
 export type ServerSkillMarketSkillMarketUpdateData = {
   body: {
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     id: string
     version: string
     sha256: string
@@ -13535,7 +13547,7 @@ export type ServerSkillMarketSkillMarketUpdateResponses = {
    */
   200: {
     installed: {
-      source: "skillhub" | "enterprise"
+      source: "skillhub" | "enterprise" | "community"
       id: string
       name: string
       version: string
@@ -13553,7 +13565,7 @@ export type ServerSkillMarketSkillMarketUpdateResponse =
 export type ServerSkillMarketSkillMarketUninstallData = {
   body?: never
   path: {
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     id: string
   }
   query?: never
@@ -13599,7 +13611,7 @@ export type ServerSkillMarketSkillMarketUninstallResponse =
 export type ServerSkillMarketSkillMarketRefreshData = {
   body?: never
   path: {
-    source: "skillhub" | "enterprise"
+    source: "skillhub" | "enterprise" | "community"
     id: string
   }
   query?: never

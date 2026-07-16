@@ -53,10 +53,11 @@ export const detail = {
 
 export const facets = {
   revision: "fixture-revision",
-  sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+  sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
   sources: [
     { value: "skillhub", count: 1 },
     { value: "enterprise", count: 0 },
+    { value: "community", count: 0 },
   ],
   categories: [{ value: "代码质量", count: 1 }],
   requiresApiKey: { yes: 0, no: 1 },
