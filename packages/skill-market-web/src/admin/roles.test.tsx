@@ -9,6 +9,23 @@ import { RoleAdministration } from "./roles"
 afterEach(() => cleanup())
 
 describe("role administration", () => {
+  test("explains an empty employee ID without calling the server", async () => {
+    const calls: SkillMarketControl.RoleInput[] = []
+    const view = renderRoles({
+      list: () => Promise.resolve([]),
+      assign: (input) => {
+        calls.push(input)
+        return Promise.resolve(assignment(input.employeeID, input.role))
+      },
+      remove: () => Promise.resolve([]),
+    })
+    const button = view.getByRole("button", { name: "添加角色" })
+    expect(button.hasAttribute("disabled")).toBe(false)
+    fireEvent.click(button)
+    expect((await view.findByRole("alert")).textContent).toContain("请输入员工工号。")
+    expect(calls).toEqual([])
+  })
+
   test("adds server-resolved Reviewer/Admin assignments and shows disabled users", async () => {
     const assignments = [assignment("E000001", "admin", { disabledAt: "2026-07-16T00:00:00.000Z" })]
     const calls: SkillMarketControl.RoleInput[] = []

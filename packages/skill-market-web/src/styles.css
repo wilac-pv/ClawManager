@@ -136,6 +136,11 @@ a {
   text-decoration: none;
 }
 
+.market-primary-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .market-guard-state,
 .market-placeholder {
   width: min(720px, calc(100% - 40px));

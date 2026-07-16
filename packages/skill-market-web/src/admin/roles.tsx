@@ -26,7 +26,8 @@ export function RoleAdministration(props: RoleAdministrationProps) {
   const assign = (event: SubmitEvent) => {
     event.preventDefault()
     const target = employeeID().trim()
-    if (!target || pending()) return
+    if (pending()) return
+    if (!target) return setError("请输入员工工号。")
     setPending(true)
     setError(undefined)
     void props.source
@@ -89,7 +90,7 @@ export function RoleAdministration(props: RoleAdministrationProps) {
             <option value="admin">Admin</option>
           </select>
         </label>
-        <button type="submit" class="market-primary-action" disabled={pending() || !employeeID().trim()}>
+        <button type="submit" class="market-primary-action" disabled={pending()}>
           {pending() ? "正在处理…" : "添加角色"}
         </button>
       </form>
