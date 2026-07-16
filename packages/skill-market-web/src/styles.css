@@ -21,3 +21,155 @@ input,
 select {
   font: inherit;
 }
+
+button,
+a {
+  outline-offset: 3px;
+}
+
+.market-shell {
+  min-height: 100vh;
+  color: #20242c;
+}
+
+.market-shell__header {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  min-height: 64px;
+  padding: 0 28px;
+  border-bottom: 1px solid #e3e6eb;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.market-shell__brand,
+.market-shell__nav a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.market-shell__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.market-shell__brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #1268e5;
+  color: white;
+  place-items: center;
+}
+
+.market-shell__nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.market-shell__nav a {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: #626b78;
+  white-space: nowrap;
+}
+
+.market-shell__nav a:hover,
+.market-shell__nav a.is-active {
+  background: #eef4ff;
+  color: #125fc3;
+}
+
+.market-shell__account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.market-shell__identity {
+  display: grid;
+  min-width: 0;
+  max-width: 180px;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.market-shell__identity strong,
+.market-shell__identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-shell__identity small {
+  margin-top: 3px;
+  color: #737c89;
+}
+
+.market-primary-action,
+.market-shell__logout {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #d5dbe3;
+  border-radius: 9px;
+  background: white;
+  color: #27303c;
+  cursor: pointer;
+}
+
+.market-primary-action {
+  border-color: #1268e5;
+  background: #1268e5;
+  color: white;
+}
+
+.market-guard-state,
+.market-placeholder {
+  width: min(720px, calc(100% - 40px));
+  margin: 72px auto;
+  padding: 32px;
+  border: 1px solid #e3e6eb;
+  border-radius: 16px;
+  background: white;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .market-shell__header {
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    padding: 10px 16px;
+  }
+
+  .market-shell__nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .market-shell__account {
+    justify-self: end;
+  }
+
+  .market-shell__identity {
+    max-width: 120px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

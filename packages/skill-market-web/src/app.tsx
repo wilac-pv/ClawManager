@@ -7,12 +7,20 @@ import {
   type SkillKey,
 } from "@opencode-ai/app/skill-market"
 import { Navigate, Route, Router, useNavigate, useParams } from "@solidjs/router"
-import type { ParentProps } from "solid-js"
+import { createSignal, type ParentProps } from "solid-js"
+import { createSkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
+import { RequireAdmin, RequireReviewer, RequireSession, SkillMarketSessionProvider } from "./session"
+import { MarketShell } from "./shell"
 
 export function App() {
+  const [csrfToken, setCsrfToken] = createSignal<string>()
   const source = createRemoteSkillMarketDataSource(import.meta.env.VITE_SKILL_MARKET_API_URL, {
     allowInsecurePrivateHttp: import.meta.env.VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP === "true",
+  })
+  const control = createSkillMarketControlDataSource(import.meta.env.VITE_SKILL_MARKET_API_URL, {
+    allowInsecurePrivateHttp: import.meta.env.VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP === "true",
+    csrfToken,
   })
   const actions: SkillMarketActions = {
     kind: "web",
@@ -25,7 +33,9 @@ export function App() {
   }
   const Root = (props: ParentProps) => (
     <SkillMarketProvider source={source} actions={actions}>
-      {props.children}
+      <SkillMarketSessionProvider source={control} onSessionChange={setCsrfToken}>
+        <MarketShell>{props.children}</MarketShell>
+      </SkillMarketSessionProvider>
     </SkillMarketProvider>
   )
 
@@ -33,8 +43,48 @@ export function App() {
     <Router base={import.meta.env.BASE_URL.replace(/\/$/, "")} root={Root}>
       <Route path="/skills" component={SkillListRoute} />
       <Route path="/skills/:source/:id" component={SkillDetailRoute} />
+      <Route path="/submissions" component={SubmissionHomeRoute} />
+      <Route path="/submissions/new" component={SubmissionHomeRoute} />
+      <Route path="/submissions/:id" component={SubmissionHomeRoute} />
+      <Route path="/admin" component={ReviewHomeRoute} />
+      <Route path="/admin/submissions/:id" component={ReviewHomeRoute} />
+      <Route path="/admin/roles" component={RoleHomeRoute} />
+      <Route path="/admin/audit" component={RoleHomeRoute} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
     </Router>
+  )
+}
+
+function SubmissionHomeRoute() {
+  return (
+    <RequireSession>
+      <ProtectedPlaceholder title="我的投稿" description="投稿功能正在加载。" />
+    </RequireSession>
+  )
+}
+
+function ReviewHomeRoute() {
+  return (
+    <RequireReviewer>
+      <ProtectedPlaceholder title="管理后台" description="审核功能正在加载。" />
+    </RequireReviewer>
+  )
+}
+
+function RoleHomeRoute() {
+  return (
+    <RequireAdmin>
+      <ProtectedPlaceholder title="Admin 管理" description="管理功能正在加载。" />
+    </RequireAdmin>
+  )
+}
+
+function ProtectedPlaceholder(props: { title: string; description: string }) {
+  return (
+    <main class="market-placeholder">
+      <h1>{props.title}</h1>
+      <p>{props.description}</p>
+    </main>
   )
 }
 
@@ -63,7 +113,7 @@ function SkillDetailRoute() {
 }
 
 function parseSkillKey(source: string, id: string): SkillKey | undefined {
-  if (source !== "skillhub" && source !== "enterprise") return
-  if (!id.trim()) return
+  if (source !== "skillhub" && source !== "enterprise") return undefined
+  if (!id.trim()) return undefined
   return { source, id }
 }
