@@ -3,6 +3,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3"
@@ -37,6 +38,10 @@ export interface PrivateObjectStore extends ObjectStore {
     cacheControl?: string,
   ) => Promise<void>
   readonly delete: (key: string) => Promise<void>
+}
+
+export interface MaintenanceObjectStore extends PrivateObjectStore {
+  readonly list: (prefix: string) => Promise<ReadonlyArray<{ readonly key: string; readonly lastModified: Date }>>
 }
 
 export type PublishConfig = { readonly prefix: string }
@@ -103,7 +108,26 @@ export function makeS3ObjectStore(config: {
     async delete(key) {
       await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }))
     },
-  } satisfies PrivateObjectStore
+    async list(prefix) {
+      return listObjects(client, config.bucket, prefix)
+    },
+  } satisfies MaintenanceObjectStore
+}
+
+async function listObjects(
+  client: S3Client,
+  bucket: string,
+  prefix: string,
+  continuationToken?: string,
+): Promise<ReadonlyArray<{ readonly key: string; readonly lastModified: Date }>> {
+  const output = await client.send(
+    new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: continuationToken }),
+  )
+  const objects = (output.Contents ?? []).flatMap((object) =>
+    object.Key && object.LastModified ? [{ key: object.Key, lastModified: object.LastModified }] : [],
+  )
+  if (!output.IsTruncated || !output.NextContinuationToken) return objects
+  return [...objects, ...(await listObjects(client, bucket, prefix, output.NextContinuationToken))]
 }
 
 const Pointer = Schema.Struct({ revision: Schema.String, createdAt: SkillMarket.Timestamp })

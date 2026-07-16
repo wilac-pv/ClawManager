@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/server.ts",
+    "backup": "bun script/backup.ts",
+    "cleanup": "bun script/cleanup.ts",
+    "restore-drill": "bun script/restore-drill.ts",
     "start": "bun src/server.ts",
     "sync": "bun src/sync.ts",
     "worker": "bun src/worker.ts",
