@@ -8,7 +8,7 @@
 VITE_SKILL_MARKET_API_URL=http://127.0.0.1:4200 bun run dev
 ```
 
-`VITE_SKILL_MARKET_API_URL` 在生产构建中必须是 HTTPS 地址。本地开发允许使用 loopback HTTP。仅测试内网 IP 时可同时设置 `VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP=true`；该开关只放行 RFC 1918 IPv4 地址，不允许公网 HTTP。
+生产构建默认使用页面的 `window.location.origin` 访问同源 `/v1/*`。仅在本地双端口开发或独立 API 部署时设置 `VITE_SKILL_MARKET_API_URL`；私网 HTTP 覆盖仍必须同时设置 `VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP=true`，该开关只放行 RFC 1918 IPv4 地址，不允许公网 HTTP。
 
 ```bash
 bun test
@@ -37,7 +37,6 @@ ai-coding/ruying-code/skill-market/web/
 配置环境变量后发布：
 
 ```bash
-export VITE_SKILL_MARKET_API_URL=https://skill-market-api.example.internal
 export SKILL_MARKET_OSS_ENDPOINT=https://oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn
 export SKILL_MARKET_OSS_REGION=cn-baoding
 export SKILL_MARKET_OSS_BUCKET=app-platform
@@ -63,7 +62,7 @@ bun run release
 - `/ai-coding/ruying-code/skill-market/admin` → `<release>/index.html`
 - `/ai-coding/ruying-code/skill-market/admin/*` → `<release>/index.html`
 
-这些单页应用路由回退保证公开详情、投稿详情、审核详情、角色与审计页面直接打开或刷新时不会返回 404。`current.json` 和版本 `manifest.json` 都包含精确的 `fallbacks` 路由映射，网关应使用当前版本的不可变 `index.html` 作为目标。API 可以由网关代理同源 `/v1/*`，也可以在构建时通过 `VITE_SKILL_MARKET_API_URL` 指向独立 HTTPS API；跨域部署必须只允许站点来源并启用凭据，不能用 `Access-Control-Allow-Origin: *`。
+这些单页应用路由回退保证公开详情、投稿详情、审核详情、角色与审计页面直接打开或刷新时不会返回 404。`current.json` 和版本 `manifest.json` 都包含精确的 `fallbacks` 路由映射，网关应使用当前版本的不可变 `index.html` 作为目标。生产默认由网关代理同源 `/v1/*`；独立 API 部署可在构建时通过 `VITE_SKILL_MARKET_API_URL` 覆盖，且必须只允许站点来源并启用凭据，不能用 `Access-Control-Allow-Origin: *`。
 
 ## 回滚
 

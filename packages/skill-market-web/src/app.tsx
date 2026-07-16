@@ -22,6 +22,7 @@ import {
   SkillMarketSessionProvider,
   useSkillMarketSession,
 } from "./session"
+import { resolveSkillMarketRuntime } from "./runtime-config"
 import { MarketShell } from "./shell"
 import { SubmissionDetail } from "./submissions/detail"
 import { SubmissionForm } from "./submissions/form"
@@ -29,11 +30,16 @@ import { SubmissionList } from "./submissions/list"
 
 export function App() {
   const [csrfToken, setCsrfToken] = createSignal<string>()
-  const source = createRemoteSkillMarketDataSource(import.meta.env.VITE_SKILL_MARKET_API_URL, {
-    allowInsecurePrivateHttp: import.meta.env.VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP === "true",
+  const runtime = resolveSkillMarketRuntime(
+    import.meta.env.VITE_SKILL_MARKET_API_URL,
+    window.location.origin,
+    import.meta.env.VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP,
+  )
+  const source = createRemoteSkillMarketDataSource(runtime.apiBaseUrl, {
+    allowInsecurePrivateHttp: runtime.allowInsecurePrivateHttp,
   })
-  const control = createSkillMarketControlDataSource(import.meta.env.VITE_SKILL_MARKET_API_URL, {
-    allowInsecurePrivateHttp: import.meta.env.VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP === "true",
+  const control = createSkillMarketControlDataSource(runtime.apiBaseUrl, {
+    allowInsecurePrivateHttp: runtime.allowInsecurePrivateHttp,
     csrfToken,
   })
   const actions: SkillMarketActions = {
