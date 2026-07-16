@@ -10,8 +10,16 @@ import { Navigate, Route, Router, useNavigate, useParams, useSearchParams } from
 import { createQuery } from "@tanstack/solid-query"
 import { Match, Show, Switch, createSignal, type ParentProps } from "solid-js"
 import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
+import { ModerationQueue } from "./admin/queue"
+import { ModerationReview } from "./admin/review"
 import { createRemoteSkillMarketDataSource } from "./data-source"
-import { RequireAdmin, RequireReviewer, RequireSession, SkillMarketSessionProvider } from "./session"
+import {
+  RequireAdmin,
+  RequireReviewer,
+  RequireSession,
+  SkillMarketSessionProvider,
+  useSkillMarketSession,
+} from "./session"
 import { MarketShell } from "./shell"
 import { SubmissionDetail } from "./submissions/detail"
 import { SubmissionForm } from "./submissions/form"
@@ -50,8 +58,8 @@ export function App() {
       <Route path="/submissions" component={() => <SubmissionListRoute source={control} />} />
       <Route path="/submissions/new" component={() => <SubmissionFormRoute source={control} />} />
       <Route path="/submissions/:id" component={() => <SubmissionDetailRoute source={control} />} />
-      <Route path="/admin" component={ReviewHomeRoute} />
-      <Route path="/admin/submissions/:id" component={ReviewHomeRoute} />
+      <Route path="/admin" component={() => <ReviewQueueRoute source={control} />} />
+      <Route path="/admin/submissions/:id" component={() => <ReviewDetailRoute source={control} />} />
       <Route path="/admin/roles" component={RoleHomeRoute} />
       <Route path="/admin/audit" component={RoleHomeRoute} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
@@ -123,11 +131,33 @@ function SubmissionDetailRoute(props: { source: SkillMarketControlDataSource }) 
   )
 }
 
-function ReviewHomeRoute() {
+function ReviewQueueRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireReviewer>
-      <ProtectedPlaceholder title="管理后台" description="审核功能正在加载。" />
+      <ModerationQueue source={props.source.moderation} />
     </RequireReviewer>
+  )
+}
+
+function ReviewDetailRoute(props: { source: SkillMarketControlDataSource }) {
+  const params = useParams<{ id: string }>()
+  return (
+    <RequireReviewer>
+      <ReviewDetailContent submissionID={params.id} source={props.source} />
+    </RequireReviewer>
+  )
+}
+
+function ReviewDetailContent(props: { submissionID: string; source: SkillMarketControlDataSource }) {
+  const navigate = useNavigate()
+  const session = useSkillMarketSession()
+  return (
+    <ModerationReview
+      submissionID={props.submissionID}
+      source={props.source.moderation}
+      actor={session.session()?.user.employeeID ?? ""}
+      onDecided={() => navigate("/admin")}
+    />
   )
 }
 

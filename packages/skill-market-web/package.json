@@ -10,7 +10,7 @@
     "release": "bun script/release.ts",
     "test": "bun run test:unit && bun run test:browser",
     "test:unit": "bun test src/*.test.ts script/*.test.ts",
-    "test:browser": "bun test --conditions=browser --preload ./happydom.ts --preload ./solid-test-preload.ts src/*.test.tsx src/submissions/*.test.tsx",
+    "test:browser": "bun test --conditions=browser --preload ./happydom.ts --preload ./solid-test-preload.ts src/*.test.tsx src/submissions/*.test.tsx src/admin/*.test.tsx",
     "typecheck": "tsgo --noEmit",
     "test:e2e": "playwright test"
   },
