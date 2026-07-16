@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   loadCurrentSnapshot,
+  makeS3ObjectStore,
   publishSnapshot,
   publishSnapshotObjects,
   publishSnapshotPointer,
@@ -46,7 +47,42 @@ describe("OSS snapshots", () => {
     await publishSnapshotPointer(store.client, config, snapshot)
     expect(JSON.parse(new TextDecoder().decode(store.objects.get("skill-market/current.json"))).revision).toBe("r1")
   })
+
+  test("streams private objects without SDK aws-chunked checksum headers", async () => {
+    const bodies: Uint8Array[] = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        bodies.push(new Uint8Array(await request.arrayBuffer()))
+        return new Response(null, { status: 200, headers: { etag: '"test"' } })
+      },
+    })
+    const accessKeyID = process.env.AWS_ACCESS_KEY_ID
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
+    process.env.AWS_ACCESS_KEY_ID = "test-access-key"
+    process.env.AWS_SECRET_ACCESS_KEY = "test-secret-key"
+
+    try {
+      const store = makeS3ObjectStore({
+        endpoint: `http://127.0.0.1:${server.port}`,
+        region: "test-region",
+        bucket: "test-bucket",
+      })
+      await store.putPrivate("private/canary", chunks("hello", " world"), "application/octet-stream", undefined)
+      expect(new TextDecoder().decode(bodies[0])).toBe("hello world")
+    } finally {
+      server.stop(true)
+      if (accessKeyID === undefined) delete process.env.AWS_ACCESS_KEY_ID
+      else process.env.AWS_ACCESS_KEY_ID = accessKeyID
+      if (secretAccessKey === undefined) delete process.env.AWS_SECRET_ACCESS_KEY
+      else process.env.AWS_SECRET_ACCESS_KEY = secretAccessKey
+    }
+  })
 })
+
+async function* chunks(...values: string[]) {
+  for (const value of values) yield new TextEncoder().encode(value)
+}
 
 function memoryObjectStore() {
   const objects = new Map<string, Uint8Array>()

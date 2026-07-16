@@ -51,7 +51,12 @@ export function makeS3ObjectStore(config: {
   readonly region: string
   readonly bucket: string
 }) {
-  const client = new S3Client({ endpoint: config.endpoint, region: config.region, forcePathStyle: true })
+  const client = new S3Client({
+    endpoint: config.endpoint,
+    region: config.region,
+    forcePathStyle: true,
+    requestChecksumCalculation: "WHEN_REQUIRED",
+  })
   return {
     async put(key, body, contentType, cacheControl) {
       await client.send(
