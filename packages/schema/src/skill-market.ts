@@ -14,6 +14,28 @@ export type Sort = typeof Sort.Type
 
 export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))
 export const HttpsUrl = Schema.String.check(Schema.isPattern(/^https:\/\/[^\s]+$/))
+export const MarketPageUrl = Schema.String.check(
+  Schema.makeFilter((value) => {
+    const invalid = "market page URL must use HTTPS or private HTTP without credentials"
+    if (!URL.canParse(value)) return invalid
+    const url = new URL(value)
+    if (url.username || url.password) return invalid
+    if (url.protocol === "https:") return undefined
+    if (url.protocol !== "http:") return invalid
+    if (url.hostname === "localhost" || url.hostname === "[::1]") return undefined
+    const octets = url.hostname.split(".").map(Number)
+    if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255))
+      return invalid
+    if (
+      octets[0] === 10 ||
+      octets[0] === 127 ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168)
+    )
+      return undefined
+    return invalid
+  }),
+)
 export const Timestamp = Schema.String.check(
   Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/),
 )
@@ -52,7 +74,7 @@ export type Download = typeof Download.Type
 export const Summary = Schema.Struct({
   id: Schema.String,
   source: Source,
-  sourceUrl: HttpsUrl,
+  sourceUrl: MarketPageUrl,
   name: Schema.String,
   description: Schema.String,
   iconUrl: HttpsUrl.pipe(optional),
@@ -86,7 +108,7 @@ export const Detail = Schema.Struct({
   securityReports: Schema.Array(SecurityReport),
   riskReason: Schema.String.pipe(optional),
   package: Package,
-  publicDetailUrl: HttpsUrl,
+  publicDetailUrl: MarketPageUrl,
 })
 export type Detail = typeof Detail.Type
 

@@ -48,6 +48,72 @@ describe("SkillMarket", () => {
     expect(Schema.decodeUnknownSync(SkillMarket.Source)("community")).toBe("community")
   })
 
+  test("accepts private HTTP market pages without relaxing remote assets", () => {
+    const summary = {
+      id: "private-review",
+      source: "community",
+      sourceUrl: "http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/skills/community/private-review",
+      name: "Private Review",
+      description: "Review code on the private network",
+      categories: ["Development"],
+      tags: ["review"],
+      requiresApiKey: false,
+      risk: "safe",
+      version: "1.0.0",
+      updatedAt: "2026-07-16T00:00:00.000Z",
+      downloads: 0,
+      favorites: 0,
+      score: 0,
+      featured: false,
+      enterprise: false,
+      delisted: false,
+    }
+
+    expect(
+      Schema.decodeUnknownSync(SkillMarket.Page)({
+        revision: "private-r1",
+        sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
+        total: 1,
+        page: 1,
+        limit: 30,
+        items: [summary],
+      }).items[0]?.sourceUrl,
+    ).toBe(summary.sourceUrl)
+    expect(
+      Schema.decodeUnknownSync(SkillMarket.Detail)({
+        ...summary,
+        readme: "# Private Review\n",
+        author: { name: "Contributor" },
+        versions: [],
+        securityReports: [],
+        package: {
+          url: "https://oss.example.com/private-review.zip",
+          sha256: "a".repeat(64),
+          size: 1,
+          files: [],
+        },
+        publicDetailUrl: summary.sourceUrl,
+      }).publicDetailUrl,
+    ).toBe(summary.sourceUrl)
+    expect(() =>
+      Schema.decodeUnknownSync(SkillMarket.Summary)({ ...summary, sourceUrl: "http://example.com/skills/private-review" }),
+    ).toThrow()
+    expect(() =>
+      Schema.decodeUnknownSync(SkillMarket.Summary)({
+        ...summary,
+        sourceUrl: "http://user:password@10.246.13.226/skills/private-review",
+      }),
+    ).toThrow()
+    expect(() =>
+      Schema.decodeUnknownSync(SkillMarket.Package)({
+        url: "http://10.0.0.1/private-review.zip",
+        sha256: "a".repeat(64),
+        size: 1,
+        files: [],
+      }),
+    ).toThrow()
+  })
+
   test("keeps domain query booleans and validates pagination", () => {
     const query = Schema.decodeUnknownSync(SkillMarket.PageQuery)({
       requiresApiKey: false,
