@@ -73,6 +73,32 @@ describe("submission form", () => {
     expect(calls[0]?.key).toMatch(/^[0-9a-f-]{36}$/)
   })
 
+  test("submits when randomUUID is unavailable on private HTTP", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID")
+    Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined })
+    const keys: string[] = []
+
+    try {
+      const fixture = renderForm(
+        writer((_input, key) => {
+          keys.push(key)
+          return Promise.resolve({ submission: summary })
+        }),
+      )
+      fillMetadata(fixture.view)
+      fireEvent.change(fixture.view.getByLabelText("Skill ZIP 包"), {
+        target: { files: [new File(["zip"], "safe.zip", { type: "application/zip" })] },
+      })
+      fireEvent.click(fixture.view.getByRole("button", { name: "提交审核" }))
+
+      await waitFor(() => expect(keys).toHaveLength(1))
+      expect(keys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    } finally {
+      if (descriptor) Object.defineProperty(crypto, "randomUUID", descriptor)
+      if (!descriptor) delete (crypto as { randomUUID?: Crypto["randomUUID"] }).randomUUID
+    }
+  })
+
   test("prefills metadata but requires fresh change notes for a new version", () => {
     const view = render(() => (
       <SubmissionForm source={writer()} mode={{ kind: "version", initial: metadata }} onAccepted={() => undefined} />
