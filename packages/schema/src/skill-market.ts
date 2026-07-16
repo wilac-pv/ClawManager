@@ -26,11 +26,14 @@ export const MarketPageUrl = Schema.String.check(
     const octets = url.hostname.split(".").map(Number)
     if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255))
       return invalid
+    const first = octets[0]
+    const second = octets[1]
+    if (first === undefined || second === undefined) return invalid
     if (
-      octets[0] === 10 ||
-      octets[0] === 127 ||
-      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-      (octets[0] === 192 && octets[1] === 168)
+      first === 10 ||
+      first === 127 ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168)
     )
       return undefined
     return invalid
