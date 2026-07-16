@@ -104,7 +104,7 @@ SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP=true
 SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP=true
 SKILL_MARKET_ALLOW_INSECURE_IP_HTTP=true
 SKILL_MARKET_WEB_ORIGIN=http://<server-ip>:4211
-SKILL_MARKET_API_PUBLIC_URL=http://<server-ip>:4210
+SKILL_MARKET_API_PUBLIC_URL=http://<server-ip>:4211
 SKILL_MARKET_PUBLIC_BASE_URL=http://<server-ip>:4211/market-objects/
 ```
 
@@ -113,6 +113,8 @@ public content URL must still use the private server IP. Before installing the I
 Nginx config, replace `oss-public-origin.invalid` and `bucket` in the read-only
 `/market-objects/` proxy target with the internal OSS host and bucket. The target
 path must end at the exact public test prefix. Run `nginx -t` after rendering.
+The same gateway proxies `/v1/` to loopback port `4210`; direct `4210` remains
+available for desktop compatibility and service probes.
 
 Do not enable an HTTP public URL for a hostname or public address. The application
 rejects that configuration even when the flag is set.

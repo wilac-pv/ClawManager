@@ -14,6 +14,12 @@ describe("Nginx market gateway", () => {
     expect(config).toMatch(/private\|data\|env/)
     expect(config).toContain("Content-Security-Policy")
     expect(config).toContain("X-Content-Type-Options")
+    expect(config).toMatch(/location \/v1\/ \{[\s\S]*proxy_pass http:\/\/127\.0\.0\.1:4210;/)
+    expect(config).toContain("client_max_body_size 55m;")
+    expect(config).toContain("proxy_request_buffering off;")
+    expect(config).toContain("proxy_set_header X-Forwarded-Proto $scheme;")
+    expect(config).not.toContain("http://$host:4210")
+    expect(config).toContain("connect-src 'self' https:")
   })
 
   test("redirects the future domain to HTTPS and preserves /v1 paths", async () => {
