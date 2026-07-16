@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "backup": "bun script/backup.ts",
+    "build:release": "bun script/build-release.ts",
     "cleanup": "bun script/cleanup.ts",
     "deploy-check": "bun script/deploy-check.ts",
     "migrate": "bun script/migrate.ts",
@@ -22,6 +23,7 @@
     "@opencode-ai/protocol": "workspace:*",
     "@opencode-ai/schema": "workspace:*",
     "effect": "catalog:",
+    "esprima": "4.0.1",
     "gray-matter": "4.0.3"
   },
   "devDependencies": {

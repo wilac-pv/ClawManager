@@ -859,6 +859,7 @@
         "@opencode-ai/protocol": "workspace:*",
         "@opencode-ai/schema": "workspace:*",
         "effect": "catalog:",
+        "esprima": "4.0.1",
         "gray-matter": "4.0.3",
       },
       "devDependencies": {
