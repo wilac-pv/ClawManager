@@ -79,6 +79,29 @@
   letter-spacing: 0.18em;
 }
 
+.ruying-skill-market__hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ruying-skill-market__submit {
+  flex: none;
+  height: 50px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--market-accent);
+  box-shadow: 0 8px 24px rgba(109, 93, 252, 0.22);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ruying-skill-market__submit:hover {
+  filter: brightness(0.96);
+}
+
 .ruying-skill-market__search {
   display: flex;
   align-items: center;
@@ -458,8 +481,18 @@
   }
 
   .ruying-skill-market__hero {
+    align-items: stretch;
     display: grid;
     gap: 20px;
+  }
+
+  .ruying-skill-market__hero-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ruying-skill-market__submit {
+    order: -1;
   }
 
   .ruying-skill-market__search {

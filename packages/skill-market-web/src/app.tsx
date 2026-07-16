@@ -192,7 +192,12 @@ function ProtectedPlaceholder(props: { title: string; description: string }) {
 
 function SkillListRoute() {
   const navigate = useNavigate()
-  return <SkillMarketList onOpen={(key) => navigate(`/skills/${key.source}/${encodeURIComponent(key.id)}`)} />
+  return (
+    <SkillMarketList
+      onOpen={(key) => navigate(`/skills/${key.source}/${encodeURIComponent(key.id)}`)}
+      onSubmit={() => navigate("/submissions/new")}
+    />
+  )
 }
 
 function SkillDetailRoute() {
@@ -215,7 +220,7 @@ function SkillDetailRoute() {
 }
 
 function parseSkillKey(source: string, id: string): SkillKey | undefined {
-  if (source !== "skillhub" && source !== "enterprise") return undefined
+  if (source !== "skillhub" && source !== "enterprise" && source !== "community") return undefined
   if (!id.trim()) return undefined
   return { source, id }
 }

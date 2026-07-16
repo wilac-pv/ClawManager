@@ -10,6 +10,7 @@ export {
 export { DesktopInstalledActions, DesktopSkillActions, desktopActionState } from "./desktop-actions"
 export { DesktopSkillMarketProvider, useDesktopSkillMarket } from "./desktop-provider"
 export { skillMarketErrorKey, skillMarketErrorMessage, type SkillMarketErrorKey } from "./errors"
+export { isSkillMarketEnabled, skillMarketEnabled, skillMarketSubmissionUrl } from "./feature"
 export { SkillMarketList } from "./list"
 export { MarketMarkdown } from "./markdown"
 export { SkillMarketProvider, useSkillMarket } from "./provider"

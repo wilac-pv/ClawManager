@@ -21,6 +21,17 @@ export const summary = {
   delisted: false,
 } satisfies SkillMarket.Summary
 
+export const communitySummary = {
+  ...summary,
+  id: "safe-community-skill",
+  source: "community",
+  sourceUrl: "https://market.example.com/skills/community/safe-community-skill",
+  name: "Community Review",
+  description: "由如影用户投稿并通过审核的代码审查 Skill",
+  submittedBy: { displayName: "如影用户" },
+  reviewedAt: "2026-07-15T02:00:00.000Z",
+} satisfies SkillMarket.Summary
+
 export const version = {
   version: "1.2.0",
   publishedAt: "2026-07-15T01:00:00.000Z",
@@ -51,13 +62,20 @@ export const detail = {
   publicDetailUrl: "https://market.example.com/skills/skillhub/code-review",
 } satisfies SkillMarket.Detail
 
+export const communityDetail = {
+  ...detail,
+  ...communitySummary,
+  author: { name: "如影用户" },
+  publicDetailUrl: "https://market.example.com/skills/community/safe-community-skill",
+} satisfies SkillMarket.Detail
+
 export const facets = {
   revision: "fixture-revision",
   sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
   sources: [
     { value: "skillhub", count: 1 },
     { value: "enterprise", count: 0 },
-    { value: "community", count: 0 },
+    { value: "community", count: 1 },
   ],
   categories: [{ value: "代码质量", count: 1 }],
   requiresApiKey: { yes: 0, no: 1 },

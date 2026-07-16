@@ -3,23 +3,27 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { createMemo, Show } from "solid-js"
 import { useServerSDK } from "@/context/server-sdk"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
 import {
   createDesktopSkillMarket,
   DesktopSkillMarketProvider,
   SkillMarketDetail,
   SkillMarketList,
   SkillMarketProvider,
+  skillMarketSubmissionUrl,
   type SkillKey,
 } from "@/skill-market"
 
 export function SkillMarketRoute() {
   const serverSDK = useServerSDK()
   const language = useLanguage()
+  const platform = usePlatform()
   const params = useParams<{ source?: string; id?: string }>()
   const navigate = useNavigate()
   const market = createMemo(() => createDesktopSkillMarket(serverSDK().client))
   const requestedDetail = () => params.source !== undefined || params.id !== undefined
   const key = createMemo(() => parseSkillKey(params.source, params.id))
+  const submissionUrl = skillMarketSubmissionUrl()
   const back = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -37,6 +41,7 @@ export function SkillMarketRoute() {
             fallback={
               <SkillMarketList
                 onOpen={(value) => navigate(`/skills/${value.source}/${encodeURIComponent(value.id)}`)}
+                onSubmit={submissionUrl ? () => platform.openLink(submissionUrl) : undefined}
               />
             }
           >
@@ -64,9 +69,9 @@ export function SkillMarketRoute() {
 }
 
 export function parseSkillKey(source?: string, id?: string): SkillKey | undefined {
-  if ((source !== "skillhub" && source !== "enterprise") || !id) return
+  if ((source !== "skillhub" && source !== "enterprise" && source !== "community") || !id) return undefined
   const decoded = decodeSkillID(id)
-  if (!decoded) return
+  if (!decoded) return undefined
   return { source: source satisfies SkillMarket.Source, id: decoded }
 }
 
@@ -74,6 +79,6 @@ function decodeSkillID(id: string) {
   try {
     return decodeURIComponent(id)
   } catch {
-    return
+    return undefined
   }
 }

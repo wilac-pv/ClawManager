@@ -1,4 +1,4 @@
-import { detail, facets, summary, version } from "./catalog"
+import { communityDetail, communitySummary, detail, facets, summary, version } from "./catalog"
 
 const headers = {
   "access-control-allow-headers": "content-type",
@@ -18,10 +18,12 @@ const server = Bun.serve({
     if (url.pathname === "/v1/catalog/skills") {
       const query = url.searchParams.get("query")?.toLowerCase()
       const source = url.searchParams.get("source")
-      const empty = query === "empty" || (source !== null && source !== summary.source)
       const sourceStatus =
-        query === "partial" ? { skillhub: "stale" as const, enterprise: "unavailable" as const } : facets.sourceStatus
-      const items = empty ? [] : [summary]
+        query === "partial"
+          ? { skillhub: "stale" as const, enterprise: "unavailable" as const, community: "fresh" as const }
+          : facets.sourceStatus
+      const items =
+        query === "empty" ? [] : [summary, communitySummary].filter((item) => source === null || item.source === source)
       return Response.json(
         {
           revision: "fixture-revision",
@@ -35,12 +37,28 @@ const server = Bun.serve({
       )
     }
     if (url.pathname === "/v1/catalog/skills/skillhub/code-review") return Response.json(detail, { headers })
+    if (url.pathname === "/v1/catalog/skills/community/safe-community-skill") {
+      return Response.json(communityDetail, { headers })
+    }
     if (url.pathname === "/v1/catalog/skills/skillhub/code-review/versions") {
+      return Response.json([version], { headers })
+    }
+    if (url.pathname === "/v1/catalog/skills/community/safe-community-skill/versions") {
       return Response.json([version], { headers })
     }
     if (url.pathname === "/v1/catalog/skills/skillhub/code-review/download") {
       return Response.json(
         { url: detail.package.url, sha256: detail.package.sha256, size: detail.package.size },
+        { headers },
+      )
+    }
+    if (url.pathname === "/v1/catalog/skills/community/safe-community-skill/download") {
+      return Response.json(
+        {
+          url: communityDetail.package.url,
+          sha256: communityDetail.package.sha256,
+          size: communityDetail.package.size,
+        },
         { headers },
       )
     }

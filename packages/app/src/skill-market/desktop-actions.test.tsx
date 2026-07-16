@@ -42,7 +42,7 @@ test("requires explicit second confirmation for a risky install", async () => {
 
   await userEvent.click(view.getByRole("button", { name: "安装" }))
   expect(view.getByText("会访问外部网络")).toBeTruthy()
-  expect((view.getByRole("button", { name: "确认风险并安装" }) as HTMLButtonElement).disabled).toBe(true)
+  expect(view.getByRole("button", { name: "确认风险并安装" }).hasAttribute("disabled")).toBe(true)
   await userEvent.click(view.getByRole("checkbox", { name: "我已阅读并接受该 Skill 的风险" }))
   await userEvent.click(view.getByRole("button", { name: "确认风险并安装" }))
   await waitFor(() => expect(calls).toEqual([expect.objectContaining({ riskConfirmed: true })]))
@@ -159,7 +159,7 @@ function operation(): SkillMarket.OperationResult {
 function page(): SkillMarket.Page {
   return {
     revision: "revision",
-    sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+    sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
     total: 0,
     page: 1,
     limit: 30,
@@ -170,7 +170,7 @@ function page(): SkillMarket.Page {
 function facets(): SkillMarket.Facets {
   return {
     revision: "revision",
-    sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+    sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
     sources: [],
     categories: [],
     requiresApiKey: { yes: 0, no: 0 },

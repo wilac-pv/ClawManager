@@ -7,7 +7,7 @@ test("provides the selected data source and web actions", () => {
   const source = {
     list: async () => ({
       revision: "revision",
-      sourceStatus: { skillhub: "fresh" as const, enterprise: "fresh" as const },
+      sourceStatus: { skillhub: "fresh" as const, enterprise: "fresh" as const, community: "fresh" as const },
       total: 0,
       page: 1,
       limit: 30,
@@ -15,7 +15,7 @@ test("provides the selected data source and web actions", () => {
     }),
     facets: async () => ({
       revision: "revision",
-      sourceStatus: { skillhub: "fresh" as const, enterprise: "fresh" as const },
+      sourceStatus: { skillhub: "fresh" as const, enterprise: "fresh" as const, community: "fresh" as const },
       sources: [],
       categories: [],
       requiresApiKey: { yes: 0, no: 0 },

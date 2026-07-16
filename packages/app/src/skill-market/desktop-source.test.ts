@@ -109,7 +109,7 @@ function operation(method: string, path: string) {
 function page() {
   return {
     revision: "revision",
-    sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+    sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
     total: 1,
     page: 1,
     limit: 30,
@@ -120,7 +120,7 @@ function page() {
 function facets() {
   return {
     revision: "revision",
-    sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+    sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
     sources: [{ value: "skillhub", count: 1 }],
     categories: [{ value: "engineering", count: 1 }],
     requiresApiKey: { yes: 0, no: 1 },

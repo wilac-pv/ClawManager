@@ -13,7 +13,7 @@ test("requests one server page and renders at most 30 rows for an 80000 item cat
       calls.push(query)
       return {
         revision: "revision",
-        sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+        sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
         total: 80_000,
         page: 1,
         limit: 30,
@@ -22,7 +22,7 @@ test("requests one server page and renders at most 30 rows for an 80000 item cat
     },
     facets: async () => ({
       revision: "revision",
-      sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+      sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
       sources: [],
       categories: [],
       requiresApiKey: { yes: 0, no: 0 },

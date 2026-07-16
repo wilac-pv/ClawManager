@@ -94,7 +94,7 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
                 <p>{record.description}</p>
                 <div class="ruying-skill-market__detail-chips">
                   <span>v{record.version}</span>
-                  <span>{record.source === "enterprise" ? "企业精选" : "SkillHub"}</span>
+                  <span>{sourceLabel(record.source)}</span>
                   <For each={record.categories}>{(category) => <span>{category}</span>}</For>
                   <Show when={record.requiresApiKey}>
                     <span>需要 API Key</span>
@@ -128,13 +128,14 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
                         onKeyDown={(event) => {
                           if (event.key === "ArrowRight") {
                             event.preventDefault()
-                            selectTab(tabs[(index() + 1) % tabs.length]!.id, (index() + 1) % tabs.length)
+                            const next = (index() + 1) % tabs.length
+                            selectTab(tabs[next]?.id ?? "overview", next)
                             return
                           }
                           if (event.key === "ArrowLeft") {
                             event.preventDefault()
                             const previous = (index() - 1 + tabs.length) % tabs.length
-                            selectTab(tabs[previous]!.id, previous)
+                            selectTab(tabs[previous]?.id ?? "overview", previous)
                             return
                           }
                           if (event.key === "Home") {
@@ -250,6 +251,22 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
                     <dt>更新时间</dt>
                     <dd>{formatDate(record.updatedAt)}</dd>
                   </div>
+                  <Show when={record.submittedBy}>
+                    {(submittedBy) => (
+                      <div>
+                        <dt>投稿人</dt>
+                        <dd>{submittedBy().displayName}</dd>
+                      </div>
+                    )}
+                  </Show>
+                  <Show when={record.reviewedAt}>
+                    {(reviewedAt) => (
+                      <div>
+                        <dt>审核时间</dt>
+                        <dd>{formatDate(reviewedAt())}</dd>
+                      </div>
+                    )}
+                  </Show>
                   <div>
                     <dt>下载量</dt>
                     <dd>{new Intl.NumberFormat("zh-CN").format(record.downloads)}</dd>
@@ -318,6 +335,12 @@ function riskLabel(risk: SkillMarket.Risk) {
   if (risk === "warning") return "注意"
   if (risk === "danger") return "高风险"
   return "待检测"
+}
+
+function sourceLabel(source: SkillMarket.Source) {
+  if (source === "enterprise") return "企业精选"
+  if (source === "community") return "用户投稿"
+  return "SkillHub"
 }
 
 function formatDate(value: string) {

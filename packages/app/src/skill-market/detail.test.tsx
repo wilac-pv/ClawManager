@@ -139,6 +139,27 @@ test("shows attribution and a delisted warning", async () => {
   expect(view.getByRole("link", { name: "查看原始来源" }).getAttribute("href")).toBe(detail.sourceUrl)
 })
 
+test("shows approved community attribution without private employee data", async () => {
+  const community = {
+    ...detail,
+    source: "community",
+    sourceUrl: "https://market.example.com/skills/community/code-review",
+    submittedBy: { displayName: "如影用户" },
+    reviewedAt: "2026-07-15T02:00:00.000Z",
+    publicDetailUrl: "https://market.example.com/skills/community/code-review",
+  } satisfies SkillMarket.Detail
+  const view = renderDetail(source(community), {
+    kind: "web",
+    copyPrompt: async () => undefined,
+    download: async () => undefined,
+  })
+
+  expect(await view.findByText("用户投稿")).toBeTruthy()
+  expect(view.getByText("如影用户")).toBeTruthy()
+  expect(view.getByText("审核时间")).toBeTruthy()
+  expect(view.container.textContent).not.toContain("employee")
+})
+
 test("renders loading and unavailable states", async () => {
   let resolve: ((value: SkillMarket.Detail) => void) | undefined
   const pending = new Promise<SkillMarket.Detail>((done) => {

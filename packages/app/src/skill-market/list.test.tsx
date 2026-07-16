@@ -29,12 +29,23 @@ const codeReview = {
   delisted: false,
 } satisfies SkillMarket.Summary
 
+const communitySkill = {
+  ...codeReview,
+  id: "safe-community-skill",
+  source: "community",
+  sourceUrl: "https://market.example.com/skills/community/safe-community-skill",
+  name: "Community Review",
+  submittedBy: { displayName: "如影用户" },
+  reviewedAt: "2026-07-15T02:00:00.000Z",
+} satisfies SkillMarket.Summary
+
 const facets = {
   revision: "revision-1",
-  sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+  sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
   sources: [
     { value: "skillhub", count: 1 },
     { value: "enterprise", count: 2 },
+    { value: "community", count: 1 },
   ],
   categories: [{ value: "代码质量", count: 1 }],
   requiresApiKey: { yes: 2, no: 1 },
@@ -69,11 +80,12 @@ function renderMarket(
     download: async () => undefined,
   },
   installedOnly = false,
+  onSubmit?: () => void,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
-  const content = () => <SkillMarketList onOpen={onOpen} installedOnly={installedOnly} />
+  const content = () => <SkillMarketList onOpen={onOpen} installedOnly={installedOnly} onSubmit={onSubmit} />
   return render(() => (
     <QueryClientProvider client={client}>
       <SkillMarketProvider source={source} actions={actions}>
@@ -116,7 +128,7 @@ test("sorts and filters remotely while persisting the selected view", async () =
   const calls: SkillMarket.PageQuery[] = []
   const source = dataSource(async (query) => {
     calls.push(query)
-    return page([codeReview], { skillhub: "stale", enterprise: "unavailable" })
+    return page([codeReview], { skillhub: "stale", enterprise: "unavailable", community: "fresh" })
   })
   const view = renderMarket(source)
 
@@ -136,6 +148,38 @@ test("sorts and filters remotely while persisting the selected view", async () =
   const image = view.getByRole("img", { name: "Code Review 图标" })
   fireEvent.error(image)
   expect(view.getByLabelText("Code Review 默认图标").textContent).toBe("C")
+})
+
+test("filters community skills and exposes the optional submission action", async () => {
+  const calls: SkillMarket.PageQuery[] = []
+  const opened: SkillKey[] = []
+  let submitted = 0
+  const view = renderMarket(
+    dataSource(async (query) => {
+      calls.push(query)
+      return page([communitySkill])
+    }),
+    (key) => opened.push(key),
+    undefined,
+    false,
+    () => submitted++,
+  )
+
+  expect(await view.findByRole("button", { name: "用户投稿" })).toBeTruthy()
+  await userEvent.click(view.getByRole("button", { name: "用户投稿" }))
+  await waitFor(() => expect(calls.at(-1)?.source).toBe("community"))
+  await userEvent.click(view.getByRole("button", { name: "投稿 Skill" }))
+  await userEvent.click(view.getByRole("button", { name: /Community Review/ }))
+
+  expect(submitted).toBe(1)
+  expect(opened).toEqual([{ source: "community", id: "safe-community-skill" }])
+})
+
+test("hides the submission action when no handler is provided", async () => {
+  const view = renderMarket(dataSource(async () => page([codeReview])))
+
+  await view.findByRole("button", { name: /Code Review/ })
+  expect(view.queryByRole("button", { name: "投稿 Skill" })).toBeNull()
 })
 
 test("renders a useful empty state and keyboard focus", async () => {

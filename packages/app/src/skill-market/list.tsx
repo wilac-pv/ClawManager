@@ -7,7 +7,7 @@ import { DesktopInstalledActions } from "./desktop-actions"
 import { useSkillMarket } from "./provider"
 import type { SkillKey } from "./types"
 
-type MarketScope = "all" | "featured" | "enterprise" | "installed" | "updates"
+type MarketScope = "all" | "featured" | "enterprise" | "community" | "installed" | "updates"
 type MarketView = "card" | "list"
 type ApiKeyFilter = "all" | "yes" | "no"
 
@@ -19,22 +19,29 @@ const sortTabs = [
   { label: "最近上新", sort: "recent", scope: "all" },
 ] as const
 
-export function SkillMarketList(props: { onOpen: (key: SkillKey) => void; installedOnly?: boolean }) {
+export function SkillMarketList(props: {
+  onOpen: (key: SkillKey) => void
+  onSubmit?: () => void
+  installedOnly?: boolean
+}) {
   const market = useSkillMarket()
   const initial = new URLSearchParams(window.location.search)
   const initialSort = parseSort(initial.get("sort"))
+  const initialSource = parseSource(initial.get("source"))
   const [state, setState] = createStore({
     search: initial.get("q") ?? "",
     debounced: initial.get("q") ?? "",
-    source: parseSource(initial.get("source")),
+    source: initialSource,
     category: initial.get("category") ?? "",
     apiKey: parseApiKey(initial.get("apiKey")),
     sort: initialSort,
     scope: (props.installedOnly && market.source.installed
       ? "installed"
-      : initialSort === "featured"
-        ? "featured"
-        : "all") as MarketScope,
+      : initialSource === "community"
+        ? "community"
+        : initialSort === "featured"
+          ? "featured"
+          : "all") as MarketScope,
     page: parsePage(initial.get("page")),
     view: (localStorage.getItem("ruying-skill-market-view") === "list" ? "list" : "card") as MarketView,
   })
@@ -92,7 +99,7 @@ export function SkillMarketList(props: { onOpen: (key: SkillKey) => void; instal
   }))
 
   const selectSort = (sort: SkillMarket.Sort, scope: MarketScope) => {
-    setState({ sort, scope, page: 1 })
+    setState({ sort, scope, page: 1, source: state.scope === "community" ? "" : state.source })
   }
 
   return (
@@ -103,16 +110,25 @@ export function SkillMarketList(props: { onOpen: (key: SkillKey) => void; instal
           <h1>Skill 市场</h1>
           <p>发现经过聚合与校验的开发技能，让如影 Code 更懂你的工作方式。</p>
         </div>
-        <label class="ruying-skill-market__search">
-          <span class="ruying-skill-market__sr-only">搜索 Skill</span>
-          <span aria-hidden="true">⌕</span>
-          <input
-            type="search"
-            value={state.search}
-            onInput={(event) => setState("search", event.currentTarget.value)}
-            placeholder="搜索 Skill、场景或标签"
-          />
-        </label>
+        <div class="ruying-skill-market__hero-actions">
+          <label class="ruying-skill-market__search">
+            <span class="ruying-skill-market__sr-only">搜索 Skill</span>
+            <span aria-hidden="true">⌕</span>
+            <input
+              type="search"
+              value={state.search}
+              onInput={(event) => setState("search", event.currentTarget.value)}
+              placeholder="搜索 Skill、场景或标签"
+            />
+          </label>
+          <Show when={props.onSubmit}>
+            {(onSubmit) => (
+              <button type="button" class="ruying-skill-market__submit" onClick={onSubmit()}>
+                投稿 Skill
+              </button>
+            )}
+          </Show>
+        </div>
       </header>
 
       <nav class="ruying-skill-market__tabs" aria-label="市场排序">
@@ -141,6 +157,17 @@ export function SkillMarketList(props: { onOpen: (key: SkillKey) => void; instal
           onClick={() => selectSort("score", "enterprise")}
         >
           企业精选
+        </button>
+        <button
+          type="button"
+          classList={{
+            "ruying-skill-market__tab": true,
+            "ruying-skill-market__tab--active": state.scope === "community",
+          }}
+          aria-pressed={state.scope === "community"}
+          onClick={() => setState({ source: "community", sort: "score", scope: "community", page: 1 })}
+        >
+          用户投稿
         </button>
         <Show when={market.source.installed}>
           <button
@@ -176,11 +203,19 @@ export function SkillMarketList(props: { onOpen: (key: SkillKey) => void; instal
             <span>来源</span>
             <select
               value={state.source}
-              onChange={(event) => setState({ source: parseSource(event.currentTarget.value), page: 1 })}
+              onChange={(event) => {
+                const source = parseSource(event.currentTarget.value)
+                setState({
+                  source,
+                  scope: source === "community" ? "community" : state.scope === "community" ? "all" : state.scope,
+                  page: 1,
+                })
+              }}
             >
               <option value="">全部来源</option>
               <option value="enterprise">企业精选</option>
               <option value="skillhub">SkillHub</option>
+              <option value="community">用户投稿</option>
             </select>
           </label>
           <label>
@@ -382,7 +417,7 @@ function SkillCard(props: { item: SkillMarket.Summary; view: MarketView; onOpen:
         </div>
         <p>{props.item.description}</p>
         <div class="ruying-skill-market__card-meta">
-          <span>{props.item.source === "enterprise" ? "企业精选" : "SkillHub"}</span>
+          <span>{sourceLabel(props.item.source)}</span>
           <span>v{props.item.version}</span>
           <span>↓ {formatNumber(props.item.downloads)}</span>
           <span>评分 {props.item.score.toFixed(1)}</span>
@@ -420,7 +455,7 @@ function InstalledSkills(props: {
             <button type="button" class="ruying-skill-market__installed-main" onClick={() => props.onOpen(item)}>
               <strong>{item.name}</strong>
               <span>
-                {item.source === "enterprise" ? "企业精选" : "SkillHub"} · v{item.version}
+                {sourceLabel(item.source)} · v{item.version}
               </span>
             </button>
             <Show when={item.loadState === "refresh-failed"}>
@@ -475,7 +510,7 @@ function parseSort(value: string | null): SkillMarket.Sort {
 }
 
 function parseSource(value: string | null): SkillMarket.Source | "" {
-  if (value === "skillhub" || value === "enterprise") return value
+  if (value === "skillhub" || value === "enterprise" || value === "community") return value
   return ""
 }
 
@@ -492,7 +527,13 @@ function parsePage(value: string | null) {
 
 function isPartial(status?: SkillMarket.SourceStatus) {
   if (!status) return false
-  return status.skillhub !== "fresh" || status.enterprise !== "fresh"
+  return status.skillhub !== "fresh" || status.enterprise !== "fresh" || status.community !== "fresh"
+}
+
+function sourceLabel(source: SkillMarket.Source) {
+  if (source === "enterprise") return "企业精选"
+  if (source === "community") return "用户投稿"
+  return "SkillHub"
 }
 
 function riskLabel(risk: SkillMarket.Risk) {

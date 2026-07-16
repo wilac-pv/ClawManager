@@ -3,6 +3,8 @@ interface ImportMetaEnv {
   readonly VITE_OPENCODE_SERVER_PORT: string
   readonly VITE_OPENCODE_CHANNEL?: "dev" | "beta" | "prod"
   readonly VITE_RUYING_SKILL_MARKET_ENABLED?: string
+  readonly VITE_RUYING_SKILL_MARKET_WEB_URL?: string
+  readonly VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP?: string
 
   readonly VITE_SENTRY_DSN?: string
   readonly VITE_SENTRY_ENVIRONMENT?: string
