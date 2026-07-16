@@ -102,7 +102,7 @@ function objectFromBody(body: Uint8Array, timestamp: string, userVersion: number
   return {
     key: `private-test/backups/sqlite/${timestamp}-v${userVersion}-${sha256}.db.zst`,
     body,
-    metadata: { sha256, user_version: String(userVersion) },
+    metadata: { sha256, "user-version": String(userVersion) },
     lastModified: new Date(timestamp.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z")),
   }
 }

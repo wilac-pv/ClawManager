@@ -41,7 +41,7 @@ export async function restoreDrill(options: RestoreDrillOptions) {
     if (
       metadata.size !== body.byteLength ||
       metadata.metadata?.sha256 !== sha256 ||
-      metadata.metadata?.user_version !== identity[1] ||
+      metadata.metadata?.["user-version"] !== identity[1] ||
       identity[2] !== sha256
     )
       throw new Error("restore backup identity mismatch")

@@ -43,7 +43,7 @@ describe("database backup", () => {
     writer.close()
 
     expect(backup.key).toMatch(/^private-test\/backups\/sqlite\/20260716T021000Z-v7-[a-f0-9]{64}\.db\.zst$/)
-    expect(store.metadata.get(backup.key)).toEqual({ sha256: backup.sha256, user_version: "7" })
+    expect(store.metadata.get(backup.key)).toEqual({ sha256: backup.sha256, "user-version": "7" })
     const restored = await decompress(store.objects.get(backup.key)!, directory)
     const snapshot = new Database(restored, { readonly: true })
     const parents = snapshot.query<{ count: number }, []>("SELECT count(*) AS count FROM parent").get()!.count

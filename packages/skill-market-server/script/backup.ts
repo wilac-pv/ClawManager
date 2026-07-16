@@ -49,7 +49,7 @@ export async function backupDatabase(options: BackupDatabaseOptions) {
     const key = `${prefix}/backups/sqlite/${filename}`
     await rename(compressedCopy, artifactPath)
     await options.store
-      .putPrivate(key, fileChunks(artifactPath), "application/zstd", { sha256, user_version: String(userVersion) })
+      .putPrivate(key, fileChunks(artifactPath), "application/zstd", { sha256, "user-version": String(userVersion) })
       .then(undefined, () => {
         throw new Error("backup upload failed")
       })
