@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - HTTP 只允许市场页面链接使用，且主机必须是 localhost、回环地址或 RFC1918 私网 IPv4。
-- URL 不得包含用户名或密码。
+- URL 不得包含空白、用户名或密码。
 - 包、下载、图标、报告和头像 URL 继续强制 HTTPS。
 - worker 必须保留 `/ai-coding/ruying-code/skill-market/` 基础路径。
 - 不修改数据库、状态机、审核权限或 OSS 对象布局。
@@ -51,7 +51,7 @@ Expected: 私网 HTTP 页面链接因现有 `^https://` 约束失败。
 ```ts
 export const MarketPageUrl = Schema.String.check(Schema.makeFilter((value) => {
   const invalid = "market page URL must use HTTPS or private HTTP without credentials"
-  if (!URL.canParse(value)) return invalid
+  if (/\s/.test(value) || !URL.canParse(value)) return invalid
   const url = new URL(value)
   if (url.username || url.password) return invalid
   if (url.protocol === "https:") return undefined

@@ -105,6 +105,9 @@ describe("SkillMarket", () => {
       }),
     ).toThrow()
     expect(() =>
+      Schema.decodeUnknownSync(SkillMarket.Summary)({ ...summary, sourceUrl: `${summary.sourceUrl}\n` }),
+    ).toThrow()
+    expect(() =>
       Schema.decodeUnknownSync(SkillMarket.Package)({
         url: "http://10.0.0.1/private-review.zip",
         sha256: "a".repeat(64),

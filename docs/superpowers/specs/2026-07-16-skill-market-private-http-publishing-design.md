@@ -8,7 +8,7 @@
 
 - `Summary.sourceUrl` 和 `Detail.publicDetailUrl` 使用新的市场页面 URL 校验。
 - 市场页面 URL 接受 HTTPS；HTTP 仅接受 `localhost`、回环 IPv4/IPv6 和 RFC1918 私网 IPv4。
-- URL 必须是可解析的 HTTP(S) 地址，且不得包含用户名或密码。
+- URL 必须是可解析且不含空白的 HTTP(S) 地址，且不得包含用户名或密码。
 - `Package.url`、`Download.url`、图标、报告和作者头像继续使用现有 `HttpsUrl`，不放宽 OSS 与下载安全约束。
 - 独立 worker 向发布器传入 `config.webBaseUrl`，与 API 内联 worker 和同步任务保持一致，保留完整部署基础路径。
 - 不修改投稿状态机、数据库结构、OSS 对象布局或审核权限。
