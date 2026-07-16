@@ -308,7 +308,7 @@ async function production() {
       store,
       ossPrefix: config.ossPrefix,
       publicBaseUrl: config.publicBaseUrl,
-      webBaseUrl: config.webOrigin,
+      webBaseUrl: config.webBaseUrl,
     }),
     emit: emitMarketMetric,
     sessionIdleMilliseconds: config.sessionIdleMilliseconds,

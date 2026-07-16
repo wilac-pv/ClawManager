@@ -56,6 +56,24 @@ describe("community catalog materialization", () => {
     fixture.database.close()
   })
 
+  test("keeps the private HTTP market base path in community page URLs", async () => {
+    const fixture = await communityFixture()
+    const details = await listPublishedCommunity(
+      fixture.database,
+      communityOptions(fixture, "http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/"),
+    )
+
+    expect(details[0]).toMatchObject({
+      sourceUrl:
+        "http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/skills/community/community-review",
+      publicDetailUrl:
+        "http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/skills/community/community-review",
+      package: { url: expect.stringMatching(/^https:\/\//) },
+    })
+
+    fixture.database.close()
+  })
+
   test("copies verified quarantine objects to immutable community keys", async () => {
     const fixture = await communityFixture({ published: false, icon: true })
     const result = await publishCommunityObjects(
@@ -265,12 +283,15 @@ function seedPublishedVersion(
   )
 }
 
-function communityOptions(fixture: Awaited<ReturnType<typeof communityFixture>>) {
+function communityOptions(
+  fixture: Awaited<ReturnType<typeof communityFixture>>,
+  webBaseUrl = "https://market.example.com/",
+) {
   return {
     store: fixture.store,
     publicPrefix: "skill-market",
     publicBaseUrl: "https://oss.example.com/skill-market/",
-    webBaseUrl: "https://market.example.com/",
+    webBaseUrl,
   }
 }
 

@@ -31,6 +31,9 @@ describe("runtime release build", () => {
       name: "esprima",
       version: "4.0.1",
     })
+    const worker = await Bun.file(join(serverDirectory, "src/worker.ts")).text()
+    expect(worker).toContain("webBaseUrl: config.webBaseUrl")
+    expect(worker).not.toContain("webBaseUrl: config.webOrigin")
     await setPermissions(outputDirectory, 0o555, 0o444)
     await chmod(homeDirectory, 0o555)
 
