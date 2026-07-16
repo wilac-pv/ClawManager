@@ -8,6 +8,7 @@
     "backup": "bun script/backup.ts",
     "cleanup": "bun script/cleanup.ts",
     "deploy-check": "bun script/deploy-check.ts",
+    "migrate": "bun script/migrate.ts",
     "restore-drill": "bun script/restore-drill.ts",
     "start": "bun src/server.ts",
     "sync": "bun src/sync.ts",

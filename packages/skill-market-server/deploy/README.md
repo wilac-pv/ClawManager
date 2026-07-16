@@ -163,6 +163,10 @@ local and OSS backup, and record its non-sensitive identity. Switch the code
 symlink only after the backup succeeds. Run migration without exposing the HTTP
 port, then verify:
 
+```bash
+sudo -u ruying-market /usr/local/bin/bun script/migrate.ts
+```
+
 ```text
 PRAGMA integrity_check;
 PRAGMA foreign_key_check;
