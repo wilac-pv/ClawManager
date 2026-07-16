@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up Ruying Skill Market daily
+
+[Timer]
+OnCalendar=*-*-* 02:10:00
+RandomizedDelaySec=15min
+Persistent=true
+Unit=ruying-skill-market-backup.service
+
+[Install]
+WantedBy=timers.target

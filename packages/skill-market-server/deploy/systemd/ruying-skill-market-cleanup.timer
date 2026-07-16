@@ -1,0 +1,11 @@
+[Unit]
+Description=Clean Ruying Skill Market private objects daily
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+RandomizedDelaySec=15min
+Persistent=true
+Unit=ruying-skill-market-cleanup.service
+
+[Install]
+WantedBy=timers.target

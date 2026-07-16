@@ -1,0 +1,35 @@
+[Unit]
+Description=Ruying Skill Market API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ruying-market
+Group=ruying-market
+EnvironmentFile=/etc/ruying-skill-market/market.env
+WorkingDirectory=/srv/ruying-skill-market/current/packages/skill-market-server
+ExecStart=/usr/local/bin/bun src/server.ts
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/ruying-skill-market /var/backups/ruying-skill-market
+UMask=0077
+LimitNOFILE=65536
+TasksMax=256
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

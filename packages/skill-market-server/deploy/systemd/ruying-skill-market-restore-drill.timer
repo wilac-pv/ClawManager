@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify a Ruying Skill Market restore monthly
+
+[Timer]
+OnCalendar=*-*-02 04:10:00
+RandomizedDelaySec=30min
+Persistent=true
+Unit=ruying-skill-market-restore-drill.service
+
+[Install]
+WantedBy=timers.target
