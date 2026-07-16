@@ -182,7 +182,7 @@ git commit -m "fix(skill-market): support private http prompt copy"
 Run from `packages/app`:
 
 ```bash
-bun test --preload ./happydom.ts src/skill-market/detail.test.tsx
+bun test --conditions=browser --preload ./happydom.ts --preload ./solid-test-preload.ts src/skill-market/detail.test.tsx
 ```
 
 Expected: FAIL，因为按钮没有 copying/copied/failed 状态，也没有手动复制文本域。
@@ -216,7 +216,7 @@ await expect(page.getByRole("status")).toContainText("安装 Prompt 已复制到
 Run from `packages/app`:
 
 ```bash
-bun test --preload ./happydom.ts src/skill-market/detail.test.tsx
+bun test --conditions=browser --preload ./happydom.ts --preload ./solid-test-preload.ts src/skill-market/detail.test.tsx
 bun typecheck
 ```
 
@@ -252,7 +252,7 @@ git commit -m "fix(skill-market): show prompt copy feedback"
 Run from `packages/app`:
 
 ```bash
-bun run test
+bun test --conditions=browser --preload ./happydom.ts --preload ./solid-test-preload.ts src/skill-market
 bun typecheck
 ```
 
