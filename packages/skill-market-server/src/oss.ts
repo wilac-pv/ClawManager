@@ -93,7 +93,6 @@ export function makeS3ObjectStore(config: {
           ContentType: contentType,
           CacheControl: "private, no-store",
           Metadata: metadata,
-          IfNoneMatch: "*",
         }),
       )
     },

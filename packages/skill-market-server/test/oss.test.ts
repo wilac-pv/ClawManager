@@ -50,9 +50,11 @@ describe("OSS snapshots", () => {
 
   test("streams private objects without SDK aws-chunked checksum headers", async () => {
     const bodies: Uint8Array[] = []
+    const requestHeaders: Headers[] = []
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
+        requestHeaders.push(request.headers)
         bodies.push(new Uint8Array(await request.arrayBuffer()))
         return new Response(null, { status: 200, headers: { etag: '"test"' } })
       },
@@ -70,6 +72,7 @@ describe("OSS snapshots", () => {
       })
       await store.putPrivate("private/canary", chunks("hello", " world"), "application/octet-stream", undefined)
       expect(new TextDecoder().decode(bodies[0])).toBe("hello world")
+      expect(requestHeaders[0].has("if-none-match")).toBe(false)
     } finally {
       server.stop(true)
       if (accessKeyID === undefined) delete process.env.AWS_ACCESS_KEY_ID
