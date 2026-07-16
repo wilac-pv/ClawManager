@@ -1,0 +1,161 @@
+import { afterEach, describe, expect, test } from "bun:test"
+import { cleanup, render } from "@solidjs/testing-library"
+import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { MemoryRouter, Route, createMemoryHistory } from "@solidjs/router"
+import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
+import type { SubmissionDetailSource } from "./detail"
+import { SubmissionDetail } from "./detail"
+import { submissionPollInterval } from "./status"
+
+afterEach(() => cleanup())
+
+describe("submission detail", () => {
+  test("renders an explicit message and allowed action for all eight stable statuses", async () => {
+    const cases: Array<{
+      status: SkillMarketControl.SubmissionStatus
+      message: string
+      action?: string
+    }> = [
+      { status: "validating", message: "正在校验 ZIP 结构和安全规则" },
+      { status: "validation_failed", message: "校验未通过", action: "提交修订" },
+      { status: "pending_review", message: "已进入人工审核队列" },
+      { status: "changes_requested", message: "审核人要求修改", action: "提交修订" },
+      { status: "rejected", message: "本次投稿已被拒绝", action: "重新投稿" },
+      { status: "publishing", message: "审核已通过，正在发布" },
+      { status: "publish_failed", message: "自动发布失败" },
+      { status: "published", message: "已发布到用户投稿市场", action: "提交新版本" },
+    ]
+
+    for (const item of cases) {
+      const fixture = renderDetail(detail(item.status))
+      expect(await fixture.findByText(item.message)).toBeTruthy()
+      if (item.action) expect(fixture.getByRole("link", { name: item.action })).toBeTruthy()
+      if (item.status === "publish_failed") expect(fixture.queryByRole("button", { name: "重试发布" })).toBeNull()
+      cleanup()
+    }
+  })
+
+  test("shows structured validation, redacted scan evidence, review history, and server event order", async () => {
+    const fixture = renderDetail(detail("changes_requested"))
+
+    expect(await fixture.findByRole("heading", { name: "Safe Skill" })).toBeTruthy()
+    expect(fixture.getByText("missing-skill-md")).toBeTruthy()
+    expect(fixture.getByText("必须包含 SKILL.md")).toBeTruthy()
+    expect(fixture.getByText("secret-pattern")).toBeTruthy()
+    expect(fixture.getByText("检测到已脱敏的疑似凭据")).toBeTruthy()
+    expect(fixture.getAllByText("请补充使用示例")).toHaveLength(2)
+    const events = fixture.getAllByRole("listitem").filter((item) => item.hasAttribute("data-status-event"))
+    expect(events.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("校验中"),
+      expect.stringContaining("待审核"),
+      expect.stringContaining("需修改"),
+    ])
+  })
+
+  test("links a published item to its public community page", async () => {
+    const fixture = renderDetail(detail("published"))
+
+    expect((await fixture.findByRole("link", { name: "查看公开 Skill" })).getAttribute("href")).toBe(
+      "/skills/community/safe-skill",
+    )
+    expect(fixture.getByRole("link", { name: "提交新版本" }).getAttribute("href")).toBe(
+      "/submissions/new?from=sub_abcdefgh",
+    )
+  })
+
+  test("polls only working states and stops after the bounded request count", () => {
+    expect(submissionPollInterval("validating", 1)).toBe(2_000)
+    expect(submissionPollInterval("publishing", 19)).toBe(2_000)
+    expect(submissionPollInterval("publishing", 20)).toBe(false)
+    expect(submissionPollInterval("pending_review", 1)).toBe(false)
+    expect(submissionPollInterval(undefined, 0)).toBe(false)
+  })
+})
+
+function renderDetail(value: SkillMarketControl.SubmissionDetail) {
+  const source: SubmissionDetailSource = {
+    detail: () => Promise.resolve(value),
+    create: () => Promise.resolve({ submission: value }),
+    revise: () => Promise.resolve({ submission: value }),
+  }
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  const history = createMemoryHistory()
+  history.set({ value: `/submissions/${value.id}`, replace: true })
+  return render(() => (
+    <QueryClientProvider client={client}>
+      <MemoryRouter history={history}>
+        <Route path="*" component={() => <SubmissionDetail submissionID={value.id} source={source} />} />
+      </MemoryRouter>
+    </QueryClientProvider>
+  ))
+}
+
+function detail(status: SkillMarketControl.SubmissionStatus): SkillMarketControl.SubmissionDetail {
+  const metadata = {
+    version: "1.2.0",
+    displayName: "Safe Skill",
+    description: "A safe submitted Skill",
+    category: "Developer Tools",
+    tags: ["review"],
+    license: "MIT",
+    requiresApiKey: false,
+    changeNotes: "Add examples",
+  }
+  return {
+    id: "sub_abcdefgh",
+    skillID: "safe-skill",
+    owner: { employeeID: "E000001", displayName: "Contributor" },
+    targetVersion: "1.2.0",
+    status,
+    currentRevision: 1,
+    version: 3,
+    risk: "warning",
+    ...(status === "published" ? { currentPublicVersion: "1.2.0" } : {}),
+    createdAt: "2026-07-16T00:00:00.000Z",
+    updatedAt: "2026-07-16T03:00:00.000Z",
+    metadata,
+    revisions: [
+      {
+        number: 1,
+        metadata,
+        manifest: {
+          packageSha256: "a".repeat(64),
+          packageSize: 1024,
+          files: [{ path: "SKILL.md", sha256: "b".repeat(64), size: 512, mime: "text/markdown" }],
+        },
+        scan: {
+          risk: "warning",
+          reasons: ["Requires review"],
+          evidence: [
+            {
+              rule: "secret-pattern",
+              summary: "检测到已脱敏的疑似凭据",
+              path: "scripts/run.ts",
+              line: 8,
+            },
+          ],
+          scannedAt: "2026-07-16T01:00:00.000Z",
+        },
+        validationIssues: [{ code: "missing-skill-md", message: "必须包含 SKILL.md", path: "SKILL.md" }],
+        createdAt: "2026-07-16T00:00:00.000Z",
+      },
+    ],
+    reviews: [
+      {
+        revision: 1,
+        reviewer: { employeeID: "E000002", displayName: "Reviewer" },
+        decision: "request_changes",
+        comment: "请补充使用示例",
+        createdAt: "2026-07-16T03:00:00.000Z",
+      },
+    ],
+    timeline: [
+      { status: "validating", at: "2026-07-16T00:00:00.000Z" },
+      { status: "pending_review", at: "2026-07-16T02:00:00.000Z" },
+      { status: "changes_requested", at: "2026-07-16T03:00:00.000Z", message: "请补充使用示例" },
+    ],
+    ...(status === "published"
+      ? { publicSkill: { source: "community", id: "safe-skill", version: "1.2.0", status: "published" } }
+      : {}),
+  }
+}

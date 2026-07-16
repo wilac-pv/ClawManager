@@ -6,12 +6,14 @@ import {
   type SkillMarketActions,
   type SkillKey,
 } from "@opencode-ai/app/skill-market"
-import { Navigate, Route, Router, useNavigate, useParams } from "@solidjs/router"
-import { createSignal, type ParentProps } from "solid-js"
+import { Navigate, Route, Router, useNavigate, useParams, useSearchParams } from "@solidjs/router"
+import { createQuery } from "@tanstack/solid-query"
+import { Match, Show, Switch, createSignal, type ParentProps } from "solid-js"
 import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
 import { RequireAdmin, RequireReviewer, RequireSession, SkillMarketSessionProvider } from "./session"
 import { MarketShell } from "./shell"
+import { SubmissionDetail } from "./submissions/detail"
 import { SubmissionForm } from "./submissions/form"
 import { SubmissionList } from "./submissions/list"
 
@@ -47,7 +49,7 @@ export function App() {
       <Route path="/skills/:source/:id" component={SkillDetailRoute} />
       <Route path="/submissions" component={() => <SubmissionListRoute source={control} />} />
       <Route path="/submissions/new" component={() => <SubmissionFormRoute source={control} />} />
-      <Route path="/submissions/:id" component={SubmissionDetailRoute} />
+      <Route path="/submissions/:id" component={() => <SubmissionDetailRoute source={control} />} />
       <Route path="/admin" component={ReviewHomeRoute} />
       <Route path="/admin/submissions/:id" component={ReviewHomeRoute} />
       <Route path="/admin/roles" component={RoleHomeRoute} />
@@ -67,20 +69,56 @@ function SubmissionListRoute(props: { source: SkillMarketControlDataSource }) {
 
 function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const previousID = () => {
+    const value = params.from
+    if (typeof value !== "string" || !/^sub_[a-zA-Z0-9_-]{8,64}$/.test(value)) return undefined
+    return value
+  }
+  const previous = createQuery(() => ({
+    queryKey: ["skill-market", "submission", "prefill", previousID()] as const,
+    enabled: Boolean(previousID()),
+    queryFn: ({ signal }) => {
+      const submissionID = previousID()
+      if (!submissionID) throw new Error("A valid previous submission is required")
+      return props.source.submissions.detail(submissionID, signal)
+    },
+  }))
+  const accepted = (submissionID: string) => navigate(`/submissions/${submissionID}`)
   return (
     <RequireSession>
-      <SubmissionForm
-        source={props.source.submissions}
-        onAccepted={(submissionID) => navigate(`/submissions/${submissionID}`)}
-      />
+      <Show when={previousID()} fallback={<SubmissionForm source={props.source.submissions} onAccepted={accepted} />}>
+        <Switch>
+          <Match when={previous.isPending}>
+            <ProtectedPlaceholder title="正在准备投稿" description="正在读取上一版本信息。" />
+          </Match>
+          <Match when={previous.error}>
+            <ProtectedPlaceholder title="无法读取上一版本" description="请返回我的投稿后重试。" />
+          </Match>
+          <Match when={previous.data}>
+            {(detail) => (
+              <SubmissionForm
+                source={props.source.submissions}
+                mode={
+                  detail().status === "published"
+                    ? { kind: "version", initial: detail().metadata }
+                    : { kind: "create", initial: detail().metadata }
+                }
+                onAccepted={accepted}
+              />
+            )}
+          </Match>
+        </Switch>
+      </Show>
     </RequireSession>
   )
 }
 
-function SubmissionDetailRoute() {
+function SubmissionDetailRoute(props: { source: SkillMarketControlDataSource }) {
+  const params = useParams<{ id: string }>()
   return (
     <RequireSession>
-      <ProtectedPlaceholder title="投稿详情" description="正在加载投稿详情。" />
+      <SubmissionDetail submissionID={params.id} source={props.source.submissions} />
     </RequireSession>
   )
 }

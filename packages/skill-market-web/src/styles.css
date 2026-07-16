@@ -446,6 +446,231 @@ a {
   font-size: 13px;
 }
 
+.submission-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.submission-detail__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 8px;
+}
+
+.submission-detail__header h1 {
+  margin: 16px 0 6px;
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -0.03em;
+}
+
+.submission-detail__header p {
+  margin: 0;
+  color: #6c7480;
+}
+
+.submission-detail__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 14px;
+}
+
+.submission-detail__actions > a:not(.market-primary-action) {
+  color: #125fc3;
+}
+
+.submission-detail__section {
+  padding: 26px;
+  border: 1px solid #e1e5eb;
+  border-radius: 14px;
+  background: white;
+}
+
+.submission-detail__section > h2,
+.submission-detail__section-heading h2 {
+  margin-top: 0;
+  font-size: 20px;
+}
+
+.submission-detail__section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.submission-status-message {
+  margin: 0 0 24px;
+  color: #4e5865;
+  font-size: 16px;
+}
+
+.submission-timeline {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.submission-timeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 58px;
+}
+
+.submission-timeline li:not(:last-child)::before {
+  position: absolute;
+  top: 13px;
+  bottom: -3px;
+  left: 5px;
+  width: 2px;
+  background: #dde2e9;
+  content: "";
+}
+
+.submission-timeline__dot {
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: #1268e5;
+  box-shadow: 0 0 0 1px #9ebce6;
+  box-sizing: border-box;
+}
+
+.submission-timeline li > div {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) 1fr;
+  gap: 4px 16px;
+}
+
+.submission-timeline time,
+.submission-detail__history time {
+  color: #727b87;
+  font-size: 13px;
+}
+
+.submission-timeline p {
+  grid-column: 1 / -1;
+  margin: 2px 0 16px;
+  color: #59626f;
+}
+
+.submission-detail__polling {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 18px;
+  border: 1px solid #e8ca83;
+  border-radius: 10px;
+  background: #fff8e7;
+  color: #71500c;
+}
+
+.submission-detail__polling button {
+  border: 0;
+  background: transparent;
+  color: #125fc3;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.submission-detail__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+
+.submission-detail__facts > div {
+  min-width: 0;
+  padding: 14px;
+  border-radius: 9px;
+  background: #f7f8fa;
+}
+
+.submission-detail__facts dt {
+  margin-bottom: 5px;
+  color: #727b87;
+  font-size: 12px;
+}
+
+.submission-detail__facts dd {
+  overflow: hidden;
+  margin: 0;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.submission-report-list,
+.submission-manifest,
+.submission-detail__history {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.submission-report-list li {
+  padding: 14px 16px;
+  border-left: 3px solid #dc9a2b;
+  border-radius: 6px;
+  background: #fff9ed;
+}
+
+.submission-report-list p {
+  margin: 5px 0;
+}
+
+.submission-report-list code,
+.submission-manifest li {
+  overflow-wrap: anywhere;
+  color: #59626f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.submission-manifest {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 360px;
+  overflow: auto;
+}
+
+.submission-manifest li {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f6f7f9;
+}
+
+.submission-detail__history li {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 13px 0;
+  border-bottom: 1px solid #eceff3;
+}
+
+.submission-detail__history li:last-child {
+  border-bottom: 0;
+}
+
+.submission-detail__history p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #59626f;
+}
+
 @media (max-width: 760px) {
   .market-shell__header {
     grid-template-columns: auto 1fr;
@@ -503,6 +728,22 @@ a {
 
   .submission-form__actions {
     flex-wrap: wrap;
+  }
+
+  .submission-detail__header,
+  .submission-detail__actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .submission-detail__facts,
+  .submission-manifest {
+    grid-template-columns: 1fr;
+  }
+
+  .submission-detail__history li {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 }
 

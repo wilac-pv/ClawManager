@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library"
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { MarketControlError } from "../control-data-source"
 import type { SubmissionWriter } from "./form"
 import { SubmissionForm } from "./form"
 
@@ -72,6 +73,17 @@ describe("submission form", () => {
     expect(calls[0]?.key).toMatch(/^[0-9a-f-]{36}$/)
   })
 
+  test("prefills metadata but requires fresh change notes for a new version", () => {
+    const view = render(() => (
+      <SubmissionForm source={writer()} mode={{ kind: "version", initial: metadata }} onAccepted={() => undefined} />
+    ))
+
+    expect(view.getByRole("heading", { name: "提交新版本" })).toBeTruthy()
+    expect(view.getByLabelText<HTMLInputElement>("版本号").value).toBe("1.2.0")
+    expect(view.getByLabelText<HTMLInputElement>("Skill 名称").value).toBe("Safe Skill")
+    expect(view.getByLabelText<HTMLTextAreaElement>("变更说明").value).toBe("")
+  })
+
   test("disables while uploading and reuses the idempotency key after a network retry", async () => {
     const keys: string[] = []
     const accepted: string[] = []
@@ -99,6 +111,53 @@ describe("submission form", () => {
     resolveUpload?.({ submission: summary })
     await waitFor(() => expect(accepted).toEqual([summary.id]))
   })
+
+  test("submits revisions with optimistic concurrency and preserves files across a conflict", async () => {
+    const calls: Array<{
+      submissionID: string
+      input: Parameters<SubmissionWriter["revise"]>[1]
+      key: string
+    }> = []
+    const conflicts = { value: 0 }
+    const accepted: string[] = []
+    const source: SubmissionWriter = {
+      create: () => Promise.reject(new Error("create must not be used for a revision")),
+      revise: (submissionID, input, key) => {
+        calls.push({ submissionID, input, key })
+        if (calls.length === 1)
+          return Promise.reject(new MarketControlError(409, "submission-conflict", "投稿已更新", "req_abcdef"))
+        return Promise.resolve({ submission: summary })
+      },
+    }
+    const packageFile = new File(["revision"], "safe-revision.zip", { type: "application/zip" })
+    const view = render(() => (
+      <SubmissionForm
+        source={source}
+        mode={{ kind: "revision", submissionID: summary.id, expectedVersion: 3, initial: metadata }}
+        onAccepted={(id) => accepted.push(id)}
+        onConflict={() => (conflicts.value += 1)}
+      />
+    ))
+    fireEvent.input(view.getByLabelText("变更说明"), { target: { value: "Address review feedback" } })
+    fireEvent.change(view.getByLabelText("Skill ZIP 包"), { target: { files: [packageFile] } })
+
+    fireEvent.click(view.getByRole("button", { name: "提交审核" }))
+    expect(await view.findByText("投稿已更新（请求编号：req_abcdef）")).toBeTruthy()
+    expect(conflicts.value).toBe(1)
+    expect(view.getByLabelText<HTMLInputElement>("Skill ZIP 包").files?.[0]).toBe(packageFile)
+    fireEvent.click(view.getByRole("button", { name: "重试提交" }))
+
+    await waitFor(() => expect(accepted).toEqual([summary.id]))
+    expect(calls[1]).toMatchObject({
+      submissionID: summary.id,
+      input: {
+        expectedVersion: 3,
+        package: packageFile,
+        metadata: { ...metadata, changeNotes: "Address review feedback" },
+      },
+    })
+    expect(calls[1]?.key).not.toBe(calls[0]?.key)
+  })
 })
 
 const summary = {
@@ -113,6 +172,17 @@ const summary = {
   createdAt: "2026-07-16T00:00:00.000Z",
   updatedAt: "2026-07-16T00:00:00.000Z",
 } satisfies SkillMarketControl.SubmissionSummary
+
+const metadata = {
+  version: "1.2.0",
+  displayName: "Safe Skill",
+  description: "A safe submitted Skill",
+  category: "Developer Tools",
+  tags: ["review", "automation"],
+  license: "MIT",
+  requiresApiKey: true,
+  changeNotes: "Initial submission",
+} satisfies SkillMarketControl.SubmissionMetadata
 
 function renderForm(source: SubmissionWriter, onAccepted: (id: string) => void = () => undefined) {
   return { view: render(() => <SubmissionForm source={source} onAccepted={onAccepted} />) }

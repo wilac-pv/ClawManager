@@ -19,6 +19,7 @@ interface SubmissionFormProps {
   readonly source: SubmissionWriter
   readonly mode?: SubmissionFormMode
   readonly onAccepted: (submissionID: string) => void
+  readonly onConflict?: () => void
 }
 
 const semver =
@@ -72,6 +73,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
     void request
       .then((result) => props.onAccepted(result.submission.id))
       .catch((error: unknown) => {
+        if (error instanceof MarketControlError && error.code === "submission-conflict") props.onConflict?.()
         if (error instanceof MarketControlError) setIdempotencyKey(crypto.randomUUID())
         setRequestError(
           error instanceof MarketControlError
