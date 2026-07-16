@@ -135,6 +135,7 @@ export class MarketSecurity {
 
   requireReviewTarget(principal: Principal, ownerEmployeeID: string) {
     this.requireReviewer(principal)
+    if (principal.session.roles.includes("admin")) return principal
     if (principal.session.user.employeeID !== ownerEmployeeID) return principal
     throw new SkillMarketSecurityError("forbidden", "reviewers cannot review their own submission")
   }

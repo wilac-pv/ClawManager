@@ -35,6 +35,7 @@ describe("market security", () => {
     const admin = fixture.security.requireSession(credentials("admin"))
     expect(fixture.security.requireReviewer(admin)).toBe(admin)
     expect(fixture.security.requireAdmin(admin)).toBe(admin)
+    expect(fixture.security.requireReviewTarget(admin, "admin")).toBe(admin)
 
     fixture.database.close()
   })

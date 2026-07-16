@@ -15,7 +15,7 @@ afterEach(async () => {
 })
 
 describe("submission moderation", () => {
-  test("accepts exactly one concurrent decision and forbids self-review even for Admin", async () => {
+  test("accepts exactly one concurrent decision", async () => {
     const fixture = await moderationFixture()
     const submissionID = seedSubmission(fixture, { owner: "author", risk: "safe" })
     const moderation = createModeration({
@@ -57,11 +57,50 @@ describe("submission moderation", () => {
       after_json: JSON.stringify({ status: "publishing", version: 3 }),
     })
 
-    const ownSubmission = seedSubmission(fixture, { owner: "admin", risk: "safe", salt: "admin-own" })
-    await expectCode(
-      () => moderation.decide(fixture.admin, ownSubmission, { expectedVersion: 2, decision: "approve" }),
-      "forbidden",
-    )
+    fixture.database.close()
+  })
+
+  test("allows Admin to approve an owned submission with review and audit records", async () => {
+    const fixture = await moderationFixture()
+    const submissionID = seedSubmission(fixture, { owner: "admin", risk: "safe", salt: "admin-own" })
+    const moderation = createModeration({
+      database: fixture.database,
+      security: fixture.security,
+      now: () => fixture.clock.value,
+    })
+
+    const result = moderation.decide(fixture.admin, submissionID, {
+      expectedVersion: 2,
+      decision: "approve",
+      comment: "Admin reviewed the package",
+    })
+
+    expect(result).toMatchObject({ id: submissionID, status: "publishing", version: 3 })
+    expect(rowCount(fixture, "reviews")).toBe(1)
+    expect(rowCount(fixture, "publish_jobs")).toBe(1)
+    expect(
+      fixture.database.connection
+        .query<{ reviewer_employee_id: string; decision: string; comment: string }, []>(
+          "SELECT reviewer_employee_id, decision, comment FROM reviews",
+        )
+        .get(),
+    ).toEqual({
+      reviewer_employee_id: "admin",
+      decision: "approve",
+      comment: "Admin reviewed the package",
+    })
+    expect(
+      fixture.database.connection
+        .query<{ action: string; actor_employee_id: string; before_json: string; after_json: string }, []>(
+          "SELECT action, actor_employee_id, before_json, after_json FROM audit_events",
+        )
+        .get(),
+    ).toEqual({
+      action: "review-approved",
+      actor_employee_id: "admin",
+      before_json: JSON.stringify({ status: "pending_review", version: 2 }),
+      after_json: JSON.stringify({ status: "publishing", version: 3 }),
+    })
 
     fixture.database.close()
   })
