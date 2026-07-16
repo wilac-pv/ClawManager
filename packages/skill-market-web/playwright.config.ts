@@ -20,7 +20,11 @@ export default defineConfig({
     },
     {
       name: "mobile-light",
-      use: { ...devices["Pixel 7"], colorScheme: "light" },
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
+        colorScheme: "light",
+      },
     },
     {
       name: "desktop-dark-os",

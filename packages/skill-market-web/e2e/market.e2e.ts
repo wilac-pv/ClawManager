@@ -1,4 +1,6 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page, type TestInfo } from "@playwright/test"
+
+const fixtureApi = "http://127.0.0.1:4210"
 
 test("searches, filters, deep-links, copies a prompt and requests the verified download", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
@@ -35,8 +37,20 @@ test("supports direct detail routes and keyboard-only tabs", async ({ page }) =>
   await expect(page.getByText("未发现已知恶意行为")).toBeVisible()
 })
 
+test("opens community details and keeps submission inside the Web app", async ({ page }) => {
+  await page.goto("/skills")
+  await page.getByRole("button", { name: "用户投稿", exact: true }).click()
+  await page.getByRole("button", { name: /Community Review/ }).click()
+  await expect(page).toHaveURL(/\/skills\/community\/safe-community-skill$/)
+  await expect(page.getByText("如影用户", { exact: true }).first()).toBeVisible()
+  await page.goto("/skills")
+  await page.getByRole("button", { name: "投稿 Skill" }).click()
+  await expect(page).toHaveURL(/\/submissions\/new$/)
+  await expect(page.getByRole("main").getByRole("heading", { name: "登录后继续" })).toBeVisible()
+})
+
 test("stays light under a dark OS preference and persists list view", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" })
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" })
   await page.goto("/skills")
   await expect(page.locator(".ruying-skill-market")).toHaveCSS("background-color", "rgb(247, 248, 250)")
   if ((page.viewportSize()?.width ?? 0) > 760) {
@@ -45,6 +59,9 @@ test("stays light under a dark OS preference and persists list view", async ({ p
   }
   await expect(page.getByText("收藏")).toHaveCount(0)
   await expect(page.getByText("评论")).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true)
 })
 
 test("renders not-found, partial-source, empty and icon fallback states", async ({ page }) => {
@@ -60,3 +77,164 @@ test("renders not-found, partial-source, empty and icon fallback states", async 
   await page.goto("/skills")
   await expect(page.getByLabel("Code Review 默认图标")).toBeVisible()
 })
+
+test("returns from SSO, reports invalid ZIP content and accepts a corrected revision", async ({ page }, testInfo) => {
+  desktopControlOnly(testInfo)
+  await resetFixture(page, "anonymous")
+  await page.goto("/submissions/new")
+  await page.getByRole("main").getByRole("button", { name: "使用 GWM SSO 登录" }).click()
+  await expect(page).toHaveURL(/\/submissions\/new$/)
+  await expect(page.getByRole("heading", { name: "投稿 Skill" })).toBeVisible()
+  await page.getByRole("button", { name: "提交审核" }).click()
+  await expect(page.getByRole("alert")).toBeFocused()
+
+  await fillSubmission(page, "Invalid Community Skill", "1.0.0", "invalid.zip")
+  await page.getByRole("button", { name: "提交审核" }).click()
+  await expect(page).toHaveURL(/\/submissions\/sub_[a-zA-Z0-9_-]+$/)
+  await expect(page.locator(".submission-status--validation_failed").first()).toBeVisible()
+  await expect(page.getByText("SKILL_MD_MISSING")).toBeVisible()
+
+  await page.getByRole("link", { name: "提交修订" }).click()
+  await expect(page.getByRole("heading", { name: "提交修订" })).toBeVisible()
+  await page.getByLabel("变更说明").fill("补充 SKILL.md")
+  await page.getByLabel("Skill ZIP 包").setInputFiles({
+    name: "valid.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("PK fixture with SKILL.md"),
+  })
+  const idempotencyKeys: string[] = []
+  let interrupted = false
+  await page.route(/\/v1\/submissions\/[^/]+\/revisions$/, async (route) => {
+    idempotencyKeys.push(route.request().headers()["idempotency-key"] ?? "")
+    if (interrupted) {
+      await route.continue()
+      return
+    }
+    interrupted = true
+    await route.fetch()
+    await route.abort("failed")
+  })
+  await page.getByRole("button", { name: "提交审核" }).click()
+  await expect(page.getByRole("button", { name: "重试提交" })).toBeVisible()
+  await page.getByRole("button", { name: "重试提交" }).click()
+  await expect(page.locator(".submission-status--pending_review").first()).toBeVisible()
+  expect(idempotencyKeys).toHaveLength(2)
+  expect(idempotencyKeys[0]).toBe(idempotencyKeys[1])
+})
+
+test("keeps contributor records private and rechecks an expired deep-link session", async ({ page }, testInfo) => {
+  desktopControlOnly(testInfo)
+  await resetFixture(page, "submitter")
+  await page.goto("/submissions")
+  await expect(page.getByRole("heading", { name: "我的投稿" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "published-community-skill" })).toBeVisible()
+  await expect(page.locator(".submission-status--changes_requested")).toBeVisible()
+  await expect(page.locator(".submission-status--rejected")).toBeVisible()
+
+  await page.goto("/submissions/sub_published01")
+  await page.getByRole("link", { name: "提交新版本" }).click()
+  await expect(page.getByRole("heading", { name: "提交新版本" })).toBeVisible()
+  await page.getByLabel("版本号").fill("2.0.0")
+  await page.getByLabel("变更说明").fill("第二个版本")
+  await page.getByLabel("Skill ZIP 包").setInputFiles({
+    name: "version-2.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("PK version 2 fixture"),
+  })
+  await page.getByRole("button", { name: "提交审核" }).click()
+  await expect(page.locator(".submission-status--pending_review").first()).toBeVisible()
+  await page.goto("/skills/community/published-community-skill")
+  await expect(page.getByText("v1.0.0", { exact: true })).toBeVisible()
+
+  await page.goto("/admin")
+  await expect(page.getByRole("alert")).toContainText("没有访问权限")
+  const privateRecord = await page.context().request.get(`${fixtureApi}/v1/submissions/sub_reviewrisk1`)
+  expect(privateRecord.status()).toBe(403)
+
+  await page.goto("/submissions/sub_changes001")
+  await expect(page.getByRole("link", { name: "提交修订" })).toBeVisible()
+  await page.context().request.post(`${fixtureApi}/__fixture/expire`)
+  await page.reload()
+  await expect(page.getByRole("main").getByRole("heading", { name: "登录后继续" })).toBeVisible()
+})
+
+test("enforces self-review, typed risk confirmation and optimistic conflicts", async ({ page }, testInfo) => {
+  desktopControlOnly(testInfo)
+  await resetFixture(page, "reviewer")
+  await page.goto("/admin/submissions/sub_selfreview01")
+  await expect(page.getByRole("alert")).toContainText("不能审核自己的投稿")
+  await expect(page.getByRole("button", { name: "提交审核决定" })).toBeDisabled()
+
+  await page.goto("/admin/submissions/sub_reviewrisk1")
+  await page.getByRole("radio", { name: "通过" }).check()
+  await page.getByLabel("审核意见").fill("已核对网络访问风险")
+  await page.getByRole("button", { name: "提交审核决定" }).click()
+  await expect(page.getByRole("alert")).toContainText("请输入 dangerous-community-skill 以确认")
+  await page.getByLabel("输入 Skill ID 以确认").fill("dangerous-community-skill")
+  await page.getByRole("button", { name: "提交审核决定" }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+
+  await page.goto("/admin/submissions/sub_conflict001")
+  await page.getByRole("radio", { name: "要求修改" }).check()
+  await page.getByLabel("审核意见").fill("请补充使用说明")
+  await page.context().request.post(`${fixtureApi}/__fixture/bump/sub_conflict001`)
+  await page.getByRole("button", { name: "提交审核决定" }).click()
+  await expect(page.getByRole("alert")).toContainText("投稿已更新，已刷新到最新版本")
+  await expect(page.getByText("并发版本").locator("..")).toContainText("2")
+})
+
+test("lets Admin retry publishing, moderate visibility, manage roles and filter audit", async ({ page }, testInfo) => {
+  desktopControlOnly(testInfo)
+  await resetFixture(page, "admin")
+  await page.goto("/admin/submissions/sub_publishfail")
+  await page.getByRole("button", { name: "重试发布" }).click()
+  await expect(page.locator(".submission-status--published").first()).toBeVisible()
+  await page.getByRole("button", { name: "下架 Skill" }).click()
+  await page.getByLabel("操作原因").fill("E2E 下架验证")
+  await page.getByRole("button", { name: "确认下架" }).click()
+  await expect(page.getByRole("button", { name: "恢复 Skill" })).toBeVisible()
+  await page.getByRole("button", { name: "恢复 Skill" }).click()
+  await page.getByLabel("操作原因").fill("E2E 恢复验证")
+  await page.getByRole("button", { name: "确认恢复" }).click()
+  await expect(page.getByRole("button", { name: "下架 Skill" })).toBeVisible()
+
+  await page.goto("/admin/roles")
+  await page.getByLabel("员工工号").fill("reviewer2")
+  await page.getByRole("button", { name: "添加角色" }).click()
+  await expect(page.getByText("Reviewer Two")).toBeVisible()
+  await page.getByRole("button", { name: "移除 reviewer2 的 Reviewer" }).click()
+  await page.getByRole("button", { name: "确认移除" }).click()
+  await expect(page.getByText("Reviewer Two")).toHaveCount(0)
+  await page.getByRole("button", { name: "移除 admin1 的 Admin" }).click()
+  await page.getByRole("button", { name: "确认移除" }).click()
+  await expect(page.getByRole("alert")).toContainText("至少保留一名 Admin")
+
+  await page.goto("/admin/audit")
+  await page.getByLabel("操作类型").selectOption("community-restored")
+  await expect(page.getByLabel("审计事件").getByText("Community Restored")).toBeVisible()
+  await expect(page.locator(".audit-event pre")).not.toContainText(/csrf|secret|token/i)
+})
+
+async function resetFixture(page: Page, persona: "anonymous" | "submitter" | "reviewer" | "admin") {
+  const response = await page.context().request.post(`${fixtureApi}/__fixture/reset?persona=${persona}`)
+  expect(response.ok()).toBe(true)
+}
+
+async function fillSubmission(page: Page, name: string, version: string, packageName: string) {
+  await page.getByLabel("版本号").fill(version)
+  await page.getByLabel("Skill 名称").fill(name)
+  await page.getByLabel("简介").fill("用于浏览器端到端验证的社区 Skill")
+  await page.getByLabel("分类").fill("代码质量")
+  await page.getByLabel("标签").fill("review,community")
+  await page.getByLabel("许可证（可选）").fill("MIT")
+  await page.getByLabel("变更说明").fill("首次投稿")
+  await page.getByLabel("Skill ZIP 包").setInputFiles({
+    name: packageName,
+    mimeType: "application/zip",
+    buffer: Buffer.from("PK fixture"),
+  })
+}
+
+function desktopControlOnly(testInfo: TestInfo) {
+  test.skip(testInfo.project.name !== "desktop-light", "Stateful control journeys run once on desktop Chromium")
+}

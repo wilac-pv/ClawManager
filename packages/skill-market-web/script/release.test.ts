@@ -43,11 +43,27 @@ test("publishes immutable files and advances the pointer only after verification
   expect(objects.get(`${releaseRoot}/manifest.json`)?.contentType).toBe("application/json; charset=utf-8")
   expect(events.at(-1)).toBe(`put:${pointerKey}`)
   expect(events.indexOf(`head:${releaseRoot}/index.html`)).toBeLessThan(events.indexOf(`put:${pointerKey}`))
-  expect(JSON.parse(new TextDecoder().decode(objects.get(pointerKey)?.body))).toMatchObject({
+  const pointer = JSON.parse(new TextDecoder().decode(objects.get(pointerKey)?.body))
+  expect(pointer).toMatchObject({
     release: result.release,
     entry: `${releaseRoot}/index.html`,
     fallback: `${releaseRoot}/index.html`,
   })
+  expect(pointer.fallbacks).toEqual(
+    Object.fromEntries(
+      [
+        "/skills",
+        "/skills/:source/:id",
+        "/submissions",
+        "/submissions/new",
+        "/submissions/:id",
+        "/admin",
+        "/admin/submissions/:id",
+        "/admin/roles",
+        "/admin/audit",
+      ].map((route) => [route, `${releaseRoot}/index.html`]),
+    ),
+  )
 
   await Bun.write(join(directory, "index.html"), "<main>market v2</main>")
   const next = await publishWebRelease(store, {
@@ -64,6 +80,7 @@ test("publishes immutable files and advances the pointer only after verification
   expect(JSON.parse(new TextDecoder().decode(objects.get(pointerKey)?.body))).toMatchObject({
     release: result.release,
     entry: `${releaseRoot}/index.html`,
+    fallbacks: pointer.fallbacks,
   })
   expect(events.at(-1)).toBe(`put:${pointerKey}`)
 

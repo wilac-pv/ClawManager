@@ -1,6 +1,6 @@
 # Ruying Code Skill Market Web
 
-如影 Code Skill 市场的独立 Web 入口。它与桌面端共享目录、详情和 Markdown 展示组件，只提供浏览、搜索、筛选、复制安装命令和下载能力；不包含登录、社区发布或直接写入本机 Skill 的能力。
+如影 Code Skill 市场的独立 Web 入口。它与桌面端共享目录、详情和 Markdown 展示组件，提供公开浏览、GWM SSO、用户投稿、Reviewer 审核和 Admin 运营能力。桌面端只安全打开此 Web 投稿页，不在本机处理投稿文件或调用管理接口。
 
 ## 本地开发
 
@@ -17,7 +17,9 @@ bun run build
 bun run test:e2e
 ```
 
-站点的公开基础路径是 `/ai-coding/ruying-code/skill-market/`，Skill 详情路径是 `/skills/:owner/:name`。
+站点的公开基础路径是 `/ai-coding/ruying-code/skill-market/`。公开 Skill 详情路径是 `/skills/:source/:id`；登录后还可访问 `/submissions/*`，Reviewer/Admin 可按角色访问 `/admin/*`。
+
+E2E 使用本地、隔离且无真实员工信息的状态夹具，覆盖 Submitter、Reviewer 和 Admin。每个测试分配独立租户状态，因此可以并发运行而不会互相污染。
 
 ## OSS 发布
 
@@ -35,7 +37,7 @@ ai-coding/ruying-code/skill-market/web/
 配置环境变量后发布：
 
 ```bash
-export VITE_SKILL_MARKET_API_URL=https://example.internal/v1/catalog
+export VITE_SKILL_MARKET_API_URL=https://skill-market-api.example.internal
 export SKILL_MARKET_OSS_ENDPOINT=https://oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn
 export SKILL_MARKET_OSS_REGION=cn-baoding
 export SKILL_MARKET_OSS_BUCKET=app-platform
@@ -56,8 +58,12 @@ bun run release
 - `/ai-coding/ruying-code/skill-market/` → `<release>/index.html`
 - `/ai-coding/ruying-code/skill-market/assets/*` → `<release>/assets/*`
 - `/ai-coding/ruying-code/skill-market/skills/*` → `<release>/index.html`
+- `/ai-coding/ruying-code/skill-market/submissions` → `<release>/index.html`
+- `/ai-coding/ruying-code/skill-market/submissions/*` → `<release>/index.html`
+- `/ai-coding/ruying-code/skill-market/admin` → `<release>/index.html`
+- `/ai-coding/ruying-code/skill-market/admin/*` → `<release>/index.html`
 
-最后一条是单页应用路由回退，保证直接打开或刷新 Skill 详情页时不会返回 404。目录 API 可以由网关代理到同源 `/v1/catalog/*`，也可以在构建时通过 `VITE_SKILL_MARKET_API_URL` 指向独立 HTTPS API。
+这些单页应用路由回退保证公开详情、投稿详情、审核详情、角色与审计页面直接打开或刷新时不会返回 404。`current.json` 和版本 `manifest.json` 都包含精确的 `fallbacks` 路由映射，网关应使用当前版本的不可变 `index.html` 作为目标。API 可以由网关代理同源 `/v1/*`，也可以在构建时通过 `VITE_SKILL_MARKET_API_URL` 指向独立 HTTPS API；跨域部署必须只允许站点来源并启用凭据，不能用 `Access-Control-Allow-Origin: *`。
 
 ## 回滚
 

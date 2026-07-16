@@ -1,6 +1,18 @@
 import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
 import { join } from "node:path"
 
+const fallbackRoutes = [
+  "/skills",
+  "/skills/:source/:id",
+  "/submissions",
+  "/submissions/new",
+  "/submissions/:id",
+  "/admin",
+  "/admin/submissions/:id",
+  "/admin/roles",
+  "/admin/audit",
+] as const
+
 export type WebReleaseStore = {
   put: (key: string, body: string | Uint8Array, contentType: string, cacheControl: string) => Promise<void>
   head: (key: string) => Promise<{ size: number }>
@@ -16,9 +28,9 @@ export async function publishWebRelease(
   },
 ) {
   const prefix = normalizePrefix(options.prefix)
-  const paths = (
-    await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: options.directory, onlyFiles: true }))
-  ).toSorted()
+  const paths = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: options.directory, onlyFiles: true })))
+    .filter((path): path is string => typeof path === "string")
+    .toSorted((left, right) => left.localeCompare(right))
   if (!paths.includes("index.html")) throw new Error("Skill market dist must contain index.html")
   const files = await Promise.all(
     paths.map(async (path) => {
@@ -39,12 +51,14 @@ export async function publishWebRelease(
     .slice(0, 16)
   const releaseRoot = `${prefix}/${release}`
   const createdAt = options.createdAt ?? new Date().toISOString()
+  const fallbacks = Object.fromEntries(fallbackRoutes.map((route) => [route, `${releaseRoot}/index.html`]))
   const manifest = {
     release,
     createdAt,
     basePath: options.publicBasePath ?? "/ai-coding/ruying-code/skill-market/",
     entry: `${releaseRoot}/index.html`,
     fallback: `${releaseRoot}/index.html`,
+    fallbacks,
     files: files.map(({ path, sha256, size }) => ({ path, sha256, size })),
   }
   const manifestBody = JSON.stringify(manifest)
@@ -82,6 +96,7 @@ export async function publishWebRelease(
       createdAt,
       entry: manifest.entry,
       fallback: manifest.fallback,
+      fallbacks,
       manifest: `${releaseRoot}/manifest.json`,
     }),
     "application/json; charset=utf-8",
@@ -105,6 +120,7 @@ export async function rollbackWebRelease(
   const verified = await Promise.all([store.head(manifestKey), store.head(`${releaseRoot}/index.html`)])
   if (verified.some((metadata) => metadata.size === 0)) throw new Error("Skill market Web release is incomplete")
   const pointerKey = `${prefix}/current.json`
+  const fallbacks = Object.fromEntries(fallbackRoutes.map((route) => [route, `${releaseRoot}/index.html`]))
   await store.put(
     pointerKey,
     JSON.stringify({
@@ -112,6 +128,7 @@ export async function rollbackWebRelease(
       createdAt: options.createdAt ?? new Date().toISOString(),
       entry: `${releaseRoot}/index.html`,
       fallback: `${releaseRoot}/index.html`,
+      fallbacks,
       manifest: manifestKey,
     }),
     "application/json; charset=utf-8",
