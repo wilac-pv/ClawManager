@@ -13,6 +13,7 @@ import { AuditLog } from "./admin/audit"
 import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
 import { RoleAdministration } from "./admin/roles"
+import { copyText } from "./clipboard"
 import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
 import {
@@ -44,7 +45,10 @@ export function App() {
   })
   const actions: SkillMarketActions = {
     kind: "web",
-    copyPrompt: async (detail) => navigator.clipboard.writeText(installPrompt(detail)),
+    copyPrompt: async (detail) => {
+      if (await copyText(installPrompt(detail))) return
+      throw new Error("Skill market install prompt could not be copied")
+    },
     download: async (detail) => {
       const target = await source.download?.({ source: detail.source, id: detail.id })
       if (!target) throw new Error("Skill market download endpoint is unavailable")
