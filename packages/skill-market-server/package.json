@@ -7,6 +7,7 @@
     "dev": "bun --watch src/server.ts",
     "backup": "bun script/backup.ts",
     "cleanup": "bun script/cleanup.ts",
+    "deploy-check": "bun script/deploy-check.ts",
     "restore-drill": "bun script/restore-drill.ts",
     "start": "bun src/server.ts",
     "sync": "bun src/sync.ts",
