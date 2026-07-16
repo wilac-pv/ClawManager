@@ -242,9 +242,11 @@ async function loginSession(
   })
   expect(response.status).toBe(302)
   expect(response.headers.get("location")).toBe(new URL(returnTo.slice(1), webBaseUrl).href)
-  const cookies = response.headers.getSetCookie().map((value) => value.split(";", 1)[0])
+  const setCookies = response.headers.getSetCookie()
+  expect(setCookies).toHaveLength(2)
+  expect(setCookies.every((value) => value.includes("Max-Age=43200"))).toBe(true)
+  const cookies = setCookies.map((value) => value.split(";", 1)[0])
   const csrf = cookies.find((value) => value.startsWith("ruying_market_csrf="))?.split("=", 2)[1]
-  expect(cookies).toHaveLength(2)
   expect(csrf).toHaveLength(43)
   if (!csrf) throw new Error("login did not set a CSRF cookie")
   return { cookie: cookies.join("; "), csrf }
@@ -325,6 +327,7 @@ async function marketFixture() {
     webBaseUrl,
     sessionCookieName: "ruying_market_session",
     cookieSecure: false,
+    sessionCookieMaxAgeSeconds: 12 * 60 * 60,
   })
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => web.handler(request) })
   return {

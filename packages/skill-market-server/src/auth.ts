@@ -32,6 +32,7 @@ interface ProvisioningIdentity {
 
 export function createAuth(options: AuthOptions) {
   const csrfCookieName = options.sessionCookieName.replace(/session$/, "csrf")
+  const sessionCookieMaxAgeSeconds = Math.floor(options.sessionAbsoluteMilliseconds / 1_000)
 
   return {
     begin(returnTo: string) {
@@ -109,8 +110,8 @@ export function createAuth(options: AuthOptions) {
         csrfToken,
         session: options.security.requireSession({ sessionToken, csrfToken }).session,
         setCookies: [
-          cookie(options.sessionCookieName, sessionToken, true, options.cookieSecure),
-          cookie(csrfCookieName, csrfToken, false, options.cookieSecure),
+          cookie(options.sessionCookieName, sessionToken, true, options.cookieSecure, sessionCookieMaxAgeSeconds),
+          cookie(csrfCookieName, csrfToken, false, options.cookieSecure, sessionCookieMaxAgeSeconds),
         ],
       }
     },
@@ -125,8 +126,8 @@ export function createAuth(options: AuthOptions) {
       )
       return {
         clearCookies: [
-          cookie(options.sessionCookieName, "", true, options.cookieSecure, true),
-          cookie(csrfCookieName, "", false, options.cookieSecure, true),
+          cookie(options.sessionCookieName, "", true, options.cookieSecure, 0),
+          cookie(csrfCookieName, "", false, options.cookieSecure, 0),
         ],
       }
     },
@@ -184,14 +185,14 @@ function allowedReturnTo(value: string) {
   )
 }
 
-function cookie(name: string, value: string, httpOnly: boolean, secure: boolean, clear = false) {
+function cookie(name: string, value: string, httpOnly: boolean, secure: boolean, maxAge: number) {
   return [
     `${name}=${value}`,
     "Path=/",
     ...(httpOnly ? ["HttpOnly"] : []),
     ...(secure ? ["Secure"] : []),
     "SameSite=Lax",
-    ...(clear ? ["Max-Age=0"] : []),
+    `Max-Age=${maxAge}`,
   ].join("; ")
 }
 

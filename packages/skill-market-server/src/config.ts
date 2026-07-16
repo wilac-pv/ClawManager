@@ -94,6 +94,7 @@ export function loadConfig(environment: Environment = process.env) {
       1_000,
     sessionIdleMilliseconds: sessionIdleMinutes * 60 * 1_000,
     sessionAbsoluteMilliseconds: sessionAbsoluteMinutes * 60 * 1_000,
+    sessionCookieMaxAgeSeconds: sessionAbsoluteMinutes * 60,
     dailyUploadLimit: positiveInteger(
       "SKILL_MARKET_DAILY_UPLOAD_LIMIT",
       environment.SKILL_MARKET_DAILY_UPLOAD_LIMIT ?? "20",

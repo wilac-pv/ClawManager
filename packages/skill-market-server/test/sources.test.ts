@@ -116,6 +116,7 @@ describe("catalog sources", () => {
     expect(config.cookieSecure).toBe(false)
     expect(config.sessionIdleMilliseconds).toBe(2 * 60 * 60 * 1_000)
     expect(config.sessionAbsoluteMilliseconds).toBe(12 * 60 * 60 * 1_000)
+    expect(config.sessionCookieMaxAgeSeconds).toBe(12 * 60 * 60)
     expect(config.dailyUploadLimit).toBe(20)
     expect(config.activeSubmissionLimit).toBe(5)
     expect(config.bootstrapAdmins).toEqual(["E000001", "E000002"])

@@ -48,8 +48,8 @@ describe("SSO authentication", () => {
     expect(result.sessionToken).toHaveLength(43)
     expect(result.csrfToken).toHaveLength(43)
     expect(result.setCookies).toEqual([
-      `ruying_market_session=${result.sessionToken}; Path=/; HttpOnly; SameSite=Lax`,
-      `ruying_market_csrf=${result.csrfToken}; Path=/; SameSite=Lax`,
+      `ruying_market_session=${result.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`,
+      `ruying_market_csrf=${result.csrfToken}; Path=/; SameSite=Lax; Max-Age=43200`,
     ])
 
     const stored = fixture.database.connection
@@ -198,8 +198,8 @@ describe("SSO authentication", () => {
     const result = await fixture.auth.complete(login.attemptID, "token")
 
     expect(result.setCookies).toEqual([
-      `__Host-ruying_market_session=${result.sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax`,
-      `__Host-ruying_market_csrf=${result.csrfToken}; Path=/; Secure; SameSite=Lax`,
+      `__Host-ruying_market_session=${result.sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`,
+      `__Host-ruying_market_csrf=${result.csrfToken}; Path=/; Secure; SameSite=Lax; Max-Age=43200`,
     ])
     fixture.database.close()
   })

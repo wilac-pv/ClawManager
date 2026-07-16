@@ -4,7 +4,7 @@ import {
   SkillMarketInvalidRequest,
   SkillMarketUnauthenticated,
 } from "@opencode-ai/protocol/skill-market-errors"
-import { Effect } from "effect"
+import { Duration, Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { createAuth } from "../auth"
@@ -18,6 +18,7 @@ interface AuthHttpOptions {
   readonly webBaseUrl: string
   readonly sessionCookieName: string
   readonly cookieSecure: boolean
+  readonly sessionCookieMaxAgeSeconds: number
   readonly emit?: MarketMetricEmitter
 }
 
@@ -65,12 +66,24 @@ export function createAuthHttp(options: AuthHttpOptions) {
                 [
                   options.sessionCookieName,
                   result.sessionToken,
-                  { path: "/", httpOnly: true, secure: options.cookieSecure, sameSite: "lax" },
+                  {
+                    path: "/",
+                    httpOnly: true,
+                    secure: options.cookieSecure,
+                    sameSite: "lax",
+                    maxAge: Duration.seconds(options.sessionCookieMaxAgeSeconds),
+                  },
                 ],
                 [
                   csrfCookieName,
                   result.csrfToken,
-                  { path: "/", httpOnly: false, secure: options.cookieSecure, sameSite: "lax" },
+                  {
+                    path: "/",
+                    httpOnly: false,
+                    secure: options.cookieSecure,
+                    sameSite: "lax",
+                    maxAge: Duration.seconds(options.sessionCookieMaxAgeSeconds),
+                  },
                 ],
               ]).cookies,
             }),

@@ -36,6 +36,7 @@ export interface MarketHttpOptions {
   readonly webBaseUrl: string
   readonly sessionCookieName: string
   readonly cookieSecure: boolean
+  readonly sessionCookieMaxAgeSeconds: number
   readonly onWorkReady?: () => void
   readonly emit?: MarketMetricEmitter
 }

@@ -87,6 +87,7 @@ const main = Effect.scoped(
       webBaseUrl: config.webBaseUrl,
       sessionCookieName: config.sessionCookieName,
       cookieSecure: config.cookieSecure,
+      sessionCookieMaxAgeSeconds: config.sessionCookieMaxAgeSeconds,
       onWorkReady: wake,
       emit: emitMarketMetric,
     })
