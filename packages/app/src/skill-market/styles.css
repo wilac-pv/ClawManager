@@ -683,6 +683,40 @@
   color: #ffffff !important;
 }
 
+.ruying-skill-market__copy-feedback {
+  flex: 1 0 100%;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.ruying-skill-market__copy-feedback--success {
+  color: #067647;
+}
+
+.ruying-skill-market__copy-feedback--error {
+  color: #b42318;
+}
+
+.ruying-skill-market__copy-manual {
+  flex: 1 0 100%;
+  width: 100%;
+  min-height: 112px;
+  padding: 10px 11px;
+  border: 1px solid var(--market-border);
+  border-radius: 9px;
+  background: #f9fafb;
+  color: var(--market-text);
+  font: 12px/1.5 "SFMono-Regular", Consolas, monospace;
+  resize: vertical;
+}
+
+.ruying-skill-market__copy-manual:focus {
+  border-color: var(--market-accent);
+  outline: 3px solid rgba(109, 94, 252, 0.16);
+}
+
 .ruying-skill-market__risk-confirm {
   position: absolute;
   z-index: 5;

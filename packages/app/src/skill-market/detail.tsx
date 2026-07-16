@@ -1,6 +1,6 @@
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createQuery } from "@tanstack/solid-query"
-import { For, Show } from "solid-js"
+import { For, Show, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DesktopSkillActions } from "./desktop-actions"
 import { MarketMarkdown } from "./markdown"
@@ -293,14 +293,21 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
 }
 
 function WebDetailActions(props: { detail: SkillMarket.Detail; actions: SkillMarketActions }) {
+  const [copyState, setCopyState] = createSignal<"idle" | "copying" | "copied" | "failed">("idle")
+  const copy = async () => {
+    if (props.actions.kind !== "web" || copyState() === "copying") return
+    setCopyState("copying")
+    await props.actions.copyPrompt(props.detail).then(
+      () => setCopyState("copied"),
+      () => setCopyState("failed"),
+    )
+  }
+
   return (
     <div class="ruying-skill-market__detail-actions">
       <Show when={props.actions.kind === "web"}>
-        <button
-          type="button"
-          onClick={() => props.actions.kind === "web" && void props.actions.copyPrompt(props.detail)}
-        >
-          复制安装 Prompt
+        <button type="button" disabled={copyState() === "copying"} onClick={() => void copy()}>
+          {copyState() === "copying" ? "正在复制…" : copyState() === "copied" ? "已复制" : "复制安装 Prompt"}
         </button>
         <button
           type="button"
@@ -309,6 +316,22 @@ function WebDetailActions(props: { detail: SkillMarket.Detail; actions: SkillMar
         >
           下载 ZIP
         </button>
+        <Show when={copyState() === "copied"}>
+          <p class="ruying-skill-market__copy-feedback ruying-skill-market__copy-feedback--success" role="status">
+            安装 Prompt 已复制到剪贴板。
+          </p>
+        </Show>
+        <Show when={copyState() === "failed"}>
+          <p class="ruying-skill-market__copy-feedback ruying-skill-market__copy-feedback--error" role="alert">
+            自动复制失败，请手动复制下方 Prompt。
+          </p>
+          <textarea
+            class="ruying-skill-market__copy-manual"
+            aria-label="安装 Prompt"
+            readOnly
+            value={installPrompt(props.detail)}
+          />
+        </Show>
       </Show>
     </div>
   )

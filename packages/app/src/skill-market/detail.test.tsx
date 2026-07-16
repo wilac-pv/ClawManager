@@ -3,7 +3,7 @@ import { render, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
-import { SkillMarketDetail } from "./detail"
+import { installPrompt, SkillMarketDetail } from "./detail"
 import { SkillMarketProvider } from "./provider"
 import type { SkillMarketActions, SkillMarketDataSource } from "./types"
 
@@ -106,6 +106,41 @@ test("sanitizes markdown and exposes only web copy and download actions", async 
   expect(copied).toEqual([detail.publicDetailUrl])
   expect(downloaded).toEqual([detail.package.url])
   expect(view.queryByRole("button", { name: "安装" })).toBeNull()
+})
+
+test("reports prompt copy progress and success", async () => {
+  const copy = Promise.withResolvers<void>()
+  const view = renderDetail(source(), {
+    kind: "web",
+    copyPrompt: () => copy.promise,
+    download: async () => undefined,
+  })
+
+  await view.findByRole("heading", { name: detail.name, level: 1 })
+  await userEvent.click(view.getByRole("button", { name: "复制安装 Prompt" }))
+  const pending = view.getByRole("button", { name: "正在复制…" })
+  expect(pending.hasAttribute("disabled")).toBe(true)
+
+  copy.resolve()
+  expect(await view.findByRole("button", { name: "已复制" })).toBeTruthy()
+  expect(view.getByRole("status").textContent).toContain("安装 Prompt 已复制到剪贴板")
+})
+
+test("offers the complete prompt when automatic copy fails", async () => {
+  const denied = Promise.reject(new Error("denied"))
+  void denied.catch(() => undefined)
+  const view = renderDetail(source(), {
+    kind: "web",
+    copyPrompt: () => denied,
+    download: async () => undefined,
+  })
+
+  await view.findByRole("heading", { name: detail.name, level: 1 })
+  await userEvent.click(view.getByRole("button", { name: "复制安装 Prompt" }))
+  expect((await view.findByRole("alert")).textContent).toContain("自动复制失败")
+  expect((view.getByRole("textbox", { name: "安装 Prompt" }) as HTMLTextAreaElement).value).toBe(
+    installPrompt(detail),
+  )
 })
 
 test("supports keyboard tab navigation across overview versions and security", async () => {
