@@ -157,6 +157,42 @@ describe("catalog sources", () => {
     ).toThrow("must use HTTPS unless it is a loopback or private IPv4 address")
   })
 
+  test("allows the internal HTTP OSS endpoint and private-IP public URL only behind separate test flags", () => {
+    const base = {
+      SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://enterprise.example.com/index.json",
+      SKILL_MARKET_OSS_ENDPOINT: "http://oss.internal.example.com",
+      SKILL_MARKET_PUBLIC_BASE_URL: "http://10.246.13.226:4211/market-objects/",
+    }
+    expect(() => loadConfig(base)).toThrow("SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP=true")
+    expect(() =>
+      loadConfig({ ...base, SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP: "true" }),
+    ).toThrow("SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP=true")
+
+    const config = loadConfig({
+      ...base,
+      SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP: "true",
+      SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP: "true",
+    })
+    expect(config.ossEndpoint).toBe("http://oss.internal.example.com/")
+    expect(config.publicBaseUrl).toBe("http://10.246.13.226:4211/market-objects/")
+    expect(() =>
+      loadConfig({
+        ...base,
+        SKILL_MARKET_OSS_ENDPOINT: "http://user:secret@oss.internal.example.com",
+        SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP: "true",
+        SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP: "true",
+      }),
+    ).toThrow("without credentials")
+    expect(() =>
+      loadConfig({
+        ...base,
+        SKILL_MARKET_PUBLIC_BASE_URL: "http://public.example.com/objects/",
+        SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP: "true",
+        SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP: "true",
+      }),
+    ).toThrow("private IPv4")
+  })
+
   test("enterprise fixture satisfies the public schema", async () => {
     const value = await Bun.file(new URL("enterprise-index.json", fixtures)).json()
     expect(Schema.decodeUnknownSync(SkillMarket.EnterpriseIndex)(value).schemaVersion).toBe(1)

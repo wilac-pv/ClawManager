@@ -2,6 +2,14 @@ type Environment = Record<string, string | undefined>
 
 export function loadConfig(environment: Environment = process.env) {
   const port = positiveInteger("SKILL_MARKET_PORT", environment.SKILL_MARKET_PORT ?? "4210", 65_535)
+  const allowInsecureOssHttp = booleanFlag(
+    "SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP",
+    environment.SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP,
+  )
+  const allowInsecurePublicHttp = booleanFlag(
+    "SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP",
+    environment.SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP,
+  )
   const ossPrefix = objectPrefix(
     "SKILL_MARKET_OSS_PREFIX",
     environment.SKILL_MARKET_OSS_PREFIX ?? "ai-coding/ruying-code/skill-market",
@@ -48,12 +56,20 @@ export function loadConfig(environment: Environment = process.env) {
     skillhubBaseUrl: httpsUrl("SKILLHUB_BASE_URL", environment.SKILLHUB_BASE_URL ?? "https://api.skillhub.cn"),
     skillhubLimit: optionalPositiveInteger("SKILL_MARKET_SKILLHUB_LIMIT", environment.SKILL_MARKET_SKILLHUB_LIMIT),
     enterpriseIndexUrl: httpsUrl("SKILL_MARKET_ENTERPRISE_INDEX_URL", environment.SKILL_MARKET_ENTERPRISE_INDEX_URL),
-    ossEndpoint: httpsUrl("SKILL_MARKET_OSS_ENDPOINT", environment.SKILL_MARKET_OSS_ENDPOINT),
+    ossEndpoint: ossEndpointUrl(
+      "SKILL_MARKET_OSS_ENDPOINT",
+      environment.SKILL_MARKET_OSS_ENDPOINT,
+      allowInsecureOssHttp,
+    ),
     ossRegion: environment.SKILL_MARKET_OSS_REGION ?? "cn-baoding",
     ossBucket: environment.SKILL_MARKET_OSS_BUCKET ?? "app-platform",
     ossPrefix,
     privateOssPrefix,
-    publicBaseUrl: httpsUrl("SKILL_MARKET_PUBLIC_BASE_URL", environment.SKILL_MARKET_PUBLIC_BASE_URL),
+    publicBaseUrl: publicContentUrl(
+      "SKILL_MARKET_PUBLIC_BASE_URL",
+      environment.SKILL_MARKET_PUBLIC_BASE_URL,
+      allowInsecurePublicHttp,
+    ),
     webOrigin: webUrl.origin,
     apiPublicUrl: apiUrl.href,
     ssoLoginUrl: httpsUrl(
@@ -177,6 +193,28 @@ function httpsUrl(name: string, value: string | undefined) {
   const url = new URL(value)
   if (url.protocol !== "https:" || url.username || url.password)
     throw new Error(`${name} must be an HTTPS URL without credentials`)
+  return url.href
+}
+
+function ossEndpointUrl(name: string, value: string | undefined, allowInsecureHttp: boolean) {
+  if (!value || !URL.canParse(value)) throw new Error(`${name} must be an HTTP or HTTPS URL without credentials`)
+  const url = new URL(value)
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password)
+    throw new Error(`${name} must be an HTTP or HTTPS URL without credentials`)
+  if (url.protocol === "http:" && !allowInsecureHttp)
+    throw new Error(`${name} requires SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP=true for internal testing`)
+  return url.href
+}
+
+function publicContentUrl(name: string, value: string | undefined, allowInsecureHttp: boolean) {
+  if (!value || !URL.canParse(value)) throw new Error(`${name} must be an HTTP or HTTPS URL without credentials`)
+  const url = new URL(value)
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password)
+    throw new Error(`${name} must be an HTTP or HTTPS URL without credentials`)
+  if (url.protocol === "https:") return url.href
+  if (!allowInsecureHttp)
+    throw new Error(`${name} requires SKILL_MARKET_ALLOW_INSECURE_PUBLIC_HTTP=true for private-IP testing`)
+  if (!isPrivateIPv4(url.hostname)) throw new Error(`${name} HTTP test URL must use a private IPv4 address`)
   return url.href
 }
 

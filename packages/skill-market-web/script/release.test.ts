@@ -1,8 +1,14 @@
 import { expect, test } from "bun:test"
-import { rm } from "node:fs/promises"
+import { readlink, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { publishWebRelease, rollbackWebRelease, type WebReleaseStore } from "./release"
+import {
+  publishWebRelease,
+  requireOssEndpoint,
+  rollbackWebRelease,
+  stageLocalWebRelease,
+  type WebReleaseStore,
+} from "./release"
 
 test("publishes immutable files and advances the pointer only after verification", async () => {
   const directory = join(tmpdir(), `ruying-market-release-${crypto.randomUUID()}`)
@@ -85,4 +91,38 @@ test("publishes immutable files and advances the pointer only after verification
   expect(events.at(-1)).toBe(`put:${pointerKey}`)
 
   await rm(directory, { recursive: true, force: true })
+})
+
+test("stages verified releases locally and switches the current symlink atomically", async () => {
+  const directory = join(tmpdir(), `ruying-market-release-source-${crypto.randomUUID()}`)
+  const root = join(tmpdir(), `ruying-market-release-root-${crypto.randomUUID()}`)
+  await Promise.all([
+    Bun.write(join(directory, "index.html"), "<main>market</main>"),
+    Bun.write(join(directory, "assets/index-abc123.js"), "console.log('market')"),
+  ])
+  const first = await stageLocalWebRelease({ directory, root, createdAt: "2026-07-16T02:00:00.000Z" })
+  expect(await readlink(join(root, "current"))).toBe(`releases/${first.release}`)
+  expect(await Bun.file(join(root, "releases", first.release, "index.html")).text()).toContain("market")
+
+  await Bun.write(join(directory, "index.html"), "<main>market v2</main>")
+  const second = await stageLocalWebRelease({ directory, root, createdAt: "2026-07-16T03:00:00.000Z" })
+  expect(second.release).not.toBe(first.release)
+  expect(await readlink(join(root, "current"))).toBe(`releases/${second.release}`)
+  expect(await Bun.file(join(root, "releases", first.release, "index.html")).exists()).toBe(true)
+
+  await expect(
+    stageLocalWebRelease({ directory, root, expectedRelease: "0".repeat(16) }),
+  ).rejects.toThrow("release identity mismatch")
+  expect(await readlink(join(root, "current"))).toBe(`releases/${second.release}`)
+  await Promise.all([rm(directory, { recursive: true, force: true }), rm(root, { recursive: true, force: true })])
+})
+
+test("requires an explicit flag for credential-free HTTP OSS endpoints", () => {
+  expect(() => requireOssEndpoint("http://oss.internal.example.com", false)).toThrow(
+    "SKILL_MARKET_ALLOW_INSECURE_OSS_HTTP=true",
+  )
+  expect(requireOssEndpoint("http://oss.internal.example.com", true)).toBe("http://oss.internal.example.com/")
+  expect(() => requireOssEndpoint("http://user:secret@oss.internal.example.com", true)).toThrow(
+    "without credentials",
+  )
 })
