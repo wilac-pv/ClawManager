@@ -16,6 +16,31 @@ afterEach(async () => {
 })
 
 describe("SkillHub mirror", () => {
+  test("handles one bounded claim per batch and retains publicly addressable object keys", async () => {
+    const fixture = await databaseFixture()
+    const imports = createSkillHubImportStore({ database: fixture.database })
+    const generation = imports.beginGeneration(3)
+    imports.recordPage(generation.id, 1, [list("one"), list("two"), list("three")])
+    const objects = memoryStore()
+    const mirror = createSkillHubMirror({
+      imports,
+      store: objects,
+      allowedHosts: new Set(["packages.example.com"]),
+      objectPrefix: "public-catalog",
+      publicBaseUrl: "https://market.example.com/public-catalog/",
+      loadRecord: async (item) => record(item.slug),
+      fetcher: async (input) => new Response(packageZip(new URL(requestUrl(input)).searchParams.get("slug")!)),
+      packageConcurrency: 2,
+    })
+
+    expect(await mirror.runBatch("mirror-a")).toEqual({ mirrored: 2, retryWait: 0, rejected: 0 })
+    expect(imports.progress()).toMatchObject({ mirrored: 2, pending: 1 })
+    const detail = JSON.parse(new TextDecoder().decode(await objects.get(objects.keys().find((key) => key.includes("/details/"))!)))
+    expect(detail.package.url).toContain("/public-catalog/packages/")
+    expect(objects.keys()).toContain(`public-catalog/packages/${detail.package.sha256}.zip`)
+    fixture.database.close()
+  })
+
   test("content-addresses normalized packages, retries 429s, and rejects malware and traversal archives", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
@@ -64,7 +89,8 @@ describe("SkillHub mirror", () => {
 
   test("leaves transient OSS failures retryable and stops claiming after the memory soft limit", async () => {
     const fixture = await databaseFixture()
-    const imports = createSkillHubImportStore({ database: fixture.database })
+    const clock = { value: 1_752_537_600_000 }
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
     const generation = imports.beginGeneration(1)
     imports.recordPage(generation.id, 1, [list("oss-retry")])
     const objects = memoryStore({ failPut: true })
@@ -76,11 +102,26 @@ describe("SkillHub mirror", () => {
       loadRecord: async (item) => record(item.slug),
       fetcher: async () => new Response(packageZip("oss-retry")),
       packageConcurrency: 1,
+      now: () => clock.value,
+      random: () => 0,
       wait: async () => undefined,
     })
 
     expect(await retry.runBatch("mirror-a")).toEqual({ mirrored: 0, retryWait: 1, rejected: 0 })
     expect(state(fixture.database, "oss-retry")).toBe("retry_wait")
+    clock.value += 2_000
+    const recovered = createSkillHubMirror({
+      imports,
+      store: memoryStore(),
+      allowedHosts: new Set(["packages.example.com"]),
+      publicBaseUrl: "https://market.example.com/private/",
+      loadRecord: async (item) => record(item.slug),
+      fetcher: async () => new Response(packageZip("oss-retry")),
+      packageConcurrency: 1,
+      now: () => clock.value,
+      random: () => 0,
+    })
+    expect(await recovered.runBatch("mirror-b")).toEqual({ mirrored: 1, retryWait: 0, rejected: 0 })
     fixture.database.close()
 
     const memoryFixture = await databaseFixture()

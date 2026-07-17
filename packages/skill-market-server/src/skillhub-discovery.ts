@@ -7,6 +7,7 @@ export interface SkillHubDiscoveryOptions {
   readonly baseUrl: string
   readonly imports: SkillHubImportStore
   readonly pageConcurrency?: number
+  readonly maxPageBatches?: number
   readonly now?: () => number
   readonly wait?: (milliseconds: number) => Promise<void>
 }
@@ -31,6 +32,7 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
     wait: options.wait,
   })
   const [first] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
+  let pageBatches = 0
   let upstreamTotal = checkpoint && checkpoint.discoveryPage > 0 ? Math.max(checkpoint.upstreamTotal, first.data.total) : first.data.total
   const generation = options.imports.beginGeneration(upstreamTotal)
   const active = options.imports.activeGeneration()
@@ -43,6 +45,8 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
     if (current.state === "paused") return result(options.imports, false, false, pool.concurrency())
     let page = Math.max(2, current.discoveryPage + 1)
     while (page <= Math.ceil(upstreamTotal / 100)) {
+      if (options.maxPageBatches !== undefined && pageBatches >= options.maxPageBatches)
+        return result(options.imports, false, true, pool.concurrency())
       const beforeBatch = options.imports.generationCheckpoint()
       if (!beforeBatch || beforeBatch.discoveryCompleted) return result(options.imports, true, false, pool.concurrency())
       if (beforeBatch.state === "paused") return result(options.imports, false, false, pool.concurrency())
@@ -56,6 +60,7 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
         options.imports.recordPage(generation.id, page, loaded.data.skills, upstreamTotal)
         return loaded
       })
+      pageBatches += 1
       page += batch.length
     }
     const completion = options.imports.completeSweep(generation.id)

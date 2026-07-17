@@ -31,6 +31,7 @@ export function createSkillHubMirror(options: {
   readonly memorySoftLimitMb?: number
   readonly now?: () => number
   readonly rssBytes?: () => number
+  readonly random?: () => number
   readonly wait?: (milliseconds: number) => Promise<void>
 }): SkillHubMirror {
   const now = options.now ?? Date.now
@@ -53,31 +54,32 @@ export function createSkillHubMirror(options: {
 
   return {
     async runBatch(workerID) {
+      if (rssBytes() > memoryLimit) return { mirrored: 0, retryWait: 0, rejected: 0 }
+      const claimed = options.imports.claim(workerID, packages.concurrency(), options.leaseMilliseconds ?? 5 * 60 * 1_000)
+      const outcomes = await packages.map(claimed, async (item) => {
+        const leaseMilliseconds = options.leaseMilliseconds ?? 5 * 60 * 1_000
+        const heartbeat = setInterval(() => options.imports.renew(workerID, item.slug, leaseMilliseconds), Math.max(1, leaseMilliseconds / 2))
+        const result = await mirrorClaim(item, options, metadata, packages, prefix, now, wait).finally(() => clearInterval(heartbeat))
+        if ("detail" in result) return result
+        if (result.kind === "reject") {
+          return options.imports.reject(workerID, item.slug, result.code, result.code) ? result : { kind: "fenced" as const }
+        }
+        return options.imports.retry(workerID, item.slug, result.code, result.code, result.retryAt)
+          ? result
+          : { kind: "fenced" as const }
+      })
       let mirrored = 0
       let retryWait = 0
       let rejected = 0
-      while (rssBytes() <= memoryLimit) {
-        const claimed = options.imports.claim(workerID, packages.concurrency(), options.leaseMilliseconds ?? 5 * 60 * 1_000)
-        if (claimed.length === 0) break
-        const outcomes = await packages.map(claimed, async (item) => {
-          const result = await mirrorClaim(item, options, metadata, prefix, now, wait)
-          if ("detail" in result) return result
-          if (result.kind === "reject") {
-            options.imports.reject(workerID, item.slug, result.code, result.code)
-            return result
-          }
-          options.imports.retry(workerID, item.slug, result.code, result.code, result.retryAt)
-          return result
-        })
-        outcomes.forEach((outcome) => {
-          if ("detail" in outcome) {
-            if (options.imports.complete(workerID, outcome.item.slug, outcome.detail)) mirrored += 1
-            return
-          }
-          if (outcome.kind === "retry") retryWait += 1
-          if (outcome.kind === "reject") rejected += 1
-        })
-      }
+      outcomes.forEach((outcome) => {
+        if ("detail" in outcome) {
+          if (options.imports.complete(workerID, outcome.item.slug, outcome.detail)) mirrored += 1
+          return
+        }
+        if (outcome.kind === "fenced") return
+        if (outcome.kind === "retry") retryWait += 1
+        if (outcome.kind === "reject") rejected += 1
+      })
       return { mirrored, retryWait, rejected }
     },
   }
@@ -87,6 +89,7 @@ async function mirrorClaim(
   item: ClaimedSkillHubItem,
   options: Parameters<typeof createSkillHubMirror>[0],
   metadata: ReturnType<typeof createAdaptivePool>,
+  packages: ReturnType<typeof createAdaptivePool>,
   prefix: string,
   now: () => number,
   wait: (milliseconds: number) => Promise<void>,
@@ -95,7 +98,7 @@ async function mirrorClaim(
     ([value]) => value,
     () => undefined,
   )
-  if (!record) return retry("upstream", now())
+  if (!record) return retry("upstream", now(), undefined, item.attempts, options.random)
   if (record.securityReports.some((report) => report.verdict === "danger")) return reject("validation")
 
   const downloaded = await download(
@@ -106,9 +109,10 @@ async function mirrorClaim(
     now,
     wait,
     "application/zip, application/octet-stream",
+    () => packages.throttle(),
   ).then(
     (value) => value,
-    (error: unknown) => failureFor(error, now),
+    (error: unknown) => failureFor(error, now, item.attempts, options.random),
   )
   if (isFailure(downloaded)) return downloaded
   const archive = normalizeArchive(downloaded.body, record)
@@ -116,19 +120,21 @@ async function mirrorClaim(
 
   const packageKey = `${prefix}/packages/${archive.sha256}.zip`
   const storedPackage = await storeIfMissing(options.store, packageKey, archive.body, "application/zip")
-  if (!storedPackage) return retry("storage", now())
-  const iconUrl = record.iconUrl
+  if (!storedPackage) return retry("storage", now(), undefined, item.attempts, options.random)
+  const icon = record.iconUrl
     ? await mirrorIcon(record.iconUrl, options, prefix, now, wait).then(
         (value) => value,
-        () => undefined,
+        (error: unknown) => failureFor(error, now, item.attempts, options.random),
       )
     : undefined
+  if (isFailure(icon)) return icon
+  const iconUrl = icon
   const detail = detailFor(record, archive, iconUrl, options.publicBaseUrl)
   const json = JSON.stringify(detail)
   const detailSha256 = sha256(new TextEncoder().encode(json))
   const detailKey = `${prefix}/details/${detailSha256}.json`
   const storedDetail = await storeIfMissing(options.store, detailKey, json, "application/json")
-  if (!storedDetail) return retry("storage", now())
+  if (!storedDetail) return retry("storage", now(), undefined, item.attempts, options.random)
   return {
     item,
     detail: {
@@ -158,6 +164,7 @@ async function download(
   now: () => number,
   wait: (milliseconds: number) => Promise<void>,
   accept: string,
+  throttled?: () => void,
 ) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -166,6 +173,7 @@ async function download(
       return readLimited(response, limit)
     } catch (error) {
       if (!(error instanceof AdaptivePoolError) || error.permanent || attempt === 2) throw error
+      if (error.status === 429 || error.status === undefined) throttled?.()
       await wait(retryDelay(error, attempt, now()))
     }
   }
@@ -184,7 +192,8 @@ async function mirrorIcon(
   const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg" }[contentType ?? ""]
   if (!extension || !contentType) return undefined
   const key = `${prefix}/icons/${response.sha256}.${extension}`
-  if (!(await storeIfMissing(options.store, key, response.body, contentType))) return undefined
+  if (!(await storeIfMissing(options.store, key, response.body, contentType)))
+    throw new AdaptivePoolError("icon storage failed")
   return publicUrl(options.publicBaseUrl, `icons/${response.sha256}.${extension}`)
 }
 
@@ -301,14 +310,22 @@ function summaryFor(detail: SkillMarket.Detail) {
   return Schema.decodeUnknownSync(SkillMarket.Summary)(detail)
 }
 
-function failureFor(error: unknown, now: () => number): MirrorFailure {
+function failureFor(error: unknown, now: () => number, attempts: number, random: (() => number) | undefined): MirrorFailure {
   if (error instanceof AdaptivePoolError && error.permanent) return reject("download")
-  if (error instanceof AdaptivePoolError && error.status === 429) return retry("rate_limited", now(), error.retryAfter)
-  return retry("download", now())
+  if (error instanceof AdaptivePoolError && error.status === 429) return retry("rate_limited", now(), error.retryAfter, attempts, random)
+  return retry("download", now(), undefined, attempts, random)
 }
 
-function retry(code: Extract<MirrorFailure, { readonly kind: "retry" }>["code"], timestamp: number, retryAfter?: string | null): MirrorFailure {
-  return { kind: "retry", code, retryAt: timestamp + retryAfterMilliseconds(retryAfter, timestamp) }
+function retry(
+  code: Extract<MirrorFailure, { readonly kind: "retry" }>["code"],
+  timestamp: number,
+  retryAfter: string | null | undefined,
+  attempts: number,
+  random: (() => number) | undefined,
+): MirrorFailure {
+  const exponential = Math.min(24 * 60 * 60 * 1_000, 1_000 * 2 ** Math.min(16, Math.max(0, attempts - 1)))
+  const jittered = Math.round(exponential * (0.5 + (random ?? Math.random)()))
+  return { kind: "retry", code, retryAt: timestamp + Math.max(retryAfterMilliseconds(retryAfter, timestamp), jittered) }
 }
 
 function reject(code: Extract<MirrorFailure, { readonly kind: "reject" }>["code"]): MirrorFailure {

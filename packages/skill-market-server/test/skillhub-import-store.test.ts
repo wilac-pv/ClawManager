@@ -297,6 +297,23 @@ describe("SkillHub import store", () => {
     database.close()
   })
 
+  test("renews a live lease and fences an owner after expiry", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database, now: () => clock.value })
+    const generation = store.beginGeneration(1)
+    store.recordPage(generation.id, 1, [listRecord("lease", "1.0.0")])
+    expect(store.claim("worker-a", 1, 10).map((item) => item.attempts)).toEqual([1])
+    clock.value += 9
+    expect(store.renew("worker-a", "lease", 10)).toBe(true)
+    clock.value += 2
+    expect(store.claim("worker-b", 1, 10)).toEqual([])
+    clock.value += 9
+    expect(store.claim("worker-b", 1, 10).map((item) => item.slug)).toEqual(["lease"])
+    expect(store.renew("worker-a", "lease", 10)).toBe(false)
+    database.close()
+  })
+
   test("claims disjoint bounded rows from overlapping processes", async () => {
     const fixture = await temporaryDatabaseFixture()
     const store = createSkillHubImportStore({ database: fixture.database })

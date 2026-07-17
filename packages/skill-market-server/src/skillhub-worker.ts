@@ -59,6 +59,7 @@ export async function runConfiguredSkillHubWorker(options: {
   readonly workerID?: string
   readonly emit?: MarketMetricEmitter
 } = {}) {
+  if (!options.publish) throw new Error("SkillHub publication callback is required")
   const config = options.config ?? loadConfig()
   const database = await openDatabase({
     databasePath: config.databasePath,
@@ -103,7 +104,7 @@ async function runWithDatabase(
     loadRecord: (item) => loadSkillHubRecord(fetcher, config.skillhubBaseUrl, item.list),
     allowedHosts: config.allowedHosts,
     publicBaseUrl: config.publicBaseUrl,
-    objectPrefix: config.privateOssPrefix,
+    objectPrefix: config.ossPrefix,
     metadataConcurrency: config.skillhubMetadataConcurrency,
     packageConcurrency: config.skillhubPackageConcurrency,
     memorySoftLimitMb: config.skillhubMemorySoftLimitMb,
@@ -116,6 +117,7 @@ async function runWithDatabase(
         baseUrl: config.skillhubBaseUrl,
         imports,
         pageConcurrency: config.skillhubPageConcurrency,
+        maxPageBatches: 1,
       }).then(() => undefined),
     mirror,
     progress: imports.progress,

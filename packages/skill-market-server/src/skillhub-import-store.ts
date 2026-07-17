@@ -9,6 +9,7 @@ export interface ClaimedSkillHubItem {
   readonly slug: string
   readonly upstreamVersion: string
   readonly upstreamUpdatedAt: number
+  readonly attempts: number
   readonly list: SkillHubListRecord
 }
 
@@ -72,6 +73,7 @@ export interface SkillHubImportStore {
   ) => { readonly inserted: number }
   readonly completeSweep: (generationID: string) => { readonly stable: boolean }
   readonly claim: (workerID: string, limit: number, leaseMilliseconds: number) => ClaimedSkillHubItem[]
+  readonly renew: (workerID: string, slug: string, leaseMilliseconds: number) => boolean
   readonly complete: (workerID: string, slug: string, result: CompletedSkillHubImport) => boolean
   readonly retry: (
     workerID: string,
@@ -189,7 +191,7 @@ export function createSkillHubImportStore(options: {
         const timestamp = now()
         const rows = connection
           .query<ClaimRow, [number, number, number]>(
-            "SELECT item.slug, item.upstream_version, item.upstream_updated_at, item.list_json FROM skillhub_import_items AS item JOIN skillhub_generations AS generation ON generation.id = item.generation_id WHERE generation.state = 'running' AND (item.state = 'pending' OR (item.state = 'retry_wait' AND item.next_attempt_at <= ?) OR (item.state = 'running' AND item.lease_expires_at <= ?)) ORDER BY item.updated_at, item.slug LIMIT ?",
+            "SELECT item.slug, item.upstream_version, item.upstream_updated_at, item.attempts, item.list_json FROM skillhub_import_items AS item JOIN skillhub_generations AS generation ON generation.id = item.generation_id WHERE generation.state = 'running' AND (item.state = 'pending' OR (item.state = 'retry_wait' AND item.next_attempt_at <= ?) OR (item.state = 'running' AND item.lease_expires_at <= ?)) ORDER BY item.updated_at, item.slug LIMIT ?",
           )
           .all(timestamp, timestamp, limit)
         rows.forEach((row) => {
@@ -202,8 +204,20 @@ export function createSkillHubImportStore(options: {
           slug: row.slug,
           upstreamVersion: row.upstream_version,
           upstreamUpdatedAt: row.upstream_updated_at,
+          attempts: row.attempts + 1,
           list: Schema.decodeUnknownSync(Schema.fromJsonString(SkillHubListRecord))(row.list_json),
         }))
+      })
+    },
+    renew(workerID, slug, leaseMilliseconds) {
+      if (!Number.isSafeInteger(leaseMilliseconds) || leaseMilliseconds < 1 || leaseMilliseconds > 86_400_000)
+        throw new Error("SkillHub lease must be between 1 millisecond and 24 hours")
+      return options.database.transaction((connection) => {
+        const timestamp = now()
+        return connection.run(
+          "UPDATE skillhub_import_items SET lease_expires_at = ?, updated_at = ? WHERE slug = ? AND state = 'running' AND lease_owner = ? AND lease_expires_at > ?",
+          [timestamp + leaseMilliseconds, timestamp, slug, workerID, timestamp],
+        ).changes === 1
       })
     },
     complete(workerID, slug, result) {
@@ -367,6 +381,7 @@ type ClaimRow = {
   readonly slug: string
   readonly upstream_version: string
   readonly upstream_updated_at: number
+  readonly attempts: number
   readonly list_json: string
 }
 

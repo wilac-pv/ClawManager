@@ -1,5 +1,6 @@
 export interface AdaptivePool {
   readonly concurrency: () => number
+  readonly throttle: () => number
   readonly map: <Input, Output>(
     values: readonly Input[],
     run: (value: Input) => Promise<Output>,
@@ -85,6 +86,10 @@ export function createAdaptivePool(options: AdaptivePoolOptions): AdaptivePool {
 
   return {
     concurrency: recover,
+    throttle: () => {
+      throttle()
+      return limit
+    },
     map<Input, Output>(values: readonly Input[], run: (value: Input) => Promise<Output>) {
       if (values.length === 0) return Promise.resolve([])
       return new Promise<Output[]>((resolve, reject) => {
