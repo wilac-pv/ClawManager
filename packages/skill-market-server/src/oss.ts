@@ -52,6 +52,11 @@ export interface MaintenanceObjectStore extends PrivateObjectStore {
 
 export type PublishConfig = { readonly prefix: string }
 
+export function isMissingObjectError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return /\b(NotFound|NoSuchKey|missing)\b/i.test(error.message)
+}
+
 export function makeS3ObjectStore(config: {
   readonly endpoint: string
   readonly region: string

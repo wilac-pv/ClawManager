@@ -8,7 +8,7 @@ import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { emitMarketMetric } from "./metrics"
-import { type ObjectStore, loadCatalogDetail, loadCatalogIndex, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
+import { type ObjectStore, isMissingObjectError, loadCatalogDetail, loadCatalogIndex, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
 import { createPublisher } from "./publisher"
 import { normalizeSkillHubArchive } from "./skillhub-archive"
@@ -161,12 +161,12 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
   await publisher.recover()
   await drainPublisher(publisher)
   const imports = options.database ? createSkillHubImportStore({ database: options.database }) : undefined
-  const beforeMigration = await settled(loadCatalogIndex(options.store, { prefix: options.config.ossPrefix }))
-  if (imports && beforeMigration.ok && Array.from(beforeMigration.value.details.values()).some((ref) => ref.sha256.length !== 64))
+  const beforeMigration = await catalogIndexOrMissing(options.store, options.config.ossPrefix)
+  if (imports && beforeMigration && Array.from(beforeMigration.details.values()).some((ref) => ref.sha256.length !== 64))
     await publisher.seedLegacySkillHub(imports, "sync-migration")
-  const current = await settled(loadCatalogIndex(options.store, { prefix: options.config.ossPrefix }))
-  const base = current.ok
-    ? current.value
+  const current = await catalogIndexOrMissing(options.store, options.config.ossPrefix)
+  const base = current
+    ? current
     : createCatalogIndex({
         entries: new Map(),
         sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
@@ -207,6 +207,7 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
       materialized.forEach((entry) => latestEntries.set(key(entry.summary.source, entry.summary.id), entry))
       const overrides = enterprise.value.index.skills.filter((entry) => entry.source !== "enterprise")
       for (const override of overrides) {
+        if (enterpriseEntryUnchanged(override, state.enterpriseIndex)) continue
         const target = latest.items.find((summary) =>
           summary.source === override.source && [summary.id, ...(summary.aliases ?? [])].includes(override.referenceId ?? override.id),
         )
@@ -592,6 +593,15 @@ function enterpriseEntryUnchanged(
 ) {
   const matching = previous?.skills.find((candidate) => candidate.source === "enterprise" && candidate.id === entry.id)
   return matching !== undefined && JSON.stringify(matching) === JSON.stringify(entry)
+}
+
+async function catalogIndexOrMissing(store: ObjectStore, prefix: string) {
+  try {
+    return await loadCatalogIndex(store, { prefix })
+  } catch (error) {
+    if (isMissingObjectError(error)) return undefined
+    throw error
+  }
 }
 
 function riskRank(risk: SkillMarket.Risk) {

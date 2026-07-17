@@ -7,6 +7,7 @@ import {
   loadCatalogIndex,
   loadCurrentPointer,
   loadCurrentSnapshot,
+  isMissingObjectError,
   type PrivateObjectStore,
   publishCatalogIndexObjects,
   publishCatalogIndexPointer,
@@ -286,13 +287,16 @@ export class Publisher {
   }
 
   private async basePublication(): Promise<Publication> {
-    const loaded = await settled(loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix }))
-    if (!loaded.ok) {
+    let index: CatalogIndex
+    try {
+      index = await loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix })
+    } catch (error) {
+      if (!isMissingObjectError(error)) throw error
       const sourceStatus = { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const
       return { index: createCatalogIndex({ entries: new Map(), sourceStatus }), changedDetails: new Map() }
     }
-    if (Array.from(loaded.value.details.values()).every((ref) => ref.sha256.length === 64))
-      return { index: loaded.value, changedDetails: new Map() }
+    if (Array.from(index.details.values()).every((ref) => ref.sha256.length === 64))
+      return { index, changedDetails: new Map() }
     const snapshot = await loadCurrentSnapshot(this.options.store, { prefix: this.options.ossPrefix })
     const entries = new Map<string, { summary: SkillMarket.Summary; ref: { key: string; sha256: string } }>()
     const changedDetails = new Map<string, SkillMarket.Detail>()
@@ -337,9 +341,12 @@ export class Publisher {
   }
 
   private async latestIndex(fallback: SkillMarket.SourceStatus) {
-    const loaded = await settled(loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix }))
-    if (loaded.ok) return loaded.value
-    return createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
+    try {
+      return await loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix })
+    } catch (error) {
+      if (!isMissingObjectError(error)) throw error
+      return createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
+    }
   }
 
   private finalize(job: JobRow, expired = false) {
