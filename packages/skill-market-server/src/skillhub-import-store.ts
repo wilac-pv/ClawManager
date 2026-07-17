@@ -121,9 +121,17 @@ export function createSkillHubImportStore(options: {
         }
         const id = `gen_${crypto.randomUUID()}`
         const timestamp = now()
+        const publication = publicationCheckpoint(connection)
         connection.run(
-          "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at) VALUES (?, 'running', ?, ?, ?)",
-          [id, upstreamTotal, timestamp, timestamp],
+          "INSERT INTO skillhub_generations (id, state, upstream_total, last_published_count, last_published_at, started_at, updated_at) VALUES (?, 'running', ?, ?, ?, ?, ?)",
+          [
+            id,
+            upstreamTotal,
+            publication.lastPublishedCount,
+            publication.lastPublishedAt ? Date.parse(publication.lastPublishedAt) : null,
+            timestamp,
+            timestamp,
+          ],
         )
         return { id }
       })
@@ -151,11 +159,11 @@ export function createSkillHubImportStore(options: {
         const generation = generationRow(connection, generationID)
         const timestamp = now()
         const observed = connection
-          .query<{ count: number }, [string, number]>(
-            "SELECT COUNT(*) AS count FROM skillhub_import_items WHERE generation_id = ? AND last_seen_sweep = ?",
+          .query<{ count: number }, [string, string, number]>(
+            "SELECT COUNT(*) AS count FROM skillhub_import_items WHERE generation_id = ? AND last_seen_generation = ? AND last_seen_sweep = ?",
           )
-          .get(generationID, generation.sweep)!.count
-        const stable = generation.new_in_sweep === 0 && observed >= generation.upstream_total
+          .get(generationID, generationID, generation.sweep)!.count
+        const stable = generation.sweep >= 1 && generation.new_in_sweep === 0 && observed >= generation.upstream_total
         if (stable) {
           connection.run(
             "UPDATE skillhub_generations SET discovery_completed_at = ?, updated_at = ? WHERE id = ?",
@@ -172,6 +180,11 @@ export function createSkillHubImportStore(options: {
       })
     },
     claim(workerID, limit, leaseMilliseconds) {
+      if (workerID.length < 1 || workerID.length > 128) throw new Error("SkillHub worker ID must contain 1 to 128 characters")
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > packageConcurrency)
+        throw new Error(`SkillHub claim limit must be between 1 and ${packageConcurrency}`)
+      if (!Number.isSafeInteger(leaseMilliseconds) || leaseMilliseconds < 1 || leaseMilliseconds > 86_400_000)
+        throw new Error("SkillHub lease must be between 1 millisecond and 24 hours")
       return options.database.transaction((connection) => {
         const timestamp = now()
         const rows = connection
@@ -286,9 +299,17 @@ export function createSkillHubImportStore(options: {
     },
     seedLegacy(entries) {
       return options.database.transaction((connection) => {
+        const missing = entries.filter(
+          (entry) =>
+            !connection
+              .query<{ present: number }, [string]>("SELECT 1 AS present FROM skillhub_import_items WHERE slug = ?")
+              .get(entry.slug),
+        )
+        if (missing.length === 0) return 0
         const timestamp = now()
-        const generation = generationCheckpoint(connection) ?? legacyGeneration(connection, entries.length, timestamp)
-        return entries.filter((entry) => {
+        const existingGeneration = generationCheckpoint(connection) ?? latestGeneration(connection)
+        const generation = existingGeneration ?? legacyGeneration(connection, missing.length, timestamp)
+        const inserted = missing.filter((entry) => {
           const result = connection.run(
             "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, summary_json, detail_key, detail_sha256, mirrored_at, last_seen_generation, created_at, updated_at) VALUES (?, ?, ?, ?, 'mirrored', '{}', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(slug) DO NOTHING",
             [
@@ -307,6 +328,17 @@ export function createSkillHubImportStore(options: {
           )
           return result.changes === 1
         }).length
+        if (
+          inserted > 0 &&
+          existingGeneration &&
+          generation.state !== "running" &&
+          generation.state !== "paused"
+        )
+          connection.run(
+            "UPDATE skillhub_generations SET upstream_total = upstream_total + ?, updated_at = ? WHERE id = ?",
+            [inserted, timestamp, generation.id],
+          )
+        return inserted
       })
     },
   }
@@ -368,6 +400,16 @@ function generationCheckpoint(connection: Database): SkillHubGenerationCheckpoin
     newInSweep: generation.new_in_sweep,
     discoveryCompleted: generation.discovery_completed_at !== null,
   }
+}
+
+function latestGeneration(
+  connection: Database,
+): Pick<GenerationRow, "id" | "state"> | undefined {
+  return connection
+    .query<Pick<GenerationRow, "id" | "state">, []>(
+      "SELECT id, state FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1",
+    )
+    .get() ?? undefined
 }
 
 function generationRow(connection: Database, generationID: string) {
@@ -608,11 +650,21 @@ function idleProgress(timestamp: number, metadataConcurrency: number, packageCon
 
 function legacyGeneration(connection: Database, total: number, timestamp: number) {
   const id = `legacy_${crypto.randomUUID()}`
+  const publication = publicationCheckpoint(connection)
   connection.run(
-    "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES (?, 'completed', ?, ?, ?, ?, ?)",
-    [id, total, timestamp, timestamp, timestamp, timestamp],
+    "INSERT INTO skillhub_generations (id, state, upstream_total, last_published_count, last_published_at, started_at, updated_at, discovery_completed_at, completed_at) VALUES (?, 'completed', ?, ?, ?, ?, ?, ?, ?)",
+    [
+      id,
+      total,
+      publication.lastPublishedCount,
+      publication.lastPublishedAt ? Date.parse(publication.lastPublishedAt) : null,
+      timestamp,
+      timestamp,
+      timestamp,
+      timestamp,
+    ],
   )
-  return { id }
+  return { id, state: "completed" as const }
 }
 
 function publicationCheckpoint(connection: Database): SkillHubPublicationCheckpoint {

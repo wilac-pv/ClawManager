@@ -13,15 +13,9 @@ CREATE TABLE skillhub_generations (
   recent_error_at INTEGER,
   started_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  discovery_completed_at INTEGER,
   completed_at INTEGER,
   CHECK (updated_at >= started_at),
-  CHECK (discovery_completed_at IS NULL OR discovery_completed_at >= started_at),
   CHECK (completed_at IS NULL OR completed_at >= started_at),
-  CHECK ((state = 'completed') = (completed_at IS NOT NULL)),
-  CHECK (completed_at IS NULL OR discovery_completed_at IS NOT NULL),
-  CHECK (recent_error_code IS NULL OR recent_error_code IN ('upstream', 'download', 'validation', 'storage', 'rate_limited')),
-  CHECK (recent_error_summary IS NULL OR length(recent_error_summary) BETWEEN 1 AND 500),
   CHECK (
     (recent_error_code IS NULL AND recent_error_summary IS NULL AND recent_error_at IS NULL) OR
     (recent_error_code IS NOT NULL AND recent_error_summary IS NOT NULL AND recent_error_at IS NOT NULL)
@@ -49,23 +43,14 @@ CREATE TABLE skillhub_import_items (
   repair_json TEXT CHECK (repair_json IS NULL OR json_valid(repair_json)),
   error_code TEXT,
   error_summary TEXT,
-  mirrored_at INTEGER,
   last_seen_generation TEXT NOT NULL,
   last_seen_sweep INTEGER NOT NULL DEFAULT 0 CHECK (last_seen_sweep >= 0),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  CHECK ((state = 'running') = (lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL)),
-  CHECK ((state = 'retry_wait') = (next_attempt_at IS NOT NULL)),
-  CHECK (error_code IS NULL OR error_code IN ('upstream', 'download', 'validation', 'storage', 'rate_limited')),
-  CHECK ((error_code IS NULL) = (error_summary IS NULL)),
-  CHECK (error_summary IS NULL OR length(error_summary) BETWEEN 1 AND 500),
-  CHECK (state NOT IN ('retry_wait', 'rejected') OR (error_code IS NOT NULL AND error_summary IS NOT NULL AND length(error_summary) BETWEEN 1 AND 500)),
-  CHECK (state != 'mirrored' OR (summary_json IS NOT NULL AND detail_key IS NOT NULL AND detail_sha256 IS NOT NULL AND mirrored_at IS NOT NULL)),
-  CHECK ((state = 'mirrored') = (mirrored_at IS NOT NULL)),
+  CHECK ((lease_owner IS NULL AND lease_expires_at IS NULL) OR (lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL)),
   CHECK (updated_at >= created_at)
 ) STRICT;
 
-CREATE UNIQUE INDEX skillhub_single_unsettled_generation ON skillhub_generations((1)) WHERE state IN ('running', 'paused');
 CREATE INDEX skillhub_import_queue ON skillhub_import_items(state, next_attempt_at, lease_expires_at, updated_at);
 CREATE INDEX skillhub_import_generation ON skillhub_import_items(last_seen_generation, state);
 CREATE INDEX skillhub_import_detail ON skillhub_import_items(detail_key) WHERE detail_key IS NOT NULL;

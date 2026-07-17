@@ -24,7 +24,7 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4)
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
@@ -184,8 +184,173 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([3, 3])
+    ).toEqual([4, 4])
     databases.forEach((database) => database.close())
+  })
+
+  test("upgrades persisted v3 imports without losing lifecycle or queue data", async () => {
+    const directory = await temporaryDirectory()
+    const migrations = join(directory, "v3-migrations")
+    const path = join(directory, "market.db")
+    const backups = join(directory, "backups")
+    await mkdir(migrations)
+    await Promise.all(
+      ["001_control_plane.sql", "002_submission_icons.sql", "003_skillhub_import.sql"].map(async (file) =>
+        Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file))),
+      ),
+    )
+    const v3 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+    v3.connection.run("PRAGMA ignore_check_constraints = ON")
+    v3.connection.run(
+      "INSERT INTO skillhub_generations (id, state, upstream_total, discovery_page, sweep, new_in_sweep, last_published_count, uploaded_bytes, started_at, updated_at, completed_at) VALUES ('draining', 'running', 4, 5, 1, 0, 2, 20, 1, 10, 5), ('other-active', 'paused', 1, 1, 0, 1, 3, 5, 2, 9, NULL), ('complete', 'completed', 1, 1, 1, 0, 1, 10, 1, 20, 20)",
+    )
+    const insertItem =
+      "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, next_attempt_at, lease_owner, lease_expires_at, list_json, summary_json, detail_key, detail_sha256, error_code, error_summary, last_seen_generation, last_seen_sweep, created_at, updated_at) VALUES (?, ?, '1.0.0', 1, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, ?, 1, 1, ?)"
+    v3.connection.run(insertItem, [
+      "mirror",
+      "complete",
+      "mirrored",
+      null,
+      null,
+      null,
+      "{}",
+      "details/mirror.json",
+      "a".repeat(64),
+      null,
+      null,
+      "complete",
+      20,
+    ])
+    v3.connection.run(insertItem, [
+      "retry",
+      "draining",
+      "retry_wait",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "unknown",
+      "",
+      "draining",
+      11,
+    ])
+    v3.connection.run(insertItem, [
+      "reject",
+      "draining",
+      "rejected",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "draining",
+      12,
+    ])
+    v3.connection.run(insertItem, [
+      "leased",
+      "draining",
+      "running",
+      null,
+      "worker",
+      100,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "draining",
+      13,
+    ])
+    v3.connection.run(insertItem, [
+      "other-pending",
+      "other-active",
+      "pending",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "other-active",
+      14,
+    ])
+    v3.connection.run("PRAGMA ignore_check_constraints = OFF")
+    v3.close()
+
+    const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4)
+    expect(
+      upgraded.connection
+        .query<
+          {
+            state: string
+            discovery_completed_at: number | null
+            completed_at: number | null
+            last_published_count: number
+          },
+          [string]
+        >(
+          "SELECT state, discovery_completed_at, completed_at, last_published_count FROM skillhub_generations WHERE id = ?",
+        )
+        .get("draining"),
+    ).toEqual({ state: "running", discovery_completed_at: 5, completed_at: null, last_published_count: 3 })
+    expect(
+      upgraded.connection
+        .query<{ discovery_completed_at: number; completed_at: number }, [string]>(
+          "SELECT discovery_completed_at, completed_at FROM skillhub_generations WHERE id = ?",
+        )
+        .get("complete"),
+    ).toEqual({ discovery_completed_at: 20, completed_at: 20 })
+    expect(
+      upgraded.connection
+        .query<{ state: string; mirrored_at: number }, [string]>(
+          "SELECT state, mirrored_at FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("mirror"),
+    ).toEqual({ state: "mirrored", mirrored_at: 20 })
+    expect(
+      upgraded.connection
+        .query<{ next_attempt_at: number; error_code: string; error_summary: string }, [string]>(
+          "SELECT next_attempt_at, error_code, error_summary FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("retry"),
+    ).toEqual({ next_attempt_at: 11, error_code: "upstream", error_summary: "Migrated SkillHub import error" })
+    expect(
+      upgraded.connection
+        .query<{ error_code: string; error_summary: string }, [string]>(
+          "SELECT error_code, error_summary FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("reject"),
+    ).toEqual({ error_code: "upstream", error_summary: "Migrated SkillHub import error" })
+    expect(
+      upgraded.connection
+        .query<{ lease_owner: string; lease_expires_at: number }, [string]>(
+          "SELECT lease_owner, lease_expires_at FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("leased"),
+    ).toEqual({ lease_owner: "worker", lease_expires_at: 100 })
+    expect(
+      upgraded.connection
+        .query<{ state: string }, [string]>("SELECT state FROM skillhub_generations WHERE id = ?")
+        .get("other-active"),
+    ).toEqual({ state: "failed" })
+    expect(
+      upgraded.connection
+        .query<{ generation_id: string; state: string }, [string]>(
+          "SELECT generation_id, state FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("other-pending"),
+    ).toEqual({ generation_id: "draining", state: "pending" })
+    expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
+    expect(upgraded.connection.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check).toBe("ok")
+    upgraded.close()
   })
 })
 

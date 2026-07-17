@@ -148,11 +148,158 @@ describe("SkillHub import store", () => {
     expect(store.completeSweep(generation.id)).toEqual({ stable: false })
     store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")], 2)
     expect(store.completeSweep(generation.id)).toEqual({ stable: false })
+    expect(
+      database.connection
+        .query<{ state: string; upstream_version: string; last_seen_sweep: number }, [string]>(
+          "SELECT state, upstream_version, last_seen_sweep FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("beta"),
+    ).toEqual({ state: "pending", upstream_version: "1.0.0", last_seen_sweep: 0 })
     expect(store.activeGeneration()).toMatchObject({ discoveryPage: 0, sweep: 2, newInSweep: 0, upstreamTotal: 2 })
     store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
     expect(store.completeSweep(generation.id)).toEqual({ stable: true })
 
     database.close()
+  })
+
+  test("requires a full resweep after legacy seeding", async () => {
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database })
+    const legacy = completed("legacy").entry
+    store.seedLegacy([{ slug: "legacy", ...legacy }])
+    const generation = store.beginGeneration(1)
+    const list = listRecord("legacy", "1.0.0", Date.parse(legacy.summary.updatedAt))
+
+    store.recordPage(generation.id, 1, [list])
+    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
+    store.recordPage(generation.id, 1, [list])
+    expect(store.completeSweep(generation.id)).toEqual({ stable: true })
+    database.close()
+  })
+
+  test("does not count cross-generation retries as discovery coverage", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database, now: () => clock.value })
+    const generation = store.beginGeneration(2)
+    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
+    database.connection.run(
+      "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('old', 'completed', 1, ?, ?, ?, ?)",
+      [clock.value, clock.value, clock.value, clock.value],
+    )
+    database.connection.run(
+      "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, error_code, error_summary, last_seen_generation, last_seen_sweep, created_at, updated_at) VALUES ('beta', 'old', '1.0.0', 1, 'rejected', '{}', 'validation', 'old error', 'old', 1, ?, ?)",
+      [clock.value, clock.value],
+    )
+    store.commandTransition({ command: "retry-rejected", slugs: ["beta"] })
+    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+
+    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
+    expect(
+      database.connection
+        .query<{ state: string; last_seen_generation: string }, [string]>(
+          "SELECT state, last_seen_generation FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("beta"),
+    ).toEqual({ state: "pending", last_seen_generation: "old" })
+    database.close()
+  })
+
+  test("keeps no-op legacy seeds and new generations on the publication checkpoint", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const fixture = await temporaryDatabaseFixture()
+    const legacy = { slug: "legacy", ...completed("legacy").entry }
+    const store = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
+    expect(store.seedLegacy([legacy])).toBe(1)
+    expect(store.recordPublication(1)).toBe(true)
+    fixture.database.close()
+
+    const reopened = await reopenDatabase(fixture)
+    const resumed = createSkillHubImportStore({ database: reopened, now: () => clock.value })
+    expect(resumed.seedLegacy([legacy])).toBe(0)
+    expect(
+      reopened.connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_generations").get()?.count,
+    ).toBe(1)
+    expect(resumed.publicationCheckpoint()).toEqual({
+      lastPublishedCount: 1,
+      lastPublishedAt: new Date(clock.value).toISOString(),
+    })
+    expect(resumed.seedLegacy([legacy, { slug: "new-legacy", ...completed("new-legacy").entry }])).toBe(1)
+    expect(
+      reopened.connection.query<{ count: number }, []>(
+        "SELECT COUNT(*) AS count FROM skillhub_generations",
+      ).get()?.count,
+    ).toBe(1)
+    expect(
+      reopened.connection.query<{ upstream_total: number }, []>(
+        "SELECT upstream_total FROM skillhub_generations",
+      ).get()?.upstream_total,
+    ).toBe(2)
+    expect(resumed.publicationCheckpoint()).toEqual({
+      lastPublishedCount: 1,
+      lastPublishedAt: new Date(clock.value).toISOString(),
+    })
+    resumed.beginGeneration(2)
+    expect(resumed.publicationCheckpoint()).toEqual({
+      lastPublishedCount: 1,
+      lastPublishedAt: new Date(clock.value).toISOString(),
+    })
+    reopened.close()
+  })
+
+  test("validates claim bounds before mutating queue rows", async () => {
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database })
+    const generation = store.beginGeneration(6)
+    store.recordPage(
+      generation.id,
+      1,
+      Array.from({ length: 6 }, (_, index) => listRecord(`skill-${index}`, "1.0.0")),
+    )
+
+    for (const input of [
+      ["", 1, 60_000],
+      ["x".repeat(129), 1, 60_000],
+      ["worker", -1, 60_000],
+      ["worker", 1.5, 60_000],
+      ["worker", 7, 60_000],
+      ["worker", 1, -1],
+      ["worker", 1, 1.5],
+      ["worker", 1, 86_400_001],
+    ] as const)
+      expect(() => store.claim(input[0], input[1], input[2])).toThrow()
+    expect(store.progress()).toMatchObject({ pending: 6, running: 0 })
+    expect(store.claim("worker", 6, 86_400_000)).toHaveLength(6)
+    database.close()
+  })
+
+  test("claims disjoint bounded rows from overlapping processes", async () => {
+    const fixture = await temporaryDatabaseFixture()
+    const store = createSkillHubImportStore({ database: fixture.database })
+    const generation = store.beginGeneration(6)
+    store.recordPage(
+      generation.id,
+      1,
+      Array.from({ length: 6 }, (_, index) => listRecord(`race-${index}`, "1.0.0")),
+    )
+    const barrier = join(fixture.path, "..", "claim-barrier")
+    const worker = join(import.meta.dir, "skillhub-claim-race-worker.ts")
+    const first = Bun.spawn([process.execPath, worker, fixture.path, "worker-a", barrier], { stdout: "pipe" })
+    const second = Bun.spawn([process.execPath, worker, fixture.path, "worker-b", barrier], { stdout: "pipe" })
+    await Bun.write(barrier, "go")
+    const [firstOutput, secondOutput, firstExit, secondExit] = await Promise.all([
+      new Response(first.stdout).json() as Promise<string[]>,
+      new Response(second.stdout).json() as Promise<string[]>,
+      first.exited,
+      second.exited,
+    ])
+
+    expect([firstExit, secondExit]).toEqual([0, 0])
+    expect(firstOutput).toHaveLength(3)
+    expect(secondOutput).toHaveLength(3)
+    expect(new Set([...firstOutput, ...secondOutput]).size).toBe(6)
+    fixture.database.close()
   })
 
   test("adopts and refreshes one persisted unsettled generation after reopen", async () => {

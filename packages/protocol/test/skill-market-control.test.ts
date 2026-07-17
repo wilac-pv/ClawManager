@@ -130,9 +130,9 @@ test("skillhub import commands decode bounded slug selections", () => {
   expect(
     Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
       command: "retry-rejected",
-      slugs: ["技能审查", "owner/skill"],
+      slugs: ["技能审查", "owner/skill", "has whitespace", "control\u0080", "format\u200d"],
     }).slugs,
-  ).toEqual(["技能审查", "owner/skill"])
+  ).toEqual(["技能审查", "owner/skill", "has whitespace", "control\u0080", "format\u200d"])
   expect(() =>
     Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
       command: "retry-rejected",
@@ -142,19 +142,13 @@ test("skillhub import commands decode bounded slug selections", () => {
   expect(() =>
     Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
       command: "retry-rejected",
-      slugs: ["has whitespace"],
-    }),
-  ).toThrow()
-  expect(() =>
-    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
-      command: "retry-rejected",
-      slugs: ["control\u0080"],
-    }),
-  ).toThrow()
-  expect(() =>
-    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
-      command: "retry-rejected",
       slugs: ["a".repeat(257)],
+    }),
+  ).toThrow()
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
+      command: "retry-rejected",
+      slugs: [""],
     }),
   ).toThrow()
   for (const command of ["pause", "resume", "retry-wait"] as const) {

@@ -274,10 +274,7 @@ export type SkillHubImportState = typeof SkillHubImportState.Type
 export const SkillHubImportCommand = Schema.Literals(["pause", "resume", "retry-wait", "retry-rejected"])
 export type SkillHubImportCommand = typeof SkillHubImportCommand.Type
 
-export const SkillHubImportSlug = Schema.String.check(
-  Schema.isLengthBetween(1, 256),
-  Schema.isPattern(/^[^\s\p{Cc}]+$/u),
-)
+export const SkillHubImportSlug = Schema.String.check(Schema.isLengthBetween(1, 256))
 export type SkillHubImportSlug = typeof SkillHubImportSlug.Type
 
 const UntargetedSkillHubImportCommand = Schema.Struct({
