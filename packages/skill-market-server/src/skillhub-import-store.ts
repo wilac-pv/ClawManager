@@ -121,7 +121,7 @@ export function createSkillHubImportStore(options: {
         }
         const id = `gen_${crypto.randomUUID()}`
         const timestamp = now()
-        const publication = publicationCheckpoint(connection)
+        const publication = strongestPublicationCheckpoint(connection)
         connection.run(
           "INSERT INTO skillhub_generations (id, state, upstream_total, last_published_count, last_published_at, started_at, updated_at) VALUES (?, 'running', ?, ?, ?, ?, ?)",
           [
@@ -249,9 +249,7 @@ export function createSkillHubImportStore(options: {
       return options.database.transaction((connection) => {
         if (!Number.isInteger(mirroredCount) || mirroredCount < 0) return false
         const timestamp = now()
-        const generation = connection
-          .query<{ id: string }, []>("SELECT id FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1")
-          .get()
+        const generation = currentGeneration(connection)
         if (!generation) return false
         const checkpoint = publicationCheckpoint(connection)
         if (mirroredCount < checkpoint.lastPublishedCount) return false
@@ -307,7 +305,7 @@ export function createSkillHubImportStore(options: {
         )
         if (missing.length === 0) return 0
         const timestamp = now()
-        const existingGeneration = generationCheckpoint(connection) ?? latestGeneration(connection)
+        const existingGeneration = currentGeneration(connection)
         const generation = existingGeneration ?? legacyGeneration(connection, missing.length, timestamp)
         const inserted = missing.filter((entry) => {
           const result = connection.run(
@@ -354,6 +352,17 @@ type GenerationRow = {
   readonly discovery_completed_at: number | null
 }
 
+type CurrentGenerationRow = GenerationRow & {
+  readonly uploaded_bytes: number
+  readonly updated_at: number
+  readonly last_published_count: number
+  readonly last_published_at: number | null
+  readonly recent_error_code: string | null
+  readonly recent_error_summary: string | null
+  readonly recent_error_at: number | null
+  readonly completed_at: number | null
+}
+
 type ClaimRow = {
   readonly slug: string
   readonly upstream_version: string
@@ -368,12 +377,13 @@ type MirroredRow = {
 }
 
 function activeGeneration(connection: Database): ActiveSkillHubGeneration | undefined {
-  const generation = connection
-    .query<GenerationRow, []>(
-      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, discovery_completed_at FROM skillhub_generations WHERE state IN ('running', 'paused') AND discovery_completed_at IS NULL ORDER BY started_at, rowid LIMIT 1",
-    )
-    .get()
-  if (!generation) return undefined
+  const generation = currentGeneration(connection)
+  if (
+    !generation ||
+    (generation.state !== "running" && generation.state !== "paused") ||
+    generation.discovery_completed_at !== null
+  )
+    return undefined
   return {
     id: generation.id,
     state: generation.state as "running" | "paused",
@@ -385,12 +395,8 @@ function activeGeneration(connection: Database): ActiveSkillHubGeneration | unde
 }
 
 function generationCheckpoint(connection: Database): SkillHubGenerationCheckpoint | undefined {
-  const generation = connection
-    .query<GenerationRow, []>(
-      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, discovery_completed_at FROM skillhub_generations WHERE state IN ('running', 'paused') ORDER BY started_at, rowid LIMIT 1",
-    )
-    .get()
-  if (!generation) return undefined
+  const generation = currentGeneration(connection)
+  if (!generation || (generation.state !== "running" && generation.state !== "paused")) return undefined
   return {
     id: generation.id,
     state: generation.state as "running" | "paused",
@@ -402,12 +408,10 @@ function generationCheckpoint(connection: Database): SkillHubGenerationCheckpoin
   }
 }
 
-function latestGeneration(
-  connection: Database,
-): Pick<GenerationRow, "id" | "state"> | undefined {
+function currentGeneration(connection: Database): CurrentGenerationRow | undefined {
   return connection
-    .query<Pick<GenerationRow, "id" | "state">, []>(
-      "SELECT id, state FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1",
+    .query<CurrentGenerationRow, []>(
+      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, uploaded_bytes, updated_at, last_published_count, last_published_at, recent_error_code, recent_error_summary, recent_error_at, discovery_completed_at, completed_at FROM skillhub_generations ORDER BY CASE WHEN state IN ('running', 'paused') THEN 0 ELSE 1 END, started_at DESC, rowid DESC LIMIT 1",
     )
     .get() ?? undefined
 }
@@ -555,27 +559,7 @@ function finishGenerationIfSettled(connection: Database, generationID: string, t
 }
 
 function readProgress(connection: Database, timestamp: number, metadataConcurrency: number, packageConcurrency: number) {
-  const generation = connection
-    .query<
-      {
-        readonly id: string
-        readonly state: "running" | "paused" | "completed" | "failed"
-        readonly upstream_total: number
-        readonly discovery_page: number
-        readonly sweep: number
-        readonly uploaded_bytes: number
-        readonly updated_at: number
-        readonly last_published_at: number | null
-        readonly recent_error_code: string | null
-        readonly recent_error_summary: string | null
-        readonly recent_error_at: number | null
-        readonly completed_at: number | null
-      },
-      []
-    >(
-      "SELECT id, state, upstream_total, discovery_page, sweep, uploaded_bytes, updated_at, last_published_at, recent_error_code, recent_error_summary, recent_error_at, completed_at FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1",
-    )
-    .get()
+  const generation = currentGeneration(connection)
   if (!generation) return idleProgress(timestamp, metadataConcurrency, packageConcurrency)
   const counts = connection
     .query<{ readonly state: string; readonly count: number }, [string]>(
@@ -650,7 +634,7 @@ function idleProgress(timestamp: number, metadataConcurrency: number, packageCon
 
 function legacyGeneration(connection: Database, total: number, timestamp: number) {
   const id = `legacy_${crypto.randomUUID()}`
-  const publication = publicationCheckpoint(connection)
+  const publication = strongestPublicationCheckpoint(connection)
   connection.run(
     "INSERT INTO skillhub_generations (id, state, upstream_total, last_published_count, last_published_at, started_at, updated_at, discovery_completed_at, completed_at) VALUES (?, 'completed', ?, ?, ?, ?, ?, ?, ?)",
     [
@@ -668,11 +652,22 @@ function legacyGeneration(connection: Database, total: number, timestamp: number
 }
 
 function publicationCheckpoint(connection: Database): SkillHubPublicationCheckpoint {
+  const generation = currentGeneration(connection)
+  return checkpointFromGeneration(generation)
+}
+
+function strongestPublicationCheckpoint(connection: Database): SkillHubPublicationCheckpoint {
   const generation = connection
     .query<{ last_published_count: number; last_published_at: number | null }, []>(
-      "SELECT last_published_count, last_published_at FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1",
+      "SELECT last_published_count, last_published_at FROM skillhub_generations ORDER BY last_published_count DESC, last_published_at DESC, started_at DESC, rowid DESC LIMIT 1",
     )
     .get()
+  return checkpointFromGeneration(generation)
+}
+
+function checkpointFromGeneration(
+  generation: { readonly last_published_count: number; readonly last_published_at: number | null } | null | undefined,
+): SkillHubPublicationCheckpoint {
   if (!generation) return { lastPublishedCount: 0 }
   return {
     lastPublishedCount: generation.last_published_count,

@@ -248,6 +248,29 @@ describe("SkillHub import store", () => {
     reopened.close()
   })
 
+  test("carries the strongest historical publication checkpoint into a new generation", async () => {
+    const database = await temporaryDatabase()
+    database.connection.run(
+      "INSERT INTO skillhub_generations (id, state, upstream_total, last_published_count, last_published_at, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('older-strong', 'completed', 9, 9, 9, 1, 10, 10, 10), ('newer-weak', 'completed', 4, 4, 4, 2, 11, 11, 11)",
+    )
+    const store = createSkillHubImportStore({ database, now: () => 20 })
+
+    const generation = store.beginGeneration(12)
+
+    expect(
+      database.connection
+        .query<{ last_published_count: number; last_published_at: number }, [string]>(
+          "SELECT last_published_count, last_published_at FROM skillhub_generations WHERE id = ?",
+        )
+        .get(generation.id),
+    ).toEqual({ last_published_count: 9, last_published_at: 9 })
+    expect(store.publicationCheckpoint()).toEqual({
+      lastPublishedCount: 9,
+      lastPublishedAt: new Date(9).toISOString(),
+    })
+    database.close()
+  })
+
   test("validates claim bounds before mutating queue rows", async () => {
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database })

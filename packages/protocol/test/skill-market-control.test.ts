@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { Database } from "bun:sqlite"
 import { Schema } from "effect"
 import { HttpApi, OpenApi } from "effect/unstable/httpapi"
 import { SkillMarketApi, SkillMarketCatalogApi } from "../src/skill-market-api"
@@ -62,6 +63,21 @@ test("openapi marks cookie sessions and csrf writes without protecting the publi
   expect(document.paths["/v1/catalog/skills"]?.get?.security).toEqual([])
   expect(document.paths["/v1/submissions"]?.get?.security).toHaveLength(1)
   expect(document.paths["/v1/submissions"]?.post?.security).toHaveLength(2)
+})
+
+test("openapi leaves opaque SkillHub slug validation to the authoritative protocol", () => {
+  const document = OpenApi.fromApi(SkillMarketApi)
+  const command = document.components.schemas["SkillMarketControl.SkillHubImportCommandInput"] as {
+    readonly anyOf: readonly [
+      unknown,
+      {
+        readonly properties: {
+          readonly slugs: { readonly items: unknown }
+        }
+      },
+    ]
+  }
+  expect(command.anyOf[1].properties.slugs.items).toEqual({ type: "string" })
 })
 
 test("skillhub import progress decodes representative progress", () => {
@@ -168,4 +184,37 @@ test("skillhub import commands decode bounded slug selections", () => {
       slugs: [],
     }),
   ).toThrow()
+})
+
+test("SkillHub slug validation exactly matches SQLite TEXT length semantics", () => {
+  const database = new Database(":memory:")
+  database.run("CREATE TABLE identifiers (slug TEXT PRIMARY KEY CHECK (length(slug) BETWEEN 1 AND 256)) STRICT")
+  const cases = [
+    { name: "200 emoji", value: "😀".repeat(200), accepted: true },
+    { name: "NUL tail", value: `a\0${"x".repeat(300)}`, accepted: true },
+    { name: "leading NUL", value: `\0${"x".repeat(300)}`, accepted: false },
+    { name: "256 ASCII", value: "a".repeat(256), accepted: true },
+    { name: "257 ASCII", value: "a".repeat(257), accepted: false },
+    { name: "Unicode control", value: "control\u0080", accepted: true },
+    { name: "Unicode format", value: "format\u200d", accepted: true },
+  ] as const
+
+  for (const sample of cases) {
+    database.run("DELETE FROM identifiers")
+    let databaseAccepted = true
+    try {
+      database.run("INSERT INTO identifiers (slug) VALUES (?)", [sample.value])
+    } catch {
+      databaseAccepted = false
+    }
+    expect(databaseAccepted, `${sample.name} database acceptance`).toBe(sample.accepted)
+    expect(Schema.is(SkillMarketControl.SkillHubImportSlug)(sample.value), `${sample.name} schema acceptance`).toBe(
+      sample.accepted,
+    )
+    if (sample.accepted) {
+      expect(Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportSlug)(sample.value)).toBe(sample.value)
+      expect(database.query<{ slug: string }, []>("SELECT slug FROM identifiers").get()?.slug).toBe(sample.value)
+    }
+  }
+  database.close()
 })

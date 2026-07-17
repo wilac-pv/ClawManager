@@ -274,7 +274,17 @@ export type SkillHubImportState = typeof SkillHubImportState.Type
 export const SkillHubImportCommand = Schema.Literals(["pause", "resume", "retry-wait", "retry-rejected"])
 export type SkillHubImportCommand = typeof SkillHubImportCommand.Type
 
-export const SkillHubImportSlug = Schema.String.check(Schema.isLengthBetween(1, 256))
+const hasSQLiteSkillHubSlugLength = Schema.makeFilter<string>(
+  (value) => {
+    const firstNul = value.indexOf("\0")
+    const firstNulOrEnd = firstNul === -1 ? value.length : firstNul
+    const length = Array.from(value.slice(0, firstNulOrEnd)).length
+    return length >= 1 && length <= 256
+  },
+  { expected: "a string whose SQLite TEXT length is between 1 and 256" },
+)
+
+export const SkillHubImportSlug = Schema.String.check(hasSQLiteSkillHubSlugLength)
 export type SkillHubImportSlug = typeof SkillHubImportSlug.Type
 
 const UntargetedSkillHubImportCommand = Schema.Struct({

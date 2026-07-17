@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDatabase } from "../src/database"
+import { createSkillHubImportStore } from "../src/skillhub-import-store"
 
 const directories: string[] = []
 
@@ -202,7 +203,7 @@ describe("control-plane database", () => {
     const v3 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
     v3.connection.run("PRAGMA ignore_check_constraints = ON")
     v3.connection.run(
-      "INSERT INTO skillhub_generations (id, state, upstream_total, discovery_page, sweep, new_in_sweep, last_published_count, uploaded_bytes, started_at, updated_at, completed_at) VALUES ('draining', 'running', 4, 5, 1, 0, 2, 20, 1, 10, 5), ('other-active', 'paused', 1, 1, 0, 1, 3, 5, 2, 9, NULL), ('complete', 'completed', 1, 1, 1, 0, 1, 10, 1, 20, 20)",
+      "INSERT INTO skillhub_generations (id, state, upstream_total, discovery_page, sweep, new_in_sweep, last_published_count, last_published_at, uploaded_bytes, started_at, updated_at, completed_at) VALUES ('draining', 'running', 4, 5, 1, 0, 2, 8, 20, 1, 10, 5), ('other-active', 'paused', 1, 1, 0, 1, 3, 9, 5, 2, 9, NULL), ('complete', 'completed', 1, 1, 1, 0, 9, 19, 10, 3, 20, 20)",
     )
     const insertItem =
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, next_attempt_at, lease_owner, lease_expires_at, list_json, summary_json, detail_key, detail_sha256, error_code, error_summary, last_seen_generation, last_seen_sweep, created_at, updated_at) VALUES (?, ?, '1.0.0', 1, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, ?, 1, 1, ?)"
@@ -299,8 +300,8 @@ describe("control-plane database", () => {
         >(
           "SELECT state, discovery_completed_at, completed_at, last_published_count FROM skillhub_generations WHERE id = ?",
         )
-        .get("draining"),
-    ).toEqual({ state: "running", discovery_completed_at: 5, completed_at: null, last_published_count: 3 })
+        .get("other-active"),
+    ).toEqual({ state: "running", discovery_completed_at: null, completed_at: null, last_published_count: 9 })
     expect(
       upgraded.connection
         .query<{ discovery_completed_at: number; completed_at: number }, [string]>(
@@ -339,7 +340,7 @@ describe("control-plane database", () => {
     expect(
       upgraded.connection
         .query<{ state: string }, [string]>("SELECT state FROM skillhub_generations WHERE id = ?")
-        .get("other-active"),
+        .get("draining"),
     ).toEqual({ state: "failed" })
     expect(
       upgraded.connection
@@ -347,7 +348,71 @@ describe("control-plane database", () => {
           "SELECT generation_id, state FROM skillhub_import_items WHERE slug = ?",
         )
         .get("other-pending"),
-    ).toEqual({ generation_id: "draining", state: "pending" })
+    ).toEqual({ generation_id: "other-active", state: "pending" })
+    const store = createSkillHubImportStore({ database: upgraded, now: () => 30 })
+    expect(store.progress()).toMatchObject({
+      state: "running",
+      upstreamTotal: 1,
+      pending: 1,
+      running: 1,
+      retryWait: 1,
+      rejected: 1,
+      lastPublishedAt: new Date(19).toISOString(),
+    })
+    expect(store.publicationCheckpoint()).toEqual({
+      lastPublishedCount: 9,
+      lastPublishedAt: new Date(19).toISOString(),
+    })
+    expect(store.recordPublication(10)).toBe(true)
+    expect(
+      upgraded.connection
+        .query<{ id: string; last_published_count: number }, []>(
+          "SELECT id, last_published_count FROM skillhub_generations WHERE last_published_count = 10",
+        )
+        .get(),
+    ).toEqual({ id: "other-active", last_published_count: 10 })
+    expect(
+      store.seedLegacy([
+        {
+          slug: "legacy-after-upgrade",
+          summary: {
+            id: "legacy-after-upgrade",
+            source: "skillhub",
+            sourceUrl: "https://example.com/source",
+            name: "legacy-after-upgrade",
+            description: "description",
+            categories: [],
+            tags: [],
+            requiresApiKey: false,
+            risk: "safe",
+            version: "1.0.0",
+            updatedAt: "2026-07-17T00:00:00.000Z",
+            downloads: 1,
+            favorites: 1,
+            score: 1,
+            featured: false,
+            enterprise: false,
+            delisted: false,
+          },
+          detailKey: "details/legacy-after-upgrade.json",
+          detailSha256: "b".repeat(64),
+        },
+      ]),
+    ).toBe(1)
+    expect(
+      upgraded.connection
+        .query<{ generation_id: string }, [string]>(
+          "SELECT generation_id FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("legacy-after-upgrade"),
+    ).toEqual({ generation_id: "other-active" })
+    expect(
+      upgraded.connection
+        .query<{ last_published_count: number }, [string]>(
+          "SELECT last_published_count FROM skillhub_generations WHERE id = ?",
+        )
+        .get("draining"),
+    ).toEqual({ last_published_count: 2 })
     expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
     expect(upgraded.connection.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check).toBe("ok")
     upgraded.close()

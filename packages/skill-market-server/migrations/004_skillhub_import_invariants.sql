@@ -12,7 +12,7 @@ SELECT
   END
 FROM skillhub_generations
 WHERE state IN ('running', 'paused')
-ORDER BY started_at, rowid
+ORDER BY started_at DESC, rowid DESC
 LIMIT 1;
 
 CREATE TABLE skillhub_generations_v4 (
@@ -77,12 +77,22 @@ SELECT
   generation.new_in_sweep,
   CASE
     WHEN generation.id = (SELECT id FROM skillhub_active_generation_survivor) THEN
-      (SELECT MAX(last_published_count) FROM skillhub_generations WHERE state IN ('running', 'paused'))
+      (
+        SELECT last_published_count
+        FROM skillhub_generations
+        ORDER BY last_published_count DESC, last_published_at DESC, started_at DESC, rowid DESC
+        LIMIT 1
+      )
     ELSE generation.last_published_count
   END,
   CASE
     WHEN generation.id = (SELECT id FROM skillhub_active_generation_survivor) THEN
-      (SELECT MAX(last_published_at) FROM skillhub_generations WHERE state IN ('running', 'paused'))
+      (
+        SELECT last_published_at
+        FROM skillhub_generations
+        ORDER BY last_published_count DESC, last_published_at DESC, started_at DESC, rowid DESC
+        LIMIT 1
+      )
     ELSE generation.last_published_at
   END,
   generation.uploaded_bytes,
