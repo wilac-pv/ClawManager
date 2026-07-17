@@ -205,7 +205,7 @@ async function publishCatalogObjects(
   })
   for (const detail of details)
     await client.put(
-      `${objectKeys.root}/${detail.ref.key}`,
+      `${objectKeys.details}/${detail.digest}.json`,
       detail.body,
       "application/json",
       "public, max-age=31536000, immutable",
@@ -325,7 +325,12 @@ export async function loadCatalogDetail(
 ) {
   const ref = index.details.get(key(source, id))
   if (!ref) return undefined
-  const body = await loadBytes(client, `${keys(config, index.revision).root}/${ref.key}`)
+  const body = await loadBytes(
+    client,
+    Schema.is(SkillMarket.Sha256)(ref.sha256)
+      ? `${normalizePrefix(config.prefix)}/${ref.key}`
+      : `${keys(config, index.revision).root}/${ref.key}`,
+  )
   if (Schema.is(SkillMarket.Sha256)(ref.sha256) && sha256(body) !== ref.sha256)
     throw new Error(`OSS detail hash mismatch: ${ref.key}`)
   const json = await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body))
@@ -339,6 +344,7 @@ function keys(config: PublishConfig, revision: string) {
   if (!/^[a-zA-Z0-9._-]+$/.test(revision)) throw new Error("snapshot revision contains invalid characters")
   return {
     current: `${prefix}/current.json`,
+    details: `${prefix}/details`,
     root: `${prefix}/indexes/${revision}`,
     catalog: `${prefix}/indexes/${revision}/catalog.json`,
     facets: `${prefix}/indexes/${revision}/facets.json`,
@@ -363,7 +369,7 @@ async function validateCatalogObjects(
     throw new Error("published OSS object count mismatch")
   await Promise.all(
     details.map(async (detail) => {
-      const body = await loadBytes(client, `${objectKeys.root}/${detail.ref.key}`)
+      const body = await loadBytes(client, `${objectKeys.details}/${detail.ref.sha256}.json`)
       if (sha256(body) !== detail.ref.sha256) throw new Error(`published detail hash mismatch: ${detail.ref.key}`)
     }),
   )

@@ -225,12 +225,16 @@ function route(request: Request, url: URL, index: Awaited<ReturnType<CatalogRead
     )
   if (segments.length !== 6) return json({ code: "not-found" }, 404, head, headers)
   if (segments[5] === "versions")
-    return catalog.versions(source, decodedID).then((versions) =>
-      versions ? json(versions, 200, head, headers) : json({ code: "not-found" }, 404, head, headers),
+    return catalog.detail(source, decodedID).then((detail) =>
+      !detail || detail.delisted
+        ? json({ code: "not-found" }, 404, head, headers)
+        : json(detail.versions, 200, head, headers),
     )
   if (segments[5] === "download")
-    return catalog.download(source, decodedID).then((download) =>
-      download ? json(download, 200, head, headers) : json({ code: "not-found" }, 404, head, headers),
+    return catalog.detail(source, decodedID).then((detail) =>
+      !detail || detail.delisted
+        ? json({ code: "not-found" }, 404, head, headers)
+        : json({ url: detail.package.url, sha256: detail.package.sha256, size: detail.package.size }, 200, head, headers),
     )
   return json({ code: "not-found" }, 404, head, headers)
 }

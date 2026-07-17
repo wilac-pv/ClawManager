@@ -11,6 +11,7 @@ export function createCatalogReader(options: {
   let cached: { readonly expiresAt: number; readonly index: CatalogIndex } | undefined
   let loading: Promise<CatalogIndex> | undefined
   const details = new Map<string, SkillMarket.Detail>()
+  const pendingDetails = new Map<string, Promise<SkillMarket.Detail | undefined>>()
 
   const index = async () => {
     if (cached && cached.expiresAt > Date.now()) return cached.index
@@ -35,11 +36,20 @@ export function createCatalogReader(options: {
       details.set(entryKey, existing)
       return existing
     }
-    const value = await loadCatalogDetail(options.store, { prefix: options.prefix }, catalog, source, id)
-    if (!value) return undefined
-    details.set(entryKey, value)
-    if (details.size > 512) details.delete(details.keys().next().value!)
-    return value
+    const pending = pendingDetails.get(entryKey)
+    if (pending) return pending
+    const request = loadCatalogDetail(options.store, { prefix: options.prefix }, catalog, source, id).then((value) => {
+      if (!value) return undefined
+      details.set(entryKey, value)
+      if (details.size > 512) details.delete(details.keys().next().value!)
+      return value
+    })
+    pendingDetails.set(entryKey, request)
+    try {
+      return await request
+    } finally {
+      pendingDetails.delete(entryKey)
+    }
   }
 
   return {

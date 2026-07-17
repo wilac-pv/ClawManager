@@ -45,6 +45,19 @@ describe("skill market control HTTP", () => {
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, OPTIONS")
   })
 
+  test("keeps delisted versions and downloads unavailable through the Effect API", async () => {
+    const snapshot = sampleSnapshot()
+    snapshot.details.set("skillhub:code-review", Schema.decodeUnknownSync(SkillMarket.Detail)({
+      ...snapshot.details.get("skillhub:code-review"),
+      delisted: true,
+    }))
+    await using fixture = await marketFixture(snapshot)
+    for (const suffix of ["versions", "download"]) {
+      const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/${suffix}`)
+      expect(response.status).toBe(404)
+    }
+  })
+
   test("completes login, returns a private session, enforces CSRF, and logs out", async () => {
     await using fixture = await marketFixture()
     const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fsubmissions`, {
@@ -291,7 +304,7 @@ async function loginSession(
   return { cookie: cookies.join("; "), csrf }
 }
 
-async function marketFixture() {
+async function marketFixture(snapshot = sampleSnapshot()) {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-control-http-"))
   directories.push(directory)
   const database = await openDatabase({
@@ -355,7 +368,7 @@ async function marketFixture() {
   const submissions = createSubmissions({ database, now: () => now })
   const moderation = createModeration({ database, security, now: () => now })
   const web = createMarketWebHandler({
-    loadSnapshot: async () => sampleSnapshot(),
+    loadSnapshot: async () => snapshot,
     auth,
     security,
     submissions,

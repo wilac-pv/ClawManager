@@ -43,11 +43,32 @@ test("evicts the least recently used decoded detail after 512 entries", async ()
   expect(store.reads.detail).toBe(514)
 })
 
+test("coalesces concurrent detail reads and clears a rejected request for retry", async () => {
+  const store = memoryObjectStore()
+  const detail = sampleDetail()
+  await publishCatalogIndex(store.client, config, catalogIndex("concurrent", [[key(detail.source, detail.id), detail]]), new Map([[key(detail.source, detail.id), detail]]))
+  store.resetReads()
+  const reader = createCatalogReader({ store: store.client, prefix: config.prefix })
+  const values = await Promise.all(Array.from({ length: 100 }, () => reader.detail(detail.source, detail.id)))
+  expect(values.every((value) => value?.id === detail.id)).toBe(true)
+  expect(store.reads.detail).toBe(1)
+  expect(store.reads.detailHead).toBe(1)
+
+  const retryStore = memoryObjectStore()
+  await publishCatalogIndex(retryStore.client, config, catalogIndex("retry", [[key(detail.source, detail.id), detail]]), new Map([[key(detail.source, detail.id), detail]]))
+  retryStore.resetReads()
+  retryStore.failDetailGets = 1
+  const retryReader = createCatalogReader({ store: retryStore.client, prefix: config.prefix })
+  await expect(Promise.all(Array.from({ length: 100 }, () => retryReader.detail(detail.source, detail.id)))).rejects.toThrow("configured detail failure")
+  expect((await retryReader.detail(detail.source, detail.id))?.id).toBe(detail.id)
+  expect(retryStore.reads.detail).toBe(2)
+})
+
 test("rejects a v2 detail whose body does not match its index hash before schema decoding", async () => {
   const store = memoryObjectStore()
   const detail = sampleDetail()
   await publishCatalogIndex(store.client, config, catalogIndex("hash", [[key(detail.source, detail.id), detail]]), new Map([[key(detail.source, detail.id), detail]]))
-  store.objects.set("skill-market/indexes/hash/details/" + sha256(JSON.stringify(detail)) + ".json", new TextEncoder().encode("{}"))
+  store.objects.set("skill-market/details/" + sha256(JSON.stringify(detail)) + ".json", new TextEncoder().encode("{}"))
   const reader = createCatalogReader({ store: store.client, prefix: config.prefix })
   await expect(reader.detail(detail.source, detail.id)).rejects.toThrow("hash")
 })
@@ -99,7 +120,8 @@ function bytes(value: unknown) {
 
 function memoryObjectStore() {
   const objects = new Map<string, Uint8Array>()
-  const reads = { detail: 0, pointer: 0, index: 0, facets: 0, keys: [] as string[] }
+  const reads = { detail: 0, detailHead: 0, pointer: 0, index: 0, facets: 0, keys: [] as string[] }
+  const state = { failDetailGets: 0 }
   const client: ObjectStore = {
     async put(key, body) {
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
@@ -110,11 +132,16 @@ function memoryObjectStore() {
       if (key.endsWith("/current.json")) reads.pointer++
       if (key.endsWith("/catalog.json")) reads.index++
       if (key.endsWith("/facets.json")) reads.facets++
+      if (key.includes("/details/") && state.failDetailGets > 0) {
+        state.failDetailGets--
+        throw new Error("configured detail failure")
+      }
       const value = objects.get(key)
       if (!value) throw new Error(`missing object ${key}`)
       return value
     },
     async head(key) {
+      if (key.includes("/details/")) reads.detailHead++
       const value = objects.get(key)
       if (!value) throw new Error(`missing object ${key}`)
       return { size: value.byteLength }
@@ -126,10 +153,14 @@ function memoryObjectStore() {
     client,
     resetReads() {
       reads.detail = 0
+      reads.detailHead = 0
       reads.pointer = 0
       reads.index = 0
       reads.facets = 0
       reads.keys = []
+    },
+    set failDetailGets(value: number) {
+      state.failDetailGets = value
     },
   }
 }

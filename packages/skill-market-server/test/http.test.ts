@@ -47,13 +47,19 @@ describe("catalog HTTP", () => {
     expect(invalid.status).toBe(400)
   })
 
-  test("does not expose delisted details", async () => {
+  test("does not expose delisted details, versions, or downloads", async () => {
     const snapshot = sampleSnapshot("r1")
     snapshot.details.set("skillhub:code-review", sampleDetail({ delisted: true }))
     const response = await createCatalogHandler(reader(snapshot))(
       new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review"),
     )
     expect(response.status).toBe(404)
+    for (const suffix of ["versions", "download"]) {
+      const nested = await createCatalogHandler(reader(snapshot))(
+        new Request(`https://market.example.com/v1/catalog/skills/skillhub/code-review/${suffix}`),
+      )
+      expect(nested.status).toBe(404)
+    }
   })
 
   test("serves community detail routes and source freshness headers", async () => {
