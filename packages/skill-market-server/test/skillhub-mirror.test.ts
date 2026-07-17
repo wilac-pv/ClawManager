@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDatabase } from "../src/database"
+import { AdaptivePoolError } from "../src/adaptive-pool"
 import { loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
 import { createPublisher } from "../src/publisher"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
@@ -208,6 +209,93 @@ describe("SkillHub mirror", () => {
     expect(await memory.runBatch("mirror-b")).toEqual({ mirrored: 2, retryWait: 0, rejected: 0 })
     expect(memoryImports.progress()).toMatchObject({ mirrored: 2, pending: 1 })
     memoryFixture.database.close()
+  })
+
+  test("rejects permanent metadata failures but keeps transport failures retryable", async () => {
+    const fixture = await databaseFixture()
+    const imports = createSkillHubImportStore({ database: fixture.database })
+    const generation = imports.beginGeneration(2)
+    imports.recordPage(generation.id, 1, [list("gone"), list("network")])
+    const mirror = createSkillHubMirror({
+      imports,
+      store: memoryStore(),
+      allowedHosts: new Set(["packages.example.com"]),
+      publicBaseUrl: "https://market.example.com/private/",
+      loadRecord: async (item) => {
+        if (item.slug === "gone") throw new AdaptivePoolError("not found", 404, undefined, true)
+        throw new AdaptivePoolError("network unavailable")
+      },
+      fetcher: async () => new Response(packageZip("unused")),
+      packageConcurrency: 2,
+      random: () => 0,
+      wait: async () => undefined,
+    })
+
+    expect(await mirror.runBatch("metadata-errors")).toEqual({ mirrored: 0, retryWait: 1, rejected: 1 })
+    expect(state(fixture.database, "gone")).toBe("rejected")
+    expect(state(fixture.database, "network")).toBe("retry_wait")
+    fixture.database.close()
+  })
+
+  test("converges a completed discovery generation after an upstream 404 rejection", async () => {
+    const fixture = await databaseFixture()
+    const imports = createSkillHubImportStore({ database: fixture.database })
+    const generation = imports.beginGeneration(1)
+    imports.recordPage(generation.id, 1, [list("gone")])
+    imports.completeSweep(generation.id)
+    imports.recordPage(generation.id, 1, [list("gone")])
+    expect(imports.completeSweep(generation.id)).toEqual({ stable: true })
+    const mirror = createSkillHubMirror({
+      imports,
+      store: memoryStore(),
+      allowedHosts: new Set(["packages.example.com"]),
+      publicBaseUrl: "https://market.example.com/private/",
+      loadRecord: async () => {
+        throw new AdaptivePoolError("not found", 404, undefined, true)
+      },
+      fetcher: async () => new Response(packageZip("unused")),
+    })
+
+    expect(await mirror.runBatch("upstream-404")).toEqual({ mirrored: 0, retryWait: 0, rejected: 1 })
+    expect(imports.progress()).toMatchObject({ state: "completed", sourceStatus: "fresh", rejected: 1 })
+    fixture.database.close()
+  })
+
+  test("omits permanently unavailable icons while mirroring their packages", async () => {
+    const fixture = await databaseFixture()
+    const imports = createSkillHubImportStore({ database: fixture.database })
+    const generation = imports.beginGeneration(3)
+    imports.recordPage(generation.id, 1, [list("disallowed"), list("missing"), list("text")])
+    const objects = memoryStore()
+    const mirror = createSkillHubMirror({
+      imports,
+      store: objects,
+      allowedHosts: new Set(["packages.example.com"]),
+      publicBaseUrl: "https://market.example.com/private/",
+      loadRecord: async (item) => ({
+        ...record(item.slug),
+        iconUrl:
+          item.slug === "disallowed"
+            ? "https://icons.example.com/icon.png"
+            : `https://packages.example.com/icon/${item.slug}`,
+      }),
+      fetcher: async (input) => {
+        const url = requestUrl(input)
+        if (url.includes("/icon/missing")) return new Response("missing", { status: 404 })
+        if (url.includes("/icon/text")) return new Response("not an icon", { headers: { "content-type": "text/plain" } })
+        return new Response(packageZip(new URL(url).searchParams.get("slug")!))
+      },
+      packageConcurrency: 3,
+      wait: async () => undefined,
+    })
+
+    expect(await mirror.runBatch("icon-errors")).toEqual({ mirrored: 3, retryWait: 0, rejected: 0 })
+    expect(imports.progress().mirrored).toBe(3)
+    const details = await Promise.all(
+      objects.keys().filter((key) => key.includes("/details/")).map(async (key) => JSON.parse(new TextDecoder().decode(await objects.get(key)))),
+    )
+    expect(details.every((detail) => detail.iconUrl === undefined)).toBe(true)
+    fixture.database.close()
   })
 })
 

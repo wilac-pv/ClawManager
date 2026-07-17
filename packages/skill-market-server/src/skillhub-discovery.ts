@@ -8,6 +8,8 @@ export interface SkillHubDiscoveryOptions {
   readonly imports: SkillHubImportStore
   readonly pageConcurrency?: number
   readonly maxPageBatches?: number
+  readonly limit?: number
+  readonly refresh?: boolean
   readonly now?: () => number
   readonly wait?: (milliseconds: number) => Promise<void>
 }
@@ -24,6 +26,8 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
   if (checkpoint?.discoveryCompleted)
     return result(options.imports, true, false, options.pageConcurrency ?? 4)
   if (checkpoint?.state === "paused") return result(options.imports, false, false, options.pageConcurrency ?? 4)
+  if (!options.refresh && options.imports.progress().state === "completed")
+    return result(options.imports, true, false, options.pageConcurrency ?? 4)
 
   const pool = createAdaptivePool({
     minimum: 1,
@@ -33,11 +37,12 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
   })
   const [first] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
   let pageBatches = 0
-  let upstreamTotal = checkpoint && checkpoint.discoveryPage > 0 ? Math.max(checkpoint.upstreamTotal, first.data.total) : first.data.total
+  let upstreamTotal = effectiveTotal(first.data.total, options.limit)
+  if (checkpoint && checkpoint.discoveryPage > 0) upstreamTotal = Math.max(checkpoint.upstreamTotal, upstreamTotal)
   const generation = options.imports.beginGeneration(upstreamTotal)
   const active = options.imports.activeGeneration()
   if (!active) return result(options.imports, true, false, options.pageConcurrency ?? 4)
-  options.imports.recordPage(generation.id, 1, first.data.skills, upstreamTotal)
+  options.imports.recordPage(generation.id, 1, first.data.skills.slice(0, upstreamTotal), upstreamTotal)
 
   for (let completedSweeps = 0; completedSweeps < 3; completedSweeps += 1) {
     const current = options.imports.activeGeneration()
@@ -56,8 +61,8 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
       )
       await pool.map(batch, async (page) => {
         const loaded = await loadSkillHubPage(options.fetcher, options.baseUrl, page)
-        upstreamTotal = Math.max(upstreamTotal, loaded.data.total)
-        options.imports.recordPage(generation.id, page, loaded.data.skills, upstreamTotal)
+        upstreamTotal = Math.max(upstreamTotal, effectiveTotal(loaded.data.total, options.limit))
+        options.imports.recordPage(generation.id, page, loaded.data.skills.slice(0, upstreamTotal - (page - 1) * 100), upstreamTotal)
         return loaded
       })
       pageBatches += 1
@@ -70,12 +75,16 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
     if (!beforeNextFirst || beforeNextFirst.discoveryCompleted) return result(options.imports, true, false, pool.concurrency())
     if (beforeNextFirst.state === "paused") return result(options.imports, false, false, pool.concurrency())
     const [nextFirst] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
-    upstreamTotal = nextFirst.data.total
-    options.imports.recordPage(generation.id, 1, nextFirst.data.skills, upstreamTotal)
+    upstreamTotal = effectiveTotal(nextFirst.data.total, options.limit)
+    options.imports.recordPage(generation.id, 1, nextFirst.data.skills.slice(0, upstreamTotal), upstreamTotal)
   }
   return result(options.imports, false, true, pool.concurrency())
 }
 
 function result(imports: SkillHubImportStore, completed: boolean, stale: boolean, pageConcurrency: number): SkillHubDiscoveryResult {
   return { discovered: imports.progress().discovered, completed, stale, pageConcurrency }
+}
+
+function effectiveTotal(total: number, limit: number | undefined) {
+  return limit === undefined ? total : Math.min(total, limit)
 }

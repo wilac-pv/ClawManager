@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test"
-import { createSkillHubWorkerWake, runConfiguredSkillHubWorker, runSkillHubWorker } from "../src/skillhub-worker"
+import {
+  createSkillHubWorkerWake,
+  runConfiguredSkillHubWorker,
+  runSkillHubWorker,
+  shouldPublishSkillHub,
+} from "../src/skillhub-worker"
 import { loadConfig } from "../src/config"
 
 test("runs bounded discovery and only publishes when its due callback permits it", async () => {
@@ -52,6 +57,49 @@ test("does not call an unavailable publisher boundary", async () => {
 
   expect(result.published).toBe(false)
   expect(published).toBe(false)
+})
+
+test("publishes the initial 1-1,999 item canary after its generation has waited 30 minutes", () => {
+  expect(
+    shouldPublishSkillHub(
+      { mirrored: 1_999, sourceStatus: "stale", pending: 1, running: 0, retryWait: 0 },
+      { lastPublishedCount: 0, startedAt: "2026-07-17T00:00:00.000Z" },
+      { batch: 2_000, minutes: 30, now: () => Date.parse("2026-07-17T00:30:00.000Z") },
+    ),
+  ).toBe(true)
+})
+
+test("records a publication checkpoint only after the catalog pointer publish succeeds", async () => {
+  const checkpoints: number[] = []
+  await runSkillHubWorker({
+    workerID: "skillhub-test",
+    discover: async () => undefined,
+    mirror: { runBatch: async () => ({ mirrored: 1, retryWait: 0, rejected: 0 }) },
+    progress: () => ({ mirrored: 1 }),
+    publicationCheckpoint: () => ({ lastPublishedCount: 0 }),
+    shouldPublish: () => true,
+    publish: async () => undefined,
+    recordPublication: (count) => checkpoints.push(count),
+    durationMilliseconds: 0,
+    emit: () => undefined,
+  })
+  expect(checkpoints).toEqual([1])
+
+  await expect(
+    runSkillHubWorker({
+      workerID: "skillhub-test",
+      discover: async () => undefined,
+      mirror: { runBatch: async () => ({ mirrored: 1, retryWait: 0, rejected: 0 }) },
+      progress: () => ({ mirrored: 1 }),
+      publicationCheckpoint: () => ({ lastPublishedCount: 0 }),
+      shouldPublish: () => true,
+      publish: async () => Promise.reject(new Error("pointer write failed")),
+      recordPublication: (count) => checkpoints.push(count),
+      durationMilliseconds: 0,
+      emit: () => undefined,
+    }),
+  ).rejects.toThrow("pointer write failed")
+  expect(checkpoints).toEqual([1])
 })
 
 test("configured worker provides its catalog publisher without an injected callback", async () => {

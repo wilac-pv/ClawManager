@@ -96,9 +96,9 @@ async function mirrorClaim(
 ) {
   const record = await metadata.map([item], (value) => options.loadRecord(value)).then(
     ([value]) => value,
-    () => undefined,
+    (error: unknown) => metadataFailureFor(error, now, item.attempts, options.random),
   )
-  if (!record) return retry("upstream", now(), undefined, item.attempts, options.random)
+  if (isFailure(record)) return record
   if (record.securityReports.some((report) => report.verdict === "danger")) return reject("validation")
 
   const downloaded = await download(
@@ -124,7 +124,7 @@ async function mirrorClaim(
   const icon = record.iconUrl
     ? await mirrorIcon(record.iconUrl, options, prefix, now, wait).then(
         (value) => value,
-        (error: unknown) => failureFor(error, now, item.attempts, options.random),
+        (error: unknown) => iconFailureFor(error, now, item.attempts, options.random),
       )
     : undefined
   if (isFailure(icon)) return icon
@@ -322,6 +322,19 @@ function failureFor(error: unknown, now: () => number, attempts: number, random:
   if (error instanceof AdaptivePoolError && error.permanent) return reject("download")
   if (error instanceof AdaptivePoolError && error.status === 429) return retry("rate_limited", now(), error.retryAfter, attempts, random)
   return retry("download", now(), undefined, attempts, random)
+}
+
+function metadataFailureFor(error: unknown, now: () => number, attempts: number, random: (() => number) | undefined): MirrorFailure {
+  if (error instanceof AdaptivePoolError && !error.permanent) {
+    if (error.status === 429) return retry("rate_limited", now(), error.retryAfter, attempts, random)
+    return retry("upstream", now(), undefined, attempts, random)
+  }
+  return reject("upstream")
+}
+
+function iconFailureFor(error: unknown, now: () => number, attempts: number, random: (() => number) | undefined) {
+  if (error instanceof AdaptivePoolError && error.permanent) return undefined
+  return failureFor(error, now, attempts, random)
 }
 
 function retry(

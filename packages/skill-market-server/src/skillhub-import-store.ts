@@ -44,6 +44,7 @@ export interface SkillHubGenerationCheckpoint extends ActiveSkillHubGeneration {
 export interface SkillHubPublicationCheckpoint {
   readonly lastPublishedCount: number
   readonly lastPublishedAt?: string
+  readonly startedAt?: string
 }
 
 export interface LegacyMirroredSkillHubEntry extends MirroredSkillHubEntry {
@@ -392,6 +393,7 @@ type CurrentGenerationRow = GenerationRow & {
   readonly recent_error_summary: string | null
   readonly recent_error_at: number | null
   readonly completed_at: number | null
+  readonly started_at: number
 }
 
 type ClaimRow = {
@@ -443,7 +445,7 @@ function generationCheckpoint(connection: Database): SkillHubGenerationCheckpoin
 function currentGeneration(connection: Database): CurrentGenerationRow | undefined {
   return connection
     .query<CurrentGenerationRow, []>(
-      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, uploaded_bytes, updated_at, last_published_count, last_published_at, recent_error_code, recent_error_summary, recent_error_at, discovery_completed_at, completed_at FROM skillhub_generations ORDER BY CASE WHEN state IN ('running', 'paused') THEN 0 ELSE 1 END, started_at DESC, rowid DESC LIMIT 1",
+      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, uploaded_bytes, updated_at, last_published_count, last_published_at, recent_error_code, recent_error_summary, recent_error_at, discovery_completed_at, completed_at, started_at FROM skillhub_generations ORDER BY CASE WHEN state IN ('running', 'paused') THEN 0 ELSE 1 END, started_at DESC, rowid DESC LIMIT 1",
     )
     .get() ?? undefined
 }
@@ -700,12 +702,13 @@ function strongestPublicationCheckpoint(connection: Database): SkillHubPublicati
 }
 
 function checkpointFromGeneration(
-  generation: { readonly last_published_count: number; readonly last_published_at: number | null } | null | undefined,
+  generation: { readonly last_published_count: number; readonly last_published_at: number | null; readonly started_at?: number } | null | undefined,
 ): SkillHubPublicationCheckpoint {
   if (!generation) return { lastPublishedCount: 0 }
   return {
     lastPublishedCount: generation.last_published_count,
     ...(generation.last_published_at === null ? {} : { lastPublishedAt: iso(generation.last_published_at) }),
+    ...(generation.last_published_at === null && generation.started_at !== undefined ? { startedAt: iso(generation.started_at) } : {}),
   }
 }
 

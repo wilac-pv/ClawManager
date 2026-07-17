@@ -58,12 +58,13 @@ export async function runSkillHubWorker(options: {
   readonly discover: () => Promise<void>
   readonly mirror: Pick<SkillHubMirror, "runBatch">
   readonly progress: () => { readonly mirrored: number }
-  readonly publicationCheckpoint: () => { readonly lastPublishedCount: number; readonly lastPublishedAt?: string }
+  readonly publicationCheckpoint: () => { readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string }
   readonly shouldPublish: (
     progress: { readonly mirrored: number },
-    checkpoint: { readonly lastPublishedCount: number; readonly lastPublishedAt?: string },
+    checkpoint: { readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string },
   ) => boolean
   readonly publish?: () => Promise<void>
+  readonly recordPublication?: (mirroredCount: number) => unknown
   readonly durationMilliseconds?: number
   readonly now?: () => number
   readonly emit?: MarketMetricEmitter
@@ -83,7 +84,10 @@ export async function runSkillHubWorker(options: {
   }
   const progress = options.progress()
   const published = Boolean(options.publish && options.shouldPublish(progress, options.publicationCheckpoint()))
-  if (published) await options.publish!()
+  if (published) {
+    await options.publish!()
+    options.recordPublication?.(progress.mirrored)
+  }
   ;(options.emit ?? emitMarketMetric)({
     skill_market_skillhub_mirror_result: {
       mirrored: total.mirrored,
@@ -172,26 +176,37 @@ async function runWithDatabase(
         imports,
         pageConcurrency: config.skillhubPageConcurrency,
         maxPageBatches: 1,
+        limit: config.skillhubLimit,
+        refresh: config.skillhubLimit === undefined,
       }).then(() => undefined),
     mirror,
     progress: imports.progress,
     publicationCheckpoint: imports.publicationCheckpoint,
     shouldPublish: (progress, checkpoint) =>
       options.shouldPublish?.(imports.progress()) ??
-      (progress.mirrored - checkpoint.lastPublishedCount >= config.skillhubPublishBatch ||
-        (checkpoint.lastPublishedAt !== undefined &&
-          Date.now() - Date.parse(checkpoint.lastPublishedAt) >= config.skillhubPublishMinutes * 60 * 1_000) ||
-        (imports.progress().sourceStatus === "fresh" &&
-          imports.progress().pending === 0 &&
-          imports.progress().running === 0 &&
-          imports.progress().retryWait === 0)),
+      shouldPublishSkillHub(progress, checkpoint, {
+        batch: config.skillhubPublishBatch,
+        minutes: config.skillhubPublishMinutes,
+        now: Date.now,
+      }),
     publish: async () => {
       if (options.publish) return options.publish()
-      const published = await publisher.publishMirroredSkillHub(imports, workerID)
-      imports.recordPublication(published.mirrored)
+      await publisher.publishMirroredSkillHub(imports, workerID)
     },
+    recordPublication: imports.recordPublication,
     emit: options.emit,
   })
+}
+
+export function shouldPublishSkillHub(
+  progress: { readonly mirrored: number; readonly sourceStatus?: string; readonly pending?: number; readonly running?: number; readonly retryWait?: number },
+  checkpoint: { readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string },
+  options: { readonly batch: number; readonly minutes: number; readonly now: () => number },
+) {
+  if (progress.mirrored - checkpoint.lastPublishedCount >= options.batch) return true
+  const since = checkpoint.lastPublishedAt ?? checkpoint.startedAt
+  if (since !== undefined && options.now() - Date.parse(since) >= options.minutes * 60 * 1_000) return true
+  return progress.sourceStatus === "fresh" && progress.pending === 0 && progress.running === 0 && progress.retryWait === 0
 }
 
 function recoverExpiredClaims(database: MarketDatabase) {

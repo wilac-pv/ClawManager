@@ -427,6 +427,35 @@ describe("SkillHub discovery", () => {
     database.close()
   })
 
+  test("uses a configured limit as the effective total, then refreshes a completed canary into the full upstream total", async () => {
+    const database = await temporaryDatabase()
+    const imports = createSkillHubImportStore({ database })
+    const records = [listRecord("canary"), listRecord("full")]
+    const first = await discoverSkillHub({
+      fetcher: async () => pageResponse(records, records.length),
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      limit: 1,
+    })
+
+    expect(first).toMatchObject({ discovered: 1, completed: true })
+    expect(imports.progress()).toMatchObject({ upstreamTotal: 1, pending: 1 })
+    imports.claim("canary-worker", 1, 60_000)
+    imports.reject("canary-worker", "canary", "validation", "canary complete")
+    expect(imports.progress().state).toBe("completed")
+
+    const full = await discoverSkillHub({
+      fetcher: async () => pageResponse(records, records.length),
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      refresh: true,
+    })
+
+    expect(full).toMatchObject({ discovered: 2, completed: true })
+    expect(imports.progress()).toMatchObject({ upstreamTotal: 2, pending: 1 })
+    database.close()
+  })
+
   test("returns stale after three unstable sweep completions without delisting records", async () => {
     const database = await temporaryDatabase()
     const imports = createSkillHubImportStore({ database })
