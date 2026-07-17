@@ -52,6 +52,7 @@ const ListSkill = Schema.Struct({
   updated_at: Schema.Number,
   version: Schema.String,
 })
+export type SkillHubListRecord = typeof ListSkill.Type
 const ListResponse = Schema.Struct({
   code: Schema.Number,
   data: Schema.Struct({ skills: Schema.Array(ListSkill), total: Schema.Number }),

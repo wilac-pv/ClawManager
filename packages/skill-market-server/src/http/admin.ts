@@ -140,7 +140,10 @@ export function createAdminHttp(options: AdminHttpOptions) {
           options.onWorkReady?.()
           return result
         }),
-      ),
+      )
+      // Task 8 replaces these placeholders once audited import-store commands are available here.
+      .handle("skillMarket.admin.skillhub.status", () => Effect.fail(dependencyProblem()))
+      .handle("skillMarket.admin.skillhub.command", () => Effect.fail(dependencyProblem())),
   )
 }
 

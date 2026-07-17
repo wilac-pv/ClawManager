@@ -227,6 +227,22 @@ describe("skill market control HTTP", () => {
     expect(evilPreflight.status).toBe(204)
     expect(evilPreflight.headers.has("access-control-allow-origin")).toBe(false)
   })
+
+  test("keeps SkillHub import controls unavailable until audited handlers are installed", async () => {
+    await using fixture = await marketFixture()
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin`, { redirect: "manual" })
+    const session = await loginSession(fixture, login, "/admin")
+    fixture.database.connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'admin', ?, ?)",
+      ["E123456", "E123456", now],
+    )
+
+    const status = await fetch(`${fixture.url}/v1/admin/skillhub-import`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(status.status).toBe(503)
+    expect(await status.json()).toMatchObject({ code: "dependency-unavailable" })
+  })
 })
 
 async function loginSession(

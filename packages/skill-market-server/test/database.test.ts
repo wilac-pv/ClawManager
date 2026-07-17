@@ -24,7 +24,7 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3)
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
@@ -49,6 +49,8 @@ describe("control-plane database", () => {
         "sessions",
         "submission_revisions",
         "submissions",
+        "skillhub_generations",
+        "skillhub_import_items",
         "users",
       ].sort(),
     )
@@ -61,6 +63,7 @@ describe("control-plane database", () => {
     expect(indexes).toContain("publish_jobs_active_submission")
     expect(indexes).toContain("submissions_owner_updated")
     expect(indexes).toContain("audit_events_created")
+    expect(indexes).toContain("skillhub_import_queue")
 
     database.connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
@@ -180,7 +183,7 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([2, 2])
+    ).toEqual([3, 3])
     databases.forEach((database) => database.close())
   })
 })
