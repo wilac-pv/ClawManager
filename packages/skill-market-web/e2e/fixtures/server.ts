@@ -22,6 +22,7 @@ type FixtureState = {
   roles: SkillMarketControl.RoleAssignment[]
   audits: SkillMarketControl.AuditEvent[]
   idempotency: Map<string, SkillMarketControl.AcceptedSubmission>
+  skillhub: SkillMarketControl.SkillHubImportProgress
   nextSubmission: number
 }
 
@@ -103,6 +104,14 @@ const server = Bun.serve({
     if (url.pathname === "/v1/admin/audit" && request.method === "GET") {
       if (context.persona !== "admin") return problem(request, 403, "forbidden", "没有 Admin 权限")
       return auditPage(request, url, context.state)
+    }
+    if (url.pathname === "/v1/admin/skillhub-import" && request.method === "GET") {
+      if (context.persona !== "admin") return problem(request, 403, "forbidden", "没有 Admin 权限")
+      return json(request, context.state.skillhub)
+    }
+    if (url.pathname === "/v1/admin/skillhub-import/command" && request.method === "POST") {
+      if (context.persona !== "admin") return problem(request, 403, "forbidden", "没有 Admin 权限")
+      return skillHubCommand(request, context.state)
     }
     return problem(request, 404, "not-found", "接口不存在")
   },
@@ -509,6 +518,35 @@ function auditPage(request: Request, url: URL, state: FixtureState) {
   return json(request, { total: items.length, page, limit, items: items.slice((page - 1) * limit, page * limit) })
 }
 
+async function skillHubCommand(request: Request, state: FixtureState) {
+  const input = await request.json().catch(() => undefined)
+  if (!input || typeof input !== "object" || !("command" in input))
+    return problem(request, 400, "invalid-request", "同步命令无效")
+  if (input.command === "pause") {
+    state.skillhub = { ...state.skillhub, state: "paused", updatedAt: later }
+    return json(request, state.skillhub)
+  }
+  if (input.command === "resume") {
+    state.skillhub = { ...state.skillhub, state: "running", updatedAt: later }
+    return json(request, state.skillhub)
+  }
+  if (input.command === "retry-wait") {
+    state.skillhub = { ...state.skillhub, pending: state.skillhub.pending + state.skillhub.retryWait, retryWait: 0, updatedAt: later }
+    return json(request, state.skillhub)
+  }
+  if (input.command === "retry-rejected" && "slugs" in input && Array.isArray(input.slugs) && input.slugs.length > 0) {
+    state.skillhub = {
+      ...state.skillhub,
+      state: "running",
+      pending: state.skillhub.pending + state.skillhub.rejected,
+      rejected: 0,
+      updatedAt: later,
+    }
+    return json(request, state.skillhub)
+  }
+  return problem(request, 400, "invalid-request", "同步命令无效")
+}
+
 function initialState(): FixtureState {
   const submissions = [
     makeSubmission({
@@ -585,6 +623,25 @@ function initialState(): FixtureState {
       },
     ],
     idempotency: new Map(),
+    skillhub: {
+      state: "running",
+      sourceStatus: "fresh",
+      upstreamTotal: 78_253,
+      discovered: 35_100,
+      pending: 15_000,
+      running: 8,
+      mirrored: 20_000,
+      retryWait: 4,
+      rejected: 2,
+      uploadedBytes: 2 * 1024 * 1024,
+      ratePerMinute: 1_280,
+      estimatedSecondsRemaining: 45 * 60,
+      discoveryPage: 112,
+      sweep: 3,
+      metadataConcurrency: 8,
+      packageConcurrency: 4,
+      updatedAt: now,
+    },
     nextSubmission: 1,
   }
 }

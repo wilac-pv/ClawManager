@@ -219,6 +219,21 @@ test("lets Admin retry publishing, moderate visibility, manage roles and filter 
   await expect(page.locator(".audit-event pre")).not.toContainText(/csrf|secret|token/i)
 })
 
+test("lets Admin pause and resume SkillHub import progress without leaving the page", async ({ page }, testInfo) => {
+  desktopControlOnly(testInfo)
+  await resetFixture(page, "admin")
+  await page.goto("/admin/skillhub")
+  await expect(page.getByRole("heading", { name: "SkillHub 同步" })).toBeVisible()
+  await expect(page.getByRole("progressbar", { name: "导入进度" })).toHaveAttribute("aria-valuenow", "25.6")
+  await page.getByRole("button", { name: "暂停同步" }).click()
+  await expect(page.getByText("已暂停", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "恢复同步" })).toBeVisible()
+  await expect(page).toHaveURL(/\/admin\/skillhub$/)
+  await page.getByRole("button", { name: "恢复同步" }).click()
+  await expect(page.getByText("同步中", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "暂停同步" })).toBeVisible()
+})
+
 async function resetFixture(page: Page, persona: "anonymous" | "submitter" | "reviewer" | "admin") {
   const response = await page.context().request.post(`${fixtureApi}/__fixture/reset?persona=${persona}`)
   expect(response.ok()).toBe(true)

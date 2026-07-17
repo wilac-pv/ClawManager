@@ -41,12 +41,14 @@ describe("market shell", () => {
     expect((await reviewer.view.findByRole("link", { name: "管理后台" })).getAttribute("aria-current")).toBe("page")
     expect(reviewer.view.queryByRole("link", { name: "角色管理" })).toBeNull()
     expect(reviewer.view.queryByRole("link", { name: "审计日志" })).toBeNull()
+    expect(reviewer.view.queryByRole("link", { name: "SkillHub 同步" })).toBeNull()
     cleanup()
 
     const admin = renderShell(session(["admin"]), "/admin/roles")
     expect(await admin.view.findByRole("link", { name: "管理后台" })).toBeTruthy()
     expect(admin.view.getByRole("link", { name: "角色管理" }).getAttribute("aria-current")).toBe("page")
     expect(admin.view.getByRole("link", { name: "审计日志" })).toBeTruthy()
+    expect(admin.view.getByRole("link", { name: "SkillHub 同步" })).toBeTruthy()
   })
 })
 
