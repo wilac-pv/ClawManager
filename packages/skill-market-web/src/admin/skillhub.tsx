@@ -117,7 +117,7 @@ export function SkillHubImport(props: SkillHubImportProps) {
             <Show when={progress().recentError}>
               {(recent) => (
                 <section class="submission-form__errors skillhub-import-error" role="alert">
-                  最近错误：{recent().summary}
+                  最近错误：{importErrorLabel(recent().code)} · {formatDate(recent().occurredAt)}。详情请查看服务端日志
                 </section>
               )}
             </Show>
@@ -240,6 +240,20 @@ function stateLabel(state: SkillMarketControl.SkillHubImportState) {
 
 function sourceLabel(status: SkillMarketControl.SkillHubImportProgress["sourceStatus"]) {
   return ({ fresh: "最新", stale: "过期", unavailable: "不可用" })[status]
+}
+
+function importErrorLabel(code: SkillMarketControl.SkillHubImportErrorCode) {
+  return ({
+    upstream: "上游服务异常",
+    download: "下载失败",
+    validation: "内容校验失败",
+    storage: "存储失败",
+    rate_limited: "请求受限",
+  })[code]
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
 }
 
 function errorMessage(cause: unknown) {

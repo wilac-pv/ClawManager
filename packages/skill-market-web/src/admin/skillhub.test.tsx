@@ -104,6 +104,28 @@ describe("SkillHub import administration", () => {
 
     expect((await view.findByRole("progressbar", { name: "导入进度" })).getAttribute("aria-valuenow")).toBe("100")
   })
+
+  test("redacts untrusted recent-error summaries while showing a local error label", async () => {
+    const view = renderSkillHub({
+      status: () =>
+        Promise.resolve(
+          progress({
+            recentError: {
+              code: "storage",
+              summary: "Authorization: Bearer top-secret-token https://internal.example.com/imports/42",
+              occurredAt: "2026-07-17T10:01:00.000Z",
+            },
+          }),
+        ),
+      command: () => Promise.resolve(progress()),
+    })
+
+    const error = await view.findByRole("alert")
+    expect(error.textContent).toContain("存储失败")
+    expect(error.textContent).toContain("详情请查看服务端日志")
+    expect(view.container.innerHTML).not.toContain("top-secret-token")
+    expect(view.container.innerHTML).not.toContain("internal.example.com")
+  })
 })
 
 function renderSkillHub(source: SkillHubImportSource) {

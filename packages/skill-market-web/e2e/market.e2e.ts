@@ -225,13 +225,26 @@ test("lets Admin pause and resume SkillHub import progress without leaving the p
   await page.goto("/admin/skillhub")
   await expect(page.getByRole("heading", { name: "SkillHub 同步" })).toBeVisible()
   await expect(page.getByRole("progressbar", { name: "导入进度" })).toHaveAttribute("aria-valuenow", "25.6")
+  await page.evaluate(() => {
+    const sentinel = document.createElement("span")
+    sentinel.id = "skillhub-no-reload-sentinel"
+    sentinel.textContent = "same-document"
+    document.body.append(sentinel)
+  })
+  let mainFrameNavigations = 0
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) mainFrameNavigations++
+  })
   await page.getByRole("button", { name: "暂停同步" }).click()
   await expect(page.getByText("已暂停", { exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: "恢复同步" })).toBeVisible()
-  await expect(page).toHaveURL(/\/admin\/skillhub$/)
+  await expect(page.locator("#skillhub-no-reload-sentinel")).toHaveText("same-document")
+  expect(mainFrameNavigations).toBe(0)
   await page.getByRole("button", { name: "恢复同步" }).click()
   await expect(page.getByText("同步中", { exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: "暂停同步" })).toBeVisible()
+  await expect(page.locator("#skillhub-no-reload-sentinel")).toHaveText("same-document")
+  expect(mainFrameNavigations).toBe(0)
 })
 
 async function resetFixture(page: Page, persona: "anonymous" | "submitter" | "reviewer" | "admin") {
