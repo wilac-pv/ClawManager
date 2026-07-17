@@ -13,10 +13,12 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { MarketMetricEmitter } from "../metrics"
 import type { Moderation } from "../moderation"
 import { SkillMarketSecurityError } from "../security"
+import type { SkillHubImportAdmin } from "../skillhub-import-admin"
 import { principalFromSession, requestID } from "./middleware"
 
 interface AdminHttpOptions {
   readonly moderation: Moderation
+  readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly onWorkReady?: () => void
   readonly emit?: MarketMetricEmitter
 }
@@ -141,9 +143,23 @@ export function createAdminHttp(options: AdminHttpOptions) {
           return result
         }),
       )
-      // Task 8 replaces these placeholders once audited import-store commands are available here.
-      .handle("skillMarket.admin.skillhub.status", () => Effect.fail(dependencyProblem()))
-      .handle("skillMarket.admin.skillhub.command", () => Effect.fail(dependencyProblem())),
+      .handle("skillMarket.admin.skillhub.status", () =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({ try: () => options.skillhubImportAdmin.status(principal), catch: dependencyProblem })
+        }),
+      )
+      .handle("skillMarket.admin.skillhub.command", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.try({
+            try: () => options.skillhubImportAdmin.command(principal, context.payload),
+            catch: skillHubProblem,
+          })
+          if (context.payload.command !== "pause") options.onWorkReady?.()
+          return result
+        }),
+      ),
   )
 }
 
@@ -177,6 +193,16 @@ function reviewProblem(error: unknown) {
     return new SkillMarketSubmissionConflict({
       code: error.code,
       message: "目标状态已发生变化，请刷新后重试",
+      requestId: requestID(),
+    })
+  return dependencyProblem(error)
+}
+
+function skillHubProblem(error: unknown) {
+  if (error instanceof SkillMarketSecurityError && error.code === "invalid-request")
+    return new SkillMarketInvalidRequest({
+      code: "invalid-request",
+      message: "SkillHub 导入请求无效",
       requestId: requestID(),
     })
   return dependencyProblem(error)

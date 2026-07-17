@@ -15,6 +15,7 @@ import type { MarketMetricEmitter } from "./metrics"
 import type { Moderation } from "./moderation"
 import type { PrivateObjectStore } from "./oss"
 import type { MarketSecurity } from "./security"
+import type { SkillHubImportAdmin } from "./skillhub-import-admin"
 import { randomSecret } from "./security"
 import type { Submissions } from "./submissions"
 import { createAdminHttp } from "./http/admin"
@@ -30,6 +31,7 @@ export interface MarketHttpOptions {
   readonly security: MarketSecurity
   readonly submissions: Submissions
   readonly moderation: Moderation
+  readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
   readonly webOrigin: string

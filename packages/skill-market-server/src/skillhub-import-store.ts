@@ -59,6 +59,7 @@ export interface RetriedRejectedSkillHubItem {
 export interface SkillHubImportCommandTransition {
   readonly progress: SkillMarketControl.SkillHubImportProgress
   readonly retriedRejected: readonly RetriedRejectedSkillHubItem[]
+  readonly generationID?: string
 }
 
 export interface SkillHubImportStore {
@@ -93,6 +94,11 @@ export interface SkillHubImportStore {
   readonly progress: () => SkillMarketControl.SkillHubImportProgress
   readonly command: (input: SkillMarketControl.SkillHubImportCommandInput) => SkillMarketControl.SkillHubImportProgress
   readonly commandTransition: (
+    input: SkillMarketControl.SkillHubImportCommandInput,
+  ) => SkillHubImportCommandTransition
+  readonly progressInTransaction: (connection: Database) => SkillMarketControl.SkillHubImportProgress
+  readonly commandTransitionInTransaction: (
+    connection: Database,
     input: SkillMarketControl.SkillHubImportCommandInput,
   ) => SkillHubImportCommandTransition
   readonly mirroredEntries: () => MirroredSkillHubEntry[]
@@ -281,6 +287,9 @@ export function createSkillHubImportStore(options: {
     progress() {
       return options.database.read((connection) => readProgress(connection, now(), metadataConcurrency, packageConcurrency))
     },
+    progressInTransaction(connection) {
+      return readProgress(connection, now(), metadataConcurrency, packageConcurrency)
+    },
     command(input) {
       return options.database.transaction((connection) => {
         return applyCommand(connection, input, now(), metadataConcurrency, packageConcurrency).progress
@@ -290,6 +299,9 @@ export function createSkillHubImportStore(options: {
       return options.database.transaction((connection) => {
         return applyCommand(connection, input, now(), metadataConcurrency, packageConcurrency)
       })
+    },
+    commandTransitionInTransaction(connection, input) {
+      return applyCommand(connection, input, now(), metadataConcurrency, packageConcurrency)
     },
     mirroredEntries() {
       return options.database.read((connection) =>
@@ -527,9 +539,11 @@ function applyCommand(
       [timestamp],
     )
   const retriedRejected = input.command === "retry-rejected" ? retryRejected(connection, input.slugs, timestamp) : []
+  const generation = currentGeneration(connection)
   return {
     progress: readProgress(connection, timestamp, metadataConcurrency, packageConcurrency),
     retriedRejected,
+    ...(generation ? { generationID: generation.id } : {}),
   }
 }
 
