@@ -27,7 +27,11 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
   if (checkpoint?.discoveryCompleted)
     return result(options.imports, true, false, options.pageConcurrency ?? 4)
   if (checkpoint?.state === "paused") return result(options.imports, false, false, options.pageConcurrency ?? 4)
-  if (!options.refresh && completed)
+  if (
+    !options.refresh &&
+    completed &&
+    (options.limit === undefined || options.limit <= options.imports.progress().upstreamTotal)
+  )
     return result(options.imports, true, false, options.pageConcurrency ?? 4)
 
   const pool = createAdaptivePool({

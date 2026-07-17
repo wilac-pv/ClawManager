@@ -456,6 +456,31 @@ describe("SkillHub discovery", () => {
     database.close()
   })
 
+  test("expands a completed generation when the configured canary limit increases", async () => {
+    const database = await temporaryDatabase()
+    const imports = createSkillHubImportStore({ database })
+    const records = [listRecord("first"), listRecord("second")]
+    await discoverSkillHub({
+      fetcher: async () => pageResponse(records, records.length),
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      limit: 1,
+    })
+    imports.claim("first-worker", 1, 60_000)
+    imports.reject("first-worker", "first", "validation", "first canary complete")
+
+    const expanded = await discoverSkillHub({
+      fetcher: async () => pageResponse(records, records.length),
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      limit: 2,
+    })
+
+    expect(expanded).toMatchObject({ discovered: 2, completed: true })
+    expect(imports.progress()).toMatchObject({ upstreamTotal: 2, pending: 1 })
+    database.close()
+  })
+
   test("only refreshes a completed generation when the effective upstream total changes", async () => {
     const database = await temporaryDatabase()
     const imports = createSkillHubImportStore({ database, packageConcurrency: 200 })
