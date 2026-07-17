@@ -14,7 +14,15 @@ export type Sort = typeof Sort.Type
 
 export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))
 export const HttpsUrl = Schema.String.check(Schema.isPattern(/^https:\/\/[^\s]+$/))
-const MarketPageUrlPattern = /^https?:\/\/[^\s]+$/
+const IPv4Octet = "(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)"
+const PrivateIPv4 = `(?:(?:10|127)\\.${IPv4Octet}\\.${IPv4Octet}\\.${IPv4Octet}|172\\.(?:1[6-9]|2\\d|3[01])\\.${IPv4Octet}\\.${IPv4Octet}|192\\.168\\.${IPv4Octet}\\.${IPv4Octet})`
+const Port = "(?::(?:0+|0*(?:[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])))?"
+const PathQueryFragment = "(?:[/?#][^\\s]*)?"
+const HttpsHost = "(?:\\[[^\\]\\s]+\\]|[^\\s/?#@:\\[\\]]+)"
+const MarketPageUrlPattern = new RegExp(
+  `^(?:https:\\/\\/${HttpsHost}${Port}${PathQueryFragment}|http:\\/\\/(?:localhost|\\[::1\\]|${PrivateIPv4})${Port}${PathQueryFragment})$`,
+  "i",
+)
 export const MarketPageUrl = Schema.String.check(
   Schema.makeFilter((value) => {
     const invalid = "market page URL must use HTTPS or private HTTP without credentials"

@@ -274,10 +274,25 @@ export type SkillHubImportState = typeof SkillHubImportState.Type
 export const SkillHubImportCommand = Schema.Literals(["pause", "resume", "retry-wait", "retry-rejected"])
 export type SkillHubImportCommand = typeof SkillHubImportCommand.Type
 
+export const SkillHubImportSlug = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}$/))
+export type SkillHubImportSlug = typeof SkillHubImportSlug.Type
+
 export const SkillHubImportCommandInput = Schema.Struct({
   command: SkillHubImportCommand,
+  // Omitted commands all eligible rows; supplied slugs restrict the operation.
+  slugs: Schema.Array(SkillHubImportSlug).check(Schema.isMaxLength(100)).pipe(optional),
 }).annotate({ identifier: "SkillMarketControl.SkillHubImportCommandInput" })
 export type SkillHubImportCommandInput = typeof SkillHubImportCommandInput.Type
+
+export const SkillHubImportErrorCode = Schema.Literals(["upstream", "download", "validation", "storage", "rate_limited"])
+export type SkillHubImportErrorCode = typeof SkillHubImportErrorCode.Type
+
+export const SkillHubImportError = Schema.Struct({
+  code: SkillHubImportErrorCode,
+  summary: bounded(1, 500),
+  occurredAt: SkillMarket.Timestamp,
+}).annotate({ identifier: "SkillMarketControl.SkillHubImportError" })
+export type SkillHubImportError = typeof SkillHubImportError.Type
 
 export const SkillHubImportProgress = Schema.Struct({
   state: SkillHubImportState,
@@ -292,6 +307,8 @@ export const SkillHubImportProgress = Schema.Struct({
   uploadedBytes: NonNegative,
   ratePerMinute: NonNegative,
   estimatedSecondsRemaining: NonNegative.pipe(optional),
+  lastPublishedAt: SkillMarket.Timestamp.pipe(optional),
+  recentError: SkillHubImportError.pipe(optional),
   discoveryPage: NonNegative,
   sweep: NonNegative,
   metadataConcurrency: Positive,

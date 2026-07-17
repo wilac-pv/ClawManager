@@ -117,6 +117,26 @@ describe("SkillMarket", () => {
     ).toThrow()
   })
 
+  test("preserves market page URL acceptance across emitted URL policy cases", () => {
+    for (const url of [
+      "https://skillhub.cn/skills/code-review",
+      "http://localhost:4211/skills/code-review",
+      "http://[::1]:4211/skills/code-review",
+      "http://192.168.1.10/skills/code-review",
+      "http://172.16.0.1/skills/code-review",
+      "http://127.0.0.1/skills/code-review",
+    ]) {
+      expect(Schema.decodeUnknownSync(SkillMarket.MarketPageUrl)(url)).toBe(url)
+    }
+    for (const url of [
+      "http://8.8.8.8/skills/code-review",
+      "https://user:password@skillhub.cn/skills/code-review",
+      "https://skillhub.cn:99999/skills/code-review",
+    ]) {
+      expect(() => Schema.decodeUnknownSync(SkillMarket.MarketPageUrl)(url)).toThrow()
+    }
+  })
+
   test("keeps domain query booleans and validates pagination", () => {
     const query = Schema.decodeUnknownSync(SkillMarket.PageQuery)({
       requiresApiKey: false,

@@ -16,9 +16,11 @@ import { Prompt } from "@opencode-ai/schema/prompt"
 import { Session } from "@opencode-ai/schema/session"
 import { SessionInput } from "@opencode-ai/schema/session-input"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
+import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Workspace } from "@opencode-ai/schema/workspace"
 import { Api } from "@opencode-ai/server/api"
-import { compile, emitPromise } from "@opencode-ai/httpapi-codegen"
+import { compile, emitEffect, emitPromise } from "@opencode-ai/httpapi-codegen"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
 import { ClientApi, endpointNames, groupNames, omitEndpoints } from "../src/contract"
 
 test("Core and Server reuse the authoritative Schema and Protocol values", () => {
@@ -44,8 +46,15 @@ test("client and Server contracts generate identically", () => {
   expect(emitPromise(client)).toEqual(emitPromise(server))
 })
 
-test("client contract accepts portable market URL schemas", () => {
-  expect(() => compile(ClientApi, { groupNames, endpointNames, omitEndpoints })).not.toThrow()
+test("generated market URL schema retains private-host policy", () => {
+  const group = HttpApiGroup.make("market").add(
+    HttpApiEndpoint.get("get", "/market", { success: SkillMarket.MarketPageUrl }),
+  )
+  const source = emitEffect(compile(HttpApi.make("test").add(group))).files.find((file) => file.path === "market.ts")
+
+  expect(source?.content).toContain("localhost")
+  expect(source?.content).toContain("25[0-5]")
+  expect(source?.content).toContain("192")
 })
 
 test("shared DTO schemas construct and decode plain objects", () => {

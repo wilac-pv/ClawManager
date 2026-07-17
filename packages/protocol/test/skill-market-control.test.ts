@@ -79,11 +79,76 @@ test("skillhub import progress decodes representative progress", () => {
       uploadedBytes: 1_048_576,
       ratePerMinute: 120,
       estimatedSecondsRemaining: 37_676,
+      lastPublishedAt: "2026-07-16T23:30:00.000Z",
+      recentError: {
+        code: "upstream",
+        summary: "SkillHub page fetch timed out",
+        occurredAt: "2026-07-17T00:00:00.000Z",
+      },
       discoveryPage: 100,
       sweep: 1,
       metadataConcurrency: 8,
       packageConcurrency: 6,
       updatedAt: "2026-07-17T00:00:00.000Z",
-    }).mirrored,
-  ).toBe(2_900)
+    }),
+  ).toMatchObject({
+    mirrored: 2_900,
+    lastPublishedAt: "2026-07-16T23:30:00.000Z",
+    recentError: { code: "upstream" },
+  })
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportProgress)({
+      state: "failed",
+      sourceStatus: "stale",
+      upstreamTotal: 1,
+      discovered: 1,
+      pending: 0,
+      running: 0,
+      mirrored: 0,
+      retryWait: 0,
+      rejected: 1,
+      uploadedBytes: 0,
+      ratePerMinute: 0,
+      recentError: {
+        code: "validation",
+        summary: "x".repeat(501),
+        occurredAt: "2026-07-17T00:00:00.000Z",
+      },
+      discoveryPage: 1,
+      sweep: 1,
+      metadataConcurrency: 1,
+      packageConcurrency: 1,
+      updatedAt: "2026-07-17T00:00:00.000Z",
+    }),
+  ).toThrow()
+})
+
+test("skillhub import commands decode bounded slug selections", () => {
+  expect(
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({ command: "pause" }).slugs,
+  ).toBeUndefined()
+  expect(
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
+      command: "retry-rejected",
+      slugs: ["code-review", "team.skill_1"],
+    }).slugs,
+  ).toEqual(["code-review", "team.skill_1"])
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
+      command: "retry-wait",
+      slugs: Array.from({ length: 101 }, (_, index) => `skill-${index}`),
+    }),
+  ).toThrow()
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
+      command: "retry-wait",
+      slugs: ["../outside"],
+    }),
+  ).toThrow()
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
+      command: "retry-wait",
+      slugs: ["a".repeat(257)],
+    }),
+  ).toThrow()
 })
