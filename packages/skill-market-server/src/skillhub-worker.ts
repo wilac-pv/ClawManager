@@ -6,6 +6,7 @@ import { createSkillHubMirror, type SkillHubMirror } from "./skillhub-mirror"
 import { loadSkillHubRecord, type Fetcher } from "./skillhub"
 import { emitMarketMetric, type MarketMetricEmitter } from "./metrics"
 import { makeS3ObjectStore, type PrivateObjectStore } from "./oss"
+import { createPublisher } from "./publisher"
 
 type MirrorBatch = Awaited<ReturnType<SkillHubMirror["runBatch"]>>
 
@@ -59,7 +60,6 @@ export async function runConfiguredSkillHubWorker(options: {
   readonly workerID?: string
   readonly emit?: MarketMetricEmitter
 } = {}) {
-  if (!options.publish) throw new Error("SkillHub publication callback is required")
   const config = options.config ?? loadConfig()
   const database = await openDatabase({
     databasePath: config.databasePath,
@@ -109,8 +109,17 @@ async function runWithDatabase(
     packageConcurrency: config.skillhubPackageConcurrency,
     memorySoftLimitMb: config.skillhubMemorySoftLimitMb,
   })
+  const publisher = createPublisher({
+    database,
+    store,
+    ossPrefix: config.ossPrefix,
+    publicBaseUrl: config.publicBaseUrl,
+    webBaseUrl: config.webBaseUrl,
+  })
+  const workerID = options.workerID ?? `skillhub-${process.pid}`
+  await publisher.seedLegacySkillHub(imports, workerID)
   return runSkillHubWorker({
-    workerID: options.workerID ?? `skillhub-${process.pid}`,
+    workerID,
     discover: () =>
       discoverSkillHub({
         fetcher,
@@ -126,8 +135,16 @@ async function runWithDatabase(
       options.shouldPublish?.(imports.progress()) ??
       (progress.mirrored - checkpoint.lastPublishedCount >= config.skillhubPublishBatch ||
         (checkpoint.lastPublishedAt !== undefined &&
-          Date.now() - Date.parse(checkpoint.lastPublishedAt) >= config.skillhubPublishMinutes * 60 * 1_000)),
-    publish: options.publish,
+          Date.now() - Date.parse(checkpoint.lastPublishedAt) >= config.skillhubPublishMinutes * 60 * 1_000) ||
+        (imports.progress().sourceStatus === "fresh" &&
+          imports.progress().pending === 0 &&
+          imports.progress().running === 0 &&
+          imports.progress().retryWait === 0)),
+    publish: async () => {
+      if (options.publish) return options.publish()
+      const published = await publisher.publishMirroredSkillHub(imports, workerID)
+      imports.recordPublication(published.mirrored)
+    },
     emit: options.emit,
   })
 }

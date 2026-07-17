@@ -1,16 +1,18 @@
 import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
-import { type CatalogSnapshot, mergeCatalog } from "./catalog"
+import { contentAddressDetail, createCatalogIndex, type CatalogIndex, key } from "./catalog"
 import { listPublishedCommunity, materializeCommunitySubmission, publishCommunityObjects } from "./community"
 import type { MarketDatabase } from "./database"
 import {
+  loadCatalogIndex,
   loadCurrentPointer,
   loadCurrentSnapshot,
   type PrivateObjectStore,
-  publishSnapshotObjects,
-  publishSnapshotPointer,
+  publishCatalogIndexObjects,
+  publishCatalogIndexPointer,
 } from "./oss"
 import { randomSecret } from "./security"
+import type { SkillHubImportStore } from "./skillhub-import-store"
 
 interface PublisherOptions {
   readonly database: MarketDatabase
@@ -39,6 +41,11 @@ interface SubmissionState {
   readonly version: number
 }
 
+type Publication = {
+  readonly index: CatalogIndex
+  readonly changedDetails: ReadonlyMap<string, SkillMarket.Detail>
+}
+
 export class Publisher {
   constructor(private readonly options: PublisherOptions) {}
 
@@ -52,12 +59,12 @@ export class Publisher {
       return { jobID: job.id, kind: job.kind, revision: job.target_revision }
     }
 
-    const snapshot = job.kind === "publish" ? await this.buildPublication(job) : await this.buildRebuild()
-    await publishSnapshotObjects(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
-    this.persistTarget(job, workerID, snapshot.revision)
-    await publishSnapshotPointer(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
-    this.finalize({ ...job, target_revision: snapshot.revision })
-    return { jobID: job.id, kind: job.kind, revision: snapshot.revision }
+    const publication = job.kind === "publish" ? await this.buildPublication(job) : await this.buildRebuild()
+    await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
+    this.persistTarget(job, workerID, publication.index.revision)
+    await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
+    this.finalize({ ...job, target_revision: publication.index.revision })
+    return { jobID: job.id, kind: job.kind, revision: publication.index.revision }
   }
 
   async recover() {
@@ -96,7 +103,7 @@ export class Publisher {
 
   async withCatalogLease<T>(
     workerID: string,
-    operation: (publish: (snapshot: CatalogSnapshot) => Promise<void>) => Promise<T>,
+    operation: (publish: (publication: Publication) => Promise<void>) => Promise<T>,
   ) {
     requireWorkerID(workerID)
     const now = this.now()
@@ -118,15 +125,49 @@ export class Publisher {
       return readJob(connection, jobID)!
     })
     const state: { revision?: string } = {}
-    const value = await operation(async (snapshot) => {
+    const value = await operation(async (publication) => {
       if (state.revision) throw new Error("catalog lease cannot move the pointer more than once")
-      await publishSnapshotObjects(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
-      this.persistTarget(job, workerID, snapshot.revision)
-      state.revision = snapshot.revision
-      await publishSnapshotPointer(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
+      await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
+      this.persistTarget(job, workerID, publication.index.revision)
+      state.revision = publication.index.revision
+      await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
     })
     this.finalize({ ...job, target_revision: state.revision ?? null })
     return value
+  }
+
+  async publishMirroredSkillHub(imports: Pick<SkillHubImportStore, "mirroredEntries" | "progress">, workerID: string) {
+    const base = await this.basePublication()
+    const progress = imports.progress()
+    const entries = new Map(
+      Array.from(base.index.items, (summary) => [key(summary.source, summary.id), {
+        summary,
+        ref: base.index.details.get(key(summary.source, summary.id))!,
+      }] as const).filter(([entryKey]) => !entryKey.startsWith("skillhub:")),
+    )
+    imports.mirroredEntries().forEach((entry) =>
+      entries.set(key(entry.summary.source, entry.summary.id), {
+        summary: entry.summary,
+        ref: { key: entry.detailKey, sha256: entry.detailSha256 },
+      }),
+    )
+    const index = createCatalogIndex({
+      entries,
+      sourceStatus: { ...base.index.sourceStatus, skillhub: progress.sourceStatus },
+    })
+    await this.withCatalogLease(workerID, (publish) => publish({ index, changedDetails: base.changedDetails }))
+    return { revision: index.revision, mirrored: progress.mirrored }
+  }
+
+  async seedLegacySkillHub(imports: Pick<SkillHubImportStore, "seedLegacy">, workerID: string) {
+    const base = await this.basePublication()
+    const legacy = Array.from(base.changedDetails.values())
+      .filter((detail) => detail.source === "skillhub")
+      .map((detail) => ({ slug: detail.aliases?.[0] ?? detail.id, ...contentAddressDetail(detail) }))
+    const seeded = imports.seedLegacy(legacy.map(({ slug, summary, ref }) => ({ slug, summary, detailKey: ref.key, detailSha256: ref.sha256 })))
+    if (base.changedDetails.size === 0) return seeded
+    await this.withCatalogLease(workerID, (publish) => publish(base))
+    return seeded
   }
 
   private claim(workerID: string) {
@@ -165,20 +206,20 @@ export class Publisher {
       { store: this.options.store, publicPrefix: this.options.ossPrefix },
       job.submission_id,
     )
-    const [base, community, candidate] = await Promise.all([
+    const [base, candidate] = await Promise.all([
       this.baseSnapshot(),
-      listPublishedCommunity(this.options.database, this.communityOptions()),
       materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id),
     ])
-    return mergeCatalog(
-      [
-        ...base.details.filter((detail) => detail.source !== "community"),
-        ...community.filter((detail) => detail.id !== candidate.id),
-        candidate,
-      ],
-      emptyEnterpriseIndex(this.now()),
-      { ...base.sourceStatus, community: "fresh" },
-    )
+    const entry = contentAddressDetail(candidate)
+    const entries = this.entries(base.index, (summary) => summary.source !== "community" || summary.id !== candidate.id)
+    entries.set(key(candidate.source, candidate.id), entry)
+    const changedDetails = new Map(base.changedDetails)
+    if (base.index.details.get(key(candidate.source, candidate.id))?.sha256 !== entry.ref.sha256)
+      changedDetails.set(key(candidate.source, candidate.id), candidate)
+    return {
+      index: createCatalogIndex({ entries, sourceStatus: { ...base.index.sourceStatus, community: "fresh" } }),
+      changedDetails,
+    }
   }
 
   private async buildRebuild() {
@@ -186,21 +227,50 @@ export class Publisher {
       this.baseSnapshot(),
       listPublishedCommunity(this.options.database, this.communityOptions()),
     ])
-    return mergeCatalog(
-      [...base.details.filter((detail) => detail.source !== "community"), ...community],
-      emptyEnterpriseIndex(this.now()),
-      { ...base.sourceStatus, community: "fresh" },
-    )
+    const entries = this.entries(base.index, (summary) => summary.source !== "community")
+    const changedDetails = new Map(base.changedDetails)
+    community.forEach((detail) => {
+      const entry = contentAddressDetail(detail)
+      entries.set(key(detail.source, detail.id), entry)
+      if (base.index.details.get(key(detail.source, detail.id))?.sha256 !== entry.ref.sha256)
+        changedDetails.set(key(detail.source, detail.id), detail)
+    })
+    return {
+      index: createCatalogIndex({ entries, sourceStatus: { ...base.index.sourceStatus, community: "fresh" } }),
+      changedDetails,
+    }
   }
 
   private async baseSnapshot() {
-    const loaded = await settled(loadCurrentSnapshot(this.options.store, { prefix: this.options.ossPrefix }))
-    if (!loaded.ok)
-      return {
-        details: [] as SkillMarket.Detail[],
-        sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const,
-      }
-    return { details: Array.from(loaded.value.details.values()), sourceStatus: loaded.value.sourceStatus }
+    return this.basePublication()
+  }
+
+  private async basePublication(): Promise<Publication> {
+    const loaded = await settled(loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix }))
+    if (!loaded.ok) {
+      const sourceStatus = { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const
+      return { index: createCatalogIndex({ entries: new Map(), sourceStatus }), changedDetails: new Map() }
+    }
+    if (Array.from(loaded.value.details.values()).every((ref) => ref.sha256.length === 64))
+      return { index: loaded.value, changedDetails: new Map() }
+    const snapshot = await loadCurrentSnapshot(this.options.store, { prefix: this.options.ossPrefix })
+    const entries = new Map<string, { summary: SkillMarket.Summary; ref: { key: string; sha256: string } }>()
+    const changedDetails = new Map<string, SkillMarket.Detail>()
+    snapshot.details.forEach((detail, entryKey) => {
+      const entry = contentAddressDetail(detail)
+      entries.set(entryKey, entry)
+      changedDetails.set(entryKey, detail)
+    })
+    return { index: createCatalogIndex({ entries, sourceStatus: snapshot.sourceStatus }), changedDetails }
+  }
+
+  private entries(index: CatalogIndex, keep: (summary: SkillMarket.Summary) => boolean) {
+    return new Map(
+      index.items.filter(keep).map((summary) => [key(summary.source, summary.id), {
+        summary,
+        ref: index.details.get(key(summary.source, summary.id))!,
+      }] as const),
+    )
   }
 
   private persistTarget(job: JobRow, workerID: string, revision: string) {
@@ -336,10 +406,6 @@ function insertPublishStarted(connection: Database, job: JobRow, now: number) {
       now,
     ],
   )
-}
-
-function emptyEnterpriseIndex(now: number): SkillMarket.EnterpriseIndex {
-  return { schemaVersion: 1, updatedAt: new Date(now).toISOString(), skills: [] }
 }
 
 function requireWorkerID(value: string) {

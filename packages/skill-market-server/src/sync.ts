@@ -1,18 +1,19 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import matter from "gray-matter"
-import { type CatalogSnapshot, key, mergeCatalog } from "./catalog"
+import { contentAddressDetail, createCatalogIndex, type CatalogSnapshot, key, mergeCatalog } from "./catalog"
 import { listPublishedCommunity } from "./community"
 import { type SkillMarketConfig, loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { emitMarketMetric } from "./metrics"
-import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
+import { type ObjectStore, loadCatalogIndex, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
 import { createPublisher } from "./publisher"
 import { normalizeSkillHubArchive } from "./skillhub-archive"
-import { type SkillHubRecord, loadSkillHub } from "./skillhub"
+import { type SkillHubRecord } from "./skillhub"
+import { createSkillHubImportStore } from "./skillhub-import-store"
 import { inspectZipArchive } from "./submission-archive"
 import { createSubmissions } from "./submissions"
 import { createWorker } from "./worker"
@@ -152,7 +153,30 @@ export async function synchronize(options: SyncOptions) {
     )
   await options.publisher.recover()
   await drainPublisher(options.publisher)
-  return options.publisher.withCatalogLease("sync", (publish) => synchronizeUnlocked(options, publish))
+  let publication: CatalogSnapshot | undefined
+  const result = await synchronizeUnlocked(options, async (snapshot) => {
+    publication = snapshot
+  })
+  if (!result.published || !publication) return result
+  const current = await settled(loadCatalogIndex(options.store, { prefix: options.config.ossPrefix }))
+  const details = new Map(
+    Array.from(publication.details).filter(([entryKey, detail]) => {
+      const currentRef = current.ok ? current.value.details.get(entryKey) : undefined
+      return currentRef?.sha256 !== contentAddressDetail(detail).ref.sha256
+    }),
+  )
+  return options.publisher.withCatalogLease("sync", (publish) =>
+    publish({
+      index: createCatalogIndex({
+        entries: new Map(
+          Array.from(publication!.details, ([entryKey, detail]) => [entryKey, contentAddressDetail(detail)] as const),
+        ),
+        sourceStatus: publication!.sourceStatus,
+        createdAt: publication!.createdAt,
+      }),
+      changedDetails: details,
+    }).then(() => result),
+  )
 }
 
 async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: CatalogSnapshot) => Promise<void>) {
@@ -160,31 +184,16 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
   const now = (options.now ?? (() => new Date()))()
   const state = await loadState(options.store, options.config.ossPrefix)
   const previous = await settled(loadCurrentSnapshot(options.store, { prefix: options.config.ossPrefix }))
-  const previousSkillhub = new Map<string, SkillMarket.Detail>(
-    previous.ok
-      ? sourceDetails(previous.value, "skillhub").flatMap((detail) =>
-          [detail.id, ...(detail.aliases ?? [])].map((id) => [id, detail] as const),
-        )
-      : [],
-  )
-  const canReuseSkillhub =
-    previous.ok &&
-    state.lastSkillhubAt !== undefined &&
-    now.getTime() - Date.parse(state.lastSkillhubAt) < 10 * 60 * 1_000
-  const skillhub = canReuseSkillhub
-    ? ({
-        ok: true,
-        value: { value: previous.value.items.length, details: sourceDetails(previous.value, "skillhub"), reused: true },
-      } as const)
-    : await settled(
-        loadSkillHub(options.fetcher, options.config.skillhubBaseUrl, undefined, options.config.skillhubLimit).then(
-          async (records) => ({
-            value: records.length,
-            details: await materializeSkillHubRecords(records, materializeOptions(options), previousSkillhub),
-            reused: false as const,
-          }),
-        ),
-      )
+  const imported = options.database ? createSkillHubImportStore({ database: options.database }).progress() : undefined
+  const skillhub = {
+    ok: true,
+    value: {
+      value: imported?.mirrored ?? 0,
+      details: previous.ok ? sourceDetails(previous.value, "skillhub") : [],
+      reused: true as const,
+      status: imported?.sourceStatus ?? (previous.ok ? "stale" : "unavailable"),
+    },
+  } as const
   const enterprise = await settled(
     loadEnterpriseConditional(options, state).then(async (value) => ({
       ...value,
@@ -235,7 +244,7 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
         )
   const index = enterprise.ok ? enterprise.value.index : emptyEnterpriseIndex(now)
   const sourceStatus: SkillMarket.SourceStatus = {
-    skillhub: skillhub.ok ? "fresh" : skillhubDetails.length ? "stale" : "unavailable",
+    skillhub: skillhub.value.status,
     enterprise:
       enterprise.ok || (previous.ok && previous.value.items.some((item) => item.enterprise))
         ? enterprise.ok
@@ -251,7 +260,7 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
   )
   await publish(snapshot)
   const nextState: SyncState = {
-    lastSkillhubAt: skillhub.ok && !skillhub.value.reused ? now.toISOString() : state.lastSkillhubAt,
+    lastSkillhubAt: state.lastSkillhubAt,
     enterpriseEtag: enterprise.ok ? enterprise.value.etag : state.enterpriseEtag,
     enterpriseIndex: enterprise.ok ? enterprise.value.index : state.enterpriseIndex,
   }

@@ -54,12 +54,12 @@ test("does not call an unavailable publisher boundary", async () => {
   expect(published).toBe(false)
 })
 
-test("configured worker fails closed before opening resources without a publisher", async () => {
+test("configured worker provides its catalog publisher without an injected callback", async () => {
   const config = loadConfig({
     SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://enterprise.example.com/index.json",
     SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
     SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com/public/",
   })
 
-  await expect(runConfiguredSkillHubWorker({ config })).rejects.toThrow("publication callback")
+  await expect(runConfiguredSkillHubWorker({ config })).rejects.not.toThrow("publication callback")
 })

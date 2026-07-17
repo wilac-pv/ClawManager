@@ -186,6 +186,24 @@ export async function publishCatalogIndex(
   return { revision: index.revision, pointerKey: keys(config, index.revision).current }
 }
 
+export async function publishCatalogIndexObjects(
+  client: ObjectStore,
+  config: PublishConfig,
+  index: CatalogIndex,
+  changedDetails: ReadonlyMap<string, SkillMarket.Detail>,
+) {
+  await publishCatalogObjects(client, config, index, changedDetails)
+  return { revision: index.revision }
+}
+
+export async function publishCatalogIndexPointer(
+  client: ObjectStore,
+  config: PublishConfig,
+  index: Pick<CatalogIndex, "revision" | "createdAt">,
+) {
+  return publishCatalogPointer(client, config, index)
+}
+
 async function publishCatalogObjects(
   client: ObjectStore,
   config: PublishConfig,

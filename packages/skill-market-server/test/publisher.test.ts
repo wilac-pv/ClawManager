@@ -3,10 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDatabase } from "../src/database"
-import { loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
+import { loadCatalogIndex, loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
 import { createPublisher } from "../src/publisher"
+import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { validateSubmissionArchive } from "../src/submission-archive"
-import { sampleSnapshot } from "./fixture"
+import { sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
 
 const directories: string[] = []
@@ -16,6 +17,86 @@ afterEach(async () => {
 })
 
 describe("community publisher", () => {
+  test("seeds all legacy SkillHub entries into the import store without downloading packages", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    const details = Array.from({ length: 18 }, (_, index) =>
+      sampleDetail({ id: `legacy-${index}`, aliases: [`legacy-slug-${index}`] }),
+    )
+    const createdAt = "2026-07-15T00:00:00.000Z"
+    fixture.objects.set("skill-market/current.json", bytes(JSON.stringify({ revision: "legacy", createdAt })))
+    fixture.objects.set(
+      "skill-market/indexes/legacy/catalog.json",
+      bytes(JSON.stringify({ revision: "legacy", createdAt, items: details.map((detail) => ({ ...sampleSnapshot().items[0]!, id: detail.id, aliases: detail.aliases })) })),
+    )
+    fixture.objects.set(
+      "skill-market/indexes/legacy/facets.json",
+      bytes(JSON.stringify({ ...sampleSnapshot().facets, revision: "legacy" })),
+    )
+    details.forEach((detail) =>
+      fixture.objects.set(`skill-market/indexes/legacy/details/skillhub/${encodeURIComponent(detail.id)}.json`, bytes(JSON.stringify(detail))),
+    )
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+
+    expect(await createPublisher(publisherOptions(fixture)).seedLegacySkillHub(imports, "worker-migration")).toBe(18)
+    expect(imports.mirroredEntries()).toHaveLength(18)
+    expect((await loadCatalogIndex(fixture.store, { prefix: "skill-market" })).items).toHaveLength(18)
+    fixture.database.connection.run(
+      "INSERT INTO publish_jobs (id, submission_id, kind, status, attempts, created_at, updated_at) VALUES ('job_after_migration', 'sub_publish_12345678', 'publish', 'pending', 0, ?, ?)",
+      [fixture.clock.value, fixture.clock.value],
+    )
+    await createPublisher(publisherOptions(fixture)).runOne("worker-community")
+    expect((await loadCatalogIndex(fixture.store, { prefix: "skill-market" })).items).toHaveLength(19)
+    expect(Array.from(fixture.objects).filter(([key]) => /\/packages\/[a-f0-9]{64}\.zip$/.test(key))).toEqual([])
+    fixture.database.close()
+  })
+
+  test("publishes 2,000 mirrored summaries without loading their detail objects under the catalog lease", async () => {
+    const fixture = await publisherFixture()
+    await createPublisher(publisherOptions(fixture)).runOne("worker-community")
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    const generation = imports.beginGeneration(2_000)
+    const detail = sampleSnapshot("mirrored").details.get("skillhub:code-review")!
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+    const summary = { ...sampleSnapshot("mirrored").items[0]!, id: "mirrored" }
+    fixture.database.transaction((connection) => {
+      Array.from({ length: 2_000 }, (_, index) => {
+        const slug = `mirrored-${index}`
+        connection.run(
+          "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, summary_json, detail_key, detail_sha256, mirrored_at, last_seen_generation, created_at, updated_at) VALUES (?, ?, '1.0.0', ?, 'mirrored', '{}', ?, ?, ?, ?, ?, ?, ?)",
+          [
+            slug,
+            generation.id,
+            fixture.clock.value,
+            JSON.stringify({ ...summary, id: slug }),
+            `details/${detailSha256}.json`,
+            detailSha256,
+            fixture.clock.value,
+            generation.id,
+            fixture.clock.value,
+            fixture.clock.value,
+          ],
+        )
+      })
+    })
+    const reads = { details: 0 }
+    const store = {
+      ...fixture.store,
+      async get(key: string) {
+        if (key.includes("/details/")) reads.details++
+        return fixture.store.get(key)
+      },
+    }
+    const publisher = createPublisher({ ...publisherOptions(fixture), store })
+
+    await publisher.publishMirroredSkillHub(imports, "worker-mirror")
+
+    expect(reads.details).toBe(0)
+    expect(imports.recordPublication(imports.progress().mirrored)).toBe(true)
+    expect((await loadCatalogIndex(fixture.store, { prefix: "skill-market" })).items).toHaveLength(2_001)
+    fixture.database.close()
+  })
+
   test("leases one pending job across concurrent workers and publishes exactly once", async () => {
     const fixture = await publisherFixture()
     const publisher = createPublisher(publisherOptions(fixture))
@@ -313,4 +394,8 @@ function rejected<T>(promise: Promise<T>) {
     () => undefined,
     (error: unknown) => error,
   )
+}
+
+function bytes(value: string) {
+  return new TextEncoder().encode(value)
 }
