@@ -6,6 +6,7 @@ import { openDatabase } from "../src/database"
 import type { PrivateObjectStore } from "../src/oss"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { createSkillHubMirror } from "../src/skillhub-mirror"
+import { normalizeSkillHubArchive } from "../src/skillhub-archive"
 import type { SkillHubListRecord, SkillHubRecord } from "../src/skillhub"
 import { makeZip } from "./zip"
 
@@ -38,6 +39,33 @@ describe("SkillHub mirror", () => {
     const detail = JSON.parse(new TextDecoder().decode(await objects.get(objects.keys().find((key) => key.includes("/details/"))!)))
     expect(detail.package.url).toContain("/public-catalog/packages/")
     expect(objects.keys()).toContain(`public-catalog/packages/${detail.package.sha256}.zip`)
+    fixture.database.close()
+  })
+
+  test("overwrites same-size corrupt content-addressed objects with verified immutable objects", async () => {
+    const fixture = await databaseFixture()
+    const imports = createSkillHubImportStore({ database: fixture.database })
+    const generation = imports.beginGeneration(1)
+    imports.recordPage(generation.id, 1, [list("corrupt")])
+    const body = packageZip("corrupt")
+    const normalized = normalizeSkillHubArchive(body, record("corrupt")).body
+    const packageSha256 = new Bun.CryptoHasher("sha256").update(normalized).digest("hex")
+    const objects = memoryStore({
+      initial: new Map([[`public-catalog/packages/${packageSha256}.zip`, new Uint8Array(normalized.byteLength).fill(7)]]),
+    })
+    const mirror = createSkillHubMirror({
+      imports,
+      store: objects,
+      allowedHosts: new Set(["packages.example.com"]),
+      objectPrefix: "public-catalog",
+      publicBaseUrl: "https://market.example.com/public-catalog/",
+      loadRecord: async (item) => record(item.slug),
+      fetcher: async () => new Response(body),
+    })
+
+    expect(await mirror.runBatch("mirror-a")).toEqual({ mirrored: 1, retryWait: 0, rejected: 0 })
+    expect(await objects.get(`public-catalog/packages/${packageSha256}.zip`)).not.toEqual(new Uint8Array(normalized.byteLength).fill(7))
+    expect(objects.cacheControls()).toContain("public, max-age=31536000, immutable")
     fixture.database.close()
   })
 
@@ -202,14 +230,16 @@ function traversalZip() {
   ])
 }
 
-function memoryStore(options: { readonly failPut?: boolean } = {}) {
-  const objects = new Map<string, Uint8Array>()
+function memoryStore(options: { readonly failPut?: boolean; readonly initial?: Map<string, Uint8Array> } = {}) {
+  const objects = new Map(options.initial)
   let count = 0
+  const cacheControls: string[] = []
   const store: PrivateObjectStore = {
-    async put(key, body) {
+    async put(key, body, _contentType, cacheControl) {
       count += 1
       if (options.failPut) throw new Error("temporary OSS outage")
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
+      cacheControls.push(cacheControl)
     },
     async get(key) {
       const body = objects.get(key)
@@ -225,7 +255,7 @@ function memoryStore(options: { readonly failPut?: boolean } = {}) {
     async copy() {},
     async delete() {},
   }
-  return Object.assign(store, { keys: () => [...objects.keys()], puts: () => count })
+  return Object.assign(store, { keys: () => [...objects.keys()], puts: () => count, cacheControls: () => cacheControls })
 }
 
 function state(database: Awaited<ReturnType<typeof openDatabase>>, slug: string) {

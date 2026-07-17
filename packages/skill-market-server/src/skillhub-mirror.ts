@@ -119,7 +119,7 @@ async function mirrorClaim(
   if (isFailure(archive)) return archive
 
   const packageKey = `${prefix}/packages/${archive.sha256}.zip`
-  const storedPackage = await storeIfMissing(options.store, packageKey, archive.body, "application/zip")
+  const storedPackage = await storeIfMissing(options.store, packageKey, archive.body, "application/zip", archive.sha256)
   if (!storedPackage) return retry("storage", now(), undefined, item.attempts, options.random)
   const icon = record.iconUrl
     ? await mirrorIcon(record.iconUrl, options, prefix, now, wait).then(
@@ -133,7 +133,7 @@ async function mirrorClaim(
   const json = JSON.stringify(detail)
   const detailSha256 = sha256(new TextEncoder().encode(json))
   const detailKey = `${prefix}/details/${detailSha256}.json`
-  const storedDetail = await storeIfMissing(options.store, detailKey, json, "application/json")
+  const storedDetail = await storeIfMissing(options.store, detailKey, json, "application/json", detailSha256)
   if (!storedDetail) return retry("storage", now(), undefined, item.attempts, options.random)
   return {
     item,
@@ -192,7 +192,7 @@ async function mirrorIcon(
   const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg" }[contentType ?? ""]
   if (!extension || !contentType) return undefined
   const key = `${prefix}/icons/${response.sha256}.${extension}`
-  if (!(await storeIfMissing(options.store, key, response.body, contentType)))
+  if (!(await storeIfMissing(options.store, key, response.body, contentType, response.sha256)))
     throw new AdaptivePoolError("icon storage failed")
   return publicUrl(options.publicBaseUrl, `icons/${response.sha256}.${extension}`)
 }
@@ -248,15 +248,23 @@ async function readLimited(response: Response, limit: number) {
   return { body, sha256: hasher.digest("hex"), contentType: response.headers.get("content-type") ?? undefined }
 }
 
-async function storeIfMissing(store: PrivateObjectStore, key: string, body: string | Uint8Array, contentType: string) {
+async function storeIfMissing(
+  store: PrivateObjectStore,
+  key: string,
+  body: string | Uint8Array,
+  contentType: string,
+  expectedSha256: string,
+) {
   try {
     const head = await store.head(key)
-    if (head.size === (typeof body === "string" ? new TextEncoder().encode(body).byteLength : body.byteLength)) return true
+    const size = typeof body === "string" ? new TextEncoder().encode(body).byteLength : body.byteLength
+    if (head.size === size && head.metadata?.sha256 === expectedSha256) return true
+    if (head.size === size && head.metadata?.sha256 === undefined && sha256(await store.get(key)) === expectedSha256) return true
   } catch (error) {
     if (!isMissingObject(error)) return false
   }
   try {
-    await store.put(key, body, contentType, "private, max-age=31536000, immutable")
+    await store.put(key, body, contentType, "public, max-age=31536000, immutable", { sha256: expectedSha256 })
     return true
   } catch {
     return false
@@ -323,9 +331,13 @@ function retry(
   attempts: number,
   random: (() => number) | undefined,
 ): MirrorFailure {
-  const exponential = Math.min(24 * 60 * 60 * 1_000, 1_000 * 2 ** Math.min(16, Math.max(0, attempts - 1)))
+  const exponential = Math.min(24 * 60 * 60 * 1_000, 1_000 * 2 ** Math.min(20, Math.max(0, attempts - 1)))
   const jittered = Math.round(exponential * (0.5 + (random ?? Math.random)()))
-  return { kind: "retry", code, retryAt: timestamp + Math.max(retryAfterMilliseconds(retryAfter, timestamp), jittered) }
+  return {
+    kind: "retry",
+    code,
+    retryAt: timestamp + Math.min(24 * 60 * 60 * 1_000, Math.max(retryAfterMilliseconds(retryAfter, timestamp), jittered)),
+  }
 }
 
 function reject(code: Extract<MirrorFailure, { readonly kind: "reject" }>["code"]): MirrorFailure {

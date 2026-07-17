@@ -13,7 +13,13 @@ import { Readable } from "node:stream"
 import { type CatalogSnapshot, key } from "./catalog"
 
 export type ObjectStore = {
-  readonly put: (key: string, body: string | Uint8Array, contentType: string, cacheControl: string) => Promise<void>
+  readonly put: (
+    key: string,
+    body: string | Uint8Array,
+    contentType: string,
+    cacheControl: string,
+    metadata?: Readonly<Record<string, string>>,
+  ) => Promise<void>
   readonly get: (key: string) => Promise<Uint8Array>
   readonly head: (key: string) => Promise<{
     size: number
@@ -58,7 +64,7 @@ export function makeS3ObjectStore(config: {
     requestChecksumCalculation: "WHEN_REQUIRED",
   })
   return {
-    async put(key, body, contentType, cacheControl) {
+    async put(key, body, contentType, cacheControl, metadata) {
       await client.send(
         new PutObjectCommand({
           Bucket: config.bucket,
@@ -66,6 +72,7 @@ export function makeS3ObjectStore(config: {
           Body: body,
           ContentType: contentType,
           CacheControl: cacheControl,
+          Metadata: metadata,
         }),
       )
     },
