@@ -41,7 +41,9 @@ it.live("decodes remote catalog data and uses the last successful cache while of
         expect((yield* catalog.list(query)).items[0]?.id).toBe("code-review")
         expect((yield* catalog.detail({ source: "skillhub", id: "code-review" })).version).toBe("1.2.0")
         state.available = false
-        expect((yield* catalog.list(query)).sourceStatus.skillhub).toBe("stale")
+        const sourceStatus = (yield* catalog.list(query)).sourceStatus
+        expect(sourceStatus.skillhub).toBe("stale")
+        expect(sourceStatus.community).toBe("stale")
         expect((yield* catalog.detail({ source: "skillhub", id: "code-review" })).id).toBe("code-review")
         expect(
           yield* catalog.revalidate({ source: "skillhub", id: "code-review" }).pipe(
@@ -84,7 +86,7 @@ function response(url: URL) {
   if (url.pathname === "/v1/catalog/facets") {
     return Response.json({
       revision: "r1",
-      sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+      sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
       sources: [{ value: "skillhub", count: 1 }],
       categories: [{ value: "代码质量", count: 1 }],
       requiresApiKey: { yes: 0, no: 1 },
@@ -116,7 +118,7 @@ const summary = {
 
 const page = {
   revision: "r1",
-  sourceStatus: { skillhub: "fresh", enterprise: "fresh" },
+  sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
   total: 1,
   page: 1,
   limit: 30,

@@ -235,6 +235,7 @@ function staleStatus(status: SkillMarket.SourceStatus): SkillMarket.SourceStatus
   return {
     skillhub: status.skillhub === "fresh" ? "stale" : status.skillhub,
     enterprise: status.enterprise === "fresh" ? "stale" : status.enterprise,
+    community: status.community === "fresh" ? "stale" : status.community,
   }
 }
 
