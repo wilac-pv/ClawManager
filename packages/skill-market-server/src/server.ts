@@ -3,12 +3,13 @@ import { Effect, Layer } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { createServer } from "node:http"
 import { createAuth } from "./auth"
+import { createCatalogReader } from "./catalog-reader"
 import { loadConfig } from "./config"
 import { openDatabase } from "./database"
 import { createMarketRoutes } from "./handlers"
 import { emitMarketMetric } from "./metrics"
 import { createModeration } from "./moderation"
-import { loadCurrentSnapshot, makeS3ObjectStore } from "./oss"
+import { makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
 import { bootstrapAdmins, createSecurity } from "./security"
 import { createSubmissions } from "./submissions"
@@ -76,7 +77,7 @@ const main = Effect.scoped(
     worker.cleanup()
     yield* Effect.promise(() => worker.drain("server-startup"))
     const routes = createMarketRoutes({
-      loadSnapshot: () => loadCurrentSnapshot(store, { prefix: config.ossPrefix }),
+      catalog: createCatalogReader({ store, prefix: config.ossPrefix }),
       auth,
       security,
       submissions,

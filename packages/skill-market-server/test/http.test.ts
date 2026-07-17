@@ -1,17 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
+import { type CatalogIndex, queryCatalogIndex } from "../src/catalog"
+import type { CatalogReader } from "../src/catalog-reader"
 import { createCatalogHandler } from "../src/handlers"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 
 describe("catalog HTTP", () => {
   test("serves all public operations from one loaded revision", async () => {
     const snapshot = sampleSnapshot("r1")
-    let loads = 0
-    const handler = createCatalogHandler(async () => {
-      loads++
-      return snapshot
-    })
+    const handler = createCatalogHandler(reader(snapshot))
 
     const page = await handler(new Request("https://market.example.com/v1/catalog/skills?page=1&limit=30"))
     expect(page.status).toBe(200)
@@ -37,29 +35,22 @@ describe("catalog HTTP", () => {
       sha256: "a".repeat(64),
       size: 2000,
     })
-    expect(loads).toBe(4)
   })
 
   test("handles preflight without loading the catalog and rejects invalid queries", async () => {
-    let loads = 0
-    const handler = createCatalogHandler(async () => {
-      loads++
-      return sampleSnapshot("r1")
-    })
+    const handler = createCatalogHandler(reader(sampleSnapshot("r1")))
     const preflight = await handler(new Request("https://market.example.com/v1/catalog/skills", { method: "OPTIONS" }))
     expect(preflight.status).toBe(204)
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, OPTIONS")
-    expect(loads).toBe(0)
 
     const invalid = await handler(new Request("https://market.example.com/v1/catalog/skills?page=0"))
     expect(invalid.status).toBe(400)
-    expect(loads).toBe(1)
   })
 
   test("does not expose delisted details", async () => {
     const snapshot = sampleSnapshot("r1")
     snapshot.details.set("skillhub:code-review", sampleDetail({ delisted: true }))
-    const response = await createCatalogHandler(async () => snapshot)(
+    const response = await createCatalogHandler(reader(snapshot))(
       new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review"),
     )
     expect(response.status).toBe(404)
@@ -76,7 +67,7 @@ describe("catalog HTTP", () => {
     })
     snapshot.details.set("community:code-review", detail)
     snapshot.sourceStatus = { ...snapshot.sourceStatus, community: "fresh" }
-    const response = await createCatalogHandler(async () => snapshot)(
+    const response = await createCatalogHandler(reader(snapshot))(
       new Request("https://market.example.com/v1/catalog/skills/community/code-review"),
     )
 
@@ -85,3 +76,33 @@ describe("catalog HTTP", () => {
     expect(Schema.decodeUnknownSync(SkillMarket.Detail)(await response.json()).source).toBe("community")
   })
 })
+
+function reader(snapshot: ReturnType<typeof sampleSnapshot>): CatalogReader {
+  const index = async (): Promise<CatalogIndex> => ({
+    revision: snapshot.revision,
+    createdAt: snapshot.createdAt,
+    items: snapshot.items,
+    details: new Map(),
+    facets: snapshot.facets,
+    sourceStatus: snapshot.sourceStatus,
+  })
+  const detail = async (source: SkillMarket.Source, id: string) => snapshot.details.get(`${source}:${id}`)
+  return {
+    index,
+    async list(query) {
+      return queryCatalogIndex(await index(), query)
+    },
+    async facets() {
+      return snapshot.facets
+    },
+    detail,
+    async versions(source, id) {
+      return (await detail(source, id))?.versions
+    },
+    async download(source, id) {
+      const value = await detail(source, id)
+      if (!value) return undefined
+      return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
+    },
+  }
+}

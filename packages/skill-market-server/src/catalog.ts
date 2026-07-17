@@ -9,6 +9,20 @@ export type CatalogSnapshot = {
   readonly sourceStatus: SkillMarket.SourceStatus
 }
 
+export interface CatalogDetailRef {
+  readonly key: string
+  readonly sha256: string
+}
+
+export interface CatalogIndex {
+  readonly revision: string
+  readonly createdAt: string
+  readonly items: SkillMarket.Summary[]
+  readonly details: ReadonlyMap<string, CatalogDetailRef>
+  readonly facets: SkillMarket.Facets
+  readonly sourceStatus: SkillMarket.SourceStatus
+}
+
 export function key(source: SkillMarket.Source, id: string) {
   return `${source}:${id}`
 }
@@ -46,8 +60,22 @@ export function mergeCatalog(
 }
 
 export function queryCatalog(snapshot: CatalogSnapshot, query: SkillMarket.PageQuery): SkillMarket.Page {
+  return queryCatalogIndex(
+    {
+      revision: snapshot.revision,
+      createdAt: snapshot.createdAt,
+      items: snapshot.items,
+      details: new Map(),
+      facets: snapshot.facets,
+      sourceStatus: snapshot.sourceStatus,
+    },
+    query,
+  )
+}
+
+export function queryCatalogIndex(index: CatalogIndex, query: SkillMarket.PageQuery): SkillMarket.Page {
   const keyword = query.query?.trim().toLocaleLowerCase()
-  const filtered = snapshot.items
+  const filtered = index.items
     .filter((item) => !item.delisted)
     .filter((item) => !query.source || item.source === query.source)
     .filter((item) => !query.category || item.categories.includes(query.category))
@@ -64,8 +92,8 @@ export function queryCatalog(snapshot: CatalogSnapshot, query: SkillMarket.PageQ
   const items = filtered.toSorted(comparator(query.sort))
   const start = (query.page - 1) * query.limit
   return {
-    revision: snapshot.revision,
-    sourceStatus: snapshot.sourceStatus,
+    revision: index.revision,
+    sourceStatus: index.sourceStatus,
     total: items.length,
     page: query.page,
     limit: query.limit,
