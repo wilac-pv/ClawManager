@@ -1,6 +1,6 @@
 export * as SkillMarket from "./skill-market"
 
-import { Schema } from "effect"
+import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
 import { optional } from "./schema"
 
 export const Source = Schema.Literals(["skillhub", "enterprise", "community"])
@@ -14,18 +14,45 @@ export type Sort = typeof Sort.Type
 
 export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))
 export const HttpsUrl = Schema.String.check(Schema.isPattern(/^https:\/\/[^\s]+$/))
-const IPv4Octet = "(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)"
-const IPv4Address = `${IPv4Octet}\\.${IPv4Octet}\\.${IPv4Octet}\\.${IPv4Octet}`
-const PrivateIPv4 = `(?:(?:10|127)\\.${IPv4Octet}\\.${IPv4Octet}\\.${IPv4Octet}|172\\.(?:1[6-9]|2\\d|3[01])\\.${IPv4Octet}\\.${IPv4Octet}|192\\.168\\.${IPv4Octet}\\.${IPv4Octet})`
-const DomainLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-const Domain = `(?!\\d+(?:\\.\\d+){0,3}(?::|[/?#]|$))(?!0x[0-9a-f]+(?::|[/?#]|$))(?:${DomainLabel}\\.)*${DomainLabel}`
-const Port = "(?::(?:0|[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5]))?"
-const PathQueryFragment = "(?:[/?#][^\\s]*)?"
-const MarketPageUrlPattern = new RegExp(
-  `^(?:https:\\/\\/(?:${IPv4Address}|${Domain})${Port}${PathQueryFragment}|http:\\/\\/(?:localhost|\\[::1\\]|${PrivateIPv4})${Port}${PathQueryFragment})$`,
-  "i",
-)
-export const MarketPageUrl = Schema.String.check(Schema.isPattern(MarketPageUrlPattern))
+const invalidMarketPageUrl = "market page URL must use HTTPS or private HTTP without credentials"
+
+const validateMarketPageUrl = (value: string) => {
+  if (/\s/.test(value)) return invalidMarketPageUrl
+  const parsed = Schema.decodeUnknownExit(Schema.URLFromString)(value)
+  if (parsed._tag === "Failure") return invalidMarketPageUrl
+  const url = parsed.value
+  if (url.username || url.password) return invalidMarketPageUrl
+  if (url.protocol === "https:") return undefined
+  if (url.protocol !== "http:") return invalidMarketPageUrl
+  if (url.hostname === "localhost" || url.hostname === "[::1]") return undefined
+  const octets = url.hostname.split(".").map(Number)
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return invalidMarketPageUrl
+  }
+  const first = octets[0]
+  const second = octets[1]
+  if (first === undefined || second === undefined) return invalidMarketPageUrl
+  return first === 10 || first === 127 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168)
+    ? undefined
+    : invalidMarketPageUrl
+}
+
+const MarketPageUrlTransformation = {
+  decode: SchemaGetter.transformOrFail((value: string) => {
+    const invalid = validateMarketPageUrl(value)
+    return invalid === undefined
+      ? Effect.succeed(value)
+      : Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message: invalid }))
+  }),
+  encode: SchemaGetter.transformOrFail((value: string) => {
+    const invalid = validateMarketPageUrl(value)
+    return invalid === undefined
+      ? Effect.succeed(value)
+      : Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message: invalid }))
+  }),
+}
+
+export const MarketPageUrl = Schema.String.pipe(Schema.decodeTo(Schema.String, MarketPageUrlTransformation))
 export const Timestamp = Schema.String.check(
   Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/),
 )

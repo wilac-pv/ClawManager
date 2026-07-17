@@ -117,21 +117,32 @@ describe("SkillMarket", () => {
     ).toThrow()
   })
 
-  test("preserves market page URL acceptance across emitted URL policy cases", () => {
+  test("preserves parser-compatible market page URL policy and spelling", () => {
     for (const url of [
       "https://skillhub.cn/skills/code-review",
+      "https://[2001:db8::1]/skill",
+      "https://example.com.:0443/skill",
+      "https://例子.测试/skill",
       "http://localhost:4211/skills/code-review",
       "http://[::1]:4211/skills/code-review",
       "http://192.168.1.10/skills/code-review",
       "http://172.16.0.1/skills/code-review",
       "http://127.0.0.1/skills/code-review",
+      "http://127.1/skills/code-review",
+      "http://0x7f000001/skills/code-review",
     ]) {
       expect(Schema.decodeUnknownSync(SkillMarket.MarketPageUrl)(url)).toBe(url)
+      expect(Schema.encodeUnknownSync(SkillMarket.MarketPageUrl)(url)).toBe(url)
     }
     for (const url of [
       "http://8.8.8.8/skills/code-review",
       "https://user:password@skillhub.cn/skills/code-review",
+      "http://user:password@127.0.0.1/skills/code-review",
+      "ftp://skillhub.cn/skills/code-review",
+      "https://%/skills/code-review",
+      "https://[not-ipv6]/skills/code-review",
       "https://skillhub.cn:99999/skills/code-review",
+      "https://skillhub.cn/skills/with space",
     ]) {
       expect(() => Schema.decodeUnknownSync(SkillMarket.MarketPageUrl)(url)).toThrow()
     }

@@ -19,7 +19,7 @@ import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Workspace } from "@opencode-ai/schema/workspace"
 import { Api } from "@opencode-ai/server/api"
-import { compile, emitEffect, emitPromise } from "@opencode-ai/httpapi-codegen"
+import { compile, emitEffect, emitEffectImported, emitPromise } from "@opencode-ai/httpapi-codegen"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
 import { ClientApi, endpointNames, groupNames, omitEndpoints } from "../src/contract"
 
@@ -46,34 +46,20 @@ test("client and Server contracts generate identically", () => {
   expect(emitPromise(client)).toEqual(emitPromise(server))
 })
 
-test("generated market URL schema decodes exactly like the source contract", () => {
+test("market URL policy requires the imported authoritative Effect API", () => {
   const group = HttpApiGroup.make("market").add(
     HttpApiEndpoint.get("get", "/market", { success: SkillMarket.MarketPageUrl }),
   )
-  const source = emitEffect(compile(HttpApi.make("test").add(group))).files.find((file) => file.path === "market.ts")
-  const expression = source?.content.match(/^const Endpoint0Success = (.+)$/m)?.[1]
-  if (expression === undefined) throw new Error("Expected generated market URL schema")
-  const emitted = new Function("Schema", `return ${expression}`)(Schema) as Schema.Top
+  const contract = compile(HttpApi.make("test").add(group))
 
-  for (const [url, accepted] of [
-    ["https://skillhub.cn/skills/code-review", true],
-    ["http://localhost:4211/skills/code-review", true],
-    ["http://[::1]:4211/skills/code-review", true],
-    ["http://10.1.2.3/skills/code-review", true],
-    ["http://172.16.2.3/skills/code-review", true],
-    ["http://192.168.2.3/skills/code-review", true],
-    ["http://127.0.0.1/skills/code-review", true],
-    ["http://127.1/skills/code-review", false],
-    ["http://0x7f000001/skills/code-review", false],
-    ["http://8.8.8.8/skills/code-review", false],
-    ["https://user:password@skillhub.cn/skills/code-review", false],
-    ["https://%/skills/code-review", false],
-    ["https://[not-ipv6]/skills/code-review", false],
-    ["https://skillhub.cn:99999/skills/code-review", false],
-  ] as const) {
-    expect(Schema.decodeUnknownExit(SkillMarket.MarketPageUrl)(url)._tag === "Success").toBe(accepted)
-    expect(Schema.decodeUnknownExit(emitted)(url)._tag === "Success").toBe(accepted)
-  }
+  expect(contract.groups[0]?.endpoints[0]?.effectPortable).toBe(false)
+  expect(() => emitEffect(contract)).toThrow("Effect schema requires authoritative import: market.get")
+  expect(
+    emitEffectImported(compile(ClientApi, { groupNames, endpointNames, omitEndpoints }), {
+      module: "../contract",
+      api: "ClientApi",
+    }).files.find((file) => file.path === "client.ts")?.content,
+  ).toContain('import { ClientApi } from "../contract"')
 })
 
 test("shared DTO schemas construct and decode plain objects", () => {

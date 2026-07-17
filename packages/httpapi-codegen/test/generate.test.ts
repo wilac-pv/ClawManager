@@ -824,6 +824,25 @@ describe("HttpApiCodegen.generate", () => {
     ).toThrow("Effect schema requires authoritative import: session.get")
   })
 
+  test("keeps custom string transformations structural for Promise and imported Effect clients", () => {
+    const PolicyString = Schema.String.pipe(
+      Schema.decodeTo(Schema.String, {
+        decode: SchemaGetter.transform((value) => value),
+        encode: SchemaGetter.transform((value) => value),
+      }),
+    )
+    const contract = compileContract(api(HttpApiEndpoint.get("get", "/session", { success: PolicyString })))
+    const promise = emitPromise(contract).files.find((file) => file.path === "types.ts")?.content
+    const imported = emitEffectImported(contract, { module: "@example/api", api: "Api" })
+      .files.find((file) => file.path === "client.ts")
+      ?.content
+
+    expect(contract.groups[0]?.endpoints[0]?.effectPortable).toBe(false)
+    expect(promise).toContain("export type SessionGetOutput = string")
+    expect(() => emitEffect(contract)).toThrow("Effect schema requires authoritative import: session.get")
+    expect(imported).toContain('import { Api } from "@example/api"')
+  })
+
   test("rejects custom validation checks without portable metadata", () => {
     const Positive = Schema.Number.check(Schema.makeFilter((value) => (value > 0 ? undefined : "positive")))
 
