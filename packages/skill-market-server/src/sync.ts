@@ -205,7 +205,10 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
   }
   let snapshot: CatalogSnapshot | undefined
   await publisher.withCatalogLease("sync", async (publish) => {
-    const latest = await loadCatalogIndex(options.store, { prefix: options.config.ossPrefix })
+    const latest = (await loadCatalogIndexOrMissingPointer(options.store, { prefix: options.config.ossPrefix })) ?? createCatalogIndex({
+      entries: new Map(),
+      sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
+    })
     const latestEntries = new Map(
       latest.items.map((summary) => [key(summary.source, summary.id), {
         summary,

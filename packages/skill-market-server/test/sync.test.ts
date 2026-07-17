@@ -19,6 +19,30 @@ afterEach(async () => {
 })
 
 describe("catalog synchronization", () => {
+  test("initializes the first pointer through the indexed synchronization lease", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-sync-first-pointer-"))
+    directories.push(directory)
+    const database = await openDatabase({ databasePath: join(directory, "market.db"), migrationBackupDirectory: join(directory, "backups") })
+    const objects = new Map<string, Uint8Array>()
+    const store = memoryStore(objects)
+    const result = await synchronize({
+      config: loadConfig({
+        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+        SKILL_MARKET_PUBLIC_BASE_URL: "https://oss.example.com/skill-market/",
+        SKILL_MARKET_OSS_PREFIX: "skill-market",
+        SKILL_MARKET_ALLOWED_HOSTS: "api.skillhub.cn,oss.example.com",
+      }),
+      database,
+      publisher: createPublisher({ database, store, ossPrefix: "skill-market", publicBaseUrl: "https://oss.example.com/skill-market/", webBaseUrl: "https://market.example.com/" }),
+      store,
+      fetcher: async () => Response.json({ schemaVersion: 1, updatedAt: "2026-07-15T00:00:00.000Z", skills: [] }),
+    })
+    expect(result.published).toBe(true)
+    expect(objects.has("skill-market/current.json")).toBe(true)
+    database.close()
+  })
+
   test("follows approved redirects and materializes a verified SkillHub package", async () => {
     const skill = "---\nname: verified-review\ndescription: Verified review\nlicense: MIT\n---\n# Verified Review\n"
     const guide = "Review carefully."
