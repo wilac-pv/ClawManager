@@ -133,7 +133,7 @@ export function queryCatalogIndex(index: CatalogIndex, query: SkillMarket.PageQu
   }
 }
 
-function applyEnterprise(
+export function applyEnterprise(
   detail: SkillMarket.Detail,
   override: SkillMarket.EnterpriseIndex["skills"][number] | undefined,
 ) {

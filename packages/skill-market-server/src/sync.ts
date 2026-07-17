@@ -1,14 +1,14 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import matter from "gray-matter"
-import { contentAddressDetail, createCatalogIndex, type CatalogSnapshot, key, mergeCatalog } from "./catalog"
+import { applyEnterprise, contentAddressDetail, createCatalogIndex, type CatalogSnapshot, key, mergeCatalog } from "./catalog"
 import { listPublishedCommunity } from "./community"
 import { type SkillMarketConfig, loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { emitMarketMetric } from "./metrics"
-import { type ObjectStore, loadCatalogIndex, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
+import { type ObjectStore, loadCatalogDetail, loadCatalogIndex, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
 import { createPublisher } from "./publisher"
 import { normalizeSkillHubArchive } from "./skillhub-archive"
@@ -205,6 +205,20 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
     if (enterprise.ok && !enterprise.value.notModified) {
       Array.from(latestEntries.keys()).filter((entryKey) => entryKey.startsWith("enterprise:")).forEach((entryKey) => latestEntries.delete(entryKey))
       materialized.forEach((entry) => latestEntries.set(key(entry.summary.source, entry.summary.id), entry))
+      const overrides = enterprise.value.index.skills.filter((entry) => entry.source !== "enterprise")
+      for (const override of overrides) {
+        const target = latest.items.find((summary) =>
+          summary.source === override.source && [summary.id, ...(summary.aliases ?? [])].includes(override.referenceId ?? override.id),
+        )
+        if (!target) continue
+        const detail = await loadCatalogDetail(options.store, { prefix: options.config.ossPrefix }, latest, target.source, target.id)
+        if (!detail) continue
+        const changed = applyEnterprise(detail, override)
+        const entry = contentAddressDetail(changed)
+        latestEntries.set(key(changed.source, changed.id), entry)
+        if (latest.details.get(key(changed.source, changed.id))?.sha256 !== entry.ref.sha256)
+          changedDetails.set(key(changed.source, changed.id), changed)
+      }
     }
     const index = createCatalogIndex({ entries: latestEntries, sourceStatus: { ...latest.sourceStatus, ...sourceStatus } })
     snapshot = { revision: index.revision, createdAt: index.createdAt, items: index.items, details: new Map(), facets: index.facets, sourceStatus: index.sourceStatus }

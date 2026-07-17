@@ -130,15 +130,20 @@ export class Publisher {
       return readJob(connection, jobID)!
     })
     const state: { revision?: string } = {}
-    const value = await operation(async (publication) => {
+    try {
+      const value = await operation(async (publication) => {
       if (state.revision) throw new Error("catalog lease cannot move the pointer more than once")
       await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
       this.persistTarget(job, workerID, publication.index.revision)
       state.revision = publication.index.revision
       await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
-    })
-    this.finalize({ ...job, target_revision: state.revision ?? null })
-    return value
+      })
+      this.finalize({ ...job, target_revision: state.revision ?? null })
+      return value
+    } catch (error) {
+      if (!state.revision || (await this.pointerRevision()) !== state.revision) this.release(job, workerID)
+      throw error
+    }
   }
 
   async publishMirroredSkillHub(imports: Pick<SkillHubImportStore, "mirroredEntries" | "progress">, workerID: string) {
@@ -156,12 +161,18 @@ export class Publisher {
         ref: { key: normalizedMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix), sha256: entry.detailSha256 },
       }),
     )
-    const index = createCatalogIndex({
-      entries,
-      sourceStatus: { ...base.index.sourceStatus, skillhub: progress.sourceStatus },
+    let revision = base.index.revision
+    await this.withCatalogLease(workerID, async (publish) => {
+      const latest = await this.latestIndex(base.index.sourceStatus)
+      const latestEntries = this.entries(latest, (summary) => summary.source !== "skillhub")
+      entries.forEach((entry, entryKey) => {
+        if (entryKey.startsWith("skillhub:")) latestEntries.set(entryKey, entry)
+      })
+      const index = createCatalogIndex({ entries: latestEntries, sourceStatus: { ...latest.sourceStatus, skillhub: progress.sourceStatus } })
+      revision = index.revision
+      await publish({ index, changedDetails: base.changedDetails })
     })
-    await this.withCatalogLease(workerID, (publish) => publish({ index, changedDetails: base.changedDetails }))
-    return { revision: index.revision, mirrored: progress.mirrored }
+    return { revision, mirrored: progress.mirrored }
   }
 
   async seedLegacySkillHub(imports: Pick<SkillHubImportStore, "seedLegacy">, workerID: string) {
@@ -171,7 +182,11 @@ export class Publisher {
       .map((detail) => ({ slug: detail.aliases?.[0] ?? detail.id, ...contentAddressDetail(detail) }))
     const seeded = imports.seedLegacy(legacy.map(({ slug, summary, ref }) => ({ slug, summary, detailKey: ref.key, detailSha256: ref.sha256 })))
     if (base.changedDetails.size === 0) return seeded
-    await this.withCatalogLease(workerID, (publish) => publish(base))
+    await this.withCatalogLease(workerID, async (publish) => {
+      const latest = await this.latestIndex(base.index.sourceStatus)
+      if (Array.from(latest.details.values()).every((ref) => ref.sha256.length === 64)) return
+      await publish(base)
+    })
     return seeded
   }
 
@@ -309,6 +324,22 @@ export class Publisher {
       ).changes
       if (updated !== 1) throw new Error("publish job lease was lost before pointer update")
     })
+  }
+
+  private release(job: JobRow, workerID: string) {
+    const now = this.now()
+    this.options.database.transaction((connection) =>
+      connection.run(
+        "UPDATE publish_jobs SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_owner = ?",
+        [now, job.id, workerID],
+      ),
+    )
+  }
+
+  private async latestIndex(fallback: SkillMarket.SourceStatus) {
+    const loaded = await settled(loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix }))
+    if (loaded.ok) return loaded.value
+    return createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
   }
 
   private finalize(job: JobRow, expired = false) {
