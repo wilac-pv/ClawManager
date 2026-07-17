@@ -44,28 +44,27 @@ describe("catalog synchronization", () => {
       ossPrefix: "skill-market",
       publicBaseUrl: "https://oss.example.com/skill-market/",
     })
-    expect(detail.id).toBe("verified-review")
+    expect(detail.id).toBe("code-review")
     expect(detail.readme.trim()).toBe("# Verified Review")
     expect(detail.license).toBe("MIT")
-    expect(detail.aliases).toContain("code-review")
+    expect(detail.aliases).toBeUndefined()
     expect(detail.package.files).toHaveLength(3)
     expect(writes.has(`skill-market/packages/${detail.package.sha256}.zip`)).toBe(true)
   })
 
-  test("rejects traversal entries and manifest mismatches", async () => {
+  test("rejects traversal entries and repairs incorrect SkillHub manifests", async () => {
     expect(() => verifySkillArchive(makeStoredZip({ "../escape": "bad", "SKILL.md": "# bad" }))).toThrow(
       "unsafe ZIP path",
     )
     const archive = makeStoredZip({ "SKILL.md": "---\nname: safe\ndescription: Safe\n---\n# Safe" })
-    await expect(
-      materializeSkillHubRecord(sampleRecord("different", "missing"), {
-        fetcher: async () => new Response(archive),
-        store: memoryStore(new Map()),
-        allowedHosts: new Set(["api.skillhub.cn"]),
-        ossPrefix: "skill-market",
-        publicBaseUrl: "https://oss.example.com/skill-market/",
-      }),
-    ).rejects.toThrow("file manifest")
+    const detail = await materializeSkillHubRecord(sampleRecord("different", "missing"), {
+      fetcher: async () => new Response(archive),
+      store: memoryStore(new Map()),
+      allowedHosts: new Set(["api.skillhub.cn"]),
+      ossPrefix: "skill-market",
+      publicBaseUrl: "https://oss.example.com/skill-market/",
+    })
+    expect(detail.package.files.map((file) => file.path)).toEqual(["SKILL.md"])
 
     await expect(
       materializeSkillHubRecord(sampleRecord("different", "missing"), {
@@ -98,7 +97,7 @@ describe("catalog synchronization", () => {
       },
       new Map([["invalid", previous]]),
     )
-    expect(details.map((detail) => detail.id)).toEqual(["verified-review", "invalid"])
+    expect(details.map((detail) => detail.id)).toEqual(["code-review", "invalid"])
   })
 
   test("rejects a local filename that differs from its central directory entry", () => {

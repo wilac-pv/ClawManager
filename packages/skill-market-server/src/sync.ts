@@ -11,6 +11,7 @@ import { emitMarketMetric } from "./metrics"
 import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
 import { createPublisher } from "./publisher"
+import { normalizeSkillHubArchive } from "./skillhub-archive"
 import { type SkillHubRecord, loadSkillHub } from "./skillhub"
 import { inspectZipArchive } from "./submission-archive"
 import { createSubmissions } from "./submissions"
@@ -49,16 +50,14 @@ type SyncState = typeof SyncState.Type
 
 export async function materializeSkillHubRecord(record: SkillHubRecord, options: MaterializeOptions) {
   const downloaded = await download(options.fetcher, record.downloadUrl, options.allowedHosts, compressedLimit)
-  const archive = verifySkillArchive(downloaded.body)
-  assertManifest(record.files, archive.files)
-  assertSkillHubMetadata(record, archive.metadata)
-  const packageKey = `${normalizePrefix(options.ossPrefix)}/packages/${downloaded.sha256}.zip`
-  await options.store.put(packageKey, downloaded.body, "application/zip", "public, max-age=31536000, immutable")
+  const archive = normalizeSkillHubArchive(downloaded.body, record)
+  const packageKey = `${normalizePrefix(options.ossPrefix)}/packages/${archive.sha256}.zip`
+  await options.store.put(packageKey, archive.body, "application/zip", "public, max-age=31536000, immutable")
   const iconUrl = record.iconUrl ? await mirrorIcon(record.iconUrl, options).catch(() => undefined) : undefined
   const publishedAt =
     record.versions.find((version) => version.version === record.version)?.publishedAt ?? record.updatedAt
   return Schema.decodeUnknownPromise(SkillMarket.Detail)({
-    id: archive.name,
+    id: archive.id,
     source: "skillhub",
     sourceUrl: record.sourceUrl,
     name: record.name,
@@ -66,7 +65,7 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
     ...(iconUrl ? { iconUrl } : {}),
     categories: record.categories,
     tags: record.tags,
-    ...(record.slug === archive.name ? {} : { aliases: [record.slug] }),
+    ...(record.slug === archive.id ? {} : { aliases: [record.slug] }),
     requiresApiKey: record.requiresApiKey,
     risk: record.risk,
     version: record.version,
@@ -80,13 +79,13 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
     readme: archive.readme,
     ...(archive.license ? { license: archive.license } : {}),
     author: record.author,
-    versions: [{ version: record.version, publishedAt, sha256: downloaded.sha256, size: downloaded.body.byteLength }],
+    versions: [{ version: record.version, publishedAt, sha256: archive.sha256, size: archive.body.byteLength }],
     securityReports: record.securityReports,
     ...(record.riskReason ? { riskReason: record.riskReason } : {}),
     package: {
-      url: publicUrl(options.publicBaseUrl, `packages/${downloaded.sha256}.zip`),
-      sha256: downloaded.sha256,
-      size: downloaded.body.byteLength,
+      url: publicUrl(options.publicBaseUrl, `packages/${archive.sha256}.zip`),
+      sha256: archive.sha256,
+      size: archive.body.byteLength,
       files: archive.files,
     },
     publicDetailUrl: record.publicDetailUrl,
