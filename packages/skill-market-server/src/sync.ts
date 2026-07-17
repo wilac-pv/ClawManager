@@ -2,7 +2,7 @@ import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import matter from "gray-matter"
 import { applyEnterprise, contentAddressDetail, createCatalogIndex, type CatalogSnapshot, key, mergeCatalog } from "./catalog"
-import { listPublishedCommunity } from "./community"
+import { listPublishedCommunity, materializePublishedCommunitySkill } from "./community"
 import { type SkillMarketConfig, loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
@@ -206,15 +206,26 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
       Array.from(latestEntries.keys()).filter((entryKey) => entryKey.startsWith("enterprise:")).forEach((entryKey) => latestEntries.delete(entryKey))
       materialized.forEach((entry) => latestEntries.set(key(entry.summary.source, entry.summary.id), entry))
       const overrides = enterprise.value.index.skills.filter((entry) => entry.source !== "enterprise")
-      for (const override of overrides) {
-        if (enterpriseEntryUnchanged(override, state.enterpriseIndex)) continue
+      const previousOverrides = state.enterpriseIndex?.skills.filter((entry) => entry.source !== "enterprise") ?? []
+      const affected = new Map(
+        [...overrides, ...previousOverrides].map((entry) => [key(entry.source, entry.referenceId ?? entry.id), entry]),
+      )
+      for (const [targetKey, previous] of affected) {
+        const active = overrides.filter((entry) => key(entry.source, entry.referenceId ?? entry.id) === targetKey)
+        if (active.length === 1 && enterpriseEntryUnchanged(active[0]!, state.enterpriseIndex)) continue
+        const [source, targetID] = targetKey.split(":", 2) as [SkillMarket.Source, string]
         const target = latest.items.find((summary) =>
-          summary.source === override.source && [summary.id, ...(summary.aliases ?? [])].includes(override.referenceId ?? override.id),
+          summary.source === source && [summary.id, ...(summary.aliases ?? [])].includes(targetID),
         )
         if (!target) continue
-        const detail = await loadCatalogDetail(options.store, { prefix: options.config.ossPrefix }, latest, target.source, target.id)
+        const mirrored = source === "skillhub" ? imports?.mirroredEntries().find((entry) => [entry.summary.id, ...(entry.summary.aliases ?? [])].includes(targetID)) : undefined
+        const detail = mirrored
+          ? await loadCatalogDetail(options.store, { prefix: options.config.ossPrefix }, { ...latest, details: new Map([...latest.details, [key(target.source, target.id), { key: mirrored.detailKey, sha256: mirrored.detailSha256 }]]) }, target.source, target.id)
+          : source === "community" && options.database
+            ? await materializePublishedCommunitySkill(options.database, { store: options.store, publicPrefix: options.config.ossPrefix, publicBaseUrl: options.config.publicBaseUrl, webBaseUrl: options.config.webBaseUrl }, target.id)
+            : undefined
         if (!detail) continue
-        const changed = applyEnterprise(detail, override)
+        const changed = active.toSorted((left, right) => left.id.localeCompare(right.id)).reduce(applyEnterprise, detail)
         const entry = contentAddressDetail(changed)
         latestEntries.set(key(changed.source, changed.id), entry)
         if (latest.details.get(key(changed.source, changed.id))?.sha256 !== entry.ref.sha256)

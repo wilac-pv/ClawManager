@@ -97,6 +97,19 @@ export async function materializeCommunitySubmission(
   return materialize(current, versions, options)
 }
 
+export async function materializePublishedCommunitySkill(
+  database: MarketDatabase,
+  options: CommunityOptions,
+  skillID: string,
+) {
+  const rows = database.read((connection) => ({
+    current: connection.query<CurrentRow, [string]>(`${currentSelect()} WHERE submissions.skill_id = ? AND submissions.status = 'published'`).get(skillID),
+    versions: readVersions(connection),
+  }))
+  if (!rows.current) return undefined
+  return materialize(rows.current, rows.versions.filter((version) => version.skill_id === skillID), options)
+}
+
 export async function publishCommunityObjects(database: MarketDatabase, options: PublishOptions, submissionID: string) {
   const candidate = database.read((connection) =>
     connection
