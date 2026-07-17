@@ -15,42 +15,17 @@ export type Sort = typeof Sort.Type
 export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))
 export const HttpsUrl = Schema.String.check(Schema.isPattern(/^https:\/\/[^\s]+$/))
 const IPv4Octet = "(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)"
+const IPv4Address = `${IPv4Octet}\\.${IPv4Octet}\\.${IPv4Octet}\\.${IPv4Octet}`
 const PrivateIPv4 = `(?:(?:10|127)\\.${IPv4Octet}\\.${IPv4Octet}\\.${IPv4Octet}|172\\.(?:1[6-9]|2\\d|3[01])\\.${IPv4Octet}\\.${IPv4Octet}|192\\.168\\.${IPv4Octet}\\.${IPv4Octet})`
-const Port = "(?::(?:0+|0*(?:[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])))?"
+const DomainLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+const Domain = `(?!\\d+(?:\\.\\d+){0,3}(?::|[/?#]|$))(?!0x[0-9a-f]+(?::|[/?#]|$))(?:${DomainLabel}\\.)*${DomainLabel}`
+const Port = "(?::(?:0|[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5]))?"
 const PathQueryFragment = "(?:[/?#][^\\s]*)?"
-const HttpsHost = "(?:\\[[^\\]\\s]+\\]|[^\\s/?#@:\\[\\]]+)"
 const MarketPageUrlPattern = new RegExp(
-  `^(?:https:\\/\\/${HttpsHost}${Port}${PathQueryFragment}|http:\\/\\/(?:localhost|\\[::1\\]|${PrivateIPv4})${Port}${PathQueryFragment})$`,
+  `^(?:https:\\/\\/(?:${IPv4Address}|${Domain})${Port}${PathQueryFragment}|http:\\/\\/(?:localhost|\\[::1\\]|${PrivateIPv4})${Port}${PathQueryFragment})$`,
   "i",
 )
-export const MarketPageUrl = Schema.String.check(
-  Schema.makeFilter((value) => {
-    const invalid = "market page URL must use HTTPS or private HTTP without credentials"
-    if (/\s/.test(value) || !URL.canParse(value)) return invalid
-    const url = new URL(value)
-    if (url.username || url.password) return invalid
-    if (url.protocol === "https:") return undefined
-    if (url.protocol !== "http:") return invalid
-    if (url.hostname === "localhost" || url.hostname === "[::1]") return undefined
-    const octets = url.hostname.split(".").map(Number)
-    if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255))
-      return invalid
-    const first = octets[0]
-    const second = octets[1]
-    if (first === undefined || second === undefined) return invalid
-    if (
-      first === 10 ||
-      first === 127 ||
-      (first === 172 && second >= 16 && second <= 31) ||
-      (first === 192 && second === 168)
-    )
-      return undefined
-    return invalid
-  }, {
-    meta: { _tag: "isPattern", regExp: MarketPageUrlPattern },
-    arbitrary: { constraint: { patterns: [MarketPageUrlPattern.source] } },
-  }),
-)
+export const MarketPageUrl = Schema.String.check(Schema.isPattern(MarketPageUrlPattern))
 export const Timestamp = Schema.String.check(
   Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/),
 )

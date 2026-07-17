@@ -151,4 +151,21 @@ test("skillhub import commands decode bounded slug selections", () => {
       slugs: ["a".repeat(257)],
     }),
   ).toThrow()
+  for (const command of ["pause", "resume", "retry-wait"] as const) {
+    expect(() =>
+      Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
+        command,
+        slugs: ["code-review"],
+      }),
+    ).toThrow()
+  }
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({ command: "retry-rejected" }),
+  ).toThrow()
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({
+      command: "retry-rejected",
+      slugs: [],
+    }),
+  ).toThrow()
 })
