@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test"
+import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { Schema } from "effect"
 import { HttpApi, OpenApi } from "effect/unstable/httpapi"
 import { SkillMarketApi, SkillMarketCatalogApi } from "../src/skill-market-api"
 
@@ -15,6 +17,8 @@ const expected = [
   ["skillMarket.admin.submissions.detail", "GET", "/v1/admin/submissions/:submissionID"],
   ["skillMarket.admin.submissions.decision", "POST", "/v1/admin/submissions/:submissionID/decision"],
   ["skillMarket.admin.submissions.retry", "POST", "/v1/admin/submissions/:submissionID/retry-publish"],
+  ["skillMarket.admin.skillhub.status", "GET", "/v1/admin/skillhub-import"],
+  ["skillMarket.admin.skillhub.command", "POST", "/v1/admin/skillhub-import/command"],
   ["skillMarket.admin.roles.list", "GET", "/v1/admin/roles"],
   ["skillMarket.admin.roles.create", "POST", "/v1/admin/roles"],
   ["skillMarket.admin.roles.delete", "DELETE", "/v1/admin/roles/:employeeID/:role"],
@@ -58,4 +62,28 @@ test("openapi marks cookie sessions and csrf writes without protecting the publi
   expect(document.paths["/v1/catalog/skills"]?.get?.security).toEqual([])
   expect(document.paths["/v1/submissions"]?.get?.security).toHaveLength(1)
   expect(document.paths["/v1/submissions"]?.post?.security).toHaveLength(2)
+})
+
+test("skillhub import progress decodes representative progress", () => {
+  expect(
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportProgress)({
+      state: "running",
+      sourceStatus: "stale",
+      upstreamTotal: 78_253,
+      discovered: 10_000,
+      pending: 7_000,
+      running: 6,
+      mirrored: 2_900,
+      retryWait: 90,
+      rejected: 4,
+      uploadedBytes: 1_048_576,
+      ratePerMinute: 120,
+      estimatedSecondsRemaining: 37_676,
+      discoveryPage: 100,
+      sweep: 1,
+      metadataConcurrency: 8,
+      packageConcurrency: 6,
+      updatedAt: "2026-07-17T00:00:00.000Z",
+    }).mirrored,
+  ).toBe(2_900)
 })

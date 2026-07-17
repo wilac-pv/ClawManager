@@ -268,6 +268,38 @@ export const RoleAssignment = Schema.Struct({
   createdAt: SkillMarket.Timestamp,
 }).annotate({ identifier: "SkillMarketControl.RoleAssignment" })
 
+export const SkillHubImportState = Schema.Literals(["idle", "running", "paused", "completed", "failed"])
+export type SkillHubImportState = typeof SkillHubImportState.Type
+
+export const SkillHubImportCommand = Schema.Literals(["pause", "resume", "retry-wait", "retry-rejected"])
+export type SkillHubImportCommand = typeof SkillHubImportCommand.Type
+
+export const SkillHubImportCommandInput = Schema.Struct({
+  command: SkillHubImportCommand,
+}).annotate({ identifier: "SkillMarketControl.SkillHubImportCommandInput" })
+export type SkillHubImportCommandInput = typeof SkillHubImportCommandInput.Type
+
+export const SkillHubImportProgress = Schema.Struct({
+  state: SkillHubImportState,
+  sourceStatus: Schema.Literals(["fresh", "stale", "unavailable"]),
+  upstreamTotal: NonNegative,
+  discovered: NonNegative,
+  pending: NonNegative,
+  running: NonNegative,
+  mirrored: NonNegative,
+  retryWait: NonNegative,
+  rejected: NonNegative,
+  uploadedBytes: NonNegative,
+  ratePerMinute: NonNegative,
+  estimatedSecondsRemaining: NonNegative.pipe(optional),
+  discoveryPage: NonNegative,
+  sweep: NonNegative,
+  metadataConcurrency: Positive,
+  packageConcurrency: Positive,
+  updatedAt: SkillMarket.Timestamp,
+}).annotate({ identifier: "SkillMarketControl.SkillHubImportProgress" })
+export type SkillHubImportProgress = typeof SkillHubImportProgress.Type
+
 export const AuditAction = Schema.Literals([
   "bootstrap-admin",
   "role-assigned",
@@ -287,6 +319,9 @@ export const AuditAction = Schema.Literals([
   "community-restored",
   "user-disabled",
   "user-enabled",
+  "skillhub-import-paused",
+  "skillhub-import-resumed",
+  "skillhub-import-retried",
 ])
 export type AuditAction = typeof AuditAction.Type
 
@@ -297,6 +332,7 @@ export const AuditObjectType = Schema.Literals([
   "revision",
   "publish_job",
   "community_skill",
+  "skillhub_import",
 ])
 export type AuditObjectType = typeof AuditObjectType.Type
 
