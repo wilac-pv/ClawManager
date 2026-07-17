@@ -159,7 +159,7 @@ export class Publisher {
     imports.mirroredEntries().forEach((entry) =>
       entries.set(key(entry.summary.source, entry.summary.id), {
         summary: entry.summary,
-        ref: { key: normalizedMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix), sha256: entry.detailSha256 },
+        ref: { key: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix), sha256: entry.detailSha256 },
       }),
     )
     let revision = base.index.revision
@@ -476,7 +476,7 @@ function requireWorkerID(value: string) {
   throw new Error("publisher worker ID is invalid")
 }
 
-function normalizedMirrorDetailKey(value: string, sha256: string, prefix: string) {
+export function normalizeMirrorDetailKey(value: string, sha256: string, prefix: string) {
   const expected = `details/${sha256}.json`
   if (value === expected) return value
   if (value === `${prefix.replace(/^\/+|\/+$/g, "")}/${expected}`) return expected

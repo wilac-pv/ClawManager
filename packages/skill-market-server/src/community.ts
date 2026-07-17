@@ -103,7 +103,13 @@ export async function materializePublishedCommunitySkill(
   skillID: string,
 ) {
   const rows = database.read((connection) => ({
-    current: connection.query<CurrentRow, [string]>(`${currentSelect()} WHERE submissions.skill_id = ? AND submissions.status = 'published'`).get(skillID),
+    current: connection.query<CurrentRow, [string]>(`${currentSelect()}
+      INNER JOIN community_skills
+        ON community_skills.current_submission_id = submissions.id
+       AND community_skills.current_version = submissions.target_version
+      WHERE submissions.skill_id = ?
+        AND submissions.status = 'published'
+        AND community_skills.public_status = 'published'`).get(skillID),
     versions: readVersions(connection),
   }))
   if (!rows.current) return undefined

@@ -10,7 +10,7 @@ import { decodeEnterpriseIndex } from "./enterprise"
 import { emitMarketMetric } from "./metrics"
 import { type ObjectStore, isMissingObjectError, loadCatalogDetail, loadCatalogIndex, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
-import { createPublisher } from "./publisher"
+import { createPublisher, normalizeMirrorDetailKey } from "./publisher"
 import { normalizeSkillHubArchive } from "./skillhub-archive"
 import { type SkillHubRecord } from "./skillhub"
 import { createSkillHubImportStore } from "./skillhub-import-store"
@@ -172,6 +172,16 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
         sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
       })
   const imported = imports?.progress()
+  const mirrored = imports
+    ? new Map(
+      imports.mirroredEntries().flatMap((entry) =>
+        [entry.summary.id, ...(entry.summary.aliases ?? [])].map((id) => [id, {
+          ...entry,
+          detailKey: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, options.config.ossPrefix),
+        }] as const),
+      ),
+    )
+    : new Map()
   const enterprise = await settled(loadEnterpriseConditional(options, state))
   const changedDetails = new Map<string, SkillMarket.Detail>()
   const materialized = enterprise.ok && !enterprise.value.notModified
@@ -218,9 +228,9 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
           summary.source === source && [summary.id, ...(summary.aliases ?? [])].includes(targetID),
         )
         if (!target) continue
-        const mirrored = source === "skillhub" ? imports?.mirroredEntries().find((entry) => [entry.summary.id, ...(entry.summary.aliases ?? [])].includes(targetID)) : undefined
-        const detail = mirrored
-          ? await loadCatalogDetail(options.store, { prefix: options.config.ossPrefix }, { ...latest, details: new Map([...latest.details, [key(target.source, target.id), { key: mirrored.detailKey, sha256: mirrored.detailSha256 }]]) }, target.source, target.id)
+        const authoritative = source === "skillhub" ? mirrored.get(targetID) : undefined
+        const detail = authoritative
+          ? await loadCatalogDetail(options.store, { prefix: options.config.ossPrefix }, { ...latest, details: new Map([...latest.details, [key(target.source, target.id), { key: authoritative.detailKey, sha256: authoritative.detailSha256 }]]) }, target.source, target.id)
           : source === "community" && options.database
             ? await materializePublishedCommunitySkill(options.database, { store: options.store, publicPrefix: options.config.ossPrefix, publicBaseUrl: options.config.publicBaseUrl, webBaseUrl: options.config.webBaseUrl }, target.id)
             : undefined
