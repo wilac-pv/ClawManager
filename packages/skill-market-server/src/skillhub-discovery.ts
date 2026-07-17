@@ -23,10 +23,11 @@ export interface SkillHubDiscoveryResult {
 
 export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promise<SkillHubDiscoveryResult> {
   const checkpoint = options.imports.generationCheckpoint()
+  const completed = options.imports.progress().state === "completed"
   if (checkpoint?.discoveryCompleted)
     return result(options.imports, true, false, options.pageConcurrency ?? 4)
   if (checkpoint?.state === "paused") return result(options.imports, false, false, options.pageConcurrency ?? 4)
-  if (!options.refresh && options.imports.progress().state === "completed")
+  if (!options.refresh && completed)
     return result(options.imports, true, false, options.pageConcurrency ?? 4)
 
   const pool = createAdaptivePool({
@@ -38,6 +39,8 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
   const [first] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
   let pageBatches = 0
   let upstreamTotal = effectiveTotal(first.data.total, options.limit)
+  if (completed && upstreamTotal === options.imports.progress().upstreamTotal)
+    return result(options.imports, true, false, pool.concurrency())
   if (checkpoint && checkpoint.discoveryPage > 0) upstreamTotal = Math.max(checkpoint.upstreamTotal, upstreamTotal)
   const generation = options.imports.beginGeneration(upstreamTotal)
   const active = options.imports.activeGeneration()

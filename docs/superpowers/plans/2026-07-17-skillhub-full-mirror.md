@@ -1038,7 +1038,7 @@ If no files changed, do not create an empty commit.
 
 ### Task 11 verification report (2026-07-17)
 
-- Fixed post-review canary behavior: `SKILL_MARKET_SKILLHUB_LIMIT` now bounds the effective discovery total and enqueued records. A later unbounded configured slice explicitly refreshes a completed canary into a new generation, while generic completed discovery remains a no-op.
+- Fixed post-review canary behavior: `SKILL_MARKET_SKILLHUB_LIMIT` now bounds the effective discovery total and enqueued records. A refresh of a completed generation probes only page 1 and creates a new generation only when the effective total changes; equal full or limited totals are no-ops, while an expanded or reduced upstream total starts a new sweep. Generic completed discovery remains a zero-network no-op.
 - Publication checkpoints are now written only after a successful catalog pointer publish. The 30-minute trigger falls back to the active generation start time before the first publication.
 - Permanent SkillHub metadata errors (including 404, schema, redirect, and other non-transient failures) now reject the affected upstream item; transport, 429, and 5xx errors remain retryable. A completed discovery generation converges after a 404 rejection.
 - Permanent optional-icon failures (disallowed host, 404, and unsupported MIME) omit the icon but mirror the verified package. Temporary download and storage failures remain retryable, and package/archive/malware rejection paths are unchanged.

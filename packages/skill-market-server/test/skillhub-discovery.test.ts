@@ -456,6 +456,95 @@ describe("SkillHub discovery", () => {
     database.close()
   })
 
+  test("only refreshes a completed generation when the effective upstream total changes", async () => {
+    const database = await temporaryDatabase()
+    const imports = createSkillHubImportStore({ database, packageConcurrency: 200 })
+    const records = Array.from({ length: 200 }, (_, index) => listRecord(`skill-${index}`))
+    const generations = () =>
+      database.connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_generations").get()!.count
+    const fetcher = async (input: string | URL | Request) => {
+      const page = Number(new URL(String(input)).searchParams.get("page"))
+      return pageResponse(records.slice((page - 1) * 100, page * 100), records.length)
+    }
+
+    await discoverSkillHub({ fetcher, baseUrl: "https://api.skillhub.cn", imports, limit: 100 })
+    imports.claim("canary-worker", 100, 60_000).forEach((item) =>
+      imports.reject("canary-worker", item.slug, "validation", "canary complete"),
+    )
+    database.connection.run("PRAGMA ignore_check_constraints = ON")
+    database.connection.run("UPDATE skillhub_import_items SET state = 'mirrored'")
+    database.connection.run("PRAGMA ignore_check_constraints = OFF")
+    expect(imports.progress().state).toBe("completed")
+    expect(generations()).toBe(1)
+
+    let pages: number[] = []
+    await discoverSkillHub({
+      fetcher: async (input) => {
+        pages.push(Number(new URL(String(input)).searchParams.get("page")))
+        return fetcher(input)
+      },
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      limit: 100,
+      refresh: true,
+    })
+    expect(pages).toEqual([1])
+    expect(generations()).toBe(1)
+
+    pages = []
+    await discoverSkillHub({
+      fetcher: async (input) => {
+        pages.push(Number(new URL(String(input)).searchParams.get("page")))
+        return fetcher(input)
+      },
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+    })
+    expect(pages).toEqual([])
+
+    await discoverSkillHub({ fetcher, baseUrl: "https://api.skillhub.cn", imports, refresh: true })
+    expect(generations()).toBe(2)
+    expect(imports.progress()).toMatchObject({ upstreamTotal: 200, pending: 100 })
+    imports.claim("full-worker", 100, 60_000).forEach((item) =>
+      imports.reject("full-worker", item.slug, "validation", "full complete"),
+    )
+    expect(imports.progress().state).toBe("completed")
+    expect(
+      database.connection
+        .query<{ state: string }, []>("SELECT state FROM skillhub_import_items WHERE slug IN ('skill-0', 'skill-99')")
+        .all()
+        .map((item) => item.state),
+    ).toEqual(["mirrored", "mirrored"])
+
+    pages = []
+    for (let attempt = 0; attempt < 2; attempt += 1)
+      await discoverSkillHub({
+        fetcher: async (input) => {
+          pages.push(Number(new URL(String(input)).searchParams.get("page")))
+          return fetcher(input)
+        },
+        baseUrl: "https://api.skillhub.cn",
+        imports,
+        refresh: true,
+      })
+    expect(pages).toEqual([1, 1])
+    expect(generations()).toBe(2)
+
+    const reduced = records.slice(0, 150)
+    await discoverSkillHub({
+      fetcher: async (input) => {
+        const page = Number(new URL(String(input)).searchParams.get("page"))
+        return pageResponse(reduced.slice((page - 1) * 100, page * 100), reduced.length)
+      },
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      refresh: true,
+    })
+    expect(generations()).toBe(3)
+    expect(imports.progress().upstreamTotal).toBe(150)
+    database.close()
+  })
+
   test("returns stale after three unstable sweep completions without delisting records", async () => {
     const database = await temporaryDatabase()
     const imports = createSkillHubImportStore({ database })
