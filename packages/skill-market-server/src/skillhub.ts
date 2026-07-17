@@ -1,5 +1,6 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
+import { AdaptivePoolError } from "./adaptive-pool"
 
 export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -219,7 +220,12 @@ async function fetchJson<S extends Schema.Decoder<unknown>>(
   schema: S,
   allowedHost: string,
 ) {
-  const response = await fetcher(url, { headers: { accept: "application/json" } })
+  let response: Response
+  try {
+    response = await fetcher(url, { headers: { accept: "application/json" } })
+  } catch (error) {
+    throw new SkillHubRequestError(`SkillHub network request failed: ${String(error)}`)
+  }
   if (!response.ok)
     throw new SkillHubRequestError(
       `SkillHub request failed with ${response.status}: ${url.pathname}`,
@@ -239,7 +245,7 @@ async function fetchJson<S extends Schema.Decoder<unknown>>(
   }
 }
 
-export class SkillHubRequestError extends Error {
+export class SkillHubRequestError extends AdaptivePoolError {
   constructor(
     message: string,
     readonly status?: number,

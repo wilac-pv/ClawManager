@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createAdaptivePool } from "../src/adaptive-pool"
+import { AdaptivePoolError, createAdaptivePool } from "../src/adaptive-pool"
 import { openDatabase } from "../src/database"
 import { discoverSkillHub } from "../src/skillhub-discovery"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
@@ -80,7 +80,7 @@ describe("SkillHub discovery", () => {
     resumedDatabase.close()
   })
 
-  test("backs off after throttling and recovers one slot after five quiet minutes", async () => {
+  test("backs off after throttling then recovers one stable p95 slot per minute", async () => {
     const clock = { value: 0 }
     const waits: number[] = []
     const pool = createAdaptivePool({
@@ -105,6 +105,10 @@ describe("SkillHub discovery", () => {
     expect(pool.concurrency()).toBe(2)
     clock.value += 5 * 60_000
     expect(pool.concurrency()).toBe(3)
+    clock.value += 60_000
+    expect(pool.concurrency()).toBe(4)
+    clock.value += 60_000
+    expect(pool.concurrency()).toBe(4)
   })
 
   test("honors HTTP-date Retry-After values", async () => {
@@ -127,6 +131,26 @@ describe("SkillHub discovery", () => {
         : new Response("ok")
     })
     expect(waits).toEqual([2_000])
+  })
+
+  test("requires a stable p95 observation before recovering concurrency", async () => {
+    const clock = { value: 0 }
+    const pool = createAdaptivePool({
+      minimum: 1,
+      maximum: 4,
+      now: () => clock.value,
+      wait: async () => {},
+    })
+    let attempts = 0
+    await pool.map(["page"], async () => {
+      attempts += 1
+      if (attempts === 1) return new Response("slow down", { status: 429 })
+      clock.value += 1_001
+      return new Response("ok")
+    })
+
+    clock.value = 5 * 60_000
+    expect(pool.concurrency()).toBe(2)
   })
 
   test("retries and throttles the initial page observation", async () => {
@@ -181,6 +205,32 @@ describe("SkillHub discovery", () => {
     expect(attempts).toBe(1)
   })
 
+  test("does not retry arbitrary programmer TypeErrors", async () => {
+    const pool = createAdaptivePool({ minimum: 1, maximum: 4, wait: async () => {} })
+    let attempts = 0
+    await expect(
+      pool.map(["page"], async () => {
+        attempts += 1
+        throw new TypeError("cannot read properties of undefined")
+      }),
+    ).rejects.toThrow("cannot read")
+    expect(attempts).toBe(1)
+  })
+
+  test("tags rejected fetches as transient while leaving run TypeErrors permanent", async () => {
+    const pool = createAdaptivePool({ minimum: 1, maximum: 4, wait: async () => {} })
+    let calls = 0
+    const [page] = await pool.map([1], (number) =>
+      loadSkillHubPage(async () => {
+        calls += 1
+        if (calls === 1) throw new TypeError("socket reset")
+        return pageResponse([listRecord("network")], 1)
+      }, "https://api.skillhub.cn", number),
+    )
+    expect(page.data.total).toBe(1)
+    expect(calls).toBe(2)
+  })
+
   test("retries upstream server failures", async () => {
     const pool = createAdaptivePool({ minimum: 1, maximum: 4, wait: async () => {} })
     let attempts = 0
@@ -197,12 +247,60 @@ describe("SkillHub discovery", () => {
     let attempts = 0
     const output = await pool.map(["page"], async () => {
       attempts += 1
-      if (attempts < 3) throw new TypeError("timed out")
+      if (attempts < 3) throw new AdaptivePoolError("timed out")
       return "ok"
     })
 
     expect(output).toEqual(["ok"])
     expect(pool.concurrency()).toBe(2)
+  })
+
+  test("stops scheduling after a paused multi-batch sweep", async () => {
+    const database = await temporaryDatabase()
+    const imports = createSkillHubImportStore({ database })
+    const calls: number[] = []
+    await discoverSkillHub({
+      fetcher: async (input) => {
+        const page = Number(new URL(String(input)).searchParams.get("page"))
+        calls.push(page)
+        if (page === 2) imports.command({ command: "pause" })
+        return pageResponse(pageRecordsOf100(page), 900)
+      },
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      pageConcurrency: 4,
+    })
+
+    expect(calls).toEqual([1, 2, 3, 4, 5])
+    expect(imports.generationCheckpoint()).toMatchObject({ state: "paused", discoveryPage: 5 })
+    database.close()
+  })
+
+  test("expands a sweep for late higher totals without lowering persisted coverage", async () => {
+    const database = await temporaryDatabase()
+    const imports = createSkillHubImportStore({ database })
+    const calls: number[] = []
+    const result = await discoverSkillHub({
+      fetcher: async (input) => {
+        const page = Number(new URL(String(input)).searchParams.get("page"))
+        calls.push(page)
+        if (page === 1) return pageResponse(pageRecordsOf100(page), 300)
+        if (page === 2) {
+          await Promise.resolve()
+          return pageResponse(pageRecordsOf100(page), 200)
+        }
+        return pageResponse(pageRecordsOf100(page), 500)
+      },
+      baseUrl: "https://api.skillhub.cn",
+      imports,
+      pageConcurrency: 2,
+    })
+
+    expect(result).toMatchObject({ discovered: 500, completed: true })
+    expect(calls).toContain(4)
+    expect(calls).toContain(5)
+    expect(imports.generationCheckpoint()).toMatchObject({ upstreamTotal: 500, discoveryCompleted: true })
+    database.close()
   })
 
   test("does not retry schema decoding failures from the page adapter", async () => {
@@ -295,6 +393,10 @@ function listRecord(slug: string): SkillHubListRecord {
 
 function pageRecords(page: number) {
   return Array.from({ length: page === 4 ? 1 : 100 }, (_, index) => listRecord(`skill-${page}-${index}`))
+}
+
+function pageRecordsOf100(page: number) {
+  return Array.from({ length: 100 }, (_, index) => listRecord(`page-${page}-${index}`))
 }
 
 async function temporaryDatabase() {

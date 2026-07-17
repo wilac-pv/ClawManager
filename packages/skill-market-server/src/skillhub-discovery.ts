@@ -31,34 +31,42 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
     wait: options.wait,
   })
   const [first] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
-  let upstreamTotal = first.data.total
-  const generation = options.imports.beginGeneration(first.data.total)
+  let upstreamTotal = checkpoint && checkpoint.discoveryPage > 0 ? Math.max(checkpoint.upstreamTotal, first.data.total) : first.data.total
+  const generation = options.imports.beginGeneration(upstreamTotal)
   const active = options.imports.activeGeneration()
   if (!active) return result(options.imports, true, false, options.pageConcurrency ?? 4)
-  options.imports.recordPage(generation.id, 1, first.data.skills, first.data.total)
+  options.imports.recordPage(generation.id, 1, first.data.skills, upstreamTotal)
 
   for (let completedSweeps = 0; completedSweeps < 3; completedSweeps += 1) {
     const current = options.imports.activeGeneration()
     if (!current) return result(options.imports, true, false, pool.concurrency())
     if (current.state === "paused") return result(options.imports, false, false, pool.concurrency())
-    const start = Math.max(2, current.discoveryPage + 1)
-    const pages = Array.from({ length: Math.max(0, Math.ceil(upstreamTotal / 100) - start + 1) }, (_, index) => start + index)
-    for (let offset = 0; offset < pages.length; offset += options.pageConcurrency ?? 4) {
-      const batch = pages.slice(offset, offset + (options.pageConcurrency ?? 4))
+    let page = Math.max(2, current.discoveryPage + 1)
+    while (page <= Math.ceil(upstreamTotal / 100)) {
+      const beforeBatch = options.imports.generationCheckpoint()
+      if (!beforeBatch || beforeBatch.discoveryCompleted) return result(options.imports, true, false, pool.concurrency())
+      if (beforeBatch.state === "paused") return result(options.imports, false, false, pool.concurrency())
+      const batch = Array.from(
+        { length: Math.min(options.pageConcurrency ?? 4, Math.ceil(upstreamTotal / 100) - page + 1) },
+        (_, index) => page + index,
+      )
       await pool.map(batch, async (page) => {
         const loaded = await loadSkillHubPage(options.fetcher, options.baseUrl, page)
-        options.imports.recordPage(generation.id, page, loaded.data.skills, loaded.data.total)
+        upstreamTotal = Math.max(upstreamTotal, loaded.data.total)
+        options.imports.recordPage(generation.id, page, loaded.data.skills, upstreamTotal)
         return loaded
       })
+      page += batch.length
     }
     const completion = options.imports.completeSweep(generation.id)
     if (completion.stable) return result(options.imports, true, false, pool.concurrency())
     if (completedSweeps === 2) return result(options.imports, false, true, pool.concurrency())
-    const next = options.imports.activeGeneration()
-    if (!next || next.state === "paused") return result(options.imports, false, false, pool.concurrency())
+    const beforeNextFirst = options.imports.generationCheckpoint()
+    if (!beforeNextFirst || beforeNextFirst.discoveryCompleted) return result(options.imports, true, false, pool.concurrency())
+    if (beforeNextFirst.state === "paused") return result(options.imports, false, false, pool.concurrency())
     const [nextFirst] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
-    options.imports.recordPage(generation.id, 1, nextFirst.data.skills, nextFirst.data.total)
     upstreamTotal = nextFirst.data.total
+    options.imports.recordPage(generation.id, 1, nextFirst.data.skills, upstreamTotal)
   }
   return result(options.imports, false, true, pool.concurrency())
 }
