@@ -160,6 +160,10 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
   const state = await loadState(options.store, options.config.ossPrefix)
   await publisher.recover()
   await drainPublisher(publisher)
+  const imports = options.database ? createSkillHubImportStore({ database: options.database }) : undefined
+  const beforeMigration = await settled(loadCatalogIndex(options.store, { prefix: options.config.ossPrefix }))
+  if (imports && beforeMigration.ok && Array.from(beforeMigration.value.details.values()).some((ref) => ref.sha256.length !== 64))
+    await publisher.seedLegacySkillHub(imports, "sync-migration")
   const current = await settled(loadCatalogIndex(options.store, { prefix: options.config.ossPrefix }))
   const base = current.ok
     ? current.value
@@ -167,53 +171,52 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
         entries: new Map(),
         sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
       })
-  const imported = options.database ? createSkillHubImportStore({ database: options.database }).progress() : undefined
+  const imported = imports?.progress()
   const enterprise = await settled(loadEnterpriseConditional(options, state))
-  const entries = new Map(
-    base.items.map((summary) => [key(summary.source, summary.id), {
-      summary,
-      ref: base.details.get(key(summary.source, summary.id))!,
-    }] as const),
-  )
   const changedDetails = new Map<string, SkillMarket.Detail>()
-  if (enterprise.ok && !enterprise.value.notModified) {
-    Array.from(entries.keys()).filter((entryKey) => entryKey.startsWith("enterprise:")).forEach((entryKey) => entries.delete(entryKey))
-    const materialized = await materializeInBatches(
+  const materialized = enterprise.ok && !enterprise.value.notModified
+    ? await materializeInBatches(
       enterprise.value.index.skills.filter((entry) => entry.source === "enterprise"),
       async (entry) => {
         const present = base.items.find((summary) => summary.source === "enterprise" && (summary.id === entry.id || summary.aliases?.includes(entry.id)))
-        if (present?.version === entry.version) {
+        if (present && enterpriseEntryUnchanged(entry, state.enterpriseIndex)) {
           return { summary: present, ref: base.details.get(key(present.source, present.id))! }
         }
         const detail = await materializeEnterpriseRecord(entry, enterprise.value.index.updatedAt, materializeOptions(options))
         changedDetails.set(key(detail.source, detail.id), detail)
         return contentAddressDetail(detail)
       },
-    )
-    materialized.forEach((entry) => entries.set(key(entry.summary.source, entry.summary.id), entry))
-  }
+      )
+    : []
   const sourceStatus: SkillMarket.SourceStatus = {
     skillhub: imported?.sourceStatus ?? base.sourceStatus.skillhub,
     enterprise: enterprise.ok ? "fresh" : base.sourceStatus.enterprise === "unavailable" ? "unavailable" : "stale",
     community: options.database ? "fresh" : base.sourceStatus.community,
   }
-  const index = createCatalogIndex({ entries, sourceStatus })
-  const snapshot: CatalogSnapshot = {
-    revision: index.revision,
-    createdAt: index.createdAt,
-    items: index.items,
-    details: new Map(),
-    facets: index.facets,
-    sourceStatus,
-  }
-  await publisher.withCatalogLease("sync", (publish) => publish({ index, changedDetails }))
+  let snapshot: CatalogSnapshot | undefined
+  await publisher.withCatalogLease("sync", async (publish) => {
+    const latest = await loadCatalogIndex(options.store, { prefix: options.config.ossPrefix })
+    const latestEntries = new Map(
+      latest.items.map((summary) => [key(summary.source, summary.id), {
+        summary,
+        ref: latest.details.get(key(summary.source, summary.id))!,
+      }] as const),
+    )
+    if (enterprise.ok && !enterprise.value.notModified) {
+      Array.from(latestEntries.keys()).filter((entryKey) => entryKey.startsWith("enterprise:")).forEach((entryKey) => latestEntries.delete(entryKey))
+      materialized.forEach((entry) => latestEntries.set(key(entry.summary.source, entry.summary.id), entry))
+    }
+    const index = createCatalogIndex({ entries: latestEntries, sourceStatus: { ...latest.sourceStatus, ...sourceStatus } })
+    snapshot = { revision: index.revision, createdAt: index.createdAt, items: index.items, details: new Map(), facets: index.facets, sourceStatus: index.sourceStatus }
+    await publish({ index, changedDetails })
+  })
   await saveState(options.store, options.config.ossPrefix, {
     lastSkillhubAt: state.lastSkillhubAt,
     enterpriseEtag: enterprise.ok ? enterprise.value.etag : state.enterpriseEtag,
     enterpriseIndex: enterprise.ok ? enterprise.value.index : state.enterpriseIndex,
   }).catch(() => undefined)
-  emitMetrics(performance.now() - started, snapshot, true, enterprise.ok, Boolean(options.database))
-  return { snapshot, published: true }
+  emitMetrics(performance.now() - started, snapshot!, true, enterprise.ok, Boolean(options.database))
+  return { snapshot: snapshot!, published: true }
 }
 
 async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: CatalogSnapshot) => Promise<void>) {
@@ -567,6 +570,14 @@ function dedupe(details: ReadonlyArray<SkillMarket.Detail>) {
 
 function emptyEnterpriseIndex(now: Date): SkillMarket.EnterpriseIndex {
   return { schemaVersion: 1, updatedAt: now.toISOString(), skills: [] }
+}
+
+function enterpriseEntryUnchanged(
+  entry: SkillMarket.EnterpriseIndex["skills"][number],
+  previous: SkillMarket.EnterpriseIndex | undefined,
+) {
+  const matching = previous?.skills.find((candidate) => candidate.source === "enterprise" && candidate.id === entry.id)
+  return matching !== undefined && JSON.stringify(matching) === JSON.stringify(entry)
 }
 
 function riskRank(risk: SkillMarket.Risk) {

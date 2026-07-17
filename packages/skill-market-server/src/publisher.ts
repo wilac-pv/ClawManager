@@ -56,7 +56,7 @@ export class Publisher {
     await this.recover()
     const pending = this.pending()
     const prepared = pending?.kind === "publish" ? await this.preparePublication(pending) : undefined
-    const job = this.claim(workerID)
+    const job = this.claim(workerID, pending?.id)
     if (!job) return undefined
     if (prepared && prepared.jobID !== job.id) return undefined
     if (job.target_revision && (await this.pointerRevision()) === job.target_revision) {
@@ -175,7 +175,7 @@ export class Publisher {
     return seeded
   }
 
-  private claim(workerID: string) {
+  private claim(workerID: string, preparedJobID?: string) {
     const now = this.now()
     return this.options.database.transaction((connection) => {
       const active = connection
@@ -185,19 +185,17 @@ export class Publisher {
         >("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running' AND lease_expires_at > ?")
         .get(now)!.count
       if (active > 0) return undefined
-      const candidate = connection
-        .query<
-          { id: string },
-          []
-        >("SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1")
-        .get()
+      const candidate = preparedJobID
+        ? connection.query<{ id: string }, [string]>("SELECT id FROM publish_jobs WHERE id = ? AND status = 'pending'").get(preparedJobID)
+        : connection.query<{ id: string }, []>("SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1").get()
       if (!candidate) return undefined
-      connection.run(
+      const claimed = connection.run(
         `UPDATE publish_jobs
          SET status = 'running', lease_owner = ?, lease_expires_at = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ? AND status = 'pending'`,
         [workerID, now + (this.options.leaseMilliseconds ?? 5 * 60 * 1_000), now, candidate.id],
-      )
+      ).changes
+      if (claimed !== 1) return undefined
       const job = readJob(connection, candidate.id)
       if (job?.kind === "publish") insertPublishStarted(connection, job, now)
       return job
