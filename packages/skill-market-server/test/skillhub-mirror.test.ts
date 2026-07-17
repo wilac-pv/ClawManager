@@ -3,11 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDatabase } from "../src/database"
-import type { PrivateObjectStore } from "../src/oss"
+import { loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
+import { createPublisher } from "../src/publisher"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { createSkillHubMirror } from "../src/skillhub-mirror"
 import { normalizeSkillHubArchive } from "../src/skillhub-archive"
 import type { SkillHubListRecord, SkillHubRecord } from "../src/skillhub"
+import { sampleSnapshot } from "./fixture"
 import { makeZip } from "./zip"
 
 const directories: string[] = []
@@ -17,6 +19,37 @@ afterEach(async () => {
 })
 
 describe("SkillHub mirror", () => {
+  test("publishes a real mirrored import through the relative detail reference", async () => {
+    const fixture = await databaseFixture()
+    const imports = createSkillHubImportStore({ database: fixture.database })
+    const generation = imports.beginGeneration(1)
+    imports.recordPage(generation.id, 1, [list("published")])
+    const objects = memoryStore()
+    await publishSnapshot(objects, { prefix: "skill-market" }, sampleSnapshot("before"))
+    const mirror = createSkillHubMirror({
+      imports,
+      store: objects,
+      allowedHosts: new Set(["packages.example.com"]),
+      objectPrefix: "skill-market",
+      publicBaseUrl: "https://market.example.com/skill-market/",
+      loadRecord: async (item) => record(item.slug),
+      fetcher: async () => new Response(packageZip("published")),
+    })
+
+    expect(await mirror.runBatch("mirror-publish")).toEqual({ mirrored: 1, retryWait: 0, rejected: 0 })
+    await createPublisher({
+      database: fixture.database,
+      store: objects,
+      ossPrefix: "skill-market",
+      publicBaseUrl: "https://market.example.com/skill-market/",
+      webBaseUrl: "https://market.example.com/",
+    }).publishMirroredSkillHub(imports, "publisher-publish")
+
+    const snapshot = await loadCurrentSnapshot(objects, { prefix: "skill-market" })
+    expect(snapshot.details.get("skillhub:published")?.id).toBe("published")
+    fixture.database.close()
+  })
+
   test("handles one bounded claim per batch and retains publicly addressable object keys", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
@@ -39,6 +72,7 @@ describe("SkillHub mirror", () => {
     const detail = JSON.parse(new TextDecoder().decode(await objects.get(objects.keys().find((key) => key.includes("/details/"))!)))
     expect(detail.package.url).toContain("/public-catalog/packages/")
     expect(objects.keys()).toContain(`public-catalog/packages/${detail.package.sha256}.zip`)
+    expect(imports.mirroredEntries()[0]?.detailKey).toMatch(/^details\/[a-f0-9]{64}\.json$/)
     fixture.database.close()
   })
 

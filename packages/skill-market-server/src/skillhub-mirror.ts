@@ -132,8 +132,8 @@ async function mirrorClaim(
   const detail = detailFor(record, archive, iconUrl, options.publicBaseUrl)
   const json = JSON.stringify(detail)
   const detailSha256 = sha256(new TextEncoder().encode(json))
-  const detailKey = `${prefix}/details/${detailSha256}.json`
-  const storedDetail = await storeIfMissing(options.store, detailKey, json, "application/json", detailSha256)
+  const detailKey = `details/${detailSha256}.json`
+  const storedDetail = await storeIfMissing(options.store, `${prefix}/${detailKey}`, json, "application/json", detailSha256)
   if (!storedDetail) return retry("storage", now(), undefined, item.attempts, options.random)
   return {
     item,

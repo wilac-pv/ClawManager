@@ -47,19 +47,24 @@ type Publication = {
 }
 
 export class Publisher {
+  private readonly preparations = new Map<string, Promise<{ readonly jobID: string; readonly candidate: SkillMarket.Detail }>>()
+
   constructor(private readonly options: PublisherOptions) {}
 
   async runOne(workerID: string) {
     requireWorkerID(workerID)
     await this.recover()
+    const pending = this.pending()
+    const prepared = pending?.kind === "publish" ? await this.preparePublication(pending) : undefined
     const job = this.claim(workerID)
     if (!job) return undefined
+    if (prepared && prepared.jobID !== job.id) return undefined
     if (job.target_revision && (await this.pointerRevision()) === job.target_revision) {
       this.finalize(job)
       return { jobID: job.id, kind: job.kind, revision: job.target_revision }
     }
 
-    const publication = job.kind === "publish" ? await this.buildPublication(job) : await this.buildRebuild()
+    const publication = job.kind === "publish" ? await this.buildPublication(job, prepared) : await this.buildRebuild()
     await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
     this.persistTarget(job, workerID, publication.index.revision)
     await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
@@ -112,7 +117,7 @@ export class Publisher {
         .query<
           { count: number },
           []
-        >("SELECT count(*) AS count FROM publish_jobs WHERE status IN ('pending', 'running')")
+        >("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running'")
         .get()!.count
       if (queued > 0) throw new Error("catalog publication queue must be drained before synchronization")
       const jobID = `job_${randomSecret()}`
@@ -148,7 +153,7 @@ export class Publisher {
     imports.mirroredEntries().forEach((entry) =>
       entries.set(key(entry.summary.source, entry.summary.id), {
         summary: entry.summary,
-        ref: { key: entry.detailKey, sha256: entry.detailSha256 },
+        ref: { key: normalizedMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix), sha256: entry.detailSha256 },
       }),
     )
     const index = createCatalogIndex({
@@ -199,16 +204,38 @@ export class Publisher {
     })
   }
 
-  private async buildPublication(job: JobRow) {
+  private pending() {
+    return this.options.database.read((connection) =>
+      connection.query<JobRow, []>(`${jobSelect()} WHERE publish_jobs.status = 'pending' ORDER BY publish_jobs.created_at, publish_jobs.id LIMIT 1`).get(),
+    )
+  }
+
+  private async preparePublication(job: JobRow) {
+    const existing = this.preparations.get(job.id)
+    if (existing) return existing
+    const prepared = this.preparePublicationObjects(job)
+    this.preparations.set(job.id, prepared)
+    return prepared.finally(() => this.preparations.delete(job.id))
+  }
+
+  private async preparePublicationObjects(job: JobRow) {
     if (!job.submission_id) throw new Error("publish job has no submission")
     await publishCommunityObjects(
       this.options.database,
       { store: this.options.store, publicPrefix: this.options.ossPrefix },
       job.submission_id,
     )
+    const candidate = await materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id)
+    return { jobID: job.id, candidate }
+  }
+
+  private async buildPublication(job: JobRow, prepared?: { readonly jobID: string; readonly candidate: SkillMarket.Detail }) {
+    if (!job.submission_id) throw new Error("publish job has no submission")
     const [base, candidate] = await Promise.all([
       this.baseSnapshot(),
-      materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id),
+      prepared?.jobID === job.id
+        ? Promise.resolve(prepared.candidate)
+        : materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id),
     ])
     const entry = contentAddressDetail(candidate)
     const entries = this.entries(base.index, (summary) => summary.source !== "community" || summary.id !== candidate.id)
@@ -411,6 +438,13 @@ function insertPublishStarted(connection: Database, job: JobRow, now: number) {
 function requireWorkerID(value: string) {
   if (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value)) return value
   throw new Error("publisher worker ID is invalid")
+}
+
+function normalizedMirrorDetailKey(value: string, sha256: string, prefix: string) {
+  const expected = `details/${sha256}.json`
+  if (value === expected) return value
+  if (value === `${prefix.replace(/^\/+|\/+$/g, "")}/${expected}`) return expected
+  throw new Error("mirrored SkillHub detail key is invalid")
 }
 
 async function settled<T>(promise: Promise<T>) {

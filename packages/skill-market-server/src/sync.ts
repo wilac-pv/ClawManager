@@ -151,32 +151,69 @@ export async function synchronize(options: SyncOptions) {
     return synchronizeUnlocked(options, (snapshot) =>
       publishSnapshot(options.store, { prefix: options.config.ossPrefix }, snapshot).then(() => undefined),
     )
-  await options.publisher.recover()
-  await drainPublisher(options.publisher)
-  let publication: CatalogSnapshot | undefined
-  const result = await synchronizeUnlocked(options, async (snapshot) => {
-    publication = snapshot
-  })
-  if (!result.published || !publication) return result
+  return synchronizeIndexed(options, options.publisher)
+}
+
+async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
+  const started = performance.now()
+  const now = (options.now ?? (() => new Date()))()
+  const state = await loadState(options.store, options.config.ossPrefix)
+  await publisher.recover()
+  await drainPublisher(publisher)
   const current = await settled(loadCatalogIndex(options.store, { prefix: options.config.ossPrefix }))
-  const details = new Map(
-    Array.from(publication.details).filter(([entryKey, detail]) => {
-      const currentRef = current.ok ? current.value.details.get(entryKey) : undefined
-      return currentRef?.sha256 !== contentAddressDetail(detail).ref.sha256
-    }),
+  const base = current.ok
+    ? current.value
+    : createCatalogIndex({
+        entries: new Map(),
+        sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
+      })
+  const imported = options.database ? createSkillHubImportStore({ database: options.database }).progress() : undefined
+  const enterprise = await settled(loadEnterpriseConditional(options, state))
+  const entries = new Map(
+    base.items.map((summary) => [key(summary.source, summary.id), {
+      summary,
+      ref: base.details.get(key(summary.source, summary.id))!,
+    }] as const),
   )
-  return options.publisher.withCatalogLease("sync", (publish) =>
-    publish({
-      index: createCatalogIndex({
-        entries: new Map(
-          Array.from(publication!.details, ([entryKey, detail]) => [entryKey, contentAddressDetail(detail)] as const),
-        ),
-        sourceStatus: publication!.sourceStatus,
-        createdAt: publication!.createdAt,
-      }),
-      changedDetails: details,
-    }).then(() => result),
-  )
+  const changedDetails = new Map<string, SkillMarket.Detail>()
+  if (enterprise.ok && !enterprise.value.notModified) {
+    Array.from(entries.keys()).filter((entryKey) => entryKey.startsWith("enterprise:")).forEach((entryKey) => entries.delete(entryKey))
+    const materialized = await materializeInBatches(
+      enterprise.value.index.skills.filter((entry) => entry.source === "enterprise"),
+      async (entry) => {
+        const present = base.items.find((summary) => summary.source === "enterprise" && (summary.id === entry.id || summary.aliases?.includes(entry.id)))
+        if (present?.version === entry.version) {
+          return { summary: present, ref: base.details.get(key(present.source, present.id))! }
+        }
+        const detail = await materializeEnterpriseRecord(entry, enterprise.value.index.updatedAt, materializeOptions(options))
+        changedDetails.set(key(detail.source, detail.id), detail)
+        return contentAddressDetail(detail)
+      },
+    )
+    materialized.forEach((entry) => entries.set(key(entry.summary.source, entry.summary.id), entry))
+  }
+  const sourceStatus: SkillMarket.SourceStatus = {
+    skillhub: imported?.sourceStatus ?? base.sourceStatus.skillhub,
+    enterprise: enterprise.ok ? "fresh" : base.sourceStatus.enterprise === "unavailable" ? "unavailable" : "stale",
+    community: options.database ? "fresh" : base.sourceStatus.community,
+  }
+  const index = createCatalogIndex({ entries, sourceStatus })
+  const snapshot: CatalogSnapshot = {
+    revision: index.revision,
+    createdAt: index.createdAt,
+    items: index.items,
+    details: new Map(),
+    facets: index.facets,
+    sourceStatus,
+  }
+  await publisher.withCatalogLease("sync", (publish) => publish({ index, changedDetails }))
+  await saveState(options.store, options.config.ossPrefix, {
+    lastSkillhubAt: state.lastSkillhubAt,
+    enterpriseEtag: enterprise.ok ? enterprise.value.etag : state.enterpriseEtag,
+    enterpriseIndex: enterprise.ok ? enterprise.value.index : state.enterpriseIndex,
+  }).catch(() => undefined)
+  emitMetrics(performance.now() - started, snapshot, true, enterprise.ok, Boolean(options.database))
+  return { snapshot, published: true }
 }
 
 async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: CatalogSnapshot) => Promise<void>) {
@@ -333,12 +370,13 @@ async function loadEnterpriseConditional(options: SyncOptions, state: SyncState)
   )
   if (response.status === 304) {
     if (!state.enterpriseIndex) throw new Error("enterprise index returned 304 without a cached index")
-    return { index: state.enterpriseIndex, etag: state.enterpriseEtag }
+    return { index: state.enterpriseIndex, etag: state.enterpriseEtag, notModified: true as const }
   }
   if (!response.ok) throw new Error(`enterprise index request failed with ${response.status}`)
   return {
     index: await decodeEnterpriseIndex(await response.json(), options.config.allowedHosts),
     etag: response.headers.get("etag") ?? undefined,
+    notModified: false as const,
   }
 }
 
