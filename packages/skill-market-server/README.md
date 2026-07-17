@@ -19,6 +19,7 @@ bun typecheck
 - `start` runs the HTTP API. Before reporting ready, it cleans expired ephemeral rows and drains recoverable validation/publication work.
 - `worker --once` performs cleanup and drains validation jobs followed by publication jobs, then exits. The `--once` flag is mandatory.
 - `sync` first drains recoverable control-plane work, then synchronizes SkillHub, enterprise, and community sources under the shared catalog publication lease.
+- `skillhub-worker` discovers and mirrors SkillHub incrementally, then publishes a fresh mirror under its independent systemd lock. It is intended to run every minute.
 - `sync` is intended to run every two minutes. Successful SkillHub data is reused for ten minutes while the enterprise index is checked with its ETag on every run.
 
 Example cron entries:
@@ -38,7 +39,13 @@ Leases make a later invocation safe after a crashed process. Avoid intentionally
 | `SKILL_MARKET_DATABASE_PATH`                | No                  | `/var/lib/ruying-skill-market/market.db`      | SQLite database path. The file is set to mode `0600`.                                                      |
 | `SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY`   | No                  | `/var/backups/ruying-skill-market/migrations` | Directory for verified pre-migration SQLite backups.                                                       |
 | `SKILLHUB_BASE_URL`                         | No                  | `https://api.skillhub.cn`                     | SkillHub API base URL.                                                                                     |
-| `SKILL_MARKET_SKILLHUB_LIMIT`               | No                  | all available records                         | Optional positive record limit for controlled synchronization.                                             |
+| `SKILL_MARKET_SKILLHUB_LIMIT`               | Emergency canary only | omitted in production full mirror             | Set only to `30` for a short controlled canary; remove it before a production full mirror.                |
+| `SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY`    | No                  | `4`                                           | Concurrent SkillHub page requests; maximum `16`.                                                          |
+| `SKILL_MARKET_SKILLHUB_METADATA_CONCURRENCY`| No                  | `8`                                           | Concurrent SkillHub metadata requests; maximum `32`.                                                       |
+| `SKILL_MARKET_SKILLHUB_PACKAGE_CONCURRENCY` | No                  | `6`                                           | Concurrent SkillHub package transfers; maximum `12`.                                                       |
+| `SKILL_MARKET_SKILLHUB_PUBLISH_BATCH`       | No                  | `2000`                                        | Mirrored records accumulated before a publication; positive integer.                                      |
+| `SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES`     | No                  | `30`                                          | Maximum delay before publishing accumulated records; positive integer.                                     |
+| `SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB`| No                  | `1536`                                        | Mirror memory soft limit in MiB; minimum `512`.                                                            |
 | `SKILL_MARKET_ENTERPRISE_INDEX_URL`         | Yes                 | —                                             | HTTPS enterprise catalog index URL.                                                                        |
 | `SKILL_MARKET_OSS_ENDPOINT`                 | Yes                 | —                                             | HTTPS S3-compatible OSS endpoint.                                                                          |
 | `SKILL_MARKET_OSS_REGION`                   | No                  | `cn-baoding`                                  | S3 signing region.                                                                                         |

@@ -53,6 +53,40 @@ describe("deployment checks", () => {
     expect(formatChecks(checks)).toContain("FAIL configuration")
   })
 
+  test("reports non-secret SkillHub numeric configuration and requires writable backup storage", async () => {
+    const directory = await temporaryDirectory()
+    const databaseDirectory = join(directory, "data")
+    const backupDirectory = join(directory, "backups")
+    const environmentFile = join(directory, "market.env")
+    await Promise.all([mkdir(databaseDirectory), mkdir(backupDirectory), Bun.write(environmentFile, "# test\n")])
+    await chmod(environmentFile, 0o600)
+    const environment = validEnvironment(databaseDirectory)
+    environment.SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY = backupDirectory
+    environment.SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY = "4"
+    environment.SKILL_MARKET_SKILLHUB_METADATA_CONCURRENCY = "8"
+    environment.SKILL_MARKET_SKILLHUB_PACKAGE_CONCURRENCY = "6"
+    environment.SKILL_MARKET_SKILLHUB_PUBLISH_BATCH = "2000"
+    environment.SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES = "30"
+    environment.SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB = "1536"
+
+    const checks = await runPreflight({ environment, environmentFile, findBinary: () => "/usr/bin/tool", probe: async () => true })
+    const output = formatChecks(checks)
+
+    expect(checks.find((check) => check.name === "backup-directory")?.status).toBe("PASS")
+    expect(output).toContain("PASS skillhub-page-concurrency=4")
+    expect(output).toContain("PASS skillhub-memory-soft-limit-mb=1536")
+    expect(output).not.toContain("AWS_SECRET_ACCESS_KEY")
+
+    await rm(backupDirectory, { force: true, recursive: true })
+    const missingBackupChecks = await runPreflight({
+      environment,
+      environmentFile,
+      findBinary: () => "/usr/bin/tool",
+      probe: async () => true,
+    })
+    expect(missingBackupChecks.find((check) => check.name === "backup-directory")?.status).toBe("FAIL")
+  })
+
   test("checks health, catalog CORS, anonymous session, and off-origin writes", async () => {
     const server = Bun.serve({
       port: 0,

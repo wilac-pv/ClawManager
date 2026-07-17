@@ -22,9 +22,20 @@ export async function runPreflight(options: {
   const checks: DeploymentCheck[] = [
     { name: "configuration", status: configuration ? "PASS" : "FAIL" },
     await fileCheck(options.environmentFile),
-    await directoryCheck(options.environment.SKILL_MARKET_DATABASE_PATH),
+    await databaseDirectoryCheck(options.environment.SKILL_MARKET_DATABASE_PATH),
+    await directoryCheck(options.environment.SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY, "backup-directory"),
     { name: "bun-version", status: Bun.semver.satisfies(Bun.version, ">=1.3.0") ? "PASS" : "FAIL" },
     { name: "zstd", status: findBinary("zstd") ? "PASS" : "FAIL" },
+    ...(configuration
+      ? [
+          { name: `skillhub-page-concurrency=${configuration.skillhubPageConcurrency}`, status: "PASS" as const },
+          { name: `skillhub-metadata-concurrency=${configuration.skillhubMetadataConcurrency}`, status: "PASS" as const },
+          { name: `skillhub-package-concurrency=${configuration.skillhubPackageConcurrency}`, status: "PASS" as const },
+          { name: `skillhub-publish-batch=${configuration.skillhubPublishBatch}`, status: "PASS" as const },
+          { name: `skillhub-publish-minutes=${configuration.skillhubPublishMinutes}`, status: "PASS" as const },
+          { name: `skillhub-memory-soft-limit-mb=${configuration.skillhubMemorySoftLimitMb}`, status: "PASS" as const },
+        ]
+      : []),
   ]
   if (!configuration)
     return [
@@ -142,13 +153,17 @@ async function fileCheck(path: string): Promise<DeploymentCheck> {
   return { name: "environment-file", status: safe ? "PASS" : "FAIL" }
 }
 
-async function directoryCheck(databasePath: string | undefined): Promise<DeploymentCheck> {
-  if (!databasePath) return { name: "database-directory", status: "FAIL" }
-  const writable = await Promise.all([stat(dirname(databasePath)), access(dirname(databasePath), constants.W_OK)]).then(
+async function databaseDirectoryCheck(path: string | undefined) {
+  return directoryCheck(path && dirname(path), "database-directory")
+}
+
+async function directoryCheck(path: string | undefined, name: string): Promise<DeploymentCheck> {
+  if (!path) return { name, status: "FAIL" }
+  const writable = await Promise.all([stat(path), access(path, constants.W_OK)]).then(
     ([metadata]) => metadata.isDirectory(),
     () => false,
   )
-  return { name: "database-directory", status: writable ? "PASS" : "FAIL" }
+  return { name, status: writable ? "PASS" : "FAIL" }
 }
 
 async function probeCheck(name: string, url: string, probe: (url: string) => Promise<boolean>) {

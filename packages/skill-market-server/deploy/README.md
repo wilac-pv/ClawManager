@@ -119,6 +119,29 @@ available for desktop compatibility and service probes.
 Do not enable an HTTP public URL for a hostname or public address. The application
 rejects that configuration even when the flag is set.
 
+## SkillHub mirror controls
+
+The `ruying-skill-market-skillhub.timer` starts two minutes after boot and then
+runs once per minute. It has its own `/run/lock/ruying-skill-market-skillhub.lock`,
+so it never shares the community publication lock.
+
+Use the six resource controls in the environment file at their design defaults
+unless a measured operational need requires adjustment:
+
+| Variable | Default | Bound |
+| --- | ---: | --- |
+| `SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY` | `4` | maximum `16` |
+| `SKILL_MARKET_SKILLHUB_METADATA_CONCURRENCY` | `8` | maximum `32` |
+| `SKILL_MARKET_SKILLHUB_PACKAGE_CONCURRENCY` | `6` | maximum `12` |
+| `SKILL_MARKET_SKILLHUB_PUBLISH_BATCH` | `2000` | positive integer |
+| `SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES` | `30` | positive integer |
+| `SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB` | `1536` | minimum `512` MiB |
+
+`SKILL_MARKET_SKILLHUB_LIMIT=30` is an emergency canary override only. Omit it
+from every production full-mirror environment. Preflight prints only these
+numeric values and validates that both database and migration-backup directories
+are writable; it never prints environment values or secrets.
+
 ## Bootstrap Admin
 
 Set `SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS` to employee IDs only. On an empty
@@ -148,6 +171,10 @@ and Web release ID.
 Install the extracted archive as `root:root 0755` under
 `/srv/ruying-skill-market/releases/<git-sha>`. Install dependencies without
 granting the service user write permission to the release.
+
+The immutable server runtime includes bundled server, sync, durable worker, and
+SkillHub worker entrypoints. The SkillHub unit runs the bundled
+`src/skillhub-worker.js` entrypoint; do not substitute the source `.ts` path.
 
 ## Preflight and initial migration
 
@@ -195,7 +222,7 @@ Start in this order:
 4. for an empty OSS prefix, run `ruying-skill-market-sync.service` once and
    require a non-empty 2xx catalog response;
 5. HTTP smoke and private OSS canary;
-6. worker and sync timers;
+6. worker, sync, and SkillHub mirror timers;
 7. backup, cleanup, and restore-drill timers.
 
 Do not treat a `503` catalog response as a CORS failure during first install.

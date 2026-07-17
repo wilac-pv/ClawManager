@@ -5,6 +5,7 @@ const serviceNames = [
   "ruying-skill-market.service",
   "ruying-skill-market-worker.service",
   "ruying-skill-market-sync.service",
+  "ruying-skill-market-skillhub.service",
   "ruying-skill-market-backup.service",
   "ruying-skill-market-cleanup.service",
   "ruying-skill-market-restore-drill.service",
@@ -40,6 +41,11 @@ describe("systemd deployment", () => {
     services.slice(1, 3).forEach((service) =>
       expect(service).toContain("/run/lock/ruying-skill-market-ops.lock"),
     )
+    expect(services[3]).toContain(
+      "ExecStart=/usr/bin/flock -n /run/lock/ruying-skill-market-skillhub.lock /usr/local/bin/bun src/skillhub-worker.js",
+    )
+    expect(services[3]).not.toContain("ruying-skill-market-ops.lock")
+    expect(services[3]).toContain("Type=oneshot")
   })
 
   test("defines persistent randomized worker, sync, daily, and monthly timers", async () => {
@@ -51,9 +57,12 @@ describe("systemd deployment", () => {
     })
     expect(timers[0]).toContain("OnUnitActiveSec=1min")
     expect(timers[1]).toContain("OnUnitActiveSec=2min")
-    expect(timers[2]).toContain("OnCalendar=*-*-* 02:10:00")
-    expect(timers[3]).toContain("OnCalendar=*-*-* 03:10:00")
-    expect(timers[4]).toContain("OnCalendar=*-*-02 04:10:00")
+    expect(timers[2]).toContain("OnUnitActiveSec=1min")
+    expect(timers[2]).toContain("OnBootSec=2min")
+    expect(timers[2]).toMatch(/RandomizedDelaySec=(?:[0-9]|10)s/)
+    expect(timers[3]).toContain("OnCalendar=*-*-* 02:10:00")
+    expect(timers[4]).toContain("OnCalendar=*-*-* 03:10:00")
+    expect(timers[5]).toContain("OnCalendar=*-*-02 04:10:00")
   })
 })
 
