@@ -215,21 +215,24 @@ if (import.meta.main) {
   const mode = process.argv[2]
   if (mode !== "preflight" && mode !== "smoke") throw new Error("deploy-check mode must be preflight or smoke")
   const environmentFile = process.env.SKILL_MARKET_ENV_FILE ?? "/etc/ruying-skill-market/market.env"
-  const config = loadConfig()
-  const checks =
-    mode === "preflight"
-      ? await runPreflight({ environment: process.env, environmentFile })
-      : await runSmoke({ apiUrl: config.apiPublicUrl, webOrigin: config.webOrigin })
-  if (mode === "smoke" && process.argv.includes("--allow-private-canary")) {
-    const { makeS3ObjectStore } = await import("../src/oss")
-    checks.push(
-      await runPrivateCanary({
-        privatePrefix: config.privateOssPrefix,
-        allow: true,
-        store: makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket }),
-      }),
-    )
+  if (mode === "preflight") {
+    const checks = await runPreflight({ environment: process.env, environmentFile })
+    console.log(formatChecks(checks))
+    if (checks.some((check) => check.status === "FAIL")) process.exitCode = 1
+  } else {
+    const config = loadConfig()
+    const checks = await runSmoke({ apiUrl: config.apiPublicUrl, webOrigin: config.webOrigin })
+    if (process.argv.includes("--allow-private-canary")) {
+      const { makeS3ObjectStore } = await import("../src/oss")
+      checks.push(
+        await runPrivateCanary({
+          privatePrefix: config.privateOssPrefix,
+          allow: true,
+          store: makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket }),
+        }),
+      )
+    }
+    console.log(formatChecks(checks))
+    if (checks.some((check) => check.status === "FAIL")) process.exitCode = 1
   }
-  console.log(formatChecks(checks))
-  if (checks.some((check) => check.status === "FAIL")) process.exitCode = 1
 }

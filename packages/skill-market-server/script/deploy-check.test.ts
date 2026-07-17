@@ -53,6 +53,41 @@ describe("deployment checks", () => {
     expect(formatChecks(checks)).toContain("FAIL configuration")
   })
 
+  test("CLI reports an invalid mirror number without leaking configuration or throwing", async () => {
+    const directory = await temporaryDirectory()
+    const databaseDirectory = join(directory, "data")
+    const backupDirectory = join(directory, "backups")
+    const environmentFile = join(directory, "market.env")
+    await Promise.all([mkdir(databaseDirectory), mkdir(backupDirectory), Bun.write(environmentFile, "# test\n")])
+    await chmod(environmentFile, 0o600)
+    const subprocess = Bun.spawn([process.execPath, "script/deploy-check.ts", "preflight"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        ...validEnvironment(databaseDirectory),
+        SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY: backupDirectory,
+        SKILL_MARKET_ENV_FILE: environmentFile,
+        SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY: "17",
+        SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB: "511",
+        AWS_SECRET_ACCESS_KEY: "secret-marker",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stdout, stderr] = await Promise.all([
+      subprocess.exited,
+      new Response(subprocess.stdout).text(),
+      new Response(subprocess.stderr).text(),
+    ])
+
+    expect(exitCode).toBe(1)
+    expect(stdout).toContain("FAIL configuration")
+    expect(stdout).not.toContain("17")
+    expect(stdout).not.toContain("511")
+    expect(stdout).not.toContain("secret-marker")
+    expect(stderr).toBe("")
+  })
+
   test("reports non-secret SkillHub numeric configuration and requires writable backup storage", async () => {
     const directory = await temporaryDirectory()
     const databaseDirectory = join(directory, "data")

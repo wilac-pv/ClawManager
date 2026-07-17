@@ -155,22 +155,27 @@ Admin.
 
 ## Build and transfer a release
 
-Record the source identity and run all repository gates before transfer:
+Build from a clean, committed checkout. Do not deploy a source archive or use
+`git archive`: transfer only the prebuilt immutable release output, which
+contains the generated Bun JavaScript entrypoints.
+Run `bun run build:release <output-directory>` before any transfer.
 
 ```bash
-git rev-parse HEAD
-git status --short
-git diff --check
+test -z "$(git status --porcelain)"
+release_commit=$(git rev-parse HEAD)
+release_output=/tmp/ruying-skill-market-${release_commit}
+bun run build:release "$release_output"
+printf '{"commit":"%s","builtAt":"%s"}\n' "$release_commit" "$(date -u +%FT%TZ)" > "$release_output/RELEASE.json"
+test -s "$release_output/RELEASE.json"
+test -f "$release_output/packages/skill-market-server/package.json"
+test -s "$release_output/packages/skill-market-server/src/skillhub-worker.js"
 ```
 
-Create the archive from tracked files only. Exclude `.git`, `.codegraph`,
-`.superpowers/brainstorm`, caches, `.env` files, databases, and build output.
-Store a `RELEASE.json` beside the release containing only commit SHA, build time,
-and Web release ID.
-
-Install the extracted archive as `root:root 0755` under
-`/srv/ruying-skill-market/releases/<git-sha>`. Install dependencies without
-granting the service user write permission to the release.
+Transfer exactly `$release_output` and its `RELEASE.json`, then install that
+verified directory as `root:root 0755` under
+`/srv/ruying-skill-market/releases/<git-sha>`. Do not rebuild or install
+dependencies on the host; the service user never receives write permission to a
+release.
 
 The immutable server runtime includes bundled server, sync, durable worker, and
 SkillHub worker entrypoints. The SkillHub unit runs the bundled
@@ -181,19 +186,54 @@ SkillHub worker entrypoints. The SkillHub unit runs the bundled
 Before mutation, run the read-only checks as the service identity:
 
 ```bash
-sudo -u ruying-market /usr/local/bin/bun script/deploy-check.ts preflight
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/deploy-check.ts preflight
+'
 ```
 
 Resolve every `FAIL`. An unreachable optional proxy may be `SKIP` only when all
-external dependencies are directly reachable.
+external dependencies are directly reachable. `sudo` changes to the service
+identity before the group-readable environment file is sourced; do not use
+`cat`, `env`, shell tracing, or a command that prints the loaded values.
 
-If a database exists, stop the API and worker/sync timers, create a verified
-local and OSS backup, and record its non-sensitive identity. Switch the code
-symlink only after the backup succeeds. Run migration without exposing the HTTP
-port, then verify:
+If a database exists, record active timers, then stop every writer timer before
+the backup or migration. Wait for an already-running oneshot writer to finish,
+stop the API service, and confirm it is inactive before mutating data:
 
 ```bash
-sudo -u ruying-market /usr/local/bin/bun script/migrate.ts
+writer_timers=(
+  ruying-skill-market-worker.timer ruying-skill-market-sync.timer ruying-skill-market-skillhub.timer
+  ruying-skill-market-cleanup.timer ruying-skill-market-backup.timer ruying-skill-market-restore-drill.timer
+)
+active_timers=()
+for timer in "${writer_timers[@]}"; do systemctl is-active --quiet "$timer" && active_timers+=("$timer"); done
+systemctl stop "${writer_timers[@]}"
+while systemctl is-active --quiet ruying-skill-market-worker.service || \
+  systemctl is-active --quiet ruying-skill-market-sync.service || \
+  systemctl is-active --quiet ruying-skill-market-skillhub.service || \
+  systemctl is-active --quiet ruying-skill-market-cleanup.service || \
+  systemctl is-active --quiet ruying-skill-market-backup.service || \
+  systemctl is-active --quiet ruying-skill-market-restore-drill.service; do sleep 1; done
+systemctl stop ruying-skill-market.service
+! systemctl is-active --quiet ruying-skill-market.service
+```
+
+Create a verified local and OSS backup and record its non-sensitive identity.
+Switch the code symlink only after the backup succeeds. Run migration without
+exposing the HTTP port, then verify:
+
+```bash
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/migrate.ts
+'
 ```
 
 ```text
@@ -202,7 +242,17 @@ PRAGMA foreign_key_check;
 PRAGMA user_version;
 ```
 
-Never continue after a failed migration.
+Never continue after a failed migration. After a successful migration, start the
+API service and run the smoke checks. Only then restore the timers recorded as
+active before the quiescence procedure; do not enable a timer that was
+intentionally inactive. Keep the same root shell open for the recorded timer
+array:
+
+```bash
+systemctl start ruying-skill-market.service
+# Run smoke in this shell, then resume only the recorded active timers.
+((${#active_timers[@]})) && systemctl start "${active_timers[@]}"
+```
 
 ## Install systemd and Nginx
 
@@ -238,8 +288,13 @@ Record the previous API and Web symlink targets before switching them.
 Run the HTTP checks after the API and Web are reachable:
 
 ```bash
-sudo -u ruying-market /usr/local/bin/bun script/deploy-check.ts smoke
-sudo -u ruying-market /usr/local/bin/bun script/deploy-check.ts smoke --allow-private-canary
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/deploy-check.ts smoke
+'
 ```
 
 The canary is allowed only below the private `canary/` directory and must be
