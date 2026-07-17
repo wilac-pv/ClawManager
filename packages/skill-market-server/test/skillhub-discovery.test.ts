@@ -102,6 +102,7 @@ describe("SkillHub discovery", () => {
     expect(result[0]?.status).toBe(200)
     expect(attempts).toBe(2)
     expect(waits).toEqual([1_000])
+    for (let index = 0; index < 5; index += 1) await pool.map([index], async () => new Response("ok"))
     expect(pool.concurrency()).toBe(2)
     clock.value += 5 * 60_000
     expect(pool.concurrency()).toBe(3)
@@ -151,6 +152,83 @@ describe("SkillHub discovery", () => {
 
     clock.value = 5 * 60_000
     expect(pool.concurrency()).toBe(2)
+  })
+
+  test("recovers after stable slow p95 observations", async () => {
+    const clock = { value: 0 }
+    const pool = createAdaptivePool({
+      minimum: 1,
+      maximum: 4,
+      now: () => clock.value,
+      wait: async () => {},
+    })
+    let attempts = 0
+    await pool.map(["first"], async () => {
+      attempts += 1
+      if (attempts === 1) return new Response("slow down", { status: 429 })
+      clock.value += 1_500
+      return new Response("ok")
+    })
+    for (let index = 0; index < 5; index += 1)
+      await pool.map([index], async () => {
+        clock.value += 1_500
+        return new Response("ok")
+      })
+
+    clock.value = 5 * 60_000
+    expect(pool.concurrency()).toBe(3)
+  })
+
+  test("does not recover after a rolling p95 latency jump", async () => {
+    const clock = { value: 0 }
+    const pool = createAdaptivePool({
+      minimum: 1,
+      maximum: 4,
+      now: () => clock.value,
+      wait: async () => {},
+    })
+    let attempts = 0
+    for (const latency of [100, 100, 100, 100, 900, 900, 900])
+      await pool.map([latency], async () => {
+        attempts += 1
+        if (attempts === 1) return new Response("slow down", { status: 429 })
+        clock.value += latency
+        return new Response("ok")
+      })
+
+    clock.value = 5 * 60_000
+    expect(pool.concurrency()).toBe(2)
+  })
+
+  test("starts recovery at one slot when p95 becomes stable after minute eight", async () => {
+    const clock = { value: 0 }
+    const pool = createAdaptivePool({
+      minimum: 1,
+      maximum: 4,
+      now: () => clock.value,
+      wait: async () => {},
+    })
+    let attempts = 0
+    for (const latency of [100, 100, 100, 100, 900, 900, 900])
+      await pool.map([latency], async () => {
+        attempts += 1
+        if (attempts === 1) return new Response("slow down", { status: 429 })
+        clock.value += latency
+        return new Response("ok")
+      })
+
+    clock.value = 5 * 60_000
+    expect(pool.concurrency()).toBe(2)
+    clock.value = 8 * 60_000
+    for (let index = 0; index < 3; index += 1)
+      await pool.map([index], async () => {
+        clock.value += 900
+        return new Response("ok")
+      })
+
+    expect(pool.concurrency()).toBe(3)
+    clock.value += 60_000
+    expect(pool.concurrency()).toBe(4)
   })
 
   test("retries and throttles the initial page observation", async () => {
