@@ -32,7 +32,7 @@ export type SkillHubRecord = {
 }
 
 const SubCategory = Schema.Struct({ key: Schema.String, name: Schema.String })
-const ListSkill = Schema.Struct({
+export const SkillHubListRecord = Schema.Struct({
   category: Schema.String,
   description: Schema.String,
   description_zh: Schema.String.pipe(Schema.optional),
@@ -52,10 +52,10 @@ const ListSkill = Schema.Struct({
   updated_at: Schema.Number,
   version: Schema.String,
 })
-export type SkillHubListRecord = typeof ListSkill.Type
+export type SkillHubListRecord = typeof SkillHubListRecord.Type
 const ListResponse = Schema.Struct({
   code: Schema.Number,
-  data: Schema.Struct({ skills: Schema.Array(ListSkill), total: Schema.Number }),
+  data: Schema.Struct({ skills: Schema.Array(SkillHubListRecord), total: Schema.Number }),
   message: Schema.String,
 })
 
@@ -140,7 +140,7 @@ async function loadPage(fetcher: Fetcher, baseUrl: URL, page: number) {
 async function loadRecord(
   fetcher: Fetcher,
   baseUrl: URL,
-  skill: typeof ListSkill.Type,
+  skill: SkillHubListRecord,
   previous: ReadonlyMap<string, SkillHubRecord> | undefined,
 ) {
   const cached = previous?.get(skill.slug)

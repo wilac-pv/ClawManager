@@ -1,8 +1,8 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import type { Database } from "bun:sqlite"
-import { Schema } from "effect"
-import type { SkillHubListRecord, SkillHubRecord } from "./skillhub"
+import { Option, Schema } from "effect"
+import { SkillHubListRecord, type SkillHubRecord } from "./skillhub"
 import { MarketDatabase } from "./database"
 
 export interface ClaimedSkillHubItem {
@@ -36,9 +36,22 @@ export interface ActiveSkillHubGeneration {
   readonly newInSweep: number
 }
 
+export interface SkillHubGenerationCheckpoint extends ActiveSkillHubGeneration {
+  readonly discoveryCompleted: boolean
+}
+
+export interface SkillHubPublicationCheckpoint {
+  readonly lastPublishedCount: number
+  readonly lastPublishedAt?: string
+}
+
+export interface LegacyMirroredSkillHubEntry extends MirroredSkillHubEntry {
+  readonly slug: string
+}
+
 export interface RetriedRejectedSkillHubItem {
   readonly slug: string
-  readonly code: string
+  readonly code: SkillMarketControl.SkillHubImportErrorCode
   readonly summary: string
 }
 
@@ -50,6 +63,7 @@ export interface SkillHubImportCommandTransition {
 export interface SkillHubImportStore {
   readonly beginGeneration: (upstreamTotal: number) => { readonly id: string }
   readonly activeGeneration: () => ActiveSkillHubGeneration | undefined
+  readonly generationCheckpoint: () => SkillHubGenerationCheckpoint | undefined
   readonly recordPage: (
     generationID: string,
     page: number,
@@ -59,16 +73,28 @@ export interface SkillHubImportStore {
   readonly completeSweep: (generationID: string) => { readonly stable: boolean }
   readonly claim: (workerID: string, limit: number, leaseMilliseconds: number) => ClaimedSkillHubItem[]
   readonly complete: (workerID: string, slug: string, result: CompletedSkillHubImport) => boolean
-  readonly retry: (workerID: string, slug: string, code: string, summary: string, retryAt: number) => boolean
-  readonly reject: (workerID: string, slug: string, code: string, summary: string) => boolean
+  readonly retry: (
+    workerID: string,
+    slug: string,
+    code: SkillMarketControl.SkillHubImportErrorCode,
+    summary: string,
+    retryAt: number,
+  ) => boolean
+  readonly reject: (
+    workerID: string,
+    slug: string,
+    code: SkillMarketControl.SkillHubImportErrorCode,
+    summary: string,
+  ) => boolean
   readonly recordPublication: (mirroredCount: number) => boolean
+  readonly publicationCheckpoint: () => SkillHubPublicationCheckpoint
   readonly progress: () => SkillMarketControl.SkillHubImportProgress
   readonly command: (input: SkillMarketControl.SkillHubImportCommandInput) => SkillMarketControl.SkillHubImportProgress
   readonly commandTransition: (
     input: SkillMarketControl.SkillHubImportCommandInput,
   ) => SkillHubImportCommandTransition
   readonly mirroredEntries: () => MirroredSkillHubEntry[]
-  readonly seedLegacy: (entries: readonly MirroredSkillHubEntry[]) => number
+  readonly seedLegacy: (entries: readonly LegacyMirroredSkillHubEntry[]) => number
 }
 
 export function createSkillHubImportStore(options: {
@@ -84,8 +110,15 @@ export function createSkillHubImportStore(options: {
   return {
     beginGeneration(upstreamTotal) {
       return options.database.transaction((connection) => {
-        const active = activeGeneration(connection)
-        if (active) return { id: active.id }
+        const existing = generationCheckpoint(connection)
+        if (existing) {
+          if (!existing.discoveryCompleted)
+            connection.run(
+              "UPDATE skillhub_generations SET upstream_total = ?, updated_at = ? WHERE id = ?",
+              [upstreamTotal, now(), existing.id],
+            )
+          return { id: existing.id }
+        }
         const id = `gen_${crypto.randomUUID()}`
         const timestamp = now()
         connection.run(
@@ -98,14 +131,17 @@ export function createSkillHubImportStore(options: {
     activeGeneration() {
       return options.database.read((connection) => activeGeneration(connection))
     },
+    generationCheckpoint() {
+      return options.database.read((connection) => generationCheckpoint(connection))
+    },
     recordPage(generationID, page, items, upstreamTotal) {
       return options.database.transaction((connection) => {
         const generation = generationRow(connection, generationID)
         const timestamp = now()
         const inserted = items.filter((item) => recordItem(connection, generation, item, timestamp)).length
         connection.run(
-          "UPDATE skillhub_generations SET upstream_total = ?, discovery_page = MAX(discovery_page, ?), new_in_sweep = new_in_sweep + ?, updated_at = ? WHERE id = ?",
-          [upstreamTotal ?? generation.upstream_total, page, inserted, timestamp, generation.id],
+          "UPDATE skillhub_generations SET upstream_total = ?, discovery_page = CASE WHEN discovery_page + 1 = ? THEN ? ELSE discovery_page END, new_in_sweep = new_in_sweep + ?, updated_at = ? WHERE id = ?",
+          [upstreamTotal ?? generation.upstream_total, page, page, inserted, timestamp, generation.id],
         )
         return { inserted }
       })
@@ -122,7 +158,7 @@ export function createSkillHubImportStore(options: {
         const stable = generation.new_in_sweep === 0 && observed >= generation.upstream_total
         if (stable) {
           connection.run(
-            "UPDATE skillhub_generations SET completed_at = ?, updated_at = ? WHERE id = ?",
+            "UPDATE skillhub_generations SET discovery_completed_at = ?, updated_at = ? WHERE id = ?",
             [timestamp, timestamp, generationID],
           )
           finishGenerationIfSettled(connection, generationID, timestamp)
@@ -153,7 +189,7 @@ export function createSkillHubImportStore(options: {
           slug: row.slug,
           upstreamVersion: row.upstream_version,
           upstreamUpdatedAt: row.upstream_updated_at,
-          list: decode<SkillHubListRecord>(row.list_json),
+          list: Schema.decodeUnknownSync(Schema.fromJsonString(SkillHubListRecord))(row.list_json),
         }))
       })
     },
@@ -167,7 +203,7 @@ export function createSkillHubImportStore(options: {
           .get(slug, workerID, timestamp)
         if (!item) return false
         connection.run(
-          "UPDATE skillhub_import_items SET state = 'mirrored', lease_owner = NULL, lease_expires_at = NULL, record_json = ?, summary_json = ?, detail_key = ?, detail_sha256 = ?, original_package_sha256 = ?, package_sha256 = ?, package_size = ?, repair_json = ?, error_code = NULL, error_summary = NULL, updated_at = ? WHERE slug = ?",
+          "UPDATE skillhub_import_items SET state = 'mirrored', lease_owner = NULL, lease_expires_at = NULL, record_json = ?, summary_json = ?, detail_key = ?, detail_sha256 = ?, original_package_sha256 = ?, package_sha256 = ?, package_size = ?, repair_json = ?, error_code = NULL, error_summary = NULL, mirrored_at = ?, updated_at = ? WHERE slug = ?",
           [
             JSON.stringify(result.record),
             JSON.stringify(result.entry.summary),
@@ -177,6 +213,7 @@ export function createSkillHubImportStore(options: {
             result.packageSha256,
             result.packageSize,
             JSON.stringify(result.repairs),
+            timestamp,
             timestamp,
             slug,
           ],
@@ -197,11 +234,14 @@ export function createSkillHubImportStore(options: {
     },
     recordPublication(mirroredCount) {
       return options.database.transaction((connection) => {
+        if (!Number.isInteger(mirroredCount) || mirroredCount < 0) return false
         const timestamp = now()
         const generation = connection
           .query<{ id: string }, []>("SELECT id FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1")
           .get()
         if (!generation) return false
+        const checkpoint = publicationCheckpoint(connection)
+        if (mirroredCount < checkpoint.lastPublishedCount) return false
         return (
           connection.run(
             "UPDATE skillhub_generations SET last_published_count = ?, last_published_at = ?, updated_at = ? WHERE id = ?",
@@ -209,6 +249,9 @@ export function createSkillHubImportStore(options: {
           ).changes === 1
         )
       })
+    },
+    publicationCheckpoint() {
+      return options.database.read((connection) => publicationCheckpoint(connection))
     },
     progress() {
       return options.database.read((connection) => readProgress(connection, now(), metadataConcurrency, packageConcurrency))
@@ -232,7 +275,11 @@ export function createSkillHubImportStore(options: {
           .all()
           .flatMap((row) =>
             row.summary_json && row.detail_key && row.detail_sha256
-              ? [{ summary: decode<SkillMarket.Summary>(row.summary_json), detailKey: row.detail_key, detailSha256: row.detail_sha256 }]
+              ? [{
+                  summary: Schema.decodeUnknownSync(Schema.fromJsonString(SkillMarket.Summary))(row.summary_json),
+                  detailKey: row.detail_key,
+                  detailSha256: row.detail_sha256,
+                }]
               : [],
           ),
       )
@@ -240,18 +287,19 @@ export function createSkillHubImportStore(options: {
     seedLegacy(entries) {
       return options.database.transaction((connection) => {
         const timestamp = now()
-        const generation = activeGeneration(connection) ?? legacyGeneration(connection, entries.length, timestamp)
+        const generation = generationCheckpoint(connection) ?? legacyGeneration(connection, entries.length, timestamp)
         return entries.filter((entry) => {
           const result = connection.run(
-            "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, summary_json, detail_key, detail_sha256, last_seen_generation, created_at, updated_at) VALUES (?, ?, ?, ?, 'mirrored', '{}', ?, ?, ?, ?, ?, ?) ON CONFLICT(slug) DO NOTHING",
+            "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, summary_json, detail_key, detail_sha256, mirrored_at, last_seen_generation, created_at, updated_at) VALUES (?, ?, ?, ?, 'mirrored', '{}', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(slug) DO NOTHING",
             [
-              entry.summary.id,
+              entry.slug,
               generation.id,
               entry.summary.version,
               Date.parse(entry.summary.updatedAt),
               JSON.stringify(entry.summary),
               entry.detailKey,
               entry.detailSha256,
+              timestamp,
               generation.id,
               timestamp,
               timestamp,
@@ -271,6 +319,7 @@ type GenerationRow = {
   readonly discovery_page: number
   readonly sweep: number
   readonly new_in_sweep: number
+  readonly discovery_completed_at: number | null
 }
 
 type ClaimRow = {
@@ -289,7 +338,7 @@ type MirroredRow = {
 function activeGeneration(connection: Database): ActiveSkillHubGeneration | undefined {
   const generation = connection
     .query<GenerationRow, []>(
-      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep FROM skillhub_generations WHERE state IN ('running', 'paused') AND completed_at IS NULL ORDER BY started_at, rowid LIMIT 1",
+      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, discovery_completed_at FROM skillhub_generations WHERE state IN ('running', 'paused') AND discovery_completed_at IS NULL ORDER BY started_at, rowid LIMIT 1",
     )
     .get()
   if (!generation) return undefined
@@ -303,10 +352,28 @@ function activeGeneration(connection: Database): ActiveSkillHubGeneration | unde
   }
 }
 
+function generationCheckpoint(connection: Database): SkillHubGenerationCheckpoint | undefined {
+  const generation = connection
+    .query<GenerationRow, []>(
+      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, discovery_completed_at FROM skillhub_generations WHERE state IN ('running', 'paused') ORDER BY started_at, rowid LIMIT 1",
+    )
+    .get()
+  if (!generation) return undefined
+  return {
+    id: generation.id,
+    state: generation.state as "running" | "paused",
+    upstreamTotal: generation.upstream_total,
+    discoveryPage: generation.discovery_page,
+    sweep: generation.sweep,
+    newInSweep: generation.new_in_sweep,
+    discoveryCompleted: generation.discovery_completed_at !== null,
+  }
+}
+
 function generationRow(connection: Database, generationID: string) {
   const generation = connection
     .query<GenerationRow, [string]>(
-      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep FROM skillhub_generations WHERE id = ? AND state IN ('running', 'paused') AND completed_at IS NULL",
+      "SELECT id, state, upstream_total, discovery_page, sweep, new_in_sweep, discovery_completed_at FROM skillhub_generations WHERE id = ? AND state IN ('running', 'paused') AND discovery_completed_at IS NULL",
     )
     .get(generationID)
   if (!generation) throw new Error(`SkillHub import generation ${generationID} is not active`)
@@ -344,7 +411,7 @@ function recordItem(connection: Database, generation: GenerationRow, item: Skill
     return false
   }
   connection.run(
-    "UPDATE skillhub_import_items SET generation_id = ?, upstream_version = ?, upstream_updated_at = ?, state = 'pending', attempts = 0, next_attempt_at = NULL, lease_owner = NULL, lease_expires_at = NULL, list_json = ?, record_json = NULL, summary_json = NULL, detail_key = NULL, detail_sha256 = NULL, original_package_sha256 = NULL, package_sha256 = NULL, package_size = NULL, repair_json = NULL, error_code = NULL, error_summary = NULL, last_seen_generation = ?, last_seen_sweep = ?, updated_at = ? WHERE slug = ?",
+    "UPDATE skillhub_import_items SET generation_id = ?, upstream_version = ?, upstream_updated_at = ?, state = 'pending', attempts = 0, next_attempt_at = NULL, lease_owner = NULL, lease_expires_at = NULL, list_json = ?, record_json = NULL, summary_json = NULL, detail_key = NULL, detail_sha256 = NULL, original_package_sha256 = NULL, package_sha256 = NULL, package_size = NULL, repair_json = NULL, error_code = NULL, error_summary = NULL, mirrored_at = NULL, last_seen_generation = ?, last_seen_sweep = ?, updated_at = ? WHERE slug = ?",
     [generation.id, item.version, item.updated_at, JSON.stringify(item), generation.id, generation.sweep, timestamp, item.slug],
   )
   return false
@@ -355,7 +422,7 @@ function transitionFailure(
   now: () => number,
   workerID: string,
   slug: string,
-  code: string,
+  code: SkillMarketControl.SkillHubImportErrorCode,
   summary: string,
   retryAt: number | undefined,
   state: "retry_wait" | "rejected",
@@ -375,7 +442,7 @@ function transitionFailure(
     )
     connection.run(
       "UPDATE skillhub_generations SET recent_error_code = ?, recent_error_summary = ?, recent_error_at = ?, updated_at = ? WHERE id = ?",
-      [progressErrorCode(code), bounded, timestamp, timestamp, item.generation_id],
+      [code, bounded, timestamp, timestamp, item.generation_id],
     )
     if (state === "rejected") finishGenerationIfSettled(connection, item.generation_id, timestamp)
     return true
@@ -406,25 +473,42 @@ function applyCommand(
 }
 
 function retryRejected(connection: Database, slugs: readonly string[], timestamp: number) {
-  return slugs.flatMap((slug) => {
+  const items = slugs.flatMap((slug) => {
     const item = connection
-      .query<{ error_code: string | null; error_summary: string | null }, [string]>(
-        "SELECT error_code, error_summary FROM skillhub_import_items WHERE slug = ? AND state = 'rejected'",
+      .query<{ generation_id: string; error_code: string | null; error_summary: string | null }, [string]>(
+        "SELECT generation_id, error_code, error_summary FROM skillhub_import_items WHERE slug = ? AND state = 'rejected'",
       )
       .get(slug)
-    const changed = connection.run(
-      "UPDATE skillhub_import_items SET state = 'pending', next_attempt_at = NULL, lease_owner = NULL, lease_expires_at = NULL, error_code = NULL, error_summary = NULL, updated_at = ? WHERE slug = ? AND state = 'rejected'",
-      [timestamp, slug],
+    if (!item?.error_code || !item.error_summary) return []
+    const code = Option.getOrUndefined(
+      Schema.decodeUnknownOption(SkillMarketControl.SkillHubImportErrorCode)(item.error_code),
+    )
+    if (!code) return []
+    return [{ slug, generationID: item.generation_id, code, summary: item.error_summary }]
+  })
+  if (items.length === 0) return []
+  const existing = generationCheckpoint(connection)
+  const generationID = existing?.id ?? items[0]!.generationID
+  if (!existing) {
+    const reopened = connection.run(
+      "UPDATE skillhub_generations SET state = 'running', completed_at = NULL, updated_at = ? WHERE id = ? AND state = 'completed'",
+      [timestamp, generationID],
     ).changes
-    if (changed !== 1 || !item?.error_code || !item.error_summary) return []
-    return [{ slug, code: item.error_code, summary: item.error_summary }]
+    if (reopened !== 1) return []
+  }
+  return items.flatMap((item) => {
+    const changed = connection.run(
+      "UPDATE skillhub_import_items SET generation_id = ?, state = 'pending', next_attempt_at = NULL, lease_owner = NULL, lease_expires_at = NULL, error_code = NULL, error_summary = NULL, updated_at = ? WHERE slug = ? AND state = 'rejected'",
+      [generationID, timestamp, item.slug],
+    ).changes
+    return changed === 1 ? [{ slug: item.slug, code: item.code, summary: item.summary }] : []
   })
 }
 
 function finishGenerationIfSettled(connection: Database, generationID: string, timestamp: number) {
   connection.run(
-    "UPDATE skillhub_generations SET state = 'completed', updated_at = ? WHERE id = ? AND completed_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM skillhub_import_items WHERE generation_id = ? AND state IN ('pending', 'running', 'retry_wait'))",
-    [timestamp, generationID, generationID],
+    "UPDATE skillhub_generations SET state = 'completed', completed_at = ?, updated_at = ? WHERE id = ? AND discovery_completed_at IS NOT NULL AND completed_at IS NULL AND NOT EXISTS (SELECT 1 FROM skillhub_import_items WHERE generation_id = ? AND state IN ('pending', 'running', 'retry_wait'))",
+    [timestamp, timestamp, generationID, generationID],
   )
 }
 
@@ -438,7 +522,6 @@ function readProgress(connection: Database, timestamp: number, metadataConcurren
         readonly discovery_page: number
         readonly sweep: number
         readonly uploaded_bytes: number
-        readonly started_at: number
         readonly updated_at: number
         readonly last_published_at: number | null
         readonly recent_error_code: string | null
@@ -448,7 +531,7 @@ function readProgress(connection: Database, timestamp: number, metadataConcurren
       },
       []
     >(
-      "SELECT id, state, upstream_total, discovery_page, sweep, uploaded_bytes, started_at, updated_at, last_published_at, recent_error_code, recent_error_summary, recent_error_at, completed_at FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1",
+      "SELECT id, state, upstream_total, discovery_page, sweep, uploaded_bytes, updated_at, last_published_at, recent_error_code, recent_error_summary, recent_error_at, completed_at FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1",
     )
     .get()
   if (!generation) return idleProgress(timestamp, metadataConcurrency, packageConcurrency)
@@ -460,8 +543,11 @@ function readProgress(connection: Database, timestamp: number, metadataConcurren
   const count = (state: string) => counts.find((row) => row.state === state)?.count ?? 0
   const mirrored = count("mirrored")
   const remaining = count("pending") + count("running") + count("retry_wait")
-  const minutes = Math.max((timestamp - generation.started_at) / 60_000, 0)
-  const ratePerMinute = minutes === 0 ? 0 : Math.floor(mirrored / minutes)
+  const ratePerMinute = connection
+    .query<{ count: number }, [string, number]>(
+      "SELECT COUNT(*) AS count FROM skillhub_import_items WHERE generation_id = ? AND state = 'mirrored' AND mirrored_at > ?",
+    )
+    .get(generation.id, timestamp - 60_000)!.count
   const estimatedSecondsRemaining = ratePerMinute === 0 ? undefined : Math.ceil((remaining / ratePerMinute) * 60)
   return Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportProgress)({
     state: generation.completed_at !== null && remaining === 0 ? "completed" : generation.state,
@@ -523,20 +609,27 @@ function idleProgress(timestamp: number, metadataConcurrency: number, packageCon
 function legacyGeneration(connection: Database, total: number, timestamp: number) {
   const id = `legacy_${crypto.randomUUID()}`
   connection.run(
-    "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, completed_at) VALUES (?, 'completed', ?, ?, ?, ?)",
-    [id, total, timestamp, timestamp, timestamp],
+    "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES (?, 'completed', ?, ?, ?, ?, ?)",
+    [id, total, timestamp, timestamp, timestamp, timestamp],
   )
   return { id }
 }
 
-function progressErrorCode(code: string): SkillMarketControl.SkillHubImportErrorCode {
-  if (["upstream", "download", "validation", "storage", "rate_limited"].includes(code))
-    return code as SkillMarketControl.SkillHubImportErrorCode
-  return "upstream"
+function publicationCheckpoint(connection: Database): SkillHubPublicationCheckpoint {
+  const generation = connection
+    .query<{ last_published_count: number; last_published_at: number | null }, []>(
+      "SELECT last_published_count, last_published_at FROM skillhub_generations ORDER BY started_at DESC, rowid DESC LIMIT 1",
+    )
+    .get()
+  if (!generation) return { lastPublishedCount: 0 }
+  return {
+    lastPublishedCount: generation.last_published_count,
+    ...(generation.last_published_at === null ? {} : { lastPublishedAt: iso(generation.last_published_at) }),
+  }
 }
 
-function decode<T>(value: string) {
-  return JSON.parse(value) as T
+function progressErrorCode(code: string) {
+  return Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportErrorCode)(code)
 }
 
 function iso(timestamp: number) {

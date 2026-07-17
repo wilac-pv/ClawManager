@@ -25,7 +25,7 @@ describe("SkillHub import store", () => {
     expect(store.activeGeneration()).toEqual({
       id: generation.id,
       state: "running",
-      upstreamTotal: 78_253,
+      upstreamTotal: 10,
       discoveryPage: 1,
       sweep: 0,
       newInSweep: 1,
@@ -154,6 +154,206 @@ describe("SkillHub import store", () => {
 
     database.close()
   })
+
+  test("adopts and refreshes one persisted unsettled generation after reopen", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const fixture = await temporaryDatabaseFixture()
+    const generation = createSkillHubImportStore({ database: fixture.database, now: () => clock.value }).beginGeneration(2)
+    fixture.database.close()
+
+    clock.value += 1_000
+    const reopened = await reopenDatabase(fixture)
+    const store = createSkillHubImportStore({ database: reopened, now: () => clock.value })
+    expect(store.beginGeneration(3)).toEqual(generation)
+    expect(store.generationCheckpoint()).toMatchObject({
+      id: generation.id,
+      upstreamTotal: 3,
+      discoveryCompleted: false,
+    })
+    expect(() => reopened.connection.run(
+      "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at) VALUES ('overlap', 'running', 0, ?, ?)",
+      [clock.value, clock.value],
+    )).toThrow()
+    reopened.close()
+  })
+
+  test("persists a contiguous discovery cursor across reopen", async () => {
+    const fixture = await temporaryDatabaseFixture()
+    const store = createSkillHubImportStore({ database: fixture.database })
+    const generation = store.beginGeneration(5)
+    store.recordPage(generation.id, 1, [listRecord("one", "1.0.0")])
+    store.recordPage(generation.id, 2, [listRecord("two", "1.0.0")])
+    store.recordPage(generation.id, 3, [listRecord("three", "1.0.0")])
+    store.recordPage(generation.id, 5, [listRecord("five", "1.0.0")])
+    expect(store.activeGeneration()?.discoveryPage).toBe(3)
+    fixture.database.close()
+
+    const reopened = await reopenDatabase(fixture)
+    const resumed = createSkillHubImportStore({ database: reopened })
+    expect(resumed.activeGeneration()?.discoveryPage).toBe(3)
+    resumed.recordPage(generation.id, 4, [listRecord("four", "1.0.0")])
+    expect(resumed.activeGeneration()?.discoveryPage).toBe(4)
+    resumed.recordPage(generation.id, 5, [listRecord("five", "1.0.0")])
+    expect(resumed.activeGeneration()?.discoveryPage).toBe(5)
+    reopened.close()
+  })
+
+  test("reopens a completed generation when selected rejected rows are retried", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database, now: () => clock.value })
+    const generation = store.beginGeneration(1)
+    store.recordPage(generation.id, 1, [listRecord("reject", "1.0.0")])
+    store.completeSweep(generation.id)
+    store.recordPage(generation.id, 1, [listRecord("reject", "1.0.0")])
+    store.completeSweep(generation.id)
+    store.claim("worker-a", 1, 60_000)
+    store.reject("worker-a", "reject", "validation", "unsafe")
+    expect(store.progress().state).toBe("completed")
+
+    const transition = store.commandTransition({ command: "retry-rejected", slugs: ["reject"] })
+    expect(transition.retriedRejected).toEqual([{ slug: "reject", code: "validation", summary: "unsafe" }])
+    expect(store.generationCheckpoint()).toMatchObject({ state: "running", discoveryCompleted: true })
+    expect(store.claim("worker-b", 1, 60_000).map((item) => item.slug)).toEqual(["reject"])
+    expect(store.reject("worker-b", "reject", "validation", "still unsafe")).toBe(true)
+    expect(store.progress().state).toBe("completed")
+    database.close()
+  })
+
+  test("claims disjoint rows across independent connections and fences expired owners", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const fixture = await temporaryDatabaseFixture()
+    const first = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
+    const generation = first.beginGeneration(2)
+    first.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
+    const secondDatabase = await reopenDatabase(fixture)
+    const second = createSkillHubImportStore({ database: secondDatabase, now: () => clock.value })
+
+    expect(first.claim("worker-a", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    expect(second.claim("worker-b", 1, 60_000).map((item) => item.slug)).toEqual(["beta"])
+    clock.value += 60_001
+    expect(second.claim("worker-c", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    expect(first.complete("worker-a", "alpha", completed("alpha"))).toBe(false)
+    expect(first.retry("worker-a", "alpha", "download", "late", clock.value + 1)).toBe(false)
+    expect(first.reject("worker-a", "alpha", "validation", "late")).toBe(false)
+    secondDatabase.close()
+    fixture.database.close()
+  })
+
+  test("persists retry boundaries, commands, leases, and publication checkpoints across reopen", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const fixture = await temporaryDatabaseFixture()
+    const store = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
+    const generation = store.beginGeneration(1)
+    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    store.claim("worker-a", 1, 60_000)
+    store.retry("worker-a", "alpha", "download", "wait", clock.value + 10_000)
+    expect(store.recordPublication(1)).toBe(true)
+    expect(store.recordPublication(0)).toBe(false)
+    expect(store.recordPublication(1.5)).toBe(false)
+    fixture.database.close()
+
+    const reopened = await reopenDatabase(fixture)
+    const resumed = createSkillHubImportStore({ database: reopened, now: () => clock.value })
+    expect(resumed.publicationCheckpoint()).toEqual({
+      lastPublishedCount: 1,
+      lastPublishedAt: new Date(clock.value).toISOString(),
+    })
+    expect(resumed.claim("early", 1, 60_000)).toEqual([])
+    clock.value += 10_000
+    expect(resumed.claim("boundary", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    resumed.retry("boundary", "alpha", "download", "again", clock.value + 10_000)
+    expect(resumed.command({ command: "retry-wait" }).pending).toBe(1)
+    expect(resumed.claim("command", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    reopened.close()
+
+    const leaseReopened = await reopenDatabase(fixture)
+    const leased = createSkillHubImportStore({ database: leaseReopened, now: () => clock.value })
+    expect(leased.claim("before-expiry", 1, 60_000)).toEqual([])
+    clock.value += 60_001
+    expect(leased.claim("after-expiry", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    leaseReopened.close()
+  })
+
+  test("seeds legacy entries by authoritative slug and decodes persisted JSON schemas", async () => {
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database })
+    const legacy = completed("public-id").entry
+    expect(store.seedLegacy([{ slug: "owner/raw-skill", ...legacy }])).toBe(1)
+    const generation = store.beginGeneration(1)
+    expect(
+      store.recordPage(generation.id, 1, [
+        listRecord("owner/raw-skill", "1.0.0", Date.parse(legacy.summary.updatedAt)),
+      ]).inserted,
+    ).toBe(0)
+    expect(store.claim("worker", 1, 60_000)).toEqual([])
+    expect(database.connection.query<{ count: number }, []>(
+      "SELECT COUNT(*) AS count FROM skillhub_import_items",
+    ).get()?.count).toBe(1)
+    database.connection.run("UPDATE skillhub_import_items SET summary_json = '{}' WHERE slug = ?", ["owner/raw-skill"])
+    expect(() => store.mirroredEntries()).toThrow()
+
+    database.connection.run(
+      "UPDATE skillhub_import_items SET state = 'pending', summary_json = NULL, detail_key = NULL, detail_sha256 = NULL, mirrored_at = NULL, list_json = '{}' WHERE slug = ?",
+      ["owner/raw-skill"],
+    )
+    expect(() => store.claim("invalid-json", 1, 60_000)).toThrow()
+    database.close()
+  })
+
+  test("leaves malformed rejected rows untouched during selected retry", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database, now: () => clock.value })
+    const generation = store.beginGeneration(1)
+    database.connection.run("PRAGMA ignore_check_constraints = ON")
+    database.connection.run(
+      "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('malformed', ?, '1', 1, 'rejected', '{}', ?, ?, ?)",
+      [generation.id, generation.id, clock.value, clock.value],
+    )
+    database.connection.run("PRAGMA ignore_check_constraints = OFF")
+
+    expect(store.commandTransition({ command: "retry-rejected", slugs: ["malformed"] }).retriedRejected).toEqual([])
+    expect(
+      database.connection
+        .query<{ state: string }, [string]>("SELECT state FROM skillhub_import_items WHERE slug = ?")
+        .get("malformed")?.state,
+    ).toBe("rejected")
+    database.close()
+  })
+
+  test("enforces queue state invariants and computes a rolling completion rate", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database, now: () => clock.value })
+    const generation = store.beginGeneration(3)
+    expect(() => database.connection.run(
+      "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('bad-running', ?, '1', 1, 'running', '{}', ?, ?, ?)",
+      [generation.id, generation.id, clock.value, clock.value],
+    )).toThrow()
+    expect(() => database.connection.run(
+      "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('bad-retry', ?, '1', 1, 'retry_wait', '{}', ?, ?, ?)",
+      [generation.id, generation.id, clock.value, clock.value],
+    )).toThrow()
+    expect(() => database.connection.run(
+      "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('bad-mirror', ?, '1', 1, 'mirrored', '{}', ?, ?, ?)",
+      [generation.id, generation.id, clock.value, clock.value],
+    )).toThrow()
+
+    store.recordPage(generation.id, 1, [
+      listRecord("alpha", "1.0.0"),
+      listRecord("beta", "1.0.0"),
+      listRecord("gamma", "1.0.0"),
+    ])
+    store.claim("worker", 2, 60_000)
+    store.complete("worker", "alpha", completed("alpha"))
+    clock.value += 30_000
+    store.complete("worker", "beta", completed("beta"))
+    expect(store.progress()).toMatchObject({ ratePerMinute: 2, estimatedSecondsRemaining: 30 })
+    clock.value += 30_001
+    expect(store.progress()).toMatchObject({ ratePerMinute: 1, estimatedSecondsRemaining: 60 })
+    database.close()
+  })
 })
 
 function listRecord(slug: string, version: string, updatedAt = 1_752_537_600_000): SkillHubListRecord {
@@ -229,10 +429,27 @@ function completed(slug: string) {
 }
 
 async function temporaryDatabase() {
+  return (await temporaryDatabaseFixture()).database
+}
+
+async function temporaryDatabaseFixture() {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-store-"))
   directories.push(directory)
+  const path = join(directory, "market.db")
+  const backups = join(directory, "backups")
+  return {
+    database: await openDatabase({
+      databasePath: path,
+      migrationBackupDirectory: backups,
+    }),
+    path,
+    backups,
+  }
+}
+
+function reopenDatabase(fixture: { readonly path: string; readonly backups: string }) {
   return openDatabase({
-    databasePath: join(directory, "market.db"),
-    migrationBackupDirectory: join(directory, "backups"),
+    databasePath: fixture.path,
+    migrationBackupDirectory: fixture.backups,
   })
 }

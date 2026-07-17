@@ -230,6 +230,9 @@ describe("skill market control HTTP", () => {
 
   test("keeps SkillHub import controls unavailable until audited handlers are installed", async () => {
     await using fixture = await marketFixture()
+    const anonymous = await fetch(`${fixture.url}/v1/admin/skillhub-import`)
+    expect(anonymous.status).toBe(401)
+
     const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin`, { redirect: "manual" })
     const session = await loginSession(fixture, login, "/admin")
     fixture.database.connection.run(
@@ -242,6 +245,26 @@ describe("skill market control HTTP", () => {
     })
     expect(status.status).toBe(503)
     expect(await status.json()).toMatchObject({ code: "dependency-unavailable" })
+
+    const missingCsrf = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
+      method: "POST",
+      headers: { cookie: session.cookie, origin: webOrigin, "content-type": "application/json" },
+      body: JSON.stringify({ command: "pause" }),
+    })
+    expect(missingCsrf.status).toBe(403)
+
+    const command = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
+      method: "POST",
+      headers: {
+        cookie: session.cookie,
+        origin: webOrigin,
+        "content-type": "application/json",
+        "x-csrf-token": session.csrf,
+      },
+      body: JSON.stringify({ command: "pause" }),
+    })
+    expect(command.status).toBe(503)
+    expect(await command.json()).toMatchObject({ code: "dependency-unavailable" })
   })
 })
 

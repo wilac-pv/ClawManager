@@ -64,6 +64,7 @@ describe("control-plane database", () => {
     expect(indexes).toContain("submissions_owner_updated")
     expect(indexes).toContain("audit_events_created")
     expect(indexes).toContain("skillhub_import_queue")
+    expect(indexes).toContain("skillhub_single_unsettled_generation")
 
     database.connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
