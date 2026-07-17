@@ -8,6 +8,7 @@ import {
   loadCurrentPointer,
   loadCurrentSnapshot,
   isMissingObjectError,
+  loadCatalogIndexOrMissingPointer,
   type PrivateObjectStore,
   publishCatalogIndexObjects,
   publishCatalogIndexPointer,
@@ -287,11 +288,8 @@ export class Publisher {
   }
 
   private async basePublication(): Promise<Publication> {
-    let index: CatalogIndex
-    try {
-      index = await loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix })
-    } catch (error) {
-      if (!isMissingObjectError(error)) throw error
+    const index = await loadCatalogIndexOrMissingPointer(this.options.store, { prefix: this.options.ossPrefix })
+    if (!index) {
       const sourceStatus = { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const
       return { index: createCatalogIndex({ entries: new Map(), sourceStatus }), changedDetails: new Map() }
     }
@@ -341,12 +339,8 @@ export class Publisher {
   }
 
   private async latestIndex(fallback: SkillMarket.SourceStatus) {
-    try {
-      return await loadCatalogIndex(this.options.store, { prefix: this.options.ossPrefix })
-    } catch (error) {
-      if (!isMissingObjectError(error)) throw error
-      return createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
-    }
+    const index = await loadCatalogIndexOrMissingPointer(this.options.store, { prefix: this.options.ossPrefix })
+    return index ?? createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
   }
 
   private finalize(job: JobRow, expired = false) {

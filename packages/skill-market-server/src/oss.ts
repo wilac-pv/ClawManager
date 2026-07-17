@@ -272,6 +272,16 @@ export async function loadCurrentPointer(client: ObjectStore, config: PublishCon
   return loadObject(client, `${normalizePrefix(config.prefix)}/current.json`, Pointer)
 }
 
+export async function loadCatalogIndexOrMissingPointer(client: ObjectStore, config: PublishConfig) {
+  try {
+    await loadCurrentPointer(client, config)
+  } catch (error) {
+    if (isMissingObjectError(error)) return undefined
+    throw error
+  }
+  return loadCatalogIndex(client, config)
+}
+
 export async function loadCurrentSnapshot(client: ObjectStore, config: PublishConfig): Promise<CatalogSnapshot> {
   const index = await loadCatalogIndex(client, config)
   const loadedDetails = await Promise.all(

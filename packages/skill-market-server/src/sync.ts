@@ -8,7 +8,7 @@ import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { emitMarketMetric } from "./metrics"
-import { type ObjectStore, isMissingObjectError, loadCatalogDetail, loadCatalogIndex, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
+import { type ObjectStore, loadCatalogDetail, loadCatalogIndex, loadCatalogIndexOrMissingPointer, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
 import { createPublisher, normalizeMirrorDetailKey } from "./publisher"
 import { normalizeSkillHubArchive } from "./skillhub-archive"
@@ -617,12 +617,7 @@ function enterpriseEntryUnchanged(
 }
 
 async function catalogIndexOrMissing(store: ObjectStore, prefix: string) {
-  try {
-    return await loadCatalogIndex(store, { prefix })
-  } catch (error) {
-    if (isMissingObjectError(error)) return undefined
-    throw error
-  }
+  return loadCatalogIndexOrMissingPointer(store, { prefix })
 }
 
 function riskRank(risk: SkillMarket.Risk) {
