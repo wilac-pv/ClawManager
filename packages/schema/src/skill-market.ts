@@ -14,6 +14,7 @@ export type Sort = typeof Sort.Type
 
 export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))
 export const HttpsUrl = Schema.String.check(Schema.isPattern(/^https:\/\/[^\s]+$/))
+const MarketPageUrlPattern = /^https?:\/\/[^\s]+$/
 export const MarketPageUrl = Schema.String.check(
   Schema.makeFilter((value) => {
     const invalid = "market page URL must use HTTPS or private HTTP without credentials"
@@ -37,6 +38,9 @@ export const MarketPageUrl = Schema.String.check(
     )
       return undefined
     return invalid
+  }, {
+    meta: { _tag: "isPattern", regExp: MarketPageUrlPattern },
+    arbitrary: { constraint: { patterns: [MarketPageUrlPattern.source] } },
   }),
 )
 export const Timestamp = Schema.String.check(

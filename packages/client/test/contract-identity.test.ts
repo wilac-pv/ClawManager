@@ -44,6 +44,10 @@ test("client and Server contracts generate identically", () => {
   expect(emitPromise(client)).toEqual(emitPromise(server))
 })
 
+test("client contract accepts portable market URL schemas", () => {
+  expect(() => compile(ClientApi, { groupNames, endpointNames, omitEndpoints })).not.toThrow()
+})
+
 test("shared DTO schemas construct and decode plain objects", () => {
   const made = Prompt.make({ text: "hello" })
   const decoded = Schema.decodeUnknownSync(Prompt)({ text: "hello" })
