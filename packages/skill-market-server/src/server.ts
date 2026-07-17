@@ -14,6 +14,7 @@ import { createPublisher } from "./publisher"
 import { bootstrapAdmins, createSecurity } from "./security"
 import { createSkillHubImportAdmin } from "./skillhub-import-admin"
 import { createSkillHubImportStore } from "./skillhub-import-store"
+import { createSkillHubWorkerWake } from "./skillhub-worker"
 import { createSubmissions } from "./submissions"
 import { createWorker, type Worker } from "./worker"
 
@@ -61,8 +62,13 @@ const main = Effect.scoped(
     }
     const submissions = createSubmissions({ database, onValidationReady: wake })
     const moderation = createModeration({ database, security })
-    const imports = createSkillHubImportStore({ database })
+    const imports = createSkillHubImportStore({
+      database,
+      metadataConcurrency: config.skillhubMetadataConcurrency,
+      packageConcurrency: config.skillhubPackageConcurrency,
+    })
     const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports })
+    const skillhubWake = createSkillHubWorkerWake({ config, emit: emitMarketMetric })
     const worker = createWorker({
       database,
       submissions,
@@ -95,6 +101,9 @@ const main = Effect.scoped(
       cookieSecure: config.cookieSecure,
       sessionCookieMaxAgeSeconds: config.sessionCookieMaxAgeSeconds,
       onWorkReady: wake,
+      onSkillHubWorkReady: () => {
+        void skillhubWake.wake()
+      },
       emit: emitMarketMetric,
     })
     return yield* Layer.launch(

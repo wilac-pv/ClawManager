@@ -14,10 +14,7 @@ interface SkillHubImportAdminOptions {
 
 export interface SkillHubImportAdmin {
   readonly status: (principal: Principal) => SkillMarketControl.SkillHubImportProgress
-  readonly command: (
-    principal: Principal,
-    input: unknown,
-  ) => SkillMarketControl.SkillHubImportProgress
+  readonly command: (principal: Principal, input: unknown) => SkillMarketControl.SkillHubImportProgress
 }
 
 export function createSkillHubImportAdmin(options: SkillHubImportAdminOptions): SkillHubImportAdmin {
@@ -30,14 +27,23 @@ export function createSkillHubImportAdmin(options: SkillHubImportAdminOptions): 
     command(principal, input) {
       options.security.requireAdmin(principal)
       const decoded = Schema.decodeUnknownOption(SkillMarketControl.SkillHubImportCommandInput)(input)
-      if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "SkillHub import command is invalid")
+      if (Option.isNone(decoded))
+        throw new SkillMarketSecurityError("invalid-request", "SkillHub import command is invalid")
       return options.database.transaction((connection) => {
+        const activeBefore = options.imports.activeGenerationIDInTransaction(connection)
+        if (decoded.value.command !== "retry-rejected" && !activeBefore)
+          throw new SkillMarketSecurityError("invalid-request", "invalid SkillHub import: no active generation")
         const before = options.imports.progressInTransaction(connection)
         const transition = options.imports.commandTransitionInTransaction(connection, decoded.value)
+        if (decoded.value.command === "retry-rejected" && transition.retriedRejected.length === 0)
+          throw new SkillMarketSecurityError("invalid-request", "invalid SkillHub rejected-item retry")
+        const activeAfter = options.imports.activeGenerationIDInTransaction(connection)
+        if (!activeAfter)
+          throw new SkillMarketSecurityError("invalid-request", "invalid SkillHub import: no active generation")
         insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: auditAction(decoded.value.command),
-          objectID: transition.generationID ?? "none",
+          objectID: activeAfter,
           before: {
             counts: counts(before),
             ...(transition.retriedRejected.length > 0 ? { retriedRejected: transition.retriedRejected } : {}),

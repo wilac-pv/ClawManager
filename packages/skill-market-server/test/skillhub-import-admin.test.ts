@@ -39,15 +39,18 @@ describe("SkillHub import administration", () => {
     ).toBe(0)
 
     const audit = fixture.database.connection
-      .query<{
-        action: string
-        actor_employee_id: string
-        object_type: string
-        object_id: string
-        before_json: string
-        after_json: string
-        request_id: string
-      }, []>(
+      .query<
+        {
+          action: string
+          actor_employee_id: string
+          object_type: string
+          object_id: string
+          before_json: string
+          after_json: string
+          request_id: string
+        },
+        []
+      >(
         "SELECT action, actor_employee_id, object_type, object_id, before_json, after_json, request_id FROM audit_events ORDER BY rowid",
       )
       .all()
@@ -57,17 +60,22 @@ describe("SkillHub import administration", () => {
       "skillhub-import-retried",
       "skillhub-import-retried",
     ])
-    expect(audit.every((event) => event.actor_employee_id === "admin" && event.object_type === "skillhub_import")).toBe(true)
+    expect(audit.every((event) => event.actor_employee_id === "admin" && event.object_type === "skillhub_import")).toBe(
+      true,
+    )
     expect(audit.every((event) => event.object_id === generation.id && event.request_id.startsWith("req_"))).toBe(true)
-    expect(audit.every((event) => JSON.parse(event.before_json).counts && JSON.parse(event.after_json).counts)).toBe(true)
+    expect(audit.every((event) => JSON.parse(event.before_json).counts && JSON.parse(event.after_json).counts)).toBe(
+      true,
+    )
     expect(JSON.parse(audit.at(-1)!.before_json).retriedRejected).toEqual([
       { slug: "rejected", code: "validation", summary: "unsafe package" },
     ])
     expect(
       fixture.database.connection
-        .query<{ error_code: string | null; error_summary: string | null }, [string]>(
-          "SELECT error_code, error_summary FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { error_code: string | null; error_summary: string | null },
+          [string]
+        >("SELECT error_code, error_summary FROM skillhub_import_items WHERE slug = ?")
         .get("rejected"),
     ).toEqual({ error_code: null, error_summary: null })
 
@@ -88,6 +96,66 @@ describe("SkillHub import administration", () => {
 
     expect(() => fixture.admin.command(principal(["admin"]), { command: "pause" })).toThrow("audit unavailable")
     expect(fixture.imports.progress().state).toBe("running")
+
+    fixture.database.close()
+  })
+
+  test("rejects untargeted commands without auditing a completed generation", async () => {
+    const fixture = await adminFixture()
+    const generation = fixture.imports.beginGeneration(1)
+    fixture.database.connection.run(
+      "UPDATE skillhub_generations SET state = 'completed', discovery_completed_at = ?, completed_at = ? WHERE id = ?",
+      [fixture.clock.value, fixture.clock.value, generation.id],
+    )
+
+    for (const input of [{ command: "pause" }, { command: "resume" }, { command: "retry-wait" }] as const)
+      expect(() => fixture.admin.command(principal(["admin"]), input)).toThrow("invalid")
+    expect(
+      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM audit_events").get()
+        ?.count,
+    ).toBe(0)
+
+    fixture.database.close()
+  })
+
+  test("audits a selected retry against the generation reopened from completed", async () => {
+    const fixture = await adminFixture()
+    const generation = fixture.imports.beginGeneration(1)
+    fixture.imports.recordPage(generation.id, 1, [listRecord("rejected")])
+    fixture.imports.claim("worker", 1, 60_000)
+    fixture.imports.reject("worker", "rejected", "validation", "unsafe package")
+    fixture.database.connection.run(
+      "UPDATE skillhub_generations SET state = 'completed', discovery_completed_at = ?, completed_at = ? WHERE id = ?",
+      [fixture.clock.value, fixture.clock.value, generation.id],
+    )
+
+    expect(fixture.admin.command(principal(["admin"]), { command: "retry-rejected", slugs: ["rejected"] }).state).toBe(
+      "running",
+    )
+    expect(
+      fixture.database.connection
+        .query<{ object_id: string }, []>("SELECT object_id FROM audit_events WHERE action = 'skillhub-import-retried'")
+        .get(),
+    ).toEqual({ object_id: generation.id })
+
+    fixture.database.close()
+  })
+
+  test("rejects an unmatched selected retry without auditing a completed generation", async () => {
+    const fixture = await adminFixture()
+    const generation = fixture.imports.beginGeneration(1)
+    fixture.database.connection.run(
+      "UPDATE skillhub_generations SET state = 'completed', discovery_completed_at = ?, completed_at = ? WHERE id = ?",
+      [fixture.clock.value, fixture.clock.value, generation.id],
+    )
+
+    expect(() =>
+      fixture.admin.command(principal(["admin"]), { command: "retry-rejected", slugs: ["missing"] }),
+    ).toThrow("invalid")
+    expect(
+      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM audit_events").get()
+        ?.count,
+    ).toBe(0)
 
     fixture.database.close()
   })
@@ -113,7 +181,12 @@ async function adminFixture() {
     [clock.value, clock.value],
   )
   const imports = createSkillHubImportStore({ database, now: () => clock.value })
-  return { database, clock, imports, admin: createSkillHubImportAdmin({ database, security, imports, now: () => clock.value }) }
+  return {
+    database,
+    clock,
+    imports,
+    admin: createSkillHubImportAdmin({ database, security, imports, now: () => clock.value }),
+  }
 }
 
 function principal(roles: ReadonlyArray<"reviewer" | "admin">): Principal {

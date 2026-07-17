@@ -10,6 +10,49 @@ import { createPublisher } from "./publisher"
 
 type MirrorBatch = Awaited<ReturnType<SkillHubMirror["runBatch"]>>
 
+export interface SkillHubWorkerWake {
+  readonly wake: () => Promise<void>
+}
+
+export function createSkillHubWorkerWake(options: {
+  readonly config?: SkillMarketConfig
+  readonly run?: () => Promise<unknown>
+  readonly emit?: MarketMetricEmitter
+}): SkillHubWorkerWake {
+  const run = options.run ?? (() => runConfiguredSkillHubWorker({ config: options.config, emit: options.emit }))
+  let active: Promise<void> | undefined
+  let rerun = false
+
+  const drain = async () => {
+    do {
+      rerun = false
+      try {
+        await run()
+      } catch {
+        try {
+          options.emit?.({ skill_market_skillhub_wake_result: { failure: 1 } })
+        } catch {
+          // Metrics must not turn an advisory wake into an unhandled rejection.
+        }
+      }
+    } while (rerun)
+  }
+
+  return {
+    wake() {
+      if (active) {
+        rerun = true
+        return active
+      }
+      const next = drain().finally(() => {
+        if (active === next) active = undefined
+      })
+      active = next
+      return next
+    },
+  }
+}
+
 export async function runSkillHubWorker(options: {
   readonly workerID: string
   readonly discover: () => Promise<void>
@@ -52,14 +95,16 @@ export async function runSkillHubWorker(options: {
   return { ...total, published }
 }
 
-export async function runConfiguredSkillHubWorker(options: {
-  readonly config?: SkillMarketConfig
-  readonly fetcher?: Fetcher
-  readonly publish?: () => Promise<void>
-  readonly shouldPublish?: (progress: ReturnType<SkillHubImportStore["progress"]>) => boolean
-  readonly workerID?: string
-  readonly emit?: MarketMetricEmitter
-} = {}) {
+export async function runConfiguredSkillHubWorker(
+  options: {
+    readonly config?: SkillMarketConfig
+    readonly fetcher?: Fetcher
+    readonly publish?: () => Promise<void>
+    readonly shouldPublish?: (progress: ReturnType<SkillHubImportStore["progress"]>) => boolean
+    readonly workerID?: string
+    readonly emit?: MarketMetricEmitter
+  } = {},
+) {
   const config = options.config ?? loadConfig()
   const database = await openDatabase({
     databasePath: config.databasePath,

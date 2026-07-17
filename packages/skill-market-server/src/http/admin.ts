@@ -20,6 +20,7 @@ interface AdminHttpOptions {
   readonly moderation: Moderation
   readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly onWorkReady?: () => void
+  readonly onSkillHubWorkReady?: () => void
   readonly emit?: MarketMetricEmitter
 }
 
@@ -146,7 +147,10 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.skillhub.status", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({ try: () => options.skillhubImportAdmin.status(principal), catch: dependencyProblem })
+          return yield* Effect.try({
+            try: () => options.skillhubImportAdmin.status(principal),
+            catch: dependencyProblem,
+          })
         }),
       )
       .handle("skillMarket.admin.skillhub.command", (context) =>
@@ -156,7 +160,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
             try: () => options.skillhubImportAdmin.command(principal, context.payload),
             catch: skillHubProblem,
           })
-          if (context.payload.command !== "pause") options.onWorkReady?.()
+          if (context.payload.command !== "pause") options.onSkillHubWorkReady?.()
           return result
         }),
       ),

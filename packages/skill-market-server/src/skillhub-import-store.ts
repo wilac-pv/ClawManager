@@ -97,6 +97,7 @@ export interface SkillHubImportStore {
     input: SkillMarketControl.SkillHubImportCommandInput,
   ) => SkillHubImportCommandTransition
   readonly progressInTransaction: (connection: Database) => SkillMarketControl.SkillHubImportProgress
+  readonly activeGenerationIDInTransaction: (connection: Database) => string | undefined
   readonly commandTransitionInTransaction: (
     connection: Database,
     input: SkillMarketControl.SkillHubImportCommandInput,
@@ -289,6 +290,10 @@ export function createSkillHubImportStore(options: {
     },
     progressInTransaction(connection) {
       return readProgress(connection, now(), metadataConcurrency, packageConcurrency)
+    },
+    activeGenerationIDInTransaction(connection) {
+      const generation = currentGeneration(connection)
+      return generation?.state === "running" || generation?.state === "paused" ? generation.id : undefined
     },
     command(input) {
       return options.database.transaction((connection) => {

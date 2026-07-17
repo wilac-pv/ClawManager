@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { runConfiguredSkillHubWorker, runSkillHubWorker } from "../src/skillhub-worker"
+import { createSkillHubWorkerWake, runConfiguredSkillHubWorker, runSkillHubWorker } from "../src/skillhub-worker"
 import { loadConfig } from "../src/config"
 
 test("runs bounded discovery and only publishes when its due callback permits it", async () => {
@@ -62,4 +62,34 @@ test("configured worker provides its catalog publisher without an injected callb
   })
 
   await expect(runConfiguredSkillHubWorker({ config })).rejects.not.toThrow("publication callback")
+})
+
+test("coalesces SkillHub wakes, records failures, and accepts a later wake", async () => {
+  let attempts = 0
+  let release: () => void = () => undefined
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const metrics: Readonly<Record<string, unknown>>[] = []
+  const wake = createSkillHubWorkerWake({
+    run: async () => {
+      attempts++
+      if (attempts !== 1) return
+      await blocked
+      throw new Error("upstream unavailable")
+    },
+    emit: (metric) => metrics.push(metric),
+  })
+
+  const first = wake.wake()
+  await Promise.resolve()
+  const coalesced = wake.wake()
+  expect(attempts).toBe(1)
+  release()
+  await Promise.all([first, coalesced])
+  expect(attempts).toBe(2)
+  expect(metrics).toContainEqual({ skill_market_skillhub_wake_result: { failure: 1 } })
+
+  await wake.wake()
+  expect(attempts).toBe(3)
 })

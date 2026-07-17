@@ -40,6 +40,7 @@ export interface MarketHttpOptions {
   readonly cookieSecure: boolean
   readonly sessionCookieMaxAgeSeconds: number
   readonly onWorkReady?: () => void
+  readonly onSkillHubWorkReady?: () => void
   readonly emit?: MarketMetricEmitter
 }
 

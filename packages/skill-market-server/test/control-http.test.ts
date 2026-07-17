@@ -49,10 +49,13 @@ describe("skill market control HTTP", () => {
 
   test("keeps delisted versions and downloads unavailable through the Effect API", async () => {
     const snapshot = sampleSnapshot()
-    snapshot.details.set("skillhub:code-review", Schema.decodeUnknownSync(SkillMarket.Detail)({
-      ...snapshot.details.get("skillhub:code-review"),
-      delisted: true,
-    }))
+    snapshot.details.set(
+      "skillhub:code-review",
+      Schema.decodeUnknownSync(SkillMarket.Detail)({
+        ...snapshot.details.get("skillhub:code-review"),
+        delisted: true,
+      }),
+    )
     await using fixture = await marketFixture(snapshot)
     for (const suffix of ["versions", "download"]) {
       const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/${suffix}`)
@@ -272,8 +275,14 @@ describe("skill market control HTTP", () => {
       headers: { cookie: session.cookie, origin: webOrigin },
     })
     expect(status.status).toBe(200)
-    expect(await status.json()).toMatchObject({ state: "running", pending: 1 })
+    expect(await status.json()).toMatchObject({
+      state: "running",
+      pending: 1,
+      metadataConcurrency: 3,
+      packageConcurrency: 4,
+    })
     expect(fixture.workReady).toBe(0)
+    expect(fixture.skillhubWorkReady).toBe(0)
 
     const missingCsrf = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
       method: "POST",
@@ -295,6 +304,7 @@ describe("skill market control HTTP", () => {
     expect(command.status).toBe(200)
     expect(await command.json()).toMatchObject({ state: "paused" })
     expect(fixture.workReady).toBe(0)
+    expect(fixture.skillhubWorkReady).toBe(0)
 
     const resumed = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
       method: "POST",
@@ -307,7 +317,8 @@ describe("skill market control HTTP", () => {
       body: JSON.stringify({ command: "resume" }),
     })
     expect(resumed.status).toBe(200)
-    expect(fixture.workReady).toBe(1)
+    expect(fixture.workReady).toBe(0)
+    expect(fixture.skillhubWorkReady).toBe(1)
 
     const retried = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
       method: "POST",
@@ -320,13 +331,15 @@ describe("skill market control HTTP", () => {
       body: JSON.stringify({ command: "retry-wait" }),
     })
     expect(retried.status).toBe(200)
-    expect(fixture.workReady).toBe(2)
+    expect(fixture.workReady).toBe(0)
+    expect(fixture.skillhubWorkReady).toBe(2)
 
     const afterCommandStatus = await fetch(`${fixture.url}/v1/admin/skillhub-import`, {
       headers: { cookie: session.cookie, origin: webOrigin },
     })
     expect(afterCommandStatus.status).toBe(200)
-    expect(fixture.workReady).toBe(2)
+    expect(fixture.workReady).toBe(0)
+    expect(fixture.skillhubWorkReady).toBe(2)
 
     const invalid = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
       method: "POST",
@@ -399,7 +412,7 @@ async function marketFixture(snapshot = sampleSnapshot()) {
     fetch: provisioningFetch,
   })
   const objects = new Map<string, Uint8Array>()
-  const state = { privateWrites: 0, workReady: 0 }
+  const state = { privateWrites: 0, workReady: 0, skillhubWorkReady: 0 }
   const store: PrivateObjectStore = {
     async put(key, body) {
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
@@ -429,7 +442,12 @@ async function marketFixture(snapshot = sampleSnapshot()) {
   }
   const submissions = createSubmissions({ database, now: () => now })
   const moderation = createModeration({ database, security, now: () => now })
-  const imports = createSkillHubImportStore({ database, now: () => now })
+  const imports = createSkillHubImportStore({
+    database,
+    now: () => now,
+    metadataConcurrency: 3,
+    packageConcurrency: 4,
+  })
   const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports, now: () => now })
   const web = createMarketWebHandler({
     loadSnapshot: async () => snapshot,
@@ -448,6 +466,9 @@ async function marketFixture(snapshot = sampleSnapshot()) {
     onWorkReady: () => {
       state.workReady++
     },
+    onSkillHubWorkReady: () => {
+      state.skillhubWorkReady++
+    },
   })
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => web.handler(request) })
   return {
@@ -460,6 +481,9 @@ async function marketFixture(snapshot = sampleSnapshot()) {
     },
     get workReady() {
       return state.workReady
+    },
+    get skillhubWorkReady() {
+      return state.skillhubWorkReady
     },
     async [Symbol.asyncDispose]() {
       await server.stop(true)
