@@ -297,9 +297,25 @@ sudo -u ruying-market /bin/bash -c '
 '
 ```
 
-The canary is allowed only below the private `canary/` directory and must be
-written, read, verified, deleted, and confirmed absent. Then run an initial
-database backup and confirm that it is not anonymously readable.
+Ordinary smoke is read-only and does not replace the private canary. During an
+explicit deployment window only, run the separate private canary command with
+the same service identity, environment-file loading, and release working
+directory:
+
+```bash
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/deploy-check.ts smoke --allow-private-canary
+'
+```
+
+The private canary is allowed only below the private `canary/` directory. It
+writes, reads, verifies, and deletes the object; it then uses a post-delete
+404/absence check to confirm it is absent. Then run an initial database backup
+and confirm that it is not anonymously readable.
 
 ## Upgrade and code rollback
 

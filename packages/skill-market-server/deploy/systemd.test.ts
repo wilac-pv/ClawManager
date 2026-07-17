@@ -26,6 +26,9 @@ describe("systemd deployment", () => {
     expect(readme).toContain("ruying-skill-market-skillhub.timer")
     expect(readme).toContain("systemctl stop")
     expect(readme).toContain("systemctl is-active --quiet")
+    expect(readme).toContain("exec /usr/local/bin/bun script/deploy-check.ts smoke --allow-private-canary")
+    expect(readme).toContain("private canary")
+    expect(readme).toContain("confirm it is absent")
   })
 
   test("runs every command as the dedicated unprivileged identity", async () => {
