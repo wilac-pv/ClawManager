@@ -37,7 +37,21 @@ describe("SkillHub archive normalization", () => {
     const normalized = normalizeSkillHubArchive(nestedZip("folder/SKILL.md"), record("safe-slug"))
 
     expect(normalized.repairs).toContain("root-promoted")
-    expect(inspectZipArchive(normalized.body).skill.path).toBe("SKILL.md")
+    expect(inspectZipArchive(normalized.body).entries.map((entry) => entry.path)).toEqual([
+      "SKILL.md",
+      "references/guide.md",
+      "unrelated/readme.md",
+    ])
+  })
+
+  test("rejects nested Skill promotion path conflicts", () => {
+    expect(() => normalizeSkillHubArchive(nestedZip("folder/SKILL.md", true), record("safe-slug"))).toThrow(
+      "promotion path conflict",
+    )
+  })
+
+  test("retains the finite compression-ratio limit", () => {
+    expect(() => normalizeSkillHubArchive(highRatioZip(), record("safe-slug"))).toThrow("compression ratio")
   })
 
   test("retains hard ZIP path rejections", () => {
@@ -61,8 +75,23 @@ function zip(frontmatter: { readonly name?: string }) {
   ])
 }
 
-function nestedZip(path: string) {
-  return makeZip([{ name: path, content: "---\ndescription: Nested\n---\n# Nested body" }])
+function nestedZip(path: string, conflict = false) {
+  return makeZip([
+    { name: path, content: "---\ndescription: Nested\n---\n# Nested body" },
+    { name: "folder/references/guide.md", content: "Nested guide" },
+    { name: "unrelated/readme.md", content: "Unrelated" },
+    ...(conflict ? [{ name: "references/guide.md", content: "Root conflict" }] : []),
+  ])
+}
+
+function highRatioZip() {
+  return makeZip([
+    {
+      name: "SKILL.md",
+      content: `---\nname: safe\ndescription: Safe\n---\n${"x".repeat(20 * 1024)}`,
+      method: 8,
+    },
+  ])
 }
 
 function traversalZip() {

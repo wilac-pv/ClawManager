@@ -23,7 +23,6 @@ export function normalizeSkillHubArchive(body: Uint8Array, record: SkillHubRecor
     compressed: 50 * 1024 * 1024,
     expanded: 100 * 1024 * 1024,
     files: 1_000,
-    ratio: Number.POSITIVE_INFINITY,
     retainedContent: Number.POSITIVE_INFINITY,
     requireRootSkill: false,
   })
@@ -31,6 +30,7 @@ export function normalizeSkillHubArchive(body: Uint8Array, record: SkillHubRecor
   const candidates = archive.entries.filter((entry) => entry.path === "SKILL.md" || entry.path.endsWith("/SKILL.md"))
   const skill = root ?? (candidates.length === 1 ? candidates[0] : undefined)
   if (!skill) throw new Error("archive must contain exactly one recoverable SKILL.md")
+  const skillRoot = root ? undefined : skill.path.slice(0, skill.path.lastIndexOf("/") + 1)
 
   const id = normalizedID(record.slug)
   const markdown = matter(decoder.decode(skill.content))
@@ -49,9 +49,14 @@ export function normalizeSkillHubArchive(body: Uint8Array, record: SkillHubRecor
     .map((entry) =>
       entry === skill
         ? { path: "SKILL.md", content: rewrittenSkill }
-        : { path: entry.path, content: entry.content },
+        : {
+            path: skillRoot && entry.path.startsWith(skillRoot) ? entry.path.slice(skillRoot.length) : entry.path,
+            content: entry.content,
+          },
     )
     .toSorted((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+  if (new Set(normalizedEntries.map((entry) => entry.path)).size !== normalizedEntries.length)
+    throw new Error("nested Skill promotion path conflict")
   const normalizedBody = writeZip(normalizedEntries)
   const files = normalizedEntries.map((entry) => ({
     path: entry.path,
