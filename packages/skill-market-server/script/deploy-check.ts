@@ -1,4 +1,5 @@
 import { loadConfig } from "../src/config"
+import { isExplicitMissingObjectError } from "../src/oss"
 import { access, stat } from "node:fs/promises"
 import { constants } from "node:fs"
 import { dirname } from "node:path"
@@ -125,12 +126,13 @@ export async function runPrivateCanary(options: {
   } finally {
     await options.store.delete(key)
   }
-  const absent = await options.store.head(key).then(
-    () => false,
-    () => true,
-  )
-  if (!absent) throw new Error("private canary cleanup failed")
-  return { name: "private-canary", status: "PASS" as const }
+  try {
+    await options.store.head(key)
+  } catch (error) {
+    if (isExplicitMissingObjectError(error)) return { name: "private-canary", status: "PASS" as const }
+    throw new Error("private canary cleanup failed")
+  }
+  throw new Error("private canary cleanup failed")
 }
 
 export function formatChecks(checks: ReadonlyArray<DeploymentCheck>) {

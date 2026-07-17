@@ -168,7 +168,7 @@ describe("deployment checks", () => {
       },
       async head(key: string) {
         const value = objects.get(key)
-        if (!value) throw new Error("missing")
+        if (!value) throw Object.assign(new Error("missing"), { name: "NotFound" })
         return { size: value.byteLength }
       },
       async delete(key: string) {
@@ -186,7 +186,54 @@ describe("deployment checks", () => {
       "private canary requires explicit permission",
     )
   })
+
+  test("accepts only explicit missing-object errors after private canary cleanup", async () => {
+    for (const missing of [
+      { $metadata: { httpStatusCode: 404 } },
+      { name: "NotFound" },
+      { name: "NoSuchKey" },
+    ])
+      await expect(runPrivateCanary({ privatePrefix: "private-test", store: privateCanaryStore(missing), allow: true })).resolves.toEqual({
+        name: "private-canary",
+        status: "PASS",
+      })
+
+    for (const failure of [
+      { $metadata: { httpStatusCode: 503 }, message: "secret-marker" },
+      { name: "AccessDenied", message: "secret-marker" },
+      new Error("secret-marker timeout"),
+    ]) {
+      const error = await runPrivateCanary({ privatePrefix: "private-test", store: privateCanaryStore(failure), allow: true }).catch(
+        (error) => error,
+      )
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe("private canary cleanup failed")
+      expect((error as Error).message).not.toContain("secret-marker")
+    }
+  })
 })
+
+function privateCanaryStore(afterDelete: unknown) {
+  const objects = new Map<string, Uint8Array>()
+  return {
+    async putPrivate(key: string, body: AsyncIterable<Uint8Array>) {
+      objects.set(key, Buffer.concat(await Array.fromAsync(body)))
+    },
+    async get(key: string) {
+      const value = objects.get(key)
+      if (!value) throw new Error("missing")
+      return value
+    },
+    async head(key: string) {
+      const value = objects.get(key)
+      if (!value) throw afterDelete
+      return { size: value.byteLength }
+    },
+    async delete(key: string) {
+      objects.delete(key)
+    },
+  }
+}
 
 function validEnvironment(databaseDirectory: string) {
   return {

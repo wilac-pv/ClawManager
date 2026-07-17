@@ -52,11 +52,16 @@ export interface MaintenanceObjectStore extends PrivateObjectStore {
 
 export type PublishConfig = { readonly prefix: string }
 
+export function isExplicitMissingObjectError(error: unknown) {
+  if (typeof error !== "object" || error === null) return false
+  const value = error as { readonly name?: unknown; readonly $metadata?: { readonly httpStatusCode?: unknown } }
+  return value.$metadata?.httpStatusCode === 404 || value.name === "NotFound" || value.name === "NoSuchKey"
+}
+
 export function isMissingObjectError(error: unknown) {
   if (typeof error !== "object" || error === null) return false
   const value = error as { readonly name?: unknown; readonly message?: unknown; readonly $metadata?: { readonly httpStatusCode?: unknown } }
-  if (value.$metadata?.httpStatusCode === 404) return true
-  if (value.name === "NotFound" || value.name === "NoSuchKey") return true
+  if (isExplicitMissingObjectError(error)) return true
   return typeof value.message === "string" && /^missing [a-zA-Z0-9._/-]+$/.test(value.message)
 }
 
