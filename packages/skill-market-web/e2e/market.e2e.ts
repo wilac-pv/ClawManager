@@ -16,6 +16,12 @@ test("searches, filters, deep-links, copies a prompt and requests the verified d
   await expect(page.getByRole("button", { name: "已复制" })).toBeVisible()
   await expect(page.getByRole("status")).toContainText("安装 Prompt 已复制到剪贴板")
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("SHA-256")
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
+  expect(clipboard).toContain(`内网详情：${page.url()}`)
+  expect(clipboard).toContain("内网下载：https://downloads.example.com/code-review.zip")
+  expect(clipboard).toContain("要求：仅使用上述内网地址下载，并在安装前校验 SHA-256。")
+  expect(clipboard).not.toContain("skillhub.cn")
+  expect(clipboard).not.toContain("clawhub.ai")
   await expect(page.getByRole("button", { name: "安装", exact: true })).toHaveCount(0)
 
   await page.route("https://downloads.example.com/**", (route) =>
