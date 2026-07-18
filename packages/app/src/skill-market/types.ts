@@ -18,7 +18,8 @@ export type SkillMarketDataSource = {
 export type SkillMarketActions =
   | {
       kind: "web"
-      copyPrompt: (detail: SkillMarket.Detail) => Promise<void>
+      prompt: (detail: SkillMarket.Detail) => string
+      copyPrompt: (value: string) => Promise<void>
       download: (detail: SkillMarket.Detail) => Promise<void>
     }
   | {

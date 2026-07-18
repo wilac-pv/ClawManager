@@ -35,7 +35,12 @@ test("requests one server page and renders at most 30 rows for an 80000 item cat
     <QueryClientProvider client={client}>
       <SkillMarketProvider
         source={source}
-        actions={{ kind: "web", copyPrompt: async () => undefined, download: async () => undefined }}
+        actions={{
+          kind: "web",
+          prompt: () => "prompt",
+          copyPrompt: async () => undefined,
+          download: async () => undefined,
+        }}
       >
         <SkillMarketList onOpen={() => undefined} />
       </SkillMarketProvider>
