@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { SkillMarket } from "@opencode-ai/schema/skill-market"
+import { Schema } from "effect"
+import { mergeCatalog } from "../src/catalog"
 import {
   loadCurrentSnapshot,
   makeS3ObjectStore,
@@ -7,7 +10,7 @@ import {
   publishSnapshotPointer,
   type ObjectStore,
 } from "../src/oss"
-import { sampleSnapshot } from "./fixture"
+import { sampleDetail, sampleSnapshot } from "./fixture"
 
 const config = { prefix: "skill-market" }
 
@@ -40,10 +43,35 @@ describe("OSS snapshots", () => {
 
   test("loads a content-addressed V2 snapshot from the previous release", async () => {
     const store = memoryObjectStore()
-    const snapshot = sampleSnapshot("legacy")
-    const detail = snapshot.details.get("skillhub:code-review")!
-    const body = new TextEncoder().encode(JSON.stringify(detail))
-    const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
+    const merged = mergeCatalog(
+      Array.from({ length: 33 }, (_, index) =>
+        sampleDetail({
+          id: `skill-${index}`,
+          name: `Skill ${index}`,
+          publicDetailUrl: `https://skillhub.cn/skills/${index}`,
+        }),
+      ),
+      Schema.decodeUnknownSync(SkillMarket.EnterpriseIndex)({
+        schemaVersion: 1,
+        updatedAt: "2026-07-15T00:00:00.000Z",
+        skills: [],
+      }),
+    )
+    const snapshot = {
+      ...merged,
+      revision: "legacy",
+      createdAt: "2026-07-15T00:00:00.000Z",
+      facets: { ...merged.facets, revision: "legacy" },
+    }
+    const references = Array.from(snapshot.details.values(), (detail) => {
+      const body = new TextEncoder().encode(JSON.stringify(detail))
+      const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
+      store.objects.set(`skill-market/details/${sha256}.json`, body)
+      return {
+        summary: snapshot.items.find((item) => item.id === detail.id)!,
+        detail: { key: `details/${sha256}.json`, sha256 },
+      }
+    })
     store.objects.set(
       "skill-market/current.json",
       new TextEncoder().encode(JSON.stringify({ revision: snapshot.revision, createdAt: snapshot.createdAt })),
@@ -55,7 +83,7 @@ describe("OSS snapshots", () => {
           schemaVersion: 2,
           revision: snapshot.revision,
           createdAt: snapshot.createdAt,
-          items: [{ summary: snapshot.items[0], detail: { key: `details/${sha256}.json`, sha256 } }],
+          items: references,
         }),
       ),
     )
@@ -63,12 +91,12 @@ describe("OSS snapshots", () => {
       "skill-market/indexes/legacy/facets.json",
       new TextEncoder().encode(JSON.stringify(snapshot.facets)),
     )
-    store.objects.set(`skill-market/details/${sha256}.json`, body)
+    store.getDelay = 1
 
     const loaded = await loadCurrentSnapshot(store.client, config)
 
-    expect(loaded.items).toHaveLength(1)
-    expect(loaded.details.get("skillhub:code-review")).toEqual(detail)
+    expect(loaded.items).toHaveLength(33)
+    expect(store.maximumGets).toBeLessThanOrEqual(32)
   })
 
   test("writes immutable snapshot objects before moving the current pointer", async () => {
@@ -123,7 +151,10 @@ async function* chunks(...values: string[]) {
 function memoryObjectStore() {
   const objects = new Map<string, Uint8Array>()
   const writes: Array<{ key: string; contentType: string; cacheControl: string }> = []
-  const state: { failOn?: RegExp } = {}
+  const state: { failOn?: RegExp; getDelay?: number; activeGets: number; maximumGets: number } = {
+    activeGets: 0,
+    maximumGets: 0,
+  }
   const client: ObjectStore = {
     async put(key, body, contentType, cacheControl) {
       if (state.failOn?.test(key)) throw new Error(`configured failure for ${key}`)
@@ -133,6 +164,10 @@ function memoryObjectStore() {
     async get(key) {
       const value = objects.get(key)
       if (!value) throw new Error(`missing object ${key}`)
+      state.activeGets += 1
+      state.maximumGets = Math.max(state.maximumGets, state.activeGets)
+      if (state.getDelay) await Bun.sleep(state.getDelay)
+      state.activeGets -= 1
       return value
     },
     async head(key) {
@@ -150,6 +185,12 @@ function memoryObjectStore() {
     },
     set failOn(value: RegExp | undefined) {
       state.failOn = value
+    },
+    get maximumGets() {
+      return state.maximumGets
+    },
+    set getDelay(value: number | undefined) {
+      state.getDelay = value
     },
   }
 }

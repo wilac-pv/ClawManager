@@ -218,19 +218,17 @@ export async function loadCurrentSnapshot(client: ObjectStore, config: PublishCo
   const items = "schemaVersion" in catalog ? catalog.items.map((item) => item.summary) : catalog.items
   const details =
     "schemaVersion" in catalog
-      ? await Promise.all(
-          catalog.items.map(async (item) => {
-            if (item.detail.key !== `details/${item.detail.sha256}.json`)
-              throw new Error("catalog detail key does not match hash")
-            const body = await loadBytes(client, `${prefix}/${item.detail.key}`)
-            if (sha256(body) !== item.detail.sha256) throw new Error(`OSS detail hash mismatch: ${item.detail.key}`)
-            return Schema.decodeUnknownPromise(SkillMarket.Detail)(
-              await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body)),
-            )
-          }),
-        )
-      : await Promise.all(
-          items.map((item) => loadObject(client, objectKeys.detail(item.source, item.id), SkillMarket.Detail)),
+      ? await loadDetails(catalog.items, async (item) => {
+          if (item.detail.key !== `details/${item.detail.sha256}.json`)
+            throw new Error("catalog detail key does not match hash")
+          const body = await loadBytes(client, `${prefix}/${item.detail.key}`)
+          if (sha256(body) !== item.detail.sha256) throw new Error(`OSS detail hash mismatch: ${item.detail.key}`)
+          return Schema.decodeUnknownPromise(SkillMarket.Detail)(
+            await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body)),
+          )
+        })
+      : await loadDetails(items, (item) =>
+          loadObject(client, objectKeys.detail(item.source, item.id), SkillMarket.Detail),
         )
   const entries = details.map((detail) => [key(detail.source, detail.id), detail] as const)
   const detailMap = new Map(entries)
@@ -294,6 +292,15 @@ async function loadBytes(client: ObjectStore, key: string) {
   const [metadata, body] = await Promise.all([client.head(key), client.get(key)])
   if (metadata.size !== body.byteLength) throw new Error(`OSS object size mismatch: ${key}`)
   return body
+}
+
+async function loadDetails<T>(items: ReadonlyArray<T>, load: (item: T) => Promise<SkillMarket.Detail>) {
+  const details: SkillMarket.Detail[] = []
+  for (const chunk of Array.from({ length: Math.ceil(items.length / 32) }, (_, index) =>
+    items.slice(index * 32, index * 32 + 32),
+  ))
+    details.push(...(await Promise.all(chunk.map(load))))
+  return details
 }
 
 function sha256(body: Uint8Array) {
