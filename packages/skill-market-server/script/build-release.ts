@@ -6,6 +6,7 @@ const packageDirectory = fileURLToPath(new URL("..", import.meta.url))
 const entrypoints = [
   "src/server.ts",
   "src/sync.ts",
+  "src/skillhub-worker.js",
   "src/worker.ts",
   "script/backup.ts",
   "script/cleanup.ts",
@@ -63,9 +64,7 @@ async function setPermissions(directory: string) {
   await chmod(directory, 0o755)
   await Promise.all(
     (await readdir(directory, { withFileTypes: true })).map((entry) =>
-      entry.isDirectory()
-        ? setPermissions(join(directory, entry.name))
-        : chmod(join(directory, entry.name), 0o644),
+      entry.isDirectory() ? setPermissions(join(directory, entry.name)) : chmod(join(directory, entry.name), 0o644),
     ),
   )
 }

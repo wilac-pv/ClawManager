@@ -27,6 +27,10 @@ describe("runtime release build", () => {
     await buildRelease(outputDirectory)
 
     const serverDirectory = join(outputDirectory, "packages/skill-market-server")
+    expect(await Bun.file(join(serverDirectory, "src/skillhub-worker.js")).exists()).toBe(true)
+    expect(await Bun.file(join(serverDirectory, "src/skillhub-worker.js")).text()).toContain(
+      "skill_market_sync_duration_ms",
+    )
     expect(await Bun.file(join(serverDirectory, "node_modules/esprima/package.json")).json()).toMatchObject({
       name: "esprima",
       version: "4.0.1",

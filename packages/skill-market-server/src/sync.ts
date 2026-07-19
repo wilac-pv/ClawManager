@@ -572,7 +572,7 @@ function emitMetrics(
   )
 }
 
-async function production() {
+export async function runConfiguredSync() {
   const config = loadConfig()
   const store = makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket })
   const database = await openDatabase({
@@ -601,4 +601,4 @@ async function production() {
   )
 }
 
-if (import.meta.main) await production()
+if (import.meta.main) await runConfiguredSync()
