@@ -410,6 +410,7 @@ describe("skill market control HTTP", () => {
       const delivered = await fetch(`${valid.url}/v1/catalog/skills/skillhub/code-review/package`)
       expect(delivered.status).toBe(200)
       expect(state.canaryConnections).toBe(0)
+      expect(valid.storageKeys).toEqual([valid.trustedKey, valid.trustedKey])
 
       await using escaped = await marketFixture({ packageUrl })
       const response = await fetch(`${escaped.url}/v1/catalog/skills/skillhub/%2e%2e%2fprivate/package`)
@@ -444,6 +445,20 @@ describe("skill market control HTTP", () => {
         canary.close((error) => (error ? reject(error) : resolve()))
       })
     }
+  })
+
+  test.each(["%", "%ZZ"])("bounds malformed Effect package ID encoding %s", async (id) => {
+    await using fixture = await marketFixture()
+    const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/${id}/package`)
+
+    expect([400, 404]).toContain(response.status)
+    const body = await response.text()
+    expect(body.length).toBeLessThan(1_000)
+    expect(body).not.toContain("URIError")
+    expect(body).not.toContain("decodeURIComponent")
+    expect(body).not.toContain(fixture.trustedKey)
+    expect(body).not.toContain("https://attacker.example/never-fetch.zip")
+    expect(fixture.storageKeys).toEqual([])
   })
 
   test("sanitizes schema-valid package identity in production attachment filenames", async () => {

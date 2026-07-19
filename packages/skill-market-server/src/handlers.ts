@@ -186,7 +186,8 @@ function route(request: Request, url: URL, snapshot: CatalogSnapshot, packages: 
     return json({ code: "not-found" }, 404, head, headers)
   const id = segments[4]
   if (!id) return json({ code: "not-found" }, 404, head, headers)
-  const decodedID = decodeURIComponent(id)
+  const decodedID = decodePathSegment(id)
+  if (decodedID === undefined) return json({ code: "not-found" }, 404, head, headers)
   const detail = snapshot.details.get(key(source, decodedID))
   const packageRoute = segments.length === 6 && segments[5] === "package"
   if ((!detail || detail.delisted) && packageRoute) {
@@ -206,6 +207,14 @@ function route(request: Request, url: URL, snapshot: CatalogSnapshot, packages: 
     )
   if (segments[5] === "package") return packageWebResponse(packages, detail, head)
   return json({ code: "not-found" }, 404, head, headers)
+}
+
+function decodePathSegment(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return undefined
+  }
 }
 
 async function packageWebResponse(

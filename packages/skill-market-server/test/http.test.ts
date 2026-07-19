@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
+import { createServer } from "node:net"
 import { createCatalogHandler } from "../src/handlers"
 import { createCatalogPackageReader, MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
 import type { ObjectStore } from "../src/oss"
@@ -259,24 +260,55 @@ describe("catalog HTTP", () => {
   })
 
   test("uses trusted package identity instead of catalog URLs or encoded route traversal", async () => {
-    const fixture = packageFixture({ canaryUrl: "https://attacker.example/never-fetch.zip" })
-    const handler = createCatalogHandler(async () => fixture.snapshot, fixture.packages)
+    const state = { canaryConnections: 0 }
+    const canary = createServer((socket) => {
+      state.canaryConnections++
+      socket.destroy()
+    })
+    await new Promise<void>((resolve, reject) => {
+      canary.once("error", reject)
+      canary.listen(0, "127.0.0.1", resolve)
+    })
+    const address = canary.address()
+    if (!address || typeof address === "string") throw new Error("canary did not bind a TCP port")
+    try {
+      const fixture = packageFixture({ canaryUrl: `https://127.0.0.1:${address.port}/never-fetch.zip` })
+      const handler = createCatalogHandler(async () => fixture.snapshot, fixture.packages)
 
-    expect(
-      (await handler(new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package"))).status,
-    ).toBe(200)
-    expect(fixture.store.keys).toEqual([
-      `public-market/packages/${fixture.sha256}.zip`,
-      `public-market/packages/${fixture.sha256}.zip`,
-    ])
-    expect(fixture.store.keys.join("\n")).not.toContain("attacker.example")
+      expect(
+        (await handler(new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package")))
+          .status,
+      ).toBe(200)
+      expect(fixture.store.keys).toEqual([
+        `public-market/packages/${fixture.sha256}.zip`,
+        `public-market/packages/${fixture.sha256}.zip`,
+      ])
+      expect(state.canaryConnections).toBe(0)
 
-    const escaped = await handler(
-      new Request("https://market.example.com/v1/catalog/skills/skillhub/%2e%2e%2fprivate/package"),
-    )
-    expect(escaped.status).toBe(404)
-    expect(fixture.store.keys).toHaveLength(2)
-    expect(fixture.store.keys.every((value) => value.startsWith("public-market/"))).toBe(true)
+      const escaped = await handler(
+        new Request("https://market.example.com/v1/catalog/skills/skillhub/%2e%2e%2fprivate/package"),
+      )
+      expect(escaped.status).toBe(404)
+      expect(fixture.store.keys).toHaveLength(2)
+      expect(fixture.store.keys.every((value) => value.startsWith("public-market/"))).toBe(true)
+      expect(state.canaryConnections).toBe(0)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        canary.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
+  test.each(["%", "%ZZ"])("returns a bounded 404 for malformed package ID encoding %s", async (id) => {
+    const fixture = packageFixture()
+    const response = await createCatalogHandler(
+      async () => fixture.snapshot,
+      fixture.packages,
+    )(new Request(`https://market.example.com/v1/catalog/skills/skillhub/${id}/package`))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ code: "not-found" })
+    expect(fixture.store.keys).toEqual([])
   })
 
   test("sanitizes schema-valid package identity in attachment filenames", async () => {
