@@ -1,8 +1,7 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
-import { AdaptivePoolError } from "./adaptive-pool"
 
-export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 export type SkillHubRecord = {
   readonly slug: string
@@ -33,7 +32,7 @@ export type SkillHubRecord = {
 }
 
 const SubCategory = Schema.Struct({ key: Schema.String, name: Schema.String })
-export const SkillHubListRecord = Schema.Struct({
+const ListSkill = Schema.Struct({
   category: Schema.String,
   description: Schema.String,
   description_zh: Schema.String.pipe(Schema.optional),
@@ -53,13 +52,11 @@ export const SkillHubListRecord = Schema.Struct({
   updated_at: Schema.Number,
   version: Schema.String,
 })
-export type SkillHubListRecord = typeof SkillHubListRecord.Type
-export const SkillHubPage = Schema.Struct({
+const ListResponse = Schema.Struct({
   code: Schema.Number,
-  data: Schema.Struct({ skills: Schema.Array(SkillHubListRecord), total: Schema.Number }),
+  data: Schema.Struct({ skills: Schema.Array(ListSkill), total: Schema.Number }),
   message: Schema.String,
 })
-export type SkillHubPage = typeof SkillHubPage.Type
 
 const ExternalReport = Schema.Struct({
   reportUrl: Schema.String,
@@ -112,12 +109,13 @@ export async function loadSkillHub(
   limit?: number,
 ): Promise<SkillHubRecord[]> {
   const baseUrl = requireBaseUrl(input)
-  const first = await loadSkillHubPage(fetcher, baseUrl.href, 1)
+  const first = await loadPage(fetcher, baseUrl, 1)
   const total = Math.min(first.data.total, limit ?? first.data.total)
-  const pages: SkillHubPage[] = []
-  const pageNumbers = Array.from({ length: Math.max(0, Math.ceil(total / 100) - 1) }, (_, index) => index + 2)
-  for (let index = 0; index < pageNumbers.length; index += 4)
-    pages.push(...(await Promise.all(pageNumbers.slice(index, index + 4).map((page) => loadSkillHubPage(fetcher, baseUrl.href, page)))))
+  const pages = await Promise.all(
+    Array.from({ length: Math.max(0, Math.ceil(total / 100) - 1) }, (_, index) =>
+      loadPage(fetcher, baseUrl, index + 2),
+    ),
+  )
   const skills = Array.from(
     new Map([first, ...pages].flatMap((page) => page.data.skills).map((skill) => [skill.slug, skill])).values(),
   ).slice(0, total)
@@ -126,37 +124,27 @@ export async function loadSkillHub(
   )
   const records: SkillHubRecord[] = []
   for (const chunk of chunks)
-    records.push(
-      ...(await Promise.all(
-        chunk.map(async (skill) => {
-          const cached = previous?.get(skill.slug)
-          const updatedAt = new Date(skill.updated_at).toISOString()
-          return cached?.version === skill.version && cached.updatedAt === updatedAt
-            ? cached
-            : loadSkillHubRecord(fetcher, baseUrl.href, skill)
-        }),
-      )),
-    )
+    records.push(...(await Promise.all(chunk.map((skill) => loadRecord(fetcher, baseUrl, skill, previous)))))
   return records
 }
 
-export async function loadSkillHubPage(fetcher: Fetcher, input: string, page: number): Promise<SkillHubPage> {
-  const baseUrl = requireBaseUrl(input)
-  if (!Number.isSafeInteger(page) || page < 1) throw new Error("SkillHub page must be a positive integer")
+async function loadPage(fetcher: Fetcher, baseUrl: URL, page: number) {
   const url = new URL("/api/skills", baseUrl)
   url.searchParams.set("page", String(page))
   url.searchParams.set("pageSize", "100")
   url.searchParams.set("sortBy", "score")
-  return fetchJson(fetcher, url, SkillHubPage, baseUrl.hostname)
+  return fetchJson(fetcher, url, ListResponse, baseUrl.hostname)
 }
 
-export async function loadSkillHubRecord(
+async function loadRecord(
   fetcher: Fetcher,
-  input: string,
-  skill: SkillHubListRecord,
+  baseUrl: URL,
+  skill: typeof ListSkill.Type,
+  previous: ReadonlyMap<string, SkillHubRecord> | undefined,
 ) {
-  const baseUrl = requireBaseUrl(input)
+  const cached = previous?.get(skill.slug)
   const updatedAt = new Date(skill.updated_at).toISOString()
+  if (cached?.version === skill.version && cached.updatedAt === updatedAt) return cached
 
   const root = new URL(`/api/v1/skills/${encodeURIComponent(skill.slug)}`, baseUrl)
   const filesUrl = new URL(`${root.pathname}/files`, baseUrl)
@@ -220,40 +208,14 @@ async function fetchJson<S extends Schema.Decoder<unknown>>(
   schema: S,
   allowedHost: string,
 ) {
-  let response: Response
-  try {
-    response = await fetcher(url, { headers: { accept: "application/json" } })
-  } catch (error) {
-    throw new SkillHubRequestError(`SkillHub network request failed: ${String(error)}`)
-  }
-  if (!response.ok)
-    throw new SkillHubRequestError(
-      `SkillHub request failed with ${response.status}: ${url.pathname}`,
-      response.status,
-      response.headers.get("retry-after"),
-      response.status < 500 && response.status !== 429,
-    )
+  const response = await fetcher(url, { headers: { accept: "application/json" } })
+  if (!response.ok) throw new Error(`SkillHub request failed with ${response.status}: ${url.pathname}`)
   if (response.url) {
     const finalUrl = new URL(response.url)
     if (finalUrl.protocol !== "https:" || finalUrl.hostname !== allowedHost)
-      throw new SkillHubRequestError("SkillHub redirected outside its API host", undefined, undefined, true)
+      throw new Error("SkillHub redirected outside its API host")
   }
-  try {
-    return await Schema.decodeUnknownPromise(schema)(await response.json())
-  } catch (error) {
-    throw new SkillHubRequestError(`SkillHub response schema failed: ${String(error)}`, undefined, undefined, true)
-  }
-}
-
-export class SkillHubRequestError extends AdaptivePoolError {
-  constructor(
-    message: string,
-    readonly status?: number,
-    readonly retryAfter?: string | null,
-    readonly permanent = false,
-  ) {
-    super(message)
-  }
+  return Schema.decodeUnknownPromise(schema)(await response.json())
 }
 
 function requireBaseUrl(input: string) {

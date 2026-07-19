@@ -1,20 +1,16 @@
 import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
-import { contentAddressDetail, createCatalogIndex, type CatalogIndex, key } from "./catalog"
+import { type CatalogSnapshot, mergeCatalog } from "./catalog"
 import { listPublishedCommunity, materializeCommunitySubmission, publishCommunityObjects } from "./community"
 import type { MarketDatabase } from "./database"
 import {
-  loadCatalogIndex,
   loadCurrentPointer,
   loadCurrentSnapshot,
-  isMissingObjectError,
-  loadCatalogIndexOrMissingPointer,
   type PrivateObjectStore,
-  publishCatalogIndexObjects,
-  publishCatalogIndexPointer,
+  publishSnapshotObjects,
+  publishSnapshotPointer,
 } from "./oss"
 import { randomSecret } from "./security"
-import type { SkillHubImportStore } from "./skillhub-import-store"
 
 interface PublisherOptions {
   readonly database: MarketDatabase
@@ -43,35 +39,25 @@ interface SubmissionState {
   readonly version: number
 }
 
-type Publication = {
-  readonly index: CatalogIndex
-  readonly changedDetails: ReadonlyMap<string, SkillMarket.Detail>
-}
-
 export class Publisher {
-  private readonly preparations = new Map<string, Promise<{ readonly jobID: string; readonly candidate: SkillMarket.Detail }>>()
-
   constructor(private readonly options: PublisherOptions) {}
 
   async runOne(workerID: string) {
     requireWorkerID(workerID)
     await this.recover()
-    const pending = this.pending()
-    const prepared = pending?.kind === "publish" ? await this.preparePublication(pending) : undefined
-    const job = this.claim(workerID, pending?.id)
+    const job = this.claim(workerID)
     if (!job) return undefined
-    if (prepared && prepared.jobID !== job.id) return undefined
     if (job.target_revision && (await this.pointerRevision()) === job.target_revision) {
       this.finalize(job)
       return { jobID: job.id, kind: job.kind, revision: job.target_revision }
     }
 
-    const publication = job.kind === "publish" ? await this.buildPublication(job, prepared) : await this.buildRebuild()
-    await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
-    this.persistTarget(job, workerID, publication.index.revision)
-    await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
-    this.finalize({ ...job, target_revision: publication.index.revision })
-    return { jobID: job.id, kind: job.kind, revision: publication.index.revision }
+    const snapshot = job.kind === "publish" ? await this.buildPublication(job) : await this.buildRebuild()
+    await publishSnapshotObjects(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
+    this.persistTarget(job, workerID, snapshot.revision)
+    await publishSnapshotPointer(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
+    this.finalize({ ...job, target_revision: snapshot.revision })
+    return { jobID: job.id, kind: job.kind, revision: snapshot.revision }
   }
 
   async recover() {
@@ -110,7 +96,7 @@ export class Publisher {
 
   async withCatalogLease<T>(
     workerID: string,
-    operation: (publish: (publication: Publication) => Promise<void>) => Promise<T>,
+    operation: (publish: (snapshot: CatalogSnapshot) => Promise<void>) => Promise<T>,
   ) {
     requireWorkerID(workerID)
     const now = this.now()
@@ -119,7 +105,7 @@ export class Publisher {
         .query<
           { count: number },
           []
-        >("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running'")
+        >("SELECT count(*) AS count FROM publish_jobs WHERE status IN ('pending', 'running')")
         .get()!.count
       if (queued > 0) throw new Error("catalog publication queue must be drained before synchronization")
       const jobID = `job_${randomSecret()}`
@@ -132,67 +118,18 @@ export class Publisher {
       return readJob(connection, jobID)!
     })
     const state: { revision?: string } = {}
-    try {
-      const value = await operation(async (publication) => {
+    const value = await operation(async (snapshot) => {
       if (state.revision) throw new Error("catalog lease cannot move the pointer more than once")
-      await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
-      this.persistTarget(job, workerID, publication.index.revision)
-      state.revision = publication.index.revision
-      await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
-      })
-      this.finalize({ ...job, target_revision: state.revision ?? null })
-      return value
-    } catch (error) {
-      if (!state.revision || (await this.pointerRevision()) !== state.revision) this.release(job, workerID)
-      throw error
-    }
-  }
-
-  async publishMirroredSkillHub(imports: Pick<SkillHubImportStore, "mirroredEntries" | "progress">, workerID: string) {
-    const base = await this.basePublication()
-    const progress = imports.progress()
-    const entries = new Map(
-      Array.from(base.index.items, (summary) => [key(summary.source, summary.id), {
-        summary,
-        ref: base.index.details.get(key(summary.source, summary.id))!,
-      }] as const).filter(([entryKey]) => !entryKey.startsWith("skillhub:")),
-    )
-    imports.mirroredEntries().forEach((entry) =>
-      entries.set(key(entry.summary.source, entry.summary.id), {
-        summary: entry.summary,
-        ref: { key: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix), sha256: entry.detailSha256 },
-      }),
-    )
-    let revision = base.index.revision
-    await this.withCatalogLease(workerID, async (publish) => {
-      const latest = await this.latestIndex(base.index.sourceStatus)
-      const latestEntries = this.entries(latest, (summary) => summary.source !== "skillhub")
-      entries.forEach((entry, entryKey) => {
-        if (entryKey.startsWith("skillhub:")) latestEntries.set(entryKey, entry)
-      })
-      const index = createCatalogIndex({ entries: latestEntries, sourceStatus: { ...latest.sourceStatus, skillhub: progress.sourceStatus } })
-      revision = index.revision
-      await publish({ index, changedDetails: base.changedDetails })
+      await publishSnapshotObjects(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
+      this.persistTarget(job, workerID, snapshot.revision)
+      state.revision = snapshot.revision
+      await publishSnapshotPointer(this.options.store, { prefix: this.options.ossPrefix }, snapshot)
     })
-    return { revision, mirrored: progress.mirrored }
+    this.finalize({ ...job, target_revision: state.revision ?? null })
+    return value
   }
 
-  async seedLegacySkillHub(imports: Pick<SkillHubImportStore, "seedLegacy">, workerID: string) {
-    const base = await this.basePublication()
-    const legacy = Array.from(base.changedDetails.values())
-      .filter((detail) => detail.source === "skillhub")
-      .map((detail) => ({ slug: detail.aliases?.[0] ?? detail.id, ...contentAddressDetail(detail) }))
-    const seeded = imports.seedLegacy(legacy.map(({ slug, summary, ref }) => ({ slug, summary, detailKey: ref.key, detailSha256: ref.sha256 })))
-    if (base.changedDetails.size === 0) return seeded
-    await this.withCatalogLease(workerID, async (publish) => {
-      const latest = await this.latestIndex(base.index.sourceStatus)
-      if (Array.from(latest.details.values()).every((ref) => ref.sha256.length === 64)) return
-      await publish(base)
-    })
-    return seeded
-  }
-
-  private claim(workerID: string, preparedJobID?: string) {
+  private claim(workerID: string) {
     const now = this.now()
     return this.options.database.transaction((connection) => {
       const active = connection
@@ -202,66 +139,46 @@ export class Publisher {
         >("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running' AND lease_expires_at > ?")
         .get(now)!.count
       if (active > 0) return undefined
-      const candidate = preparedJobID
-        ? connection.query<{ id: string }, [string]>("SELECT id FROM publish_jobs WHERE id = ? AND status = 'pending'").get(preparedJobID)
-        : connection.query<{ id: string }, []>("SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1").get()
+      const candidate = connection
+        .query<
+          { id: string },
+          []
+        >("SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1")
+        .get()
       if (!candidate) return undefined
-      const claimed = connection.run(
+      connection.run(
         `UPDATE publish_jobs
          SET status = 'running', lease_owner = ?, lease_expires_at = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ? AND status = 'pending'`,
         [workerID, now + (this.options.leaseMilliseconds ?? 5 * 60 * 1_000), now, candidate.id],
-      ).changes
-      if (claimed !== 1) return undefined
+      )
       const job = readJob(connection, candidate.id)
       if (job?.kind === "publish") insertPublishStarted(connection, job, now)
       return job
     })
   }
 
-  private pending() {
-    return this.options.database.read((connection) =>
-      connection.query<JobRow, []>(`${jobSelect()} WHERE publish_jobs.status = 'pending' ORDER BY publish_jobs.created_at, publish_jobs.id LIMIT 1`).get(),
-    )
-  }
-
-  private async preparePublication(job: JobRow) {
-    const existing = this.preparations.get(job.id)
-    if (existing) return existing
-    const prepared = this.preparePublicationObjects(job)
-    this.preparations.set(job.id, prepared)
-    return prepared.finally(() => this.preparations.delete(job.id))
-  }
-
-  private async preparePublicationObjects(job: JobRow) {
+  private async buildPublication(job: JobRow) {
     if (!job.submission_id) throw new Error("publish job has no submission")
     await publishCommunityObjects(
       this.options.database,
       { store: this.options.store, publicPrefix: this.options.ossPrefix },
       job.submission_id,
     )
-    const candidate = await materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id)
-    return { jobID: job.id, candidate }
-  }
-
-  private async buildPublication(job: JobRow, prepared?: { readonly jobID: string; readonly candidate: SkillMarket.Detail }) {
-    if (!job.submission_id) throw new Error("publish job has no submission")
-    const [base, candidate] = await Promise.all([
+    const [base, community, candidate] = await Promise.all([
       this.baseSnapshot(),
-      prepared?.jobID === job.id
-        ? Promise.resolve(prepared.candidate)
-        : materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id),
+      listPublishedCommunity(this.options.database, this.communityOptions()),
+      materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id),
     ])
-    const entry = contentAddressDetail(candidate)
-    const entries = this.entries(base.index, (summary) => summary.source !== "community" || summary.id !== candidate.id)
-    entries.set(key(candidate.source, candidate.id), entry)
-    const changedDetails = new Map(base.changedDetails)
-    if (base.index.details.get(key(candidate.source, candidate.id))?.sha256 !== entry.ref.sha256)
-      changedDetails.set(key(candidate.source, candidate.id), candidate)
-    return {
-      index: createCatalogIndex({ entries, sourceStatus: { ...base.index.sourceStatus, community: "fresh" } }),
-      changedDetails,
-    }
+    return mergeCatalog(
+      [
+        ...base.details.filter((detail) => detail.source !== "community"),
+        ...community.filter((detail) => detail.id !== candidate.id),
+        candidate,
+      ],
+      emptyEnterpriseIndex(this.now()),
+      { ...base.sourceStatus, community: "fresh" },
+    )
   }
 
   private async buildRebuild() {
@@ -269,50 +186,21 @@ export class Publisher {
       this.baseSnapshot(),
       listPublishedCommunity(this.options.database, this.communityOptions()),
     ])
-    const entries = this.entries(base.index, (summary) => summary.source !== "community")
-    const changedDetails = new Map(base.changedDetails)
-    community.forEach((detail) => {
-      const entry = contentAddressDetail(detail)
-      entries.set(key(detail.source, detail.id), entry)
-      if (base.index.details.get(key(detail.source, detail.id))?.sha256 !== entry.ref.sha256)
-        changedDetails.set(key(detail.source, detail.id), detail)
-    })
-    return {
-      index: createCatalogIndex({ entries, sourceStatus: { ...base.index.sourceStatus, community: "fresh" } }),
-      changedDetails,
-    }
+    return mergeCatalog(
+      [...base.details.filter((detail) => detail.source !== "community"), ...community],
+      emptyEnterpriseIndex(this.now()),
+      { ...base.sourceStatus, community: "fresh" },
+    )
   }
 
   private async baseSnapshot() {
-    return this.basePublication()
-  }
-
-  private async basePublication(): Promise<Publication> {
-    const index = await loadCatalogIndexOrMissingPointer(this.options.store, { prefix: this.options.ossPrefix })
-    if (!index) {
-      const sourceStatus = { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const
-      return { index: createCatalogIndex({ entries: new Map(), sourceStatus }), changedDetails: new Map() }
-    }
-    if (Array.from(index.details.values()).every((ref) => ref.sha256.length === 64))
-      return { index, changedDetails: new Map() }
-    const snapshot = await loadCurrentSnapshot(this.options.store, { prefix: this.options.ossPrefix })
-    const entries = new Map<string, { summary: SkillMarket.Summary; ref: { key: string; sha256: string } }>()
-    const changedDetails = new Map<string, SkillMarket.Detail>()
-    snapshot.details.forEach((detail, entryKey) => {
-      const entry = contentAddressDetail(detail)
-      entries.set(entryKey, entry)
-      changedDetails.set(entryKey, detail)
-    })
-    return { index: createCatalogIndex({ entries, sourceStatus: snapshot.sourceStatus }), changedDetails }
-  }
-
-  private entries(index: CatalogIndex, keep: (summary: SkillMarket.Summary) => boolean) {
-    return new Map(
-      index.items.filter(keep).map((summary) => [key(summary.source, summary.id), {
-        summary,
-        ref: index.details.get(key(summary.source, summary.id))!,
-      }] as const),
-    )
+    const loaded = await settled(loadCurrentSnapshot(this.options.store, { prefix: this.options.ossPrefix }))
+    if (!loaded.ok)
+      return {
+        details: [] as SkillMarket.Detail[],
+        sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const,
+      }
+    return { details: Array.from(loaded.value.details.values()), sourceStatus: loaded.value.sourceStatus }
   }
 
   private persistTarget(job: JobRow, workerID: string, revision: string) {
@@ -326,21 +214,6 @@ export class Publisher {
       ).changes
       if (updated !== 1) throw new Error("publish job lease was lost before pointer update")
     })
-  }
-
-  private release(job: JobRow, workerID: string) {
-    const now = this.now()
-    this.options.database.transaction((connection) =>
-      connection.run(
-        "UPDATE publish_jobs SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_owner = ?",
-        [now, job.id, workerID],
-      ),
-    )
-  }
-
-  private async latestIndex(fallback: SkillMarket.SourceStatus) {
-    const index = await loadCatalogIndexOrMissingPointer(this.options.store, { prefix: this.options.ossPrefix })
-    return index ?? createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
   }
 
   private finalize(job: JobRow, expired = false) {
@@ -465,16 +338,13 @@ function insertPublishStarted(connection: Database, job: JobRow, now: number) {
   )
 }
 
+function emptyEnterpriseIndex(now: number): SkillMarket.EnterpriseIndex {
+  return { schemaVersion: 1, updatedAt: new Date(now).toISOString(), skills: [] }
+}
+
 function requireWorkerID(value: string) {
   if (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value)) return value
   throw new Error("publisher worker ID is invalid")
-}
-
-export function normalizeMirrorDetailKey(value: string, sha256: string, prefix: string) {
-  const expected = `details/${sha256}.json`
-  if (value === expected) return value
-  if (value === `${prefix.replace(/^\/+|\/+$/g, "")}/${expected}`) return expected
-  throw new Error("mirrored SkillHub detail key is invalid")
 }
 
 async function settled<T>(promise: Promise<T>) {

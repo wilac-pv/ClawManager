@@ -128,7 +128,7 @@ export function safeReturnTo(value: string, basePath = "/") {
   const known = [
     /^\/skills(?:\/(?:skillhub|enterprise|community)\/[^/]+)?$/,
     /^\/submissions(?:\/new|\/sub_[a-zA-Z0-9_-]{8,64})?$/,
-    /^\/admin(?:\/submissions\/sub_[a-zA-Z0-9_-]{8,64}|\/roles|\/audit|\/skillhub)?$/,
+    /^\/admin(?:\/submissions\/sub_[a-zA-Z0-9_-]{8,64}|\/roles|\/audit)?$/,
   ]
   if (!known.some((pattern) => pattern.test(pathname))) return "/skills"
   return `${pathname}${url.search}`

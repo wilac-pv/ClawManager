@@ -3,18 +3,14 @@ import { Effect, Layer } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { createServer } from "node:http"
 import { createAuth } from "./auth"
-import { createCatalogReader } from "./catalog-reader"
 import { loadConfig } from "./config"
 import { openDatabase } from "./database"
 import { createMarketRoutes } from "./handlers"
 import { emitMarketMetric } from "./metrics"
 import { createModeration } from "./moderation"
-import { makeS3ObjectStore } from "./oss"
+import { loadCurrentSnapshot, makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
 import { bootstrapAdmins, createSecurity } from "./security"
-import { createSkillHubImportAdmin } from "./skillhub-import-admin"
-import { createSkillHubImportStore } from "./skillhub-import-store"
-import { createSkillHubWorkerWake } from "./skillhub-worker"
 import { createSubmissions } from "./submissions"
 import { createWorker, type Worker } from "./worker"
 
@@ -62,13 +58,6 @@ const main = Effect.scoped(
     }
     const submissions = createSubmissions({ database, onValidationReady: wake })
     const moderation = createModeration({ database, security })
-    const imports = createSkillHubImportStore({
-      database,
-      metadataConcurrency: config.skillhubMetadataConcurrency,
-      packageConcurrency: config.skillhubPackageConcurrency,
-    })
-    const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports })
-    const skillhubWake = createSkillHubWorkerWake({ config, emit: emitMarketMetric })
     const worker = createWorker({
       database,
       submissions,
@@ -87,12 +76,11 @@ const main = Effect.scoped(
     worker.cleanup()
     yield* Effect.promise(() => worker.drain("server-startup"))
     const routes = createMarketRoutes({
-      catalog: createCatalogReader({ store, prefix: config.ossPrefix }),
+      loadSnapshot: () => loadCurrentSnapshot(store, { prefix: config.ossPrefix }),
       auth,
       security,
       submissions,
       moderation,
-      skillhubImportAdmin,
       store,
       privatePrefix: config.privateOssPrefix,
       webOrigin: config.webOrigin,
@@ -101,9 +89,6 @@ const main = Effect.scoped(
       cookieSecure: config.cookieSecure,
       sessionCookieMaxAgeSeconds: config.sessionCookieMaxAgeSeconds,
       onWorkReady: wake,
-      onSkillHubWorkReady: () => {
-        void skillhubWake.wake()
-      },
       emit: emitMarketMetric,
     })
     return yield* Layer.launch(

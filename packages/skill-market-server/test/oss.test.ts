@@ -1,18 +1,13 @@
 import { describe, expect, test } from "bun:test"
-import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import {
-  loadCatalogDetail,
   loadCurrentSnapshot,
-  loadCatalogIndex,
   makeS3ObjectStore,
-  publishCatalogIndex,
   publishSnapshot,
   publishSnapshotObjects,
   publishSnapshotPointer,
   type ObjectStore,
 } from "../src/oss"
 import { sampleSnapshot } from "./fixture"
-import { type CatalogIndex, key } from "../src/catalog"
 
 const config = { prefix: "skill-market" }
 
@@ -51,72 +46,6 @@ describe("OSS snapshots", () => {
     expect(store.objects.has("skill-market/current.json")).toBe(false)
     await publishSnapshotPointer(store.client, config, snapshot)
     expect(JSON.parse(new TextDecoder().decode(store.objects.get("skill-market/current.json"))).revision).toBe("r1")
-  })
-
-  test("publishes one changed detail for an 80,000-item v2 index before the index and pointer", async () => {
-    const store = memoryObjectStore()
-    const snapshot = sampleSnapshot("v2")
-    const detail = snapshot.details.get("skillhub:code-review")!
-    const changed = { ...detail, id: "skill-0" }
-    const body = JSON.stringify(changed)
-    const hash = new Bun.CryptoHasher("sha256").update(body).digest("hex")
-    const items = Array.from({ length: 80_000 }, (_, index) => ({ ...snapshot.items[0]!, id: `skill-${index}` }))
-    const index: CatalogIndex = {
-      revision: "v2",
-      createdAt: snapshot.createdAt,
-      items,
-      details: new Map(
-        items.map((item) => [
-          key(item.source, item.id),
-          { key: `details/${item.id === "skill-0" ? hash : "b".repeat(64)}.json`, sha256: item.id === "skill-0" ? hash : "b".repeat(64) },
-        ] as const),
-      ),
-      facets: { ...snapshot.facets, revision: "v2" },
-      sourceStatus: snapshot.sourceStatus,
-    }
-
-    await publishCatalogIndex(store.client, config, index, new Map([["skillhub:skill-0", changed]]))
-    expect(store.writes.map((write) => write.key)).toEqual([
-      `skill-market/details/${hash}.json`,
-      "skill-market/indexes/v2/catalog.json",
-      "skill-market/indexes/v2/facets.json",
-      "skill-market/current.json",
-    ])
-    const loaded = await loadCatalogIndex(store.client, config)
-    expect(loaded.items).toHaveLength(80_000)
-    expect(loaded.details.get("skillhub:skill-0")).toEqual({ key: `details/${hash}.json`, sha256: hash })
-  })
-
-  test("reuses global v2 details across revisions while publishing only the changed object", async () => {
-    const store = memoryObjectStore()
-    const unchanged = sampleSnapshot("seed").details.get("skillhub:code-review")!
-    const changed = { ...unchanged, id: "changed" }
-    const r1 = catalogIndex("r1", [unchanged, changed])
-    await publishCatalogIndex(
-      store.client,
-      config,
-      r1,
-      new Map([
-        ["skillhub:code-review", unchanged],
-        ["skillhub:changed", changed],
-      ]),
-    )
-
-    const revised = { ...changed, version: "2.0.0" }
-    const r2 = catalogIndex("r2", [unchanged, revised])
-    store.writes.splice(0)
-    await publishCatalogIndex(store.client, config, r2, new Map([["skillhub:changed", revised]]))
-
-    const changedHash = sha256(JSON.stringify(revised))
-    expect(store.writes.map((write) => write.key)).toEqual([
-      `skill-market/details/${changedHash}.json`,
-      "skill-market/indexes/r2/catalog.json",
-      "skill-market/indexes/r2/facets.json",
-      "skill-market/current.json",
-    ])
-    const loaded = await loadCatalogIndex(store.client, config)
-    expect((await loadCatalogDetail(store.client, config, loaded, "skillhub", "code-review"))?.id).toBe("code-review")
-    expect((await loadCatalogDetail(store.client, config, loaded, "skillhub", "changed"))?.version).toBe("2.0.0")
   })
 
   test("streams private objects without SDK aws-chunked checksum headers", async () => {
@@ -190,25 +119,4 @@ function memoryObjectStore() {
       state.failOn = value
     },
   }
-}
-
-function catalogIndex(revision: string, details: ReadonlyArray<SkillMarket.Detail>): CatalogIndex {
-  const snapshot = sampleSnapshot(revision)
-  return {
-    revision,
-    createdAt: snapshot.createdAt,
-    items: details.map(summary),
-    details: new Map(details.map((detail) => [key(detail.source, detail.id), { key: `details/${sha256(JSON.stringify(detail))}.json`, sha256: sha256(JSON.stringify(detail)) }] as const)),
-    facets: { ...snapshot.facets, revision },
-    sourceStatus: snapshot.sourceStatus,
-  }
-}
-
-function summary(detail: SkillMarket.Detail) {
-  const { readme: _readme, author: _author, versions: _versions, securityReports: _securityReports, package: _package, ...value } = detail
-  return value
-}
-
-function sha256(value: string) {
-  return new Bun.CryptoHasher("sha256").update(value).digest("hex")
 }

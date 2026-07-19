@@ -52,13 +52,6 @@ export function loadConfig(environment: Environment = process.env) {
   if (sessionIdleMinutes > sessionAbsoluteMinutes)
     throw new Error("SKILL_MARKET_SESSION_IDLE_MINUTES must not exceed SKILL_MARKET_SESSION_ABSOLUTE_MINUTES")
 
-  const skillhubMemorySoftLimitMb = positiveInteger(
-    "SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB",
-    environment.SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB ?? "1536",
-  )
-  if (skillhubMemorySoftLimitMb < 512)
-    throw new Error("SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB must be at least 512")
-
   return Object.freeze({
     port,
     databasePath: environment.SKILL_MARKET_DATABASE_PATH ?? "/var/lib/ruying-skill-market/market.db",
@@ -66,30 +59,6 @@ export function loadConfig(environment: Environment = process.env) {
       environment.SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY ?? "/var/backups/ruying-skill-market/migrations",
     skillhubBaseUrl: httpsUrl("SKILLHUB_BASE_URL", environment.SKILLHUB_BASE_URL ?? "https://api.skillhub.cn"),
     skillhubLimit: optionalPositiveInteger("SKILL_MARKET_SKILLHUB_LIMIT", environment.SKILL_MARKET_SKILLHUB_LIMIT),
-    skillhubPageConcurrency: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY",
-      environment.SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY ?? "4",
-      16,
-    ),
-    skillhubMetadataConcurrency: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_METADATA_CONCURRENCY",
-      environment.SKILL_MARKET_SKILLHUB_METADATA_CONCURRENCY ?? "8",
-      32,
-    ),
-    skillhubPackageConcurrency: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_PACKAGE_CONCURRENCY",
-      environment.SKILL_MARKET_SKILLHUB_PACKAGE_CONCURRENCY ?? "6",
-      12,
-    ),
-    skillhubPublishBatch: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_PUBLISH_BATCH",
-      environment.SKILL_MARKET_SKILLHUB_PUBLISH_BATCH ?? "2000",
-    ),
-    skillhubPublishMinutes: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES",
-      environment.SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES ?? "30",
-    ),
-    skillhubMemorySoftLimitMb,
     enterpriseIndexUrl: httpsUrl("SKILL_MARKET_ENTERPRISE_INDEX_URL", environment.SKILL_MARKET_ENTERPRISE_INDEX_URL),
     ossEndpoint: ossEndpointUrl(
       "SKILL_MARKET_OSS_ENDPOINT",

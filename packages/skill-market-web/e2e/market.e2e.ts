@@ -16,12 +16,6 @@ test("searches, filters, deep-links, copies a prompt and requests the verified d
   await expect(page.getByRole("button", { name: "已复制" })).toBeVisible()
   await expect(page.getByRole("status")).toContainText("安装 Prompt 已复制到剪贴板")
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("SHA-256")
-  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
-  expect(clipboard).toContain(`内网详情：${page.url()}`)
-  expect(clipboard).toContain("内网下载：https://downloads.example.com/code-review.zip")
-  expect(clipboard).toContain("要求：仅使用上述内网地址下载，并在安装前校验 SHA-256。")
-  expect(clipboard).not.toContain("skillhub.cn")
-  expect(clipboard).not.toContain("clawhub.ai")
   await expect(page.getByRole("button", { name: "安装", exact: true })).toHaveCount(0)
 
   await page.route("https://downloads.example.com/**", (route) =>
@@ -223,34 +217,6 @@ test("lets Admin retry publishing, moderate visibility, manage roles and filter 
   await page.getByLabel("操作类型").selectOption("community-restored")
   await expect(page.getByLabel("审计事件").getByText("Community Restored")).toBeVisible()
   await expect(page.locator(".audit-event pre")).not.toContainText(/csrf|secret|token/i)
-})
-
-test("lets Admin pause and resume SkillHub import progress without leaving the page", async ({ page }, testInfo) => {
-  desktopControlOnly(testInfo)
-  await resetFixture(page, "admin")
-  await page.goto("/admin/skillhub")
-  await expect(page.getByRole("heading", { name: "SkillHub 同步" })).toBeVisible()
-  await expect(page.getByRole("progressbar", { name: "导入进度" })).toHaveAttribute("aria-valuenow", "25.6")
-  await page.evaluate(() => {
-    const sentinel = document.createElement("span")
-    sentinel.id = "skillhub-no-reload-sentinel"
-    sentinel.textContent = "same-document"
-    document.body.append(sentinel)
-  })
-  let mainFrameNavigations = 0
-  page.on("framenavigated", (frame) => {
-    if (frame === page.mainFrame()) mainFrameNavigations++
-  })
-  await page.getByRole("button", { name: "暂停同步" }).click()
-  await expect(page.getByText("已暂停", { exact: true })).toBeVisible()
-  await expect(page.getByRole("button", { name: "恢复同步" })).toBeVisible()
-  await expect(page.locator("#skillhub-no-reload-sentinel")).toHaveText("same-document")
-  expect(mainFrameNavigations).toBe(0)
-  await page.getByRole("button", { name: "恢复同步" }).click()
-  await expect(page.getByText("同步中", { exact: true })).toBeVisible()
-  await expect(page.getByRole("button", { name: "暂停同步" })).toBeVisible()
-  await expect(page.locator("#skillhub-no-reload-sentinel")).toHaveText("same-document")
-  expect(mainFrameNavigations).toBe(0)
 })
 
 async function resetFixture(page: Page, persona: "anonymous" | "submitter" | "reviewer" | "admin") {

@@ -11,7 +11,6 @@ export function MarketShell(props: ParentProps) {
     { href: "/admin", label: "管理后台", visible: current.reviewer() },
     { href: "/admin/roles", label: "角色管理", visible: current.admin() },
     { href: "/admin/audit", label: "审计日志", visible: current.admin() },
-    { href: "/admin/skillhub", label: "SkillHub 同步", visible: current.admin() },
   ]
 
   return (

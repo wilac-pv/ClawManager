@@ -11,8 +11,6 @@ import { createMarketWebHandler } from "../src/handlers"
 import { createModeration } from "../src/moderation"
 import type { PrivateObjectStore } from "../src/oss"
 import { createSecurity } from "../src/security"
-import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
-import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { createSubmissions } from "../src/submissions"
 import { sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
@@ -45,22 +43,6 @@ describe("skill market control HTTP", () => {
     expect(preflight.status).toBe(204)
     expect(preflight.headers.get("access-control-allow-origin")).toBe("*")
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, OPTIONS")
-  })
-
-  test("keeps delisted versions and downloads unavailable through the Effect API", async () => {
-    const snapshot = sampleSnapshot()
-    snapshot.details.set(
-      "skillhub:code-review",
-      Schema.decodeUnknownSync(SkillMarket.Detail)({
-        ...snapshot.details.get("skillhub:code-review"),
-        delisted: true,
-      }),
-    )
-    await using fixture = await marketFixture(snapshot)
-    for (const suffix of ["versions", "download"]) {
-      const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/${suffix}`)
-      expect(response.status).toBe(404)
-    }
   })
 
   test("completes login, returns a private session, enforces CSRF, and logs out", async () => {
@@ -245,115 +227,6 @@ describe("skill market control HTTP", () => {
     expect(evilPreflight.status).toBe(204)
     expect(evilPreflight.headers.has("access-control-allow-origin")).toBe(false)
   })
-
-  test("serves audited SkillHub import controls only to administrators", async () => {
-    await using fixture = await marketFixture()
-    const anonymous = await fetch(`${fixture.url}/v1/admin/skillhub-import`)
-    expect(anonymous.status).toBe(401)
-
-    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin`, { redirect: "manual" })
-    const session = await loginSession(fixture, login, "/admin")
-    fixture.database.connection.run(
-      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'reviewer', ?, ?)",
-      ["E123456", "E123456", now],
-    )
-
-    const reviewer = await fetch(`${fixture.url}/v1/admin/skillhub-import`, {
-      headers: { cookie: session.cookie, origin: webOrigin },
-    })
-    expect(reviewer.status).toBe(403)
-    expect(await reviewer.json()).toMatchObject({ code: "forbidden" })
-
-    fixture.database.connection.run(
-      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'admin', ?, ?)",
-      ["E123456", "E123456", now],
-    )
-    const generation = fixture.imports.beginGeneration(1)
-    fixture.imports.recordPage(generation.id, 1, [skillHubListRecord("http-skill")])
-
-    const status = await fetch(`${fixture.url}/v1/admin/skillhub-import`, {
-      headers: { cookie: session.cookie, origin: webOrigin },
-    })
-    expect(status.status).toBe(200)
-    expect(await status.json()).toMatchObject({
-      state: "running",
-      pending: 1,
-      metadataConcurrency: 3,
-      packageConcurrency: 4,
-    })
-    expect(fixture.workReady).toBe(0)
-    expect(fixture.skillhubWorkReady).toBe(0)
-
-    const missingCsrf = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
-      method: "POST",
-      headers: { cookie: session.cookie, origin: webOrigin, "content-type": "application/json" },
-      body: JSON.stringify({ command: "pause" }),
-    })
-    expect(missingCsrf.status).toBe(403)
-
-    const command = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
-      method: "POST",
-      headers: {
-        cookie: session.cookie,
-        origin: webOrigin,
-        "content-type": "application/json",
-        "x-csrf-token": session.csrf,
-      },
-      body: JSON.stringify({ command: "pause" }),
-    })
-    expect(command.status).toBe(200)
-    expect(await command.json()).toMatchObject({ state: "paused" })
-    expect(fixture.workReady).toBe(0)
-    expect(fixture.skillhubWorkReady).toBe(0)
-
-    const resumed = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
-      method: "POST",
-      headers: {
-        cookie: session.cookie,
-        origin: webOrigin,
-        "content-type": "application/json",
-        "x-csrf-token": session.csrf,
-      },
-      body: JSON.stringify({ command: "resume" }),
-    })
-    expect(resumed.status).toBe(200)
-    expect(fixture.workReady).toBe(0)
-    expect(fixture.skillhubWorkReady).toBe(1)
-
-    const retried = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
-      method: "POST",
-      headers: {
-        cookie: session.cookie,
-        origin: webOrigin,
-        "content-type": "application/json",
-        "x-csrf-token": session.csrf,
-      },
-      body: JSON.stringify({ command: "retry-wait" }),
-    })
-    expect(retried.status).toBe(200)
-    expect(fixture.workReady).toBe(0)
-    expect(fixture.skillhubWorkReady).toBe(2)
-
-    const afterCommandStatus = await fetch(`${fixture.url}/v1/admin/skillhub-import`, {
-      headers: { cookie: session.cookie, origin: webOrigin },
-    })
-    expect(afterCommandStatus.status).toBe(200)
-    expect(fixture.workReady).toBe(0)
-    expect(fixture.skillhubWorkReady).toBe(2)
-
-    const invalid = await fetch(`${fixture.url}/v1/admin/skillhub-import/command`, {
-      method: "POST",
-      headers: {
-        cookie: session.cookie,
-        origin: webOrigin,
-        "content-type": "application/json",
-        "x-csrf-token": session.csrf,
-      },
-      body: JSON.stringify({ command: "retry-rejected", slugs: [] }),
-    })
-    expect(invalid.status).toBe(400)
-    expect(await invalid.json()).toMatchObject({ code: "invalid-request" })
-  })
 })
 
 async function loginSession(
@@ -379,7 +252,7 @@ async function loginSession(
   return { cookie: cookies.join("; "), csrf }
 }
 
-async function marketFixture(snapshot = sampleSnapshot()) {
+async function marketFixture() {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-control-http-"))
   directories.push(directory)
   const database = await openDatabase({
@@ -412,7 +285,7 @@ async function marketFixture(snapshot = sampleSnapshot()) {
     fetch: provisioningFetch,
   })
   const objects = new Map<string, Uint8Array>()
-  const state = { privateWrites: 0, workReady: 0, skillhubWorkReady: 0 }
+  const state = { privateWrites: 0 }
   const store: PrivateObjectStore = {
     async put(key, body) {
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
@@ -442,20 +315,12 @@ async function marketFixture(snapshot = sampleSnapshot()) {
   }
   const submissions = createSubmissions({ database, now: () => now })
   const moderation = createModeration({ database, security, now: () => now })
-  const imports = createSkillHubImportStore({
-    database,
-    now: () => now,
-    metadataConcurrency: 3,
-    packageConcurrency: 4,
-  })
-  const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports, now: () => now })
   const web = createMarketWebHandler({
-    loadSnapshot: async () => snapshot,
+    loadSnapshot: async () => sampleSnapshot(),
     auth,
     security,
     submissions,
     moderation,
-    skillhubImportAdmin,
     store,
     privatePrefix: "skill-market-private",
     webOrigin,
@@ -463,50 +328,19 @@ async function marketFixture(snapshot = sampleSnapshot()) {
     sessionCookieName: "ruying_market_session",
     cookieSecure: false,
     sessionCookieMaxAgeSeconds: 12 * 60 * 60,
-    onWorkReady: () => {
-      state.workReady++
-    },
-    onSkillHubWorkReady: () => {
-      state.skillhubWorkReady++
-    },
   })
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => web.handler(request) })
   return {
     url: server.url.origin,
     database,
-    imports,
     objects,
     get privateWrites() {
       return state.privateWrites
-    },
-    get workReady() {
-      return state.workReady
-    },
-    get skillhubWorkReady() {
-      return state.skillhubWorkReady
     },
     async [Symbol.asyncDispose]() {
       await server.stop(true)
       await web.dispose()
       database.close()
     },
-  }
-}
-
-function skillHubListRecord(slug: string) {
-  return {
-    category: "Developer Tools",
-    description: `${slug} description`,
-    downloads: 1,
-    installs: 1,
-    name: slug,
-    ownerName: "SkillHub",
-    score: 1,
-    slug,
-    source: "skillhub",
-    stars: 1,
-    subCategories: [],
-    updated_at: now,
-    version: "1.0.0",
   }
 }

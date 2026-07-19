@@ -16,11 +16,9 @@ import { Prompt } from "@opencode-ai/schema/prompt"
 import { Session } from "@opencode-ai/schema/session"
 import { SessionInput } from "@opencode-ai/schema/session-input"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
-import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Workspace } from "@opencode-ai/schema/workspace"
 import { Api } from "@opencode-ai/server/api"
-import { compile, emitEffect, emitEffectImported, emitPromise } from "@opencode-ai/httpapi-codegen"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+import { compile, emitPromise } from "@opencode-ai/httpapi-codegen"
 import { ClientApi, endpointNames, groupNames, omitEndpoints } from "../src/contract"
 
 test("Core and Server reuse the authoritative Schema and Protocol values", () => {
@@ -44,22 +42,6 @@ test("client and Server contracts generate identically", () => {
   const client = compile(ClientApi, { groupNames, endpointNames, omitEndpoints })
 
   expect(emitPromise(client)).toEqual(emitPromise(server))
-})
-
-test("market URL policy requires the imported authoritative Effect API", () => {
-  const group = HttpApiGroup.make("market").add(
-    HttpApiEndpoint.get("get", "/market", { success: SkillMarket.MarketPageUrl }),
-  )
-  const contract = compile(HttpApi.make("test").add(group))
-
-  expect(contract.groups[0]?.endpoints[0]?.effectPortable).toBe(false)
-  expect(() => emitEffect(contract)).toThrow("Effect schema requires authoritative import: market.get")
-  expect(
-    emitEffectImported(compile(ClientApi, { groupNames, endpointNames, omitEndpoints }), {
-      module: "../contract",
-      api: "ClientApi",
-    }).files.find((file) => file.path === "client.ts")?.content,
-  ).toContain('import { ClientApi } from "../contract"')
 })
 
 test("shared DTO schemas construct and decode plain objects", () => {

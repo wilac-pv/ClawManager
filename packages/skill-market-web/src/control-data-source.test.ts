@@ -184,49 +184,6 @@ describe("skill market control data source", () => {
     )
   })
 
-  test("reads SkillHub import progress and writes commands through the CSRF-protected JSON boundary", async () => {
-    const requests: Array<{ method: string; path: string; headers: Headers; body?: string }> = []
-    const status = {
-      state: "running",
-      sourceStatus: "fresh",
-      upstreamTotal: 1,
-      discovered: 1,
-      pending: 0,
-      running: 1,
-      mirrored: 0,
-      retryWait: 0,
-      rejected: 0,
-      uploadedBytes: 0,
-      ratePerMinute: 0,
-      discoveryPage: 1,
-      sweep: 1,
-      metadataConcurrency: 1,
-      packageConcurrency: 1,
-      updatedAt: "2026-07-17T00:00:00.000Z",
-    } satisfies SkillMarketControl.SkillHubImportProgress
-    const server = serve(async (request) => {
-      requests.push({
-        method: request.method,
-        path: new URL(request.url).pathname,
-        headers: request.headers,
-        ...(request.body ? { body: await request.text() } : {}),
-      })
-      return Response.json(status)
-    })
-    const source = createSkillMarketControlDataSource(server.url, { csrfToken: () => csrfToken })
-
-    await expect(source.skillhub.status()).resolves.toEqual(status)
-    await expect(source.skillhub.command({ command: "pause" })).resolves.toEqual(status)
-
-    expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
-      "GET /v1/admin/skillhub-import",
-      "POST /v1/admin/skillhub-import/command",
-    ])
-    expect(requests[1]?.headers.get("x-csrf-token")).toBe(csrfToken)
-    expect(requests[1]?.headers.get("idempotency-key")).toBeNull()
-    expect(requests[1]?.body).toBe(JSON.stringify({ command: "pause" }))
-  })
-
   test("covers logout, moderation operations, and role administration", async () => {
     const requests: Array<{ method: string; path: string; body?: string }> = []
     const assignment = {

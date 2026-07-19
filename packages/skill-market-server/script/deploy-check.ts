@@ -1,5 +1,4 @@
 import { loadConfig } from "../src/config"
-import { isExplicitMissingObjectError } from "../src/oss"
 import { access, stat } from "node:fs/promises"
 import { constants } from "node:fs"
 import { dirname } from "node:path"
@@ -23,20 +22,9 @@ export async function runPreflight(options: {
   const checks: DeploymentCheck[] = [
     { name: "configuration", status: configuration ? "PASS" : "FAIL" },
     await fileCheck(options.environmentFile),
-    await databaseDirectoryCheck(options.environment.SKILL_MARKET_DATABASE_PATH),
-    await directoryCheck(options.environment.SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY, "backup-directory"),
+    await directoryCheck(options.environment.SKILL_MARKET_DATABASE_PATH),
     { name: "bun-version", status: Bun.semver.satisfies(Bun.version, ">=1.3.0") ? "PASS" : "FAIL" },
     { name: "zstd", status: findBinary("zstd") ? "PASS" : "FAIL" },
-    ...(configuration
-      ? [
-          { name: `skillhub-page-concurrency=${configuration.skillhubPageConcurrency}`, status: "PASS" as const },
-          { name: `skillhub-metadata-concurrency=${configuration.skillhubMetadataConcurrency}`, status: "PASS" as const },
-          { name: `skillhub-package-concurrency=${configuration.skillhubPackageConcurrency}`, status: "PASS" as const },
-          { name: `skillhub-publish-batch=${configuration.skillhubPublishBatch}`, status: "PASS" as const },
-          { name: `skillhub-publish-minutes=${configuration.skillhubPublishMinutes}`, status: "PASS" as const },
-          { name: `skillhub-memory-soft-limit-mb=${configuration.skillhubMemorySoftLimitMb}`, status: "PASS" as const },
-        ]
-      : []),
   ]
   if (!configuration)
     return [
@@ -126,13 +114,12 @@ export async function runPrivateCanary(options: {
   } finally {
     await options.store.delete(key)
   }
-  try {
-    await options.store.head(key)
-  } catch (error) {
-    if (isExplicitMissingObjectError(error)) return { name: "private-canary", status: "PASS" as const }
-    throw new Error("private canary cleanup failed")
-  }
-  throw new Error("private canary cleanup failed")
+  const absent = await options.store.head(key).then(
+    () => false,
+    () => true,
+  )
+  if (!absent) throw new Error("private canary cleanup failed")
+  return { name: "private-canary", status: "PASS" as const }
 }
 
 export function formatChecks(checks: ReadonlyArray<DeploymentCheck>) {
@@ -155,17 +142,13 @@ async function fileCheck(path: string): Promise<DeploymentCheck> {
   return { name: "environment-file", status: safe ? "PASS" : "FAIL" }
 }
 
-async function databaseDirectoryCheck(path: string | undefined) {
-  return directoryCheck(path && dirname(path), "database-directory")
-}
-
-async function directoryCheck(path: string | undefined, name: string): Promise<DeploymentCheck> {
-  if (!path) return { name, status: "FAIL" }
-  const writable = await Promise.all([stat(path), access(path, constants.W_OK)]).then(
+async function directoryCheck(databasePath: string | undefined): Promise<DeploymentCheck> {
+  if (!databasePath) return { name: "database-directory", status: "FAIL" }
+  const writable = await Promise.all([stat(dirname(databasePath)), access(dirname(databasePath), constants.W_OK)]).then(
     ([metadata]) => metadata.isDirectory(),
     () => false,
   )
-  return { name, status: writable ? "PASS" : "FAIL" }
+  return { name: "database-directory", status: writable ? "PASS" : "FAIL" }
 }
 
 async function probeCheck(name: string, url: string, probe: (url: string) => Promise<boolean>) {
@@ -217,24 +200,21 @@ if (import.meta.main) {
   const mode = process.argv[2]
   if (mode !== "preflight" && mode !== "smoke") throw new Error("deploy-check mode must be preflight or smoke")
   const environmentFile = process.env.SKILL_MARKET_ENV_FILE ?? "/etc/ruying-skill-market/market.env"
-  if (mode === "preflight") {
-    const checks = await runPreflight({ environment: process.env, environmentFile })
-    console.log(formatChecks(checks))
-    if (checks.some((check) => check.status === "FAIL")) process.exitCode = 1
-  } else {
-    const config = loadConfig()
-    const checks = await runSmoke({ apiUrl: config.apiPublicUrl, webOrigin: config.webOrigin })
-    if (process.argv.includes("--allow-private-canary")) {
-      const { makeS3ObjectStore } = await import("../src/oss")
-      checks.push(
-        await runPrivateCanary({
-          privatePrefix: config.privateOssPrefix,
-          allow: true,
-          store: makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket }),
-        }),
-      )
-    }
-    console.log(formatChecks(checks))
-    if (checks.some((check) => check.status === "FAIL")) process.exitCode = 1
+  const config = loadConfig()
+  const checks =
+    mode === "preflight"
+      ? await runPreflight({ environment: process.env, environmentFile })
+      : await runSmoke({ apiUrl: config.apiPublicUrl, webOrigin: config.webOrigin })
+  if (mode === "smoke" && process.argv.includes("--allow-private-canary")) {
+    const { makeS3ObjectStore } = await import("../src/oss")
+    checks.push(
+      await runPrivateCanary({
+        privatePrefix: config.privateOssPrefix,
+        allow: true,
+        store: makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket }),
+      }),
+    )
   }
+  console.log(formatChecks(checks))
+  if (checks.some((check) => check.status === "FAIL")) process.exitCode = 1
 }

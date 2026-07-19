@@ -12,7 +12,6 @@ const fallbackRoutes = [
   "/admin/submissions/:id",
   "/admin/roles",
   "/admin/audit",
-  "/admin/skillhub",
 ] as const
 
 export type WebReleaseStore = {

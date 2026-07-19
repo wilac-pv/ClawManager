@@ -13,7 +13,6 @@ import { AuditLog } from "./admin/audit"
 import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
 import { RoleAdministration } from "./admin/roles"
-import { SkillHubImport } from "./admin/skillhub"
 import { copyText } from "./clipboard"
 import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
@@ -24,7 +23,7 @@ import {
   SkillMarketSessionProvider,
   useSkillMarketSession,
 } from "./session"
-import { resolveSkillMarketRuntime, skillDetailUrl } from "./runtime-config"
+import { resolveSkillMarketRuntime } from "./runtime-config"
 import { MarketShell } from "./shell"
 import { SubmissionDetail } from "./submissions/detail"
 import { SubmissionForm } from "./submissions/form"
@@ -46,13 +45,8 @@ export function App() {
   })
   const actions: SkillMarketActions = {
     kind: "web",
-    prompt: (detail) =>
-      installPrompt(detail, {
-        detailUrl: skillDetailUrl(window.location.origin, import.meta.env.BASE_URL, detail),
-        downloadUrl: detail.package.url,
-      }),
-    copyPrompt: async (value) => {
-      if (await copyText(value)) return
+    copyPrompt: async (detail) => {
+      if (await copyText(installPrompt(detail))) return
       throw new Error("Skill market install prompt could not be copied")
     },
     download: async (detail) => {
@@ -84,7 +78,6 @@ export function App() {
       <Route path="/admin/submissions/:id" component={() => <ReviewDetailRoute source={control} />} />
       <Route path="/admin/roles" component={() => <RoleAdministrationRoute source={control} />} />
       <Route path="/admin/audit" component={() => <AuditRoute source={control} />} />
-      <Route path="/admin/skillhub" component={() => <SkillHubImportRoute source={control} />} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
     </Router>
   )
@@ -198,14 +191,6 @@ function AuditRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireAdmin>
       <AuditLog source={props.source.audit} />
-    </RequireAdmin>
-  )
-}
-
-function SkillHubImportRoute(props: { source: SkillMarketControlDataSource }) {
-  return (
-    <RequireAdmin>
-      <SkillHubImport source={props.source.skillhub} />
     </RequireAdmin>
   )
 }

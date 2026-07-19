@@ -4,7 +4,6 @@ import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import {
   SkillMarketControlNotFound,
   SkillMarketDependencyUnavailable,
-  SkillMarketForbidden,
   SkillMarketInvalidRequest,
   SkillMarketLastAdmin,
   SkillMarketSubmissionConflict,
@@ -70,21 +69,6 @@ export const SkillMarketAdminGroup = ReviewerEndpoints.add(
     .middleware(SkillMarketWriteMiddleware)
     .middleware(SkillMarketAdminMiddleware),
 )
-  .add(
-    HttpApiEndpoint.get("skillMarket.admin.skillhub.status", "/v1/admin/skillhub-import", {
-      success: SkillMarketControl.SkillHubImportProgress,
-      error: [SkillMarketForbidden, SkillMarketDependencyUnavailable],
-    }).middleware(SkillMarketAdminMiddleware),
-  )
-  .add(
-    HttpApiEndpoint.post("skillMarket.admin.skillhub.command", "/v1/admin/skillhub-import/command", {
-      payload: SkillMarketControl.SkillHubImportCommandInput,
-      success: SkillMarketControl.SkillHubImportProgress,
-      error: [SkillMarketForbidden, SkillMarketInvalidRequest, SkillMarketDependencyUnavailable],
-    })
-      .middleware(SkillMarketWriteMiddleware)
-      .middleware(SkillMarketAdminMiddleware),
-  )
   .add(
     HttpApiEndpoint.get("skillMarket.admin.roles.list", "/v1/admin/roles", {
       success: Schema.Array(SkillMarketControl.RoleAssignment),

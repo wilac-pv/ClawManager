@@ -86,12 +86,6 @@ describe("catalog sources", () => {
     })
     expect(config.port).toBe(4210)
     expect(config.skillhubBaseUrl).toBe("https://api.skillhub.cn/")
-    expect(config.skillhubPageConcurrency).toBe(4)
-    expect(config.skillhubMetadataConcurrency).toBe(8)
-    expect(config.skillhubPackageConcurrency).toBe(6)
-    expect(config.skillhubPublishBatch).toBe(2_000)
-    expect(config.skillhubPublishMinutes).toBe(30)
-    expect(config.skillhubMemorySoftLimitMb).toBe(1_536)
     expect(config.allowedHosts).toEqual(new Set(["api.skillhub.cn"]))
     expect(() =>
       loadConfig({
@@ -101,22 +95,6 @@ describe("catalog sources", () => {
         SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
       }),
     ).toThrow("SKILL_MARKET_SKILLHUB_LIMIT must be a positive integer")
-    expect(() =>
-      loadConfig({
-        SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY: "17",
-        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
-        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
-        SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
-      }),
-    ).toThrow("SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY")
-    expect(() =>
-      loadConfig({
-        SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB: "511",
-        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
-        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
-        SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
-      }),
-    ).toThrow("SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB")
   })
 
   test("normalizes control-plane configuration and applies safe defaults", () => {

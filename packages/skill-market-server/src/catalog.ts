@@ -9,26 +9,6 @@ export type CatalogSnapshot = {
   readonly sourceStatus: SkillMarket.SourceStatus
 }
 
-export interface CatalogDetailRef {
-  readonly key: string
-  readonly sha256: string
-}
-
-export interface CatalogIndex {
-  readonly revision: string
-  readonly createdAt: string
-  readonly items: SkillMarket.Summary[]
-  readonly details: ReadonlyMap<string, CatalogDetailRef>
-  readonly facets: SkillMarket.Facets
-  readonly sourceStatus: SkillMarket.SourceStatus
-}
-
-export type CatalogDetail = {
-  readonly summary: SkillMarket.Summary
-  readonly ref: CatalogDetailRef
-  readonly detail: SkillMarket.Detail
-}
-
 export function key(source: SkillMarket.Source, id: string) {
   return `${source}:${id}`
 }
@@ -65,49 +45,9 @@ export function mergeCatalog(
   }
 }
 
-export function contentAddressDetail(detail: SkillMarket.Detail): CatalogDetail {
-  const body = JSON.stringify(detail)
-  const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
-  return { summary: toSummary(detail), ref: { key: `details/${sha256}.json`, sha256 }, detail }
-}
-
-export function createCatalogIndex(input: {
-  readonly entries: ReadonlyMap<string, Pick<CatalogDetail, "summary" | "ref">>
-  readonly sourceStatus: SkillMarket.SourceStatus
-  readonly createdAt?: string
-}): CatalogIndex {
-  const entries = Array.from(input.entries.entries()).toSorted(([left], [right]) => left.localeCompare(right))
-  const revision = new Bun.CryptoHasher("sha256")
-    .update(JSON.stringify({ entries, sourceStatus: input.sourceStatus }))
-    .digest("hex")
-  const items = entries.map(([, entry]) => entry.summary)
-  return {
-    revision,
-    createdAt: input.createdAt ?? new Date().toISOString(),
-    items,
-    details: new Map(entries.map(([entryKey, entry]) => [entryKey, entry.ref])),
-    facets: buildFacets(revision, input.sourceStatus, items.filter((item) => !item.delisted)),
-    sourceStatus: input.sourceStatus,
-  }
-}
-
 export function queryCatalog(snapshot: CatalogSnapshot, query: SkillMarket.PageQuery): SkillMarket.Page {
-  return queryCatalogIndex(
-    {
-      revision: snapshot.revision,
-      createdAt: snapshot.createdAt,
-      items: snapshot.items,
-      details: new Map(),
-      facets: snapshot.facets,
-      sourceStatus: snapshot.sourceStatus,
-    },
-    query,
-  )
-}
-
-export function queryCatalogIndex(index: CatalogIndex, query: SkillMarket.PageQuery): SkillMarket.Page {
   const keyword = query.query?.trim().toLocaleLowerCase()
-  const filtered = index.items
+  const filtered = snapshot.items
     .filter((item) => !item.delisted)
     .filter((item) => !query.source || item.source === query.source)
     .filter((item) => !query.category || item.categories.includes(query.category))
@@ -124,8 +64,8 @@ export function queryCatalogIndex(index: CatalogIndex, query: SkillMarket.PageQu
   const items = filtered.toSorted(comparator(query.sort))
   const start = (query.page - 1) * query.limit
   return {
-    revision: index.revision,
-    sourceStatus: index.sourceStatus,
+    revision: snapshot.revision,
+    sourceStatus: snapshot.sourceStatus,
     total: items.length,
     page: query.page,
     limit: query.limit,
@@ -133,7 +73,7 @@ export function queryCatalogIndex(index: CatalogIndex, query: SkillMarket.PageQu
   }
 }
 
-export function applyEnterprise(
+function applyEnterprise(
   detail: SkillMarket.Detail,
   override: SkillMarket.EnterpriseIndex["skills"][number] | undefined,
 ) {
@@ -154,7 +94,7 @@ export function applyEnterprise(
   } satisfies SkillMarket.Detail
 }
 
-export function toSummary(detail: SkillMarket.Detail): SkillMarket.Summary {
+function toSummary(detail: SkillMarket.Detail): SkillMarket.Summary {
   return {
     id: detail.id,
     source: detail.source,

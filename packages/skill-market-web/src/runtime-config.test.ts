@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { resolveSkillMarketRuntime, skillDetailUrl } from "./runtime-config"
+import { resolveSkillMarketRuntime } from "./runtime-config"
 
 describe("Skill market runtime configuration", () => {
   test("defaults production requests to the page origin", () => {
@@ -22,16 +22,5 @@ describe("Skill market runtime configuration", () => {
       apiBaseUrl: "http://10.246.13.226:4210",
       allowInsecurePrivateHttp: true,
     })
-  })
-
-  test("builds an encoded skill detail URL under the deployed base path", () => {
-    expect(
-      skillDetailUrl("http://10.246.13.226:4211", "/ai-coding/ruying-code/skill-market/", {
-        source: "skillhub",
-        id: "name with/slash",
-      }),
-    ).toBe(
-      "http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/skills/skillhub/name%20with%2Fslash",
-    )
   })
 })

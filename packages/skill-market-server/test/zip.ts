@@ -21,7 +21,6 @@ export function makeZip(
     name: encoder.encode(entry.name),
     localName: encoder.encode(entry.localName ?? entry.name),
     body: encoder.encode(entry.content),
-    compressed: new Uint8Array(entry.method === 8 ? deflateRawSync(encoder.encode(entry.content)) : encoder.encode(entry.content)),
   }))
   const local: Uint8Array[] = []
   const central: Uint8Array[] = []
@@ -34,11 +33,11 @@ export function makeZip(
     view.setUint16(6, entry.flags ?? 0, true)
     view.setUint16(8, entry.method ?? 0, true)
     view.setUint32(14, crc32(entry.body), true)
-    view.setUint32(18, entry.declaredCompressedSize ?? entry.compressed.length, true)
+    view.setUint32(18, entry.declaredCompressedSize ?? entry.body.length, true)
     view.setUint32(22, entry.declaredSize ?? entry.body.length, true)
     view.setUint16(26, entry.localName.length, true)
     header.set(entry.localName, 30)
-    local.push(header, entry.compressed)
+    local.push(header, entry.body)
 
     const directory = new Uint8Array(46 + entry.name.length)
     const directoryView = new DataView(directory.buffer)
@@ -48,14 +47,14 @@ export function makeZip(
     directoryView.setUint16(8, entry.flags ?? 0, true)
     directoryView.setUint16(10, entry.method ?? 0, true)
     directoryView.setUint32(16, crc32(entry.body), true)
-    directoryView.setUint32(20, entry.declaredCompressedSize ?? entry.compressed.length, true)
+    directoryView.setUint32(20, entry.declaredCompressedSize ?? entry.body.length, true)
     directoryView.setUint32(24, entry.declaredSize ?? entry.body.length, true)
     directoryView.setUint16(28, entry.name.length, true)
     directoryView.setUint32(38, (entry.mode ?? 0o100644) << 16, true)
     directoryView.setUint32(42, offset, true)
     directory.set(entry.name, 46)
     central.push(directory)
-    offset += header.length + entry.compressed.length
+    offset += header.length + entry.body.length
   })
   const centralSize = central.reduce((total, entry) => total + entry.length, 0)
   const end = new Uint8Array(22)
@@ -85,4 +84,3 @@ function crc32(body: Uint8Array) {
   })
   return (crc ^ 0xffffffff) >>> 0
 }
-import { deflateRawSync } from "node:zlib"

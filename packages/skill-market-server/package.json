@@ -13,7 +13,6 @@
     "restore-drill": "bun script/restore-drill.ts",
     "start": "bun src/server.ts",
     "sync": "bun src/sync.ts",
-    "skillhub-worker": "bun src/skillhub-worker.ts",
     "worker": "bun src/worker.ts",
     "test": "bun test",
     "typecheck": "tsgo --noEmit"

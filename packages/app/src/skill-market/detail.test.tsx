@@ -10,7 +10,7 @@ import type { SkillMarketActions, SkillMarketDataSource } from "./types"
 const detail = {
   id: "code-review",
   source: "skillhub",
-  sourceUrl: "https://clawhub.ai/example/code-review",
+  sourceUrl: "https://skillhub.cn/skills/code-review",
   name: "Code Review",
   description: "审查代码并发现风险",
   iconUrl: "https://cdn.example.com/code-review.png",
@@ -53,15 +53,8 @@ const detail = {
     size: 2048,
     files: [{ path: "SKILL.md", sha256: "b".repeat(64), size: 1024 }],
   },
-  publicDetailUrl: "https://skillhub.cn/skills/code-review",
+  publicDetailUrl: "https://ruying.example.com/skills/skillhub/code-review",
 } satisfies SkillMarket.Detail
-
-const expectedPrompt = `请安装并使用这个 Skill：Code Review
-内网详情：http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/skills/skillhub/code-review
-内网下载：https://oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/app-platform-test/ai-coding/ruying-code/skill-market-test/packages/${"a".repeat(64)}.zip
-版本：1.2.0
-SHA-256：${"a".repeat(64)}
-要求：仅使用上述内网地址下载，并在安装前校验 SHA-256。`
 
 function source(value: SkillMarket.Detail = detail): SkillMarketDataSource {
   return {
@@ -87,28 +80,13 @@ beforeEach(() => {
   document.body.innerHTML = ""
 })
 
-test("formats an internal-only install prompt", () => {
-  const value = installPrompt(detail, {
-    detailUrl:
-      "http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/skills/skillhub/code-review",
-    downloadUrl: `https://oss-cn-baoding-gwmcloud-d01-a.res.cloud.gwm.cn/app-platform-test/ai-coding/ruying-code/skill-market-test/packages/${"a".repeat(64)}.zip`,
-  })
-
-  expect(value).toBe(expectedPrompt)
-  expect(value).not.toContain("skillhub.cn")
-  expect(value).not.toContain("clawhub.ai")
-  expect(value).not.toContain(detail.sourceUrl)
-  expect(value).not.toContain(detail.publicDetailUrl)
-})
-
 test("sanitizes markdown and exposes only web copy and download actions", async () => {
   const copied: string[] = []
   const downloaded: string[] = []
   const view = renderDetail(source(), {
     kind: "web",
-    prompt: () => expectedPrompt,
     copyPrompt: async (value) => {
-      copied.push(value)
+      copied.push(value.publicDetailUrl)
     },
     download: async (value) => {
       downloaded.push(value.package.url)
@@ -125,7 +103,7 @@ test("sanitizes markdown and exposes only web copy and download actions", async 
   await userEvent.click(view.getByRole("button", { name: "复制安装 Prompt" }))
   await userEvent.click(view.getByRole("button", { name: "下载 ZIP" }))
 
-  expect(copied).toEqual([expectedPrompt])
+  expect(copied).toEqual([detail.publicDetailUrl])
   expect(downloaded).toEqual([detail.package.url])
   expect(view.queryByRole("button", { name: "安装" })).toBeNull()
 })
@@ -134,7 +112,6 @@ test("reports prompt copy progress and success", async () => {
   const copy = Promise.withResolvers<void>()
   const view = renderDetail(source(), {
     kind: "web",
-    prompt: () => expectedPrompt,
     copyPrompt: () => copy.promise,
     download: async () => undefined,
   })
@@ -152,28 +129,23 @@ test("reports prompt copy progress and success", async () => {
 test("offers the complete prompt when automatic copy fails", async () => {
   const denied = Promise.reject(new Error("denied"))
   void denied.catch(() => undefined)
-  const copied: string[] = []
   const view = renderDetail(source(), {
     kind: "web",
-    prompt: () => expectedPrompt,
-    copyPrompt: (value) => {
-      copied.push(value)
-      return denied
-    },
+    copyPrompt: () => denied,
     download: async () => undefined,
   })
 
   await view.findByRole("heading", { name: detail.name, level: 1 })
   await userEvent.click(view.getByRole("button", { name: "复制安装 Prompt" }))
   expect((await view.findByRole("alert")).textContent).toContain("自动复制失败")
-  expect(copied).toEqual([expectedPrompt])
-  expect((view.getByRole("textbox", { name: "安装 Prompt" }) as HTMLTextAreaElement).value).toBe(expectedPrompt)
+  expect((view.getByRole("textbox", { name: "安装 Prompt" }) as HTMLTextAreaElement).value).toBe(
+    installPrompt(detail),
+  )
 })
 
 test("supports keyboard tab navigation across overview versions and security", async () => {
   const view = renderDetail(source(), {
     kind: "web",
-    prompt: () => expectedPrompt,
     copyPrompt: async () => undefined,
     download: async () => undefined,
   })
@@ -192,7 +164,6 @@ test("supports keyboard tab navigation across overview versions and security", a
 test("shows attribution and a delisted warning", async () => {
   const view = renderDetail(source({ ...detail, delisted: true, risk: "danger" }), {
     kind: "web",
-    prompt: () => expectedPrompt,
     copyPrompt: async () => undefined,
     download: async () => undefined,
   })
@@ -214,7 +185,6 @@ test("shows approved community attribution without private employee data", async
   } satisfies SkillMarket.Detail
   const view = renderDetail(source(community), {
     kind: "web",
-    prompt: () => expectedPrompt,
     copyPrompt: async () => undefined,
     download: async () => undefined,
   })
@@ -234,7 +204,6 @@ test("renders loading and unavailable states", async () => {
     { ...source(), detail: async () => pending },
     {
       kind: "web",
-      prompt: () => expectedPrompt,
       copyPrompt: async () => undefined,
       download: async () => undefined,
     },
@@ -246,12 +215,7 @@ test("renders loading and unavailable states", async () => {
 
   const unavailable = renderDetail(
     { ...source(), detail: async () => Promise.reject(new Error("not found")) },
-    {
-      kind: "web",
-      prompt: () => expectedPrompt,
-      copyPrompt: async () => undefined,
-      download: async () => undefined,
-    },
+    { kind: "web", copyPrompt: async () => undefined, download: async () => undefined },
   )
   await waitFor(() => expect(unavailable.getByRole("alert").textContent).toContain("不存在或已下架"))
 })

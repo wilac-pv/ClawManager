@@ -10,12 +10,10 @@ import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import type { createAuth } from "./auth"
 import { type CatalogSnapshot, key, queryCatalog } from "./catalog"
-import type { CatalogReader } from "./catalog-reader"
 import type { MarketMetricEmitter } from "./metrics"
 import type { Moderation } from "./moderation"
 import type { PrivateObjectStore } from "./oss"
 import type { MarketSecurity } from "./security"
-import type { SkillHubImportAdmin } from "./skillhub-import-admin"
 import { randomSecret } from "./security"
 import type { Submissions } from "./submissions"
 import { createAdminHttp } from "./http/admin"
@@ -24,14 +22,14 @@ import { createCatalogHttp } from "./http/catalog"
 import { createSecurityLayers } from "./http/middleware"
 import { createSubmissionsHttp } from "./http/submissions"
 
+type SnapshotLoader = () => Promise<CatalogSnapshot>
+
 export interface MarketHttpOptions {
-  readonly catalog?: CatalogReader
-  readonly loadSnapshot?: () => Promise<CatalogSnapshot>
+  readonly loadSnapshot: SnapshotLoader
   readonly auth: ReturnType<typeof createAuth>
   readonly security: MarketSecurity
   readonly submissions: Submissions
   readonly moderation: Moderation
-  readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
   readonly webOrigin: string
@@ -40,15 +38,12 @@ export interface MarketHttpOptions {
   readonly cookieSecure: boolean
   readonly sessionCookieMaxAgeSeconds: number
   readonly onWorkReady?: () => void
-  readonly onSkillHubWorkReady?: () => void
   readonly emit?: MarketMetricEmitter
 }
 
 export function createMarketRoutes(options: MarketHttpOptions) {
-  const catalog = options.catalog ?? (options.loadSnapshot ? readerFromSnapshot(options.loadSnapshot) : undefined)
-  if (!catalog) throw new Error("catalog reader is required")
   const groups = [
-    createCatalogHttp(catalog),
+    createCatalogHttp(options.loadSnapshot),
     createAuthHttp(options),
     createSubmissionsHttp(options),
     createAdminHttp(options),
@@ -76,40 +71,6 @@ export function createMarketRoutes(options: MarketHttpOptions) {
       }),
     ),
   )
-}
-
-function readerFromSnapshot(loadSnapshot: () => Promise<CatalogSnapshot>): CatalogReader {
-  const index = async () => {
-    const snapshot = await loadSnapshot()
-    return {
-      revision: snapshot.revision,
-      createdAt: snapshot.createdAt,
-      items: snapshot.items,
-      details: new Map(),
-      facets: snapshot.facets,
-      sourceStatus: snapshot.sourceStatus,
-    }
-  }
-  const detail = async (source: Parameters<CatalogReader["detail"]>[0], id: string) =>
-    (await loadSnapshot()).details.get(key(source, id))
-  return {
-    index,
-    async list(query) {
-      return queryCatalog(await loadSnapshot(), query)
-    },
-    async facets() {
-      return (await loadSnapshot()).facets
-    },
-    detail,
-    async versions(source, id) {
-      return (await detail(source, id))?.versions
-    },
-    async download(source, id) {
-      const value = await detail(source, id)
-      if (!value) return undefined
-      return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
-    },
-  }
 }
 
 export function createMarketWebHandler(options: MarketHttpOptions) {
@@ -190,28 +151,28 @@ function controlHeaders(webOrigin: string) {
   )
 }
 
-export function createCatalogHandler(catalog: CatalogReader) {
+export function createCatalogHandler(loadSnapshot: SnapshotLoader) {
   return (request: Request) => {
     if (request.method === "OPTIONS") return Promise.resolve(response(null, 204))
     const url = new URL(request.url)
     if (url.pathname === "/health") return Promise.resolve(json({ status: "ok" }, 200, request.method === "HEAD"))
     if (request.method !== "GET" && request.method !== "HEAD")
       return Promise.resolve(json({ code: "method-not-allowed" }, 405, false, { allow: "GET, HEAD, OPTIONS" }))
-    return catalog.index()
-      .then((index) => route(request, url, index, catalog))
+    return loadSnapshot()
+      .then((snapshot) => route(request, url, snapshot))
       .catch(() => json({ code: "market-unavailable", message: "Skill 市场暂不可用" }, 503, request.method === "HEAD"))
   }
 }
 
-function route(request: Request, url: URL, index: Awaited<ReturnType<CatalogReader["index"]>>, catalog: CatalogReader) {
+function route(request: Request, url: URL, snapshot: CatalogSnapshot) {
   const head = request.method === "HEAD"
-  const headers = snapshotHeaders(index)
+  const headers = snapshotHeaders(snapshot)
   if (url.pathname === "/v1/catalog/skills") {
     const decoded = Schema.decodeUnknownOption(SkillMarketCatalogQuery)(Object.fromEntries(url.searchParams))
     if (Option.isNone(decoded)) return json({ code: "invalid-query", message: "查询参数无效" }, 400, head, headers)
-    return catalog.list(normalizeSkillMarketCatalogQuery(decoded.value)).then((value) => json(value, 200, head, headers))
+    return json(queryCatalog(snapshot, normalizeSkillMarketCatalogQuery(decoded.value)), 200, head, headers)
   }
-  if (url.pathname === "/v1/catalog/facets") return catalog.facets().then((value) => json(value, 200, head, headers))
+  if (url.pathname === "/v1/catalog/facets") return json(snapshot.facets, 200, head, headers)
 
   const segments = url.pathname.split("/").filter(Boolean)
   if (segments[0] !== "v1" || segments[1] !== "catalog" || segments[2] !== "skills")
@@ -221,28 +182,22 @@ function route(request: Request, url: URL, index: Awaited<ReturnType<CatalogRead
     return json({ code: "not-found" }, 404, head, headers)
   const id = segments[4]
   if (!id) return json({ code: "not-found" }, 404, head, headers)
-  const decodedID = decodeURIComponent(id)
-  if (segments.length === 5)
-    return catalog.detail(source, decodedID).then((detail) =>
-      !detail || detail.delisted ? json({ code: "not-found" }, 404, head, headers) : json(detail, 200, head, headers),
-    )
+  const detail = snapshot.details.get(key(source, decodeURIComponent(id)))
+  if (!detail || detail.delisted) return json({ code: "not-found" }, 404, head, headers)
+  if (segments.length === 5) return json(detail, 200, head, headers)
   if (segments.length !== 6) return json({ code: "not-found" }, 404, head, headers)
-  if (segments[5] === "versions")
-    return catalog.detail(source, decodedID).then((detail) =>
-      !detail || detail.delisted
-        ? json({ code: "not-found" }, 404, head, headers)
-        : json(detail.versions, 200, head, headers),
-    )
+  if (segments[5] === "versions") return json(detail.versions, 200, head, headers)
   if (segments[5] === "download")
-    return catalog.detail(source, decodedID).then((detail) =>
-      !detail || detail.delisted
-        ? json({ code: "not-found" }, 404, head, headers)
-        : json({ url: detail.package.url, sha256: detail.package.sha256, size: detail.package.size }, 200, head, headers),
+    return json(
+      { url: detail.package.url, sha256: detail.package.sha256, size: detail.package.size },
+      200,
+      head,
+      headers,
     )
   return json({ code: "not-found" }, 404, head, headers)
 }
 
-function snapshotHeaders(snapshot: Awaited<ReturnType<CatalogReader["index"]>>) {
+function snapshotHeaders(snapshot: CatalogSnapshot) {
   return {
     "cache-control": "public, max-age=60",
     etag: `"${snapshot.revision}"`,
