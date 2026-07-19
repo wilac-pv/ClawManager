@@ -100,6 +100,7 @@ describe("catalog HTTP", () => {
     expect(get.headers.get("x-content-sha256")).toBe(fixture.sha256)
     expect(get.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
     expect(get.headers.get("content-disposition")).toBe('attachment; filename="skillhub-code-review-1.0.0.zip"')
+    expect(get.headers.get("x-content-type-options")).toBe("nosniff")
 
     const head = await handler(
       new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package", {
@@ -108,19 +109,38 @@ describe("catalog HTTP", () => {
     )
     expect(head.status).toBe(200)
     expect(await head.text()).toBe("")
+    expect(head.headers.get("content-type")).toBe("application/zip")
+    expect(head.headers.get("content-length")).toBe(String(fixture.body.byteLength))
+    expect(head.headers.get("etag")).toBe(`"${fixture.sha256}"`)
     expect(head.headers.get("x-content-sha256")).toBe(fixture.sha256)
+    expect(head.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
+    expect(head.headers.get("content-disposition")).toBe('attachment; filename="skillhub-code-review-1.0.0.zip"')
+    expect(head.headers.get("x-content-type-options")).toBe("nosniff")
     expect(fixture.store.getCalls).toBe(2)
   })
 
   test.each([
-    { name: "absent detail", status: 404, detail: "absent" as const, code: "skill-market-not-found" },
-    { name: "delisted detail", status: 404, detail: "delisted" as const, code: "skill-market-not-found" },
+    {
+      name: "absent detail",
+      status: 404,
+      detail: "absent" as const,
+      code: "skill-market-not-found",
+      message: "Skill 包不存在",
+    },
+    {
+      name: "delisted detail",
+      status: 404,
+      detail: "delisted" as const,
+      code: "skill-market-not-found",
+      message: "Skill 包不存在",
+    },
     {
       name: "declared oversize",
       status: 413,
       detail: "present" as const,
       size: MAX_CATALOG_PACKAGE_SIZE + 1,
       code: "skill-market-package-too-large",
+      message: "Skill 包超过大小限制",
     },
     {
       name: "stored oversize",
@@ -128,6 +148,7 @@ describe("catalog HTTP", () => {
       detail: "present" as const,
       headSize: MAX_CATALOG_PACKAGE_SIZE + 1,
       code: "skill-market-package-too-large",
+      message: "Skill 包超过大小限制",
     },
     {
       name: "missing object",
@@ -135,6 +156,7 @@ describe("catalog HTTP", () => {
       detail: "present" as const,
       missingHead: true,
       code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
     },
     {
       name: "length mismatch",
@@ -142,6 +164,7 @@ describe("catalog HTTP", () => {
       detail: "present" as const,
       headSize: 1,
       code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
     },
     {
       name: "SHA mismatch",
@@ -149,6 +172,7 @@ describe("catalog HTTP", () => {
       detail: "present" as const,
       corruptBody: true,
       code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
     },
   ])("returns a bounded package problem for $name", async (options) => {
     const fixture = packageFixture(options)
@@ -158,8 +182,9 @@ describe("catalog HTTP", () => {
     )(new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package"))
 
     expect(response.status).toBe(options.status)
-    expect(await response.json()).toMatchObject({
+    expect(await response.json()).toEqual({
       code: options.code,
+      message: options.message,
       source: "skillhub",
       id: "code-review",
       requestId: expect.any(String),
@@ -168,6 +193,30 @@ describe("catalog HTTP", () => {
       expect(fixture.store.headCalls).toBe(0)
       expect(fixture.store.getCalls).toBe(0)
     }
+  })
+
+  test.each([
+    { name: "absent detail", status: 404, detail: "absent" as const },
+    {
+      name: "declared oversize",
+      status: 413,
+      detail: "present" as const,
+      size: MAX_CATALOG_PACKAGE_SIZE + 1,
+    },
+    { name: "missing object", status: 502, detail: "present" as const, missingHead: true },
+  ])("returns an empty HEAD package problem for $name", async (options) => {
+    const fixture = packageFixture(options)
+    const response = await createCatalogHandler(
+      async () => fixture.snapshot,
+      fixture.packages,
+    )(
+      new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package", {
+        method: "HEAD",
+      }),
+    )
+
+    expect(response.status).toBe(options.status)
+    expect(await response.text()).toBe("")
   })
 
   test("returns the existing unavailable problem when snapshot loading fails", async () => {
@@ -180,6 +229,18 @@ describe("catalog HTTP", () => {
     expect(await response.json()).toEqual({ code: "market-unavailable", message: "Skill 市场暂不可用" })
   })
 
+  test("returns an empty HEAD problem when snapshot loading fails", async () => {
+    const fixture = packageFixture()
+    const response = await createCatalogHandler(async () => {
+      throw new Error("snapshot unavailable")
+    }, fixture.packages)(
+      new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package", { method: "HEAD" }),
+    )
+
+    expect(response.status).toBe(503)
+    expect(await response.text()).toBe("")
+  })
+
   test("does not fall back to the catalog URL when no package reader is injected", async () => {
     const fixture = packageFixture({ canaryUrl: "https://attacker.example/never-fetch.zip" })
     const response = await createCatalogHandler(async () => fixture.snapshot)(
@@ -187,8 +248,9 @@ describe("catalog HTTP", () => {
     )
 
     expect(response.status).toBe(502)
-    expect(await response.json()).toMatchObject({
+    expect(await response.json()).toEqual({
       code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
       source: "skillhub",
       id: "code-review",
       requestId: expect.any(String),
@@ -216,6 +278,19 @@ describe("catalog HTTP", () => {
     expect(fixture.store.keys).toHaveLength(2)
     expect(fixture.store.keys.every((value) => value.startsWith("public-market/"))).toBe(true)
   })
+
+  test("sanitizes schema-valid package identity in attachment filenames", async () => {
+    const fixture = packageFixture({ id: "code+review", version: "1.0.0+build" })
+    const response = await createCatalogHandler(
+      async () => fixture.snapshot,
+      fixture.packages,
+    )(new Request("https://market.example.com/v1/catalog/skills/skillhub/code+review/package"))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="skillhub-code_review-1.0.0_build.zip"',
+    )
+  })
 })
 
 function packageFixture(
@@ -226,6 +301,8 @@ function packageFixture(
     missingHead?: boolean
     corruptBody?: boolean
     canaryUrl?: string
+    id?: string
+    version?: string
   } = {},
 ) {
   const body = new TextEncoder().encode("verified package body")
@@ -233,9 +310,11 @@ function packageFixture(
   const storedBody = options.corruptBody ? body.map((value, index) => (index === 0 ? value ^ 1 : value)) : body
   const snapshot = sampleSnapshot("package-r1")
   snapshot.details.set(
-    "skillhub:code-review",
+    `skillhub:${options.id ?? "code-review"}`,
     sampleDetail({
+      id: options.id ?? "code-review",
       delisted: options.detail === "delisted",
+      version: options.version ?? "1.0.0",
       package: {
         ...sampleDetail().package,
         url: options.canaryUrl ?? sampleDetail().package.url,
@@ -244,7 +323,7 @@ function packageFixture(
       },
     }),
   )
-  if (options.detail === "absent") snapshot.details.delete("skillhub:code-review")
+  if (options.detail === "absent") snapshot.details.delete(`skillhub:${options.id ?? "code-review"}`)
   const keys: string[] = []
   const calls = { head: 0, get: 0 }
   const client: ObjectStore = {

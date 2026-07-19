@@ -3,6 +3,7 @@ import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
 import { mkdtemp, rm } from "node:fs/promises"
+import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAuth } from "../src/auth"
@@ -57,11 +58,18 @@ describe("skill market control HTTP", () => {
     expect(get.headers.get("x-content-sha256")).toBe(fixture.packageSha256)
     expect(get.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
     expect(get.headers.get("content-disposition")).toBe('attachment; filename="skillhub-code-review-1.0.0.zip"')
+    expect(get.headers.get("x-content-type-options")).toBe("nosniff")
 
     const head = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/package`, { method: "HEAD" })
     expect(head.status).toBe(200)
     expect(await head.text()).toBe("")
+    expect(head.headers.get("content-type")).toBe("application/zip")
+    expect(head.headers.get("content-length")).toBe(String(fixture.packageBody.byteLength))
+    expect(head.headers.get("etag")).toBe(`"${fixture.packageSha256}"`)
     expect(head.headers.get("x-content-sha256")).toBe(fixture.packageSha256)
+    expect(head.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
+    expect(head.headers.get("content-disposition")).toBe('attachment; filename="skillhub-code-review-1.0.0.zip"')
+    expect(head.headers.get("x-content-type-options")).toBe("nosniff")
     expect(fixture.packageGets).toBe(2)
     expect(fixture.metrics).toEqual([
       {
@@ -103,19 +111,37 @@ describe("skill market control HTTP", () => {
       id: "code-review",
       requestId: problem.requestId,
     })
-    const failure = fixture.metrics.at(-1)
-    expect(failure).toEqual({
-      skill_market_package_delivery: {
-        failure: 1,
-        source: "skillhub",
-        id: "code-review",
-        method: "GET",
-        phase: "head",
-        request_id: problem.requestId,
+    expect(fixture.metrics).toEqual([
+      {
+        skill_market_package_delivery: {
+          success: 1,
+          source: "skillhub",
+          id: "code-review",
+          method: "GET",
+        },
       },
-    })
-    expect(`${failedBody}\n${JSON.stringify(failure)}`).not.toContain("skill-market/packages")
-    expect(`${failedBody}\n${JSON.stringify(failure)}`).not.toContain("packages.example.com")
+      {
+        skill_market_package_delivery: {
+          success: 1,
+          source: "skillhub",
+          id: "code-review",
+          method: "HEAD",
+        },
+      },
+      {
+        skill_market_package_delivery: {
+          failure: 1,
+          source: "skillhub",
+          id: "code-review",
+          method: "GET",
+          phase: "head",
+          request_id: problem.requestId,
+        },
+      },
+    ])
+    const publicEvidence = `${failedBody}\n${JSON.stringify(fixture.metrics)}`
+    expect(publicEvidence).not.toContain("https://attacker.example/never-fetch.zip")
+    expect(publicEvidence).not.toContain(fixture.trustedKey)
   })
 
   test("correlates snapshot delivery failures without exposing dependency details", async () => {
@@ -156,24 +182,29 @@ describe("skill market control HTTP", () => {
       detail: "absent" as const,
       status: 404,
       code: "skill-market-not-found",
+      message: "Skill 包不存在",
       phase: "detail",
     },
     {
       detail: "delisted" as const,
       status: 404,
       code: "skill-market-not-found",
+      message: "Skill 包不存在",
       phase: "detail",
     },
     {
       detail: "oversize" as const,
       status: 413,
       code: "skill-market-package-too-large",
+      message: "Skill 包超过大小限制",
       phase: "declared-size",
     },
   ])("maps $detail packages through the Effect delivery route", async (options) => {
     await using fixture = await marketFixture({ packageDetail: options.detail })
     const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/package`)
     expect(response.status).toBe(options.status)
+    const responseBody = await response.text()
+    const responseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(responseBody)
     const problem = Schema.decodeUnknownSync(
       Schema.Struct({
         code: Schema.String,
@@ -182,12 +213,13 @@ describe("skill market control HTTP", () => {
         source: Schema.String,
         id: Schema.String,
       }),
-    )(Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(await response.text()))
-    expect(problem).toMatchObject({
+    )(responseJson)
+    expect(responseJson).toEqual({
       code: options.code,
+      message: options.message,
       source: "skillhub",
       id: "code-review",
-      requestId: expect.any(String),
+      requestId: problem.requestId,
     })
     expect(fixture.metrics).toEqual([
       {
@@ -203,6 +235,225 @@ describe("skill market control HTTP", () => {
     ])
     expect(fixture.packageHeads).toBe(0)
     expect(fixture.packageGets).toBe(0)
+    const publicEvidence = `${responseBody}\n${JSON.stringify(fixture.metrics)}`
+    expect(publicEvidence).not.toContain("https://attacker.example/never-fetch.zip")
+    expect(publicEvidence).not.toContain(fixture.trustedKey)
+  })
+
+  test.each([
+    {
+      failure: "stored-oversize" as const,
+      status: 413,
+      code: "skill-market-package-too-large",
+      message: "Skill 包超过大小限制",
+      phase: "stored-size",
+      heads: 1,
+      gets: 0,
+    },
+    {
+      failure: "get" as const,
+      status: 502,
+      code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
+      phase: "get",
+      heads: 1,
+      gets: 1,
+    },
+    {
+      failure: "stored-size" as const,
+      status: 502,
+      code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
+      phase: "stored-size",
+      heads: 1,
+      gets: 0,
+    },
+    {
+      failure: "body-size" as const,
+      status: 502,
+      code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
+      phase: "body-size",
+      heads: 1,
+      gets: 1,
+    },
+    {
+      failure: "sha256" as const,
+      status: 502,
+      code: "skill-market-package-unavailable",
+      message: "Skill 包暂不可用",
+      phase: "sha256",
+      heads: 1,
+      gets: 1,
+    },
+  ])("maps $failure verification failures through the Effect delivery route", async (options) => {
+    await using fixture = await marketFixture({ packageFailure: options.failure })
+    const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/package`)
+    expect(response.status).toBe(options.status)
+    const responseBody = await response.text()
+    const responseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(responseBody)
+    const problem = Schema.decodeUnknownSync(
+      Schema.Struct({
+        code: Schema.String,
+        message: Schema.String,
+        requestId: Schema.String,
+        source: Schema.String,
+        id: Schema.String,
+      }),
+    )(responseJson)
+    expect(responseJson).toEqual({
+      code: options.code,
+      message: options.message,
+      source: "skillhub",
+      id: "code-review",
+      requestId: problem.requestId,
+    })
+    expect(fixture.metrics).toEqual([
+      {
+        skill_market_package_delivery: {
+          failure: 1,
+          source: "skillhub",
+          id: "code-review",
+          method: "GET",
+          phase: options.phase,
+          request_id: problem.requestId,
+        },
+      },
+    ])
+    expect(fixture.packageHeads).toBe(options.heads)
+    expect(fixture.packageGets).toBe(options.gets)
+    const publicEvidence = `${responseBody}\n${JSON.stringify(fixture.metrics)}`
+    expect(publicEvidence).not.toContain("https://attacker.example/never-fetch.zip")
+    expect(publicEvidence).not.toContain(fixture.trustedKey)
+  })
+
+  test.each([
+    {
+      name: "absent",
+      fixture: { packageDetail: "absent" as const },
+      status: 404,
+      phase: "detail",
+    },
+    {
+      name: "declared oversize",
+      fixture: { packageDetail: "oversize" as const },
+      status: 413,
+      phase: "declared-size",
+    },
+    {
+      name: "GET-stage failure",
+      fixture: { packageFailure: "get" as const },
+      status: 502,
+      phase: "get",
+    },
+  ])("returns an empty HEAD $name problem with bounded telemetry", async (options) => {
+    await using fixture = await marketFixture(options.fixture)
+    const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/package`, {
+      method: "HEAD",
+    })
+    expect(response.status).toBe(options.status)
+    expect(await response.text()).toBe("")
+    expect(fixture.metrics).toEqual([
+      {
+        skill_market_package_delivery: {
+          failure: 1,
+          source: "skillhub",
+          id: "code-review",
+          method: "HEAD",
+          phase: options.phase,
+          request_id: expect.any(String),
+        },
+      },
+    ])
+    const publicEvidence = JSON.stringify(fixture.metrics)
+    expect(publicEvidence).not.toContain("https://attacker.example/never-fetch.zip")
+    expect(publicEvidence).not.toContain(fixture.trustedKey)
+  })
+
+  test("returns an empty HEAD snapshot problem with bounded telemetry", async () => {
+    await using fixture = await marketFixture({ snapshotFailure: true })
+    const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/package`, {
+      method: "HEAD",
+    })
+    expect(response.status).toBe(503)
+    expect(await response.text()).toBe("")
+    expect(fixture.metrics).toEqual([
+      {
+        skill_market_package_delivery: {
+          failure: 1,
+          source: "skillhub",
+          id: "code-review",
+          method: "HEAD",
+          phase: "snapshot",
+          request_id: expect.any(String),
+        },
+      },
+    ])
+    expect(JSON.stringify(fixture.metrics)).not.toContain("snapshot unavailable")
+  })
+
+  test("isolates encoded traversal and never fetches the catalog package URL", async () => {
+    const state = { canaryConnections: 0 }
+    const canary = createServer((socket) => {
+      state.canaryConnections++
+      socket.destroy()
+    })
+    await new Promise<void>((resolve, reject) => {
+      canary.once("error", reject)
+      canary.listen(0, "127.0.0.1", resolve)
+    })
+    const address = canary.address()
+    if (!address || typeof address === "string") throw new Error("canary did not bind a TCP port")
+    try {
+      const packageUrl = `https://127.0.0.1:${address.port}/never-fetch.zip`
+      await using valid = await marketFixture({ packageUrl })
+      const delivered = await fetch(`${valid.url}/v1/catalog/skills/skillhub/code-review/package`)
+      expect(delivered.status).toBe(200)
+      expect(state.canaryConnections).toBe(0)
+
+      await using escaped = await marketFixture({ packageUrl })
+      const response = await fetch(`${escaped.url}/v1/catalog/skills/skillhub/%2e%2e%2fprivate/package`)
+      expect(response.status).toBe(404)
+      const problem = await response.json()
+      expect(problem).toEqual({
+        code: "skill-market-not-found",
+        message: "Skill 包不存在",
+        requestId: expect.any(String),
+        source: "skillhub",
+        id: "../private",
+      })
+      expect(state.canaryConnections).toBe(0)
+      expect(escaped.storageKeys).toEqual([])
+      expect(escaped.metrics).toEqual([
+        {
+          skill_market_package_delivery: {
+            failure: 1,
+            source: "skillhub",
+            id: "../private",
+            method: "GET",
+            phase: "detail",
+            request_id: Schema.decodeUnknownSync(Schema.Struct({ requestId: Schema.String }))(problem).requestId,
+          },
+        },
+      ])
+      const publicEvidence = `${JSON.stringify(problem)}\n${JSON.stringify(escaped.metrics)}`
+      expect(publicEvidence).not.toContain(packageUrl)
+      expect(publicEvidence).not.toContain(escaped.trustedKey)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        canary.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
+  test("sanitizes schema-valid package identity in production attachment filenames", async () => {
+    await using fixture = await marketFixture({ packageID: "code+review", packageVersion: "1.0.0+build" })
+    const response = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code+review/package`)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="skillhub-code_review-1.0.0_build.zip"',
+    )
   })
 
   test("completes login, returns a private session, enforces CSRF, and logs out", async () => {
@@ -416,6 +667,10 @@ async function marketFixture(
   options: {
     snapshotFailure?: boolean
     packageDetail?: "present" | "absent" | "delisted" | "oversize"
+    packageFailure?: "stored-oversize" | "get" | "stored-size" | "body-size" | "sha256"
+    packageUrl?: string
+    packageID?: string
+    packageVersion?: string
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-control-http-"))
@@ -451,23 +706,37 @@ async function marketFixture(
   })
   const packageBody = new TextEncoder().encode("verified package from Effect HttpApi")
   const packageSha256 = new Bun.CryptoHasher("sha256").update(packageBody).digest("hex")
-  const objects = new Map<string, Uint8Array>([[`skill-market/packages/${packageSha256}.zip`, packageBody]])
+  const trustedKey = `skill-market/packages/${packageSha256}.zip`
+  const storedPackageBody =
+    options.packageFailure === "body-size"
+      ? new Uint8Array([...packageBody, 0])
+      : options.packageFailure === "sha256"
+        ? packageBody.map((value, index) => (index === 0 ? value ^ 1 : value))
+        : packageBody
+  const objects = new Map<string, Uint8Array>([[trustedKey, storedPackageBody]])
   const metrics: Array<Readonly<Record<string, unknown>>> = []
-  const state = { privateWrites: 0, packageHeads: 0, packageGets: 0 }
+  const state = { privateWrites: 0, packageHeads: 0, packageGets: 0, storageKeys: [] as string[] }
   const store: PrivateObjectStore = {
     async put(key, body) {
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
     },
     async get(key) {
+      state.storageKeys.push(key)
       const body = objects.get(key)
       if (!body) throw new Error("object is missing")
-      if (key === `skill-market/packages/${packageSha256}.zip`) state.packageGets++
+      if (key === trustedKey) state.packageGets++
+      if (key === trustedKey && options.packageFailure === "get") throw new Error("GET dependency sentinel")
       return body
     },
     async head(key) {
+      state.storageKeys.push(key)
       const body = objects.get(key)
       if (!body) throw new Error("object is missing")
-      if (key === `skill-market/packages/${packageSha256}.zip`) state.packageHeads++
+      if (key === trustedKey) state.packageHeads++
+      if (key === trustedKey && options.packageFailure === "stored-oversize")
+        return { size: MAX_CATALOG_PACKAGE_SIZE + 1 }
+      if (key === trustedKey && options.packageFailure === "stored-size") return { size: packageBody.byteLength + 1 }
+      if (key === trustedKey && options.packageFailure === "body-size") return { size: packageBody.byteLength }
       return { size: body.byteLength }
     },
     async putPrivate(key, body) {
@@ -486,19 +755,22 @@ async function marketFixture(
   const submissions = createSubmissions({ database, now: () => now })
   const moderation = createModeration({ database, security, now: () => now })
   const snapshot = sampleSnapshot()
+  snapshot.details.delete("skillhub:code-review")
   snapshot.details.set(
-    "skillhub:code-review",
+    `skillhub:${options.packageID ?? "code-review"}`,
     sampleDetail({
+      id: options.packageID ?? "code-review",
       delisted: options.packageDetail === "delisted",
+      version: options.packageVersion ?? "1.0.0",
       package: {
         ...sampleDetail().package,
-        url: "https://attacker.example/never-fetch.zip",
+        url: options.packageUrl ?? "https://attacker.example/never-fetch.zip",
         sha256: packageSha256,
         size: options.packageDetail === "oversize" ? MAX_CATALOG_PACKAGE_SIZE + 1 : packageBody.byteLength,
       },
     }),
   )
-  if (options.packageDetail === "absent") snapshot.details.delete("skillhub:code-review")
+  if (options.packageDetail === "absent") snapshot.details.delete(`skillhub:${options.packageID ?? "code-review"}`)
   const web = createMarketWebHandler({
     loadSnapshot: async () => {
       if (options.snapshotFailure) throw new Error("snapshot unavailable with private dependency detail")
@@ -526,6 +798,8 @@ async function marketFixture(
     metrics,
     packageBody,
     packageSha256,
+    trustedKey,
+    storageKeys: state.storageKeys,
     get packageHeads() {
       return state.packageHeads
     },
