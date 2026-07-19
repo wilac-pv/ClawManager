@@ -111,11 +111,12 @@ export async function loadSkillHub(
   const baseUrl = requireBaseUrl(input)
   const first = await loadPage(fetcher, baseUrl, 1)
   const total = Math.min(first.data.total, limit ?? first.data.total)
-  const pages = await Promise.all(
-    Array.from({ length: Math.max(0, Math.ceil(total / 100) - 1) }, (_, index) =>
-      loadPage(fetcher, baseUrl, index + 2),
-    ),
-  )
+  const pages: (typeof ListResponse.Type)[] = []
+  const pageNumbers = Array.from({ length: Math.max(0, Math.ceil(total / 100) - 1) }, (_, index) => index + 2)
+  for (const chunk of Array.from({ length: Math.ceil(pageNumbers.length / 4) }, (_, index) =>
+    pageNumbers.slice(index * 4, index * 4 + 4),
+  ))
+    pages.push(...(await Promise.all(chunk.map((page) => loadPage(fetcher, baseUrl, page)))))
   const skills = Array.from(
     new Map([first, ...pages].flatMap((page) => page.data.skills).map((skill) => [skill.slug, skill])).values(),
   ).slice(0, total)

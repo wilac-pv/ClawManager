@@ -52,6 +52,23 @@ describe("catalog sources", () => {
     expect(reused[0]).toBe(records[0])
   })
 
+  test("bounds SkillHub list page concurrency", async () => {
+    let active = 0
+    let maximum = 0
+    const records = await loadSkillHub(async (input) => {
+      const url = requestUrl(input)
+      if (!url.includes("/api/skills?")) throw new Error(`unexpected record request ${url}`)
+      active += 1
+      maximum = Math.max(maximum, active)
+      await Bun.sleep(5)
+      active -= 1
+      return Response.json({ code: 0, data: { skills: [], total: 501 }, message: "ok" })
+    }, "https://api.skillhub.cn")
+
+    expect(records).toEqual([])
+    expect(maximum).toBeLessThanOrEqual(4)
+  })
+
   test("decodes enterprise metadata and rejects unapproved package hosts", async () => {
     const fetcher = async () =>
       new Response(Bun.file(new URL("enterprise-index.json", fixtures)), {
@@ -150,7 +167,6 @@ describe("catalog sources", () => {
     expect(config.webOrigin).toBe("http://10.246.13.226:4211")
     expect(config.webBasePath).toBe("/ai-coding/ruying-code/skill-market/")
     expect(config.webBaseUrl).toBe("http://10.246.13.226:4211/ai-coding/ruying-code/skill-market/")
-
     ;["relative/path", "/safe/../admin", "/safe?query=1", "/safe#fragment", "/safe\\admin"].forEach(
       (webBasePath) =>
         expect(() =>
