@@ -26,7 +26,7 @@ export const MarketPageUrl = Schema.String.check(
   Schema.makeFilter(
     (value) => {
       const invalid = "market page URL must use HTTPS or private HTTP without credentials"
-      if (/\s/.test(value) || !URL.canParse(value)) return invalid
+      if (/[?#\s]/.test(value) || !URL.canParse(value)) return invalid
       const url = new URL(value)
       if (url.username || url.password || url.search || url.hash) return invalid
       if (url.protocol === "https:") return undefined
