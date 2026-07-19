@@ -617,7 +617,10 @@ Also make the rejected-copy fallback assert that the textarea contains the same 
 Run from `packages/app`:
 
 ```sh
-bun run test:unit -- src/skill-market/detail.test.tsx
+bun test --conditions=browser \
+  --preload ./happydom.ts \
+  --preload ./solid-test-preload.ts \
+  src/skill-market/detail.test.tsx
 ```
 
 Expected: FAIL until the prompt/action contract is restored.
@@ -762,7 +765,12 @@ Remove the obsolete route interception for `https://downloads.example.com/**`.
 From `packages/app`:
 
 ```sh
-bun run test:unit -- src/skill-market/detail.test.tsx src/skill-market/provider.test.tsx src/skill-market/list.test.tsx
+bun test --conditions=browser \
+  --preload ./happydom.ts \
+  --preload ./solid-test-preload.ts \
+  src/skill-market/detail.test.tsx \
+  src/skill-market/provider.test.tsx \
+  src/skill-market/list.test.tsx
 bun typecheck
 ```
 
@@ -812,7 +820,7 @@ Run from each package directory:
 cd packages/protocol && bun test test/skill-market-catalog.test.ts && bun typecheck
 cd ../client && bun run check:generated && bun test && bun typecheck
 cd ../skill-market-server && bun test && bun typecheck
-cd ../app && bun run test:unit -- src/skill-market/detail.test.tsx src/skill-market/provider.test.tsx src/skill-market/list.test.tsx && bun typecheck
+cd ../app && bun test --conditions=browser --preload ./happydom.ts --preload ./solid-test-preload.ts src/skill-market/detail.test.tsx src/skill-market/provider.test.tsx src/skill-market/list.test.tsx && bun typecheck
 cd ../skill-market-web && bun run test && bun run test:e2e && bun typecheck && bun run build
 ```
 
