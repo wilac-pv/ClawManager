@@ -64,11 +64,7 @@ export class SkillMarketPackageUnavailable extends Schema.ErrorClass<SkillMarket
   "SkillMarketPackageUnavailable",
 )(packageProblem("skill-market-package-unavailable"), { httpApiStatus: 502 }) {}
 
-const PackageErrors = Schema.Union([
-  SkillMarketPackageNotFound,
-  SkillMarketPackageTooLarge,
-  SkillMarketPackageUnavailable,
-])
+const PackageErrors = [SkillMarketPackageNotFound, SkillMarketPackageTooLarge, SkillMarketPackageUnavailable] as const
 
 export const SkillMarketCatalogGroup = HttpApiGroup.make("skillMarket.catalog")
   .add(

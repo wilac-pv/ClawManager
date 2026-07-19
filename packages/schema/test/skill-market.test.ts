@@ -96,7 +96,10 @@ describe("SkillMarket", () => {
       }).publicDetailUrl,
     ).toBe(summary.sourceUrl)
     expect(() =>
-      Schema.decodeUnknownSync(SkillMarket.Summary)({ ...summary, sourceUrl: "http://example.com/skills/private-review" }),
+      Schema.decodeUnknownSync(SkillMarket.Summary)({
+        ...summary,
+        sourceUrl: "http://example.com/skills/private-review",
+      }),
     ).toThrow()
     expect(() =>
       Schema.decodeUnknownSync(SkillMarket.Summary)({
@@ -117,7 +120,7 @@ describe("SkillMarket", () => {
     ).toThrow()
   })
 
-  test("preserves parser-compatible market page URL policy and spelling", () => {
+  test("accepts parser-compatible public and private market page URLs", () => {
     for (const url of [
       "https://skillhub.cn/skills/code-review",
       "https://[2001:db8::1]/skill",
@@ -134,10 +137,15 @@ describe("SkillMarket", () => {
       expect(Schema.decodeUnknownSync(SkillMarket.MarketPageUrl)(url)).toBe(url)
       expect(Schema.encodeUnknownSync(SkillMarket.MarketPageUrl)(url)).toBe(url)
     }
+  })
+
+  test("rejects unsafe market page URLs", () => {
     for (const url of [
       "http://8.8.8.8/skills/code-review",
       "https://user:password@skillhub.cn/skills/code-review",
       "http://user:password@127.0.0.1/skills/code-review",
+      "https://skillhub.cn/skills/code-review?token=secret",
+      "https://skillhub.cn/skills/code-review#fragment",
       "ftp://skillhub.cn/skills/code-review",
       "https://%/skills/code-review",
       "https://[not-ipv6]/skills/code-review",
