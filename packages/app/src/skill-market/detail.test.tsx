@@ -56,6 +56,17 @@ const detail = {
   publicDetailUrl: "https://ruying.example.com/skills/skillhub/code-review",
 } satisfies SkillMarket.Detail
 
+const links = {
+  detailUrl: "http://10.246.13.226:4211/skills/skillhub/code-review",
+  downloadUrl: "http://10.246.13.226:4211/v1/catalog/skills/skillhub/code-review/package",
+}
+const prompt = `请安装并使用这个 Skill：Code Review
+内网详情：http://10.246.13.226:4211/skills/skillhub/code-review
+内网下载：http://10.246.13.226:4211/v1/catalog/skills/skillhub/code-review/package
+版本：1.2.0
+SHA-256：${detail.package.sha256}
+要求：仅使用上述内网地址下载，并在安装前校验 SHA-256。`
+
 function source(value: SkillMarket.Detail = detail): SkillMarketDataSource {
   return {
     list: async () => Promise.reject(new Error("unused")),
@@ -80,13 +91,18 @@ beforeEach(() => {
   document.body.innerHTML = ""
 })
 
+test("builds the complete install prompt from explicit links", () => {
+  expect(installPrompt(detail, links)).toBe(prompt)
+})
+
 test("sanitizes markdown and exposes only web copy and download actions", async () => {
   const copied: string[] = []
   const downloaded: string[] = []
   const view = renderDetail(source(), {
     kind: "web",
+    prompt: () => prompt,
     copyPrompt: async (value) => {
-      copied.push(value.publicDetailUrl)
+      copied.push(value)
     },
     download: async (value) => {
       downloaded.push(value.package.url)
@@ -103,7 +119,7 @@ test("sanitizes markdown and exposes only web copy and download actions", async 
   await userEvent.click(view.getByRole("button", { name: "复制安装 Prompt" }))
   await userEvent.click(view.getByRole("button", { name: "下载 ZIP" }))
 
-  expect(copied).toEqual([detail.publicDetailUrl])
+  expect(copied).toEqual([prompt])
   expect(downloaded).toEqual([detail.package.url])
   expect(view.queryByRole("button", { name: "安装" })).toBeNull()
 })
@@ -112,6 +128,7 @@ test("reports prompt copy progress and success", async () => {
   const copy = Promise.withResolvers<void>()
   const view = renderDetail(source(), {
     kind: "web",
+    prompt: () => prompt,
     copyPrompt: () => copy.promise,
     download: async () => undefined,
   })
@@ -129,23 +146,24 @@ test("reports prompt copy progress and success", async () => {
 test("offers the complete prompt when automatic copy fails", async () => {
   const denied = Promise.reject(new Error("denied"))
   void denied.catch(() => undefined)
-  const view = renderDetail(source(), {
+  const actions = {
     kind: "web",
+    prompt: (_detail: SkillMarket.Detail) => prompt,
     copyPrompt: () => denied,
     download: async () => undefined,
-  })
+  } satisfies SkillMarketActions
+  const view = renderDetail(source(), actions)
 
   await view.findByRole("heading", { name: detail.name, level: 1 })
   await userEvent.click(view.getByRole("button", { name: "复制安装 Prompt" }))
   expect((await view.findByRole("alert")).textContent).toContain("自动复制失败")
-  expect((view.getByRole("textbox", { name: "安装 Prompt" }) as HTMLTextAreaElement).value).toBe(
-    installPrompt(detail),
-  )
+  expect(view.getByRole<HTMLTextAreaElement>("textbox", { name: "安装 Prompt" }).value).toBe(actions.prompt(detail))
 })
 
 test("supports keyboard tab navigation across overview versions and security", async () => {
   const view = renderDetail(source(), {
     kind: "web",
+    prompt: () => prompt,
     copyPrompt: async () => undefined,
     download: async () => undefined,
   })
@@ -164,6 +182,7 @@ test("supports keyboard tab navigation across overview versions and security", a
 test("shows attribution and a delisted warning", async () => {
   const view = renderDetail(source({ ...detail, delisted: true, risk: "danger" }), {
     kind: "web",
+    prompt: () => prompt,
     copyPrompt: async () => undefined,
     download: async () => undefined,
   })
@@ -185,6 +204,7 @@ test("shows approved community attribution without private employee data", async
   } satisfies SkillMarket.Detail
   const view = renderDetail(source(community), {
     kind: "web",
+    prompt: () => prompt,
     copyPrompt: async () => undefined,
     download: async () => undefined,
   })
@@ -204,6 +224,7 @@ test("renders loading and unavailable states", async () => {
     { ...source(), detail: async () => pending },
     {
       kind: "web",
+      prompt: () => prompt,
       copyPrompt: async () => undefined,
       download: async () => undefined,
     },
@@ -215,7 +236,7 @@ test("renders loading and unavailable states", async () => {
 
   const unavailable = renderDetail(
     { ...source(), detail: async () => Promise.reject(new Error("not found")) },
-    { kind: "web", copyPrompt: async () => undefined, download: async () => undefined },
+    { kind: "web", prompt: () => prompt, copyPrompt: async () => undefined, download: async () => undefined },
   )
   await waitFor(() => expect(unavailable.getByRole("alert").textContent).toContain("不存在或已下架"))
 })

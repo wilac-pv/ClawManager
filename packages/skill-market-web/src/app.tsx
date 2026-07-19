@@ -23,7 +23,7 @@ import {
   SkillMarketSessionProvider,
   useSkillMarketSession,
 } from "./session"
-import { resolveSkillMarketRuntime } from "./runtime-config"
+import { resolveSkillMarketRuntime, skillDetailUrl, skillPackageUrl } from "./runtime-config"
 import { MarketShell } from "./shell"
 import { SubmissionDetail } from "./submissions/detail"
 import { SubmissionForm } from "./submissions/form"
@@ -45,14 +45,17 @@ export function App() {
   })
   const actions: SkillMarketActions = {
     kind: "web",
-    copyPrompt: async (detail) => {
-      if (await copyText(installPrompt(detail))) return
+    prompt: (detail) =>
+      installPrompt(detail, {
+        detailUrl: skillDetailUrl(window.location.origin, import.meta.env.BASE_URL, detail),
+        downloadUrl: skillPackageUrl(runtime.apiBaseUrl, detail),
+      }),
+    copyPrompt: async (value) => {
+      if (await copyText(value)) return
       throw new Error("Skill market install prompt could not be copied")
     },
     download: async (detail) => {
-      const target = await source.download?.({ source: detail.source, id: detail.id })
-      if (!target) throw new Error("Skill market download endpoint is unavailable")
-      window.location.assign(target.url)
+      window.location.assign(skillPackageUrl(runtime.apiBaseUrl, detail))
     },
   }
   const Root = (props: ParentProps) => (

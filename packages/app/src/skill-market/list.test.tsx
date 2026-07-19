@@ -76,6 +76,7 @@ function renderMarket(
   onOpen: (key: SkillKey) => void = () => undefined,
   actions: SkillMarketActions = {
     kind: "web",
+    prompt: () => "",
     copyPrompt: async () => undefined,
     download: async () => undefined,
   },

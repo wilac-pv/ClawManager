@@ -15,15 +15,15 @@ test("searches, filters, deep-links, copies a prompt and requests the verified d
   await page.getByRole("button", { name: "复制安装 Prompt" }).click()
   await expect(page.getByRole("button", { name: "已复制" })).toBeVisible()
   await expect(page.getByRole("status")).toContainText("安装 Prompt 已复制到剪贴板")
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("SHA-256")
+  const prompt = await page.evaluate(() => navigator.clipboard.readText())
+  expect(prompt).toContain("/v1/catalog/skills/skillhub/code-review/package")
+  expect(prompt).not.toContain("downloads.example.com")
+  expect(prompt).not.toContain("curl -k")
   await expect(page.getByRole("button", { name: "安装", exact: true })).toHaveCount(0)
 
-  await page.route("https://downloads.example.com/**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/zip", body: "fixture" }),
-  )
-  const request = page.waitForRequest(/\/v1\/catalog\/skills\/skillhub\/code-review\/download$/)
+  const request = page.waitForRequest(/\/v1\/catalog\/skills\/skillhub\/code-review\/package$/)
   await page.getByRole("button", { name: "下载 ZIP" }).click()
-  await request
+  expect((await request).url()).not.toContain("downloads.example.com")
 })
 
 test("supports direct detail routes and keyboard-only tabs", async ({ page }) => {

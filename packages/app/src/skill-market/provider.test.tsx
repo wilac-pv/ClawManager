@@ -25,6 +25,7 @@ test("provides the selected data source and web actions", () => {
   } satisfies SkillMarketDataSource
   const actions = {
     kind: "web",
+    prompt: () => "",
     copyPrompt: async () => undefined,
     download: async () => undefined,
   } satisfies SkillMarketActions

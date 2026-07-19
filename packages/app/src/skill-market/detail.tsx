@@ -1,6 +1,6 @@
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createQuery } from "@tanstack/solid-query"
-import { For, Show, createSignal } from "solid-js"
+import { For, Show, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DesktopSkillActions } from "./desktop-actions"
 import { MarketMarkdown } from "./markdown"
@@ -294,10 +294,11 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
 
 function WebDetailActions(props: { detail: SkillMarket.Detail; actions: SkillMarketActions }) {
   const [copyState, setCopyState] = createSignal<"idle" | "copying" | "copied" | "failed">("idle")
+  const prompt = createMemo(() => (props.actions.kind === "web" ? props.actions.prompt(props.detail) : ""))
   const copy = async () => {
     if (props.actions.kind !== "web" || copyState() === "copying") return
     setCopyState("copying")
-    await props.actions.copyPrompt(props.detail).then(
+    await props.actions.copyPrompt(prompt()).then(
       () => setCopyState("copied"),
       () => setCopyState("failed"),
     )
@@ -325,12 +326,7 @@ function WebDetailActions(props: { detail: SkillMarket.Detail; actions: SkillMar
           <p class="ruying-skill-market__copy-feedback ruying-skill-market__copy-feedback--error" role="alert">
             自动复制失败，请手动复制下方 Prompt。
           </p>
-          <textarea
-            class="ruying-skill-market__copy-manual"
-            aria-label="安装 Prompt"
-            readOnly
-            value={installPrompt(props.detail)}
-          />
+          <textarea class="ruying-skill-market__copy-manual" aria-label="安装 Prompt" readOnly value={prompt()} />
         </Show>
       </Show>
     </div>
@@ -349,8 +345,16 @@ function Author(props: { detail: SkillMarket.Detail }) {
   )
 }
 
-export function installPrompt(detail: SkillMarket.Detail) {
-  return `请安装并使用这个 Skill：${detail.name}\n详情：${detail.publicDetailUrl}\n来源：${detail.sourceUrl}\n版本：${detail.version}\nSHA-256：${detail.package.sha256}`
+export function installPrompt(
+  detail: SkillMarket.Detail,
+  links: { readonly detailUrl: string; readonly downloadUrl: string },
+) {
+  return `请安装并使用这个 Skill：${detail.name}
+内网详情：${links.detailUrl}
+内网下载：${links.downloadUrl}
+版本：${detail.version}
+SHA-256：${detail.package.sha256}
+要求：仅使用上述内网地址下载，并在安装前校验 SHA-256。`
 }
 
 function riskLabel(risk: SkillMarket.Risk) {

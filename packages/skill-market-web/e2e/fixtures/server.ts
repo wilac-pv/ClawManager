@@ -206,10 +206,20 @@ function catalogPage(request: Request, url: URL, context: ReturnType<typeof fixt
 
 function catalogRecord(request: Request, url: URL, context: ReturnType<typeof fixtureContext>) {
   const suffix = url.pathname.slice("/v1/catalog/skills/".length)
+  const packageRequest = suffix.endsWith("/package")
   const download = suffix.endsWith("/download")
   const versions = suffix.endsWith("/versions")
-  const key = suffix.replace(/\/(?:download|versions)$/, "")
+  const key = suffix.replace(/\/(?:package|download|versions)$/, "")
   if (key === "skillhub/code-review") {
+    if (packageRequest)
+      return new Response("verified zip fixture", {
+        headers: {
+          "access-control-allow-origin": webOrigin,
+          "content-disposition": 'attachment; filename="skillhub-code-review-1.2.0.zip"',
+          "content-type": "application/zip",
+          "x-content-sha256": detail.package.sha256,
+        },
+      })
     if (download)
       return json(request, { url: detail.package.url, sha256: detail.package.sha256, size: detail.package.size })
     if (versions) return json(request, [version])
