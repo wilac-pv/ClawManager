@@ -1,6 +1,6 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 
 const Key = { source: SkillMarket.Source, id: Schema.String }
 
@@ -44,6 +44,32 @@ export class SkillMarketNotFound extends Schema.ErrorClass<SkillMarketNotFound>(
   { httpApiStatus: 404 },
 ) {}
 
+const packageProblem = <Code extends string>(code: Code) => ({
+  code: Schema.Literal(code),
+  message: Schema.String,
+  requestId: Schema.String,
+  source: SkillMarket.Source,
+  id: Schema.String,
+})
+
+export class SkillMarketPackageNotFound extends Schema.ErrorClass<SkillMarketPackageNotFound>(
+  "SkillMarketPackageNotFound",
+)(packageProblem("skill-market-not-found"), { httpApiStatus: 404 }) {}
+
+export class SkillMarketPackageTooLarge extends Schema.ErrorClass<SkillMarketPackageTooLarge>(
+  "SkillMarketPackageTooLarge",
+)(packageProblem("skill-market-package-too-large"), { httpApiStatus: 413 }) {}
+
+export class SkillMarketPackageUnavailable extends Schema.ErrorClass<SkillMarketPackageUnavailable>(
+  "SkillMarketPackageUnavailable",
+)(packageProblem("skill-market-package-unavailable"), { httpApiStatus: 502 }) {}
+
+const PackageErrors = Schema.Union([
+  SkillMarketPackageNotFound,
+  SkillMarketPackageTooLarge,
+  SkillMarketPackageUnavailable,
+])
+
 export const SkillMarketCatalogGroup = HttpApiGroup.make("skillMarket.catalog")
   .add(
     HttpApiEndpoint.get("skillMarket.catalog.list", "/v1/catalog/skills", {
@@ -71,6 +97,20 @@ export const SkillMarketCatalogGroup = HttpApiGroup.make("skillMarket.catalog")
       params: Key,
       success: SkillMarket.Download,
       error: SkillMarketNotFound,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("skillMarket.catalog.package", "/v1/catalog/skills/:source/:id/package", {
+      params: Key,
+      success: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+      error: PackageErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.head("skillMarket.catalog.packageHead", "/v1/catalog/skills/:source/:id/package", {
+      params: Key,
+      success: HttpApiSchema.Empty(200),
+      error: PackageErrors,
     }),
   )
   .annotateMerge(
