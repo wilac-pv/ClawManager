@@ -52,24 +52,25 @@ describe("catalog package reader", () => {
   })
 
   test("rejects a declared package above the catalog size limit", async () => {
-    const reader = createCatalogPackageReader(memoryObjectStore({ body }).client, publicPrefix)
+    const store = memoryObjectStore({ body })
+    const reader = createCatalogPackageReader(store.client, publicPrefix)
 
     await expect(reader.read(detailWithSize(MAX_CATALOG_PACKAGE_SIZE + 1))).rejects.toMatchObject({
       kind: "too-large",
       phase: "declared-size",
     } satisfies Partial<CatalogPackageReadError>)
+    expect(store.reads).toEqual([])
   })
 
   test("rejects a stored package above the catalog size limit", async () => {
-    const reader = createCatalogPackageReader(
-      memoryObjectStore({ body, headSize: MAX_CATALOG_PACKAGE_SIZE + 1 }).client,
-      publicPrefix,
-    )
+    const store = memoryObjectStore({ body, headSize: MAX_CATALOG_PACKAGE_SIZE + 1 })
+    const reader = createCatalogPackageReader(store.client, publicPrefix)
 
     await expect(reader.read(detail())).rejects.toMatchObject({
       kind: "too-large",
       phase: "stored-size",
     } satisfies Partial<CatalogPackageReadError>)
+    expect(store.reads).toEqual([`public-market/packages/${sha256}.zip`])
   })
 
   test("rejects a package missing from object metadata", async () => {
