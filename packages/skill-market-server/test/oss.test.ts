@@ -43,26 +43,7 @@ describe("OSS snapshots", () => {
 
   test("loads a content-addressed V2 snapshot from the previous release", async () => {
     const store = memoryObjectStore()
-    const merged = mergeCatalog(
-      Array.from({ length: 33 }, (_, index) =>
-        sampleDetail({
-          id: `skill-${index}`,
-          name: `Skill ${index}`,
-          publicDetailUrl: `https://skillhub.cn/skills/${index}`,
-        }),
-      ),
-      Schema.decodeUnknownSync(SkillMarket.EnterpriseIndex)({
-        schemaVersion: 1,
-        updatedAt: "2026-07-15T00:00:00.000Z",
-        skills: [],
-      }),
-    )
-    const snapshot = {
-      ...merged,
-      revision: "legacy",
-      createdAt: "2026-07-15T00:00:00.000Z",
-      facets: { ...merged.facets, revision: "legacy" },
-    }
+    const snapshot = largeSnapshot()
     const references = Array.from(snapshot.details.values(), (detail) => {
       const body = new TextEncoder().encode(JSON.stringify(detail))
       const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
@@ -96,6 +77,16 @@ describe("OSS snapshots", () => {
     const loaded = await loadCurrentSnapshot(store.client, config)
 
     expect(loaded.items).toHaveLength(33)
+    expect(store.maximumGets).toBeLessThanOrEqual(32)
+  })
+
+  test("bounds immutable snapshot publication concurrency", async () => {
+    const store = memoryObjectStore()
+    store.putDelay = 1
+
+    await publishSnapshotObjects(store.client, config, largeSnapshot())
+
+    expect(store.maximumPuts).toBeLessThanOrEqual(32)
     expect(store.maximumGets).toBeLessThanOrEqual(32)
   })
 
@@ -151,13 +142,27 @@ async function* chunks(...values: string[]) {
 function memoryObjectStore() {
   const objects = new Map<string, Uint8Array>()
   const writes: Array<{ key: string; contentType: string; cacheControl: string }> = []
-  const state: { failOn?: RegExp; getDelay?: number; activeGets: number; maximumGets: number } = {
+  const state: {
+    failOn?: RegExp
+    getDelay?: number
+    putDelay?: number
+    activeGets: number
+    maximumGets: number
+    activePuts: number
+    maximumPuts: number
+  } = {
     activeGets: 0,
     maximumGets: 0,
+    activePuts: 0,
+    maximumPuts: 0,
   }
   const client: ObjectStore = {
     async put(key, body, contentType, cacheControl) {
       if (state.failOn?.test(key)) throw new Error(`configured failure for ${key}`)
+      state.activePuts += 1
+      state.maximumPuts = Math.max(state.maximumPuts, state.activePuts)
+      if (state.putDelay) await Bun.sleep(state.putDelay)
+      state.activePuts -= 1
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
       writes.push({ key, contentType, cacheControl })
     },
@@ -192,5 +197,34 @@ function memoryObjectStore() {
     set getDelay(value: number | undefined) {
       state.getDelay = value
     },
+    get maximumPuts() {
+      return state.maximumPuts
+    },
+    set putDelay(value: number | undefined) {
+      state.putDelay = value
+    },
+  }
+}
+
+function largeSnapshot() {
+  const merged = mergeCatalog(
+    Array.from({ length: 33 }, (_, index) =>
+      sampleDetail({
+        id: `skill-${index}`,
+        name: `Skill ${index}`,
+        publicDetailUrl: `https://skillhub.cn/skills/${index}`,
+      }),
+    ),
+    Schema.decodeUnknownSync(SkillMarket.EnterpriseIndex)({
+      schemaVersion: 1,
+      updatedAt: "2026-07-15T00:00:00.000Z",
+      skills: [],
+    }),
+  )
+  return {
+    ...merged,
+    revision: "legacy",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    facets: { ...merged.facets, revision: "legacy" },
   }
 }

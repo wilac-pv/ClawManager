@@ -173,15 +173,15 @@ export async function publishSnapshotObjects(client: ObjectStore, config: Publis
       "application/json",
       "public, max-age=31536000, immutable",
     ),
-    ...Array.from(snapshot.details.values(), (detail) =>
-      client.put(
-        objectKeys.detail(detail.source, detail.id),
-        JSON.stringify(detail),
-        "application/json",
-        "public, max-age=31536000, immutable",
-      ),
-    ),
   ])
+  await mapBatches(Array.from(snapshot.details.values()), (detail) =>
+    client.put(
+      objectKeys.detail(detail.source, detail.id),
+      JSON.stringify(detail),
+      "application/json",
+      "public, max-age=31536000, immutable",
+    ),
+  )
   await validatePublished(client, objectKeys, snapshot)
   return { revision: snapshot.revision }
 }
@@ -261,13 +261,13 @@ function keys(config: PublishConfig, revision: string) {
 }
 
 async function validatePublished(client: ObjectStore, objectKeys: ReturnType<typeof keys>, snapshot: CatalogSnapshot) {
-  const [catalog, facets, ...details] = await Promise.all([
+  const [catalog, facets] = await Promise.all([
     loadObject(client, objectKeys.catalog, CatalogObjectV1),
     loadObject(client, objectKeys.facets, SkillMarket.Facets),
-    ...Array.from(snapshot.details.values(), (detail) =>
-      loadObject(client, objectKeys.detail(detail.source, detail.id), SkillMarket.Detail),
-    ),
   ])
+  const details = await loadDetails(Array.from(snapshot.details.values()), (detail) =>
+    loadObject(client, objectKeys.detail(detail.source, detail.id), SkillMarket.Detail),
+  )
   if (catalog.revision !== snapshot.revision || facets.revision !== snapshot.revision)
     throw new Error("published OSS object revision mismatch")
   if (catalog.items.length !== snapshot.items.length || details.length !== snapshot.details.size)
@@ -295,12 +295,16 @@ async function loadBytes(client: ObjectStore, key: string) {
 }
 
 async function loadDetails<T>(items: ReadonlyArray<T>, load: (item: T) => Promise<SkillMarket.Detail>) {
-  const details: SkillMarket.Detail[] = []
+  return mapBatches(items, load)
+}
+
+async function mapBatches<T, R>(items: ReadonlyArray<T>, map: (item: T) => Promise<R>) {
+  const results: R[] = []
   for (const chunk of Array.from({ length: Math.ceil(items.length / 32) }, (_, index) =>
     items.slice(index * 32, index * 32 + 32),
   ))
-    details.push(...(await Promise.all(chunk.map(load))))
-  return details
+    results.push(...(await Promise.all(chunk.map(map))))
+  return results
 }
 
 function sha256(body: Uint8Array) {
