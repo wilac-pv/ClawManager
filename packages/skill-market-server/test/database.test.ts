@@ -24,7 +24,7 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4)
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
@@ -47,6 +47,8 @@ describe("control-plane database", () => {
         "reviews",
         "role_assignments",
         "sessions",
+        "skillhub_generations",
+        "skillhub_import_items",
         "submission_revisions",
         "submissions",
         "users",
@@ -180,7 +182,7 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([2, 2])
+    ).toEqual([4, 4])
     databases.forEach((database) => database.close())
   })
 })
