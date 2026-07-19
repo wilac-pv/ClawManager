@@ -3,23 +3,25 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const packageDirectory = fileURLToPath(new URL("..", import.meta.url))
-const entrypoints = [
-  "src/server.ts",
-  "src/sync.ts",
-  "src/skillhub-worker.js",
-  "src/worker.ts",
-  "script/backup.ts",
-  "script/cleanup.ts",
-  "script/deploy-check.ts",
-  "script/migrate.ts",
-  "script/restore-drill.ts",
-]
+const entrypoints = {
+  "src/server.ts": "src/server.ts",
+  "src/sync.ts": "src/sync.ts",
+  "src/skillhub-worker.ts": "src/skillhub-worker.js",
+  "src/worker.ts": "src/worker.ts",
+  "script/backup.ts": "script/backup.ts",
+  "script/cleanup.ts": "script/cleanup.ts",
+  "script/deploy-check.ts": "script/deploy-check.ts",
+  "script/migrate.ts": "script/migrate.ts",
+  "script/restore-drill.ts": "script/restore-drill.ts",
+}
 
 export async function buildRelease(outputDirectory: string) {
   const runtimeDirectory = join(outputDirectory, "packages/skill-market-server")
   await rm(outputDirectory, { force: true, recursive: true })
   await mkdir(runtimeDirectory, { recursive: true })
-  await Promise.all(entrypoints.map((entrypoint) => buildEntrypoint(entrypoint, runtimeDirectory)))
+  await Promise.all(
+    Object.entries(entrypoints).map(([entrypoint, output]) => buildEntrypoint(entrypoint, output, runtimeDirectory)),
+  )
   await Promise.all(
     ["deploy", "migrations"].map((directory) =>
       copyDirectory(join(packageDirectory, directory), join(runtimeDirectory, directory)),
@@ -33,7 +35,7 @@ export async function buildRelease(outputDirectory: string) {
   await setPermissions(outputDirectory)
 }
 
-async function buildEntrypoint(entrypoint: string, runtimeDirectory: string) {
+async function buildEntrypoint(entrypoint: string, output: string, runtimeDirectory: string) {
   const result = await Bun.build({
     entrypoints: [join(packageDirectory, entrypoint)],
     target: "bun",
@@ -45,8 +47,8 @@ async function buildEntrypoint(entrypoint: string, runtimeDirectory: string) {
       `Failed to build ${entrypoint}`,
     )
   if (result.outputs.length !== 1) throw new Error(`Expected one build output for ${entrypoint}`)
-  await mkdir(dirname(join(runtimeDirectory, entrypoint)), { recursive: true })
-  await Bun.write(join(runtimeDirectory, entrypoint), result.outputs[0])
+  await mkdir(dirname(join(runtimeDirectory, output)), { recursive: true })
+  await Bun.write(join(runtimeDirectory, output), result.outputs[0])
 }
 
 async function copyDirectory(source: string, destination: string) {
