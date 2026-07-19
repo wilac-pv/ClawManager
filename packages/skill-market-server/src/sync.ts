@@ -94,26 +94,28 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
 }
 
 export async function materializeSkillHubRecords(
-  records: readonly SkillHubRecord[],
+  records: ReadonlyArray<SkillHubRecord | SkillMarket.Detail>,
   options: MaterializeOptions,
   previous: ReadonlyMap<string, SkillMarket.Detail> = new Map(),
 ) {
   const details = await materializeInBatches(records, (record) =>
-    materializeSkillHubRecord(record, options).then(
-      (detail) => detail,
-      (error: unknown) => {
-        console.warn(
-          JSON.stringify({
-            skill_market_materialize_error: {
-              source: "skillhub",
-              id: record.slug,
-              message: error instanceof Error ? error.message : String(error),
-            },
-          }),
-        )
-        return previous.get(record.slug)
-      },
-    ),
+    "source" in record
+      ? Promise.resolve(record)
+      : materializeSkillHubRecord(record, options).then(
+          (detail) => detail,
+          (error: unknown) => {
+            console.warn(
+              JSON.stringify({
+                skill_market_materialize_error: {
+                  source: "skillhub",
+                  id: record.slug,
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            )
+            return previous.get(record.slug)
+          },
+        ),
   )
   return details.filter((detail): detail is SkillMarket.Detail => detail !== undefined)
 }
@@ -178,13 +180,16 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
         value: { value: previous.value.items.length, details: sourceDetails(previous.value, "skillhub"), reused: true },
       } as const)
     : await settled(
-        loadSkillHub(options.fetcher, options.config.skillhubBaseUrl, undefined, options.config.skillhubLimit).then(
-          async (records) => ({
-            value: records.length,
-            details: await materializeSkillHubRecords(records, materializeOptions(options), previousSkillhub),
-            reused: false as const,
-          }),
-        ),
+        loadSkillHub(
+          options.fetcher,
+          options.config.skillhubBaseUrl,
+          previousSkillhub,
+          options.config.skillhubLimit,
+        ).then(async (records) => ({
+          value: records.length,
+          details: await materializeSkillHubRecords(records, materializeOptions(options), previousSkillhub),
+          reused: false as const,
+        })),
       )
   const enterprise = await settled(
     loadEnterpriseConditional(options, state).then(async (value) => ({

@@ -19,6 +19,25 @@ afterEach(async () => {
 })
 
 describe("catalog synchronization", () => {
+  test("reuses an unchanged verified SkillHub detail without downloading it again", async () => {
+    const detail = sampleDetail()
+    const reused = await materializeSkillHubRecords(
+      [detail],
+      {
+        fetcher: async () => {
+          throw new Error("unexpected download")
+        },
+        store: memoryStore(new Map()),
+        allowedHosts: new Set(["api.skillhub.cn"]),
+        ossPrefix: "skill-market",
+        publicBaseUrl: "https://oss.example.com/skill-market/",
+      },
+      new Map([[detail.id, detail]]),
+    )
+
+    expect(reused).toEqual([detail])
+  })
+
   test("follows approved redirects and materializes a verified SkillHub package", async () => {
     const skill = "---\nname: verified-review\ndescription: Verified review\nlicense: MIT\n---\n# Verified Review\n"
     const guide = "Review carefully."

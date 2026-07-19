@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { loadConfig } from "../src/config"
 import { loadEnterprise } from "../src/enterprise"
 import { loadSkillHub } from "../src/skillhub"
+import { sampleDetail } from "./fixture"
 
 const fixtures = new URL("../fixtures/", import.meta.url)
 
@@ -50,6 +51,20 @@ describe("catalog sources", () => {
       new Map(records.map((record) => [record.slug, record])),
     )
     expect(reused[0]).toBe(records[0])
+
+    const cached = sampleDetail({ updatedAt: "2026-07-14T21:21:41.275Z" })
+    const reusedDetail = await loadSkillHub(
+      async (input) => {
+        const url = requestUrl(input)
+        if (!url.includes("/api/skills?")) throw new Error(`unexpected refresh ${url}`)
+        return new Response(Bun.file(new URL("skillhub-page.json", fixtures)), {
+          headers: { "content-type": "application/json" },
+        })
+      },
+      "https://api.skillhub.cn",
+      new Map([[cached.id, cached]]),
+    )
+    expect(reusedDetail[0]).toBe(cached)
   })
 
   test("bounds SkillHub list page concurrency", async () => {

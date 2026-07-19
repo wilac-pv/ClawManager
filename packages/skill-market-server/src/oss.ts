@@ -135,10 +135,21 @@ async function listObjects(
 }
 
 const Pointer = Schema.Struct({ revision: Schema.String, createdAt: SkillMarket.Timestamp })
-const CatalogObject = Schema.Struct({
+const CatalogObjectV1 = Schema.Struct({
   revision: Schema.String,
   createdAt: SkillMarket.Timestamp,
   items: Schema.Array(SkillMarket.Summary),
+})
+const CatalogObjectV2 = Schema.Struct({
+  schemaVersion: Schema.Literal(2),
+  revision: Schema.String,
+  createdAt: SkillMarket.Timestamp,
+  items: Schema.Array(
+    Schema.Struct({
+      summary: SkillMarket.Summary,
+      detail: Schema.Struct({ key: Schema.String, sha256: SkillMarket.Sha256 }),
+    }),
+  ),
 })
 
 export async function publishSnapshot(client: ObjectStore, config: PublishConfig, snapshot: CatalogSnapshot) {
@@ -194,20 +205,37 @@ export async function loadCurrentSnapshot(client: ObjectStore, config: PublishCo
   const prefix = normalizePrefix(config.prefix)
   const pointer = await loadObject(client, `${prefix}/current.json`, Pointer)
   const objectKeys = keys({ prefix }, pointer.revision)
-  const [catalog, facets] = await Promise.all([
-    loadObject(client, objectKeys.catalog, CatalogObject),
+  const [catalogValue, facets] = await Promise.all([
+    loadJson(client, objectKeys.catalog),
     loadObject(client, objectKeys.facets, SkillMarket.Facets),
   ])
+  const catalog = Schema.is(CatalogObjectV2)(catalogValue)
+    ? catalogValue
+    : await Schema.decodeUnknownPromise(CatalogObjectV1)(catalogValue)
   if (catalog.revision !== pointer.revision || facets.revision !== pointer.revision)
     throw new Error("OSS snapshot revision mismatch")
 
-  const details = await Promise.all(
-    catalog.items.map((item) => loadObject(client, objectKeys.detail(item.source, item.id), SkillMarket.Detail)),
-  )
+  const items = "schemaVersion" in catalog ? catalog.items.map((item) => item.summary) : catalog.items
+  const details =
+    "schemaVersion" in catalog
+      ? await Promise.all(
+          catalog.items.map(async (item) => {
+            if (item.detail.key !== `details/${item.detail.sha256}.json`)
+              throw new Error("catalog detail key does not match hash")
+            const body = await loadBytes(client, `${prefix}/${item.detail.key}`)
+            if (sha256(body) !== item.detail.sha256) throw new Error(`OSS detail hash mismatch: ${item.detail.key}`)
+            return Schema.decodeUnknownPromise(SkillMarket.Detail)(
+              await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body)),
+            )
+          }),
+        )
+      : await Promise.all(
+          items.map((item) => loadObject(client, objectKeys.detail(item.source, item.id), SkillMarket.Detail)),
+        )
   const entries = details.map((detail) => [key(detail.source, detail.id), detail] as const)
   const detailMap = new Map(entries)
-  if (detailMap.size !== catalog.items.length) throw new Error("OSS snapshot contains duplicate catalog keys")
-  catalog.items.forEach((item) => {
+  if (detailMap.size !== items.length) throw new Error("OSS snapshot contains duplicate catalog keys")
+  items.forEach((item) => {
     const detail = detailMap.get(key(item.source, item.id))
     if (!detail || detail.version !== item.version)
       throw new Error(`OSS detail does not match catalog item: ${item.source}:${item.id}`)
@@ -215,7 +243,7 @@ export async function loadCurrentSnapshot(client: ObjectStore, config: PublishCo
   return {
     revision: pointer.revision,
     createdAt: catalog.createdAt,
-    items: [...catalog.items],
+    items: [...items],
     details: detailMap,
     facets,
     sourceStatus: facets.sourceStatus,
@@ -236,7 +264,7 @@ function keys(config: PublishConfig, revision: string) {
 
 async function validatePublished(client: ObjectStore, objectKeys: ReturnType<typeof keys>, snapshot: CatalogSnapshot) {
   const [catalog, facets, ...details] = await Promise.all([
-    loadObject(client, objectKeys.catalog, CatalogObject),
+    loadObject(client, objectKeys.catalog, CatalogObjectV1),
     loadObject(client, objectKeys.facets, SkillMarket.Facets),
     ...Array.from(snapshot.details.values(), (detail) =>
       loadObject(client, objectKeys.detail(detail.source, detail.id), SkillMarket.Detail),
@@ -253,10 +281,23 @@ async function validatePublished(client: ObjectStore, objectKeys: ReturnType<typ
 }
 
 async function loadObject<S extends Schema.Decoder<unknown>>(client: ObjectStore, key: string, schema: S) {
+  return Schema.decodeUnknownPromise(schema)(await loadJson(client, key))
+}
+
+async function loadJson(client: ObjectStore, key: string) {
+  return Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(
+    new TextDecoder().decode(await loadBytes(client, key)),
+  )
+}
+
+async function loadBytes(client: ObjectStore, key: string) {
   const [metadata, body] = await Promise.all([client.head(key), client.get(key)])
   if (metadata.size !== body.byteLength) throw new Error(`OSS object size mismatch: ${key}`)
-  const json = await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body))
-  return Schema.decodeUnknownPromise(schema)(json)
+  return body
+}
+
+function sha256(body: Uint8Array) {
+  return new Bun.CryptoHasher("sha256").update(body).digest("hex")
 }
 
 function normalizePrefix(prefix: string) {

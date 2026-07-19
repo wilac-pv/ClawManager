@@ -102,12 +102,24 @@ const VersionsResponse = Schema.Struct({
   ),
 })
 
-export async function loadSkillHub(
+export function loadSkillHub(
   fetcher: Fetcher,
   input: string,
   previous?: ReadonlyMap<string, SkillHubRecord>,
   limit?: number,
-): Promise<SkillHubRecord[]> {
+): Promise<SkillHubRecord[]>
+export function loadSkillHub(
+  fetcher: Fetcher,
+  input: string,
+  previous: ReadonlyMap<string, SkillMarket.Detail>,
+  limit?: number,
+): Promise<Array<SkillHubRecord | SkillMarket.Detail>>
+export async function loadSkillHub(
+  fetcher: Fetcher,
+  input: string,
+  previous?: ReadonlyMap<string, SkillHubRecord | SkillMarket.Detail>,
+  limit?: number,
+) {
   const baseUrl = requireBaseUrl(input)
   const first = await loadPage(fetcher, baseUrl, 1)
   const total = Math.min(first.data.total, limit ?? first.data.total)
@@ -123,7 +135,7 @@ export async function loadSkillHub(
   const chunks = Array.from({ length: Math.ceil(skills.length / 8) }, (_, index) =>
     skills.slice(index * 8, index * 8 + 8),
   )
-  const records: SkillHubRecord[] = []
+  const records: Array<SkillHubRecord | SkillMarket.Detail> = []
   for (const chunk of chunks)
     records.push(...(await Promise.all(chunk.map((skill) => loadRecord(fetcher, baseUrl, skill, previous)))))
   return records
@@ -141,7 +153,7 @@ async function loadRecord(
   fetcher: Fetcher,
   baseUrl: URL,
   skill: typeof ListSkill.Type,
-  previous: ReadonlyMap<string, SkillHubRecord> | undefined,
+  previous: ReadonlyMap<string, SkillHubRecord | SkillMarket.Detail> | undefined,
 ) {
   const cached = previous?.get(skill.slug)
   const updatedAt = new Date(skill.updated_at).toISOString()

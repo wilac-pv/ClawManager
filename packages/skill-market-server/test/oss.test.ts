@@ -38,6 +38,39 @@ describe("OSS snapshots", () => {
     await expect(loadCurrentSnapshot(store.client, config)).rejects.toThrow()
   })
 
+  test("loads a content-addressed V2 snapshot from the previous release", async () => {
+    const store = memoryObjectStore()
+    const snapshot = sampleSnapshot("legacy")
+    const detail = snapshot.details.get("skillhub:code-review")!
+    const body = new TextEncoder().encode(JSON.stringify(detail))
+    const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
+    store.objects.set(
+      "skill-market/current.json",
+      new TextEncoder().encode(JSON.stringify({ revision: snapshot.revision, createdAt: snapshot.createdAt })),
+    )
+    store.objects.set(
+      "skill-market/indexes/legacy/catalog.json",
+      new TextEncoder().encode(
+        JSON.stringify({
+          schemaVersion: 2,
+          revision: snapshot.revision,
+          createdAt: snapshot.createdAt,
+          items: [{ summary: snapshot.items[0], detail: { key: `details/${sha256}.json`, sha256 } }],
+        }),
+      ),
+    )
+    store.objects.set(
+      "skill-market/indexes/legacy/facets.json",
+      new TextEncoder().encode(JSON.stringify(snapshot.facets)),
+    )
+    store.objects.set(`skill-market/details/${sha256}.json`, body)
+
+    const loaded = await loadCurrentSnapshot(store.client, config)
+
+    expect(loaded.items).toHaveLength(1)
+    expect(loaded.details.get("skillhub:code-review")).toEqual(detail)
+  })
+
   test("writes immutable snapshot objects before moving the current pointer", async () => {
     const store = memoryObjectStore()
     const snapshot = sampleSnapshot("r1")
