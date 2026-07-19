@@ -2,6 +2,7 @@ import {
   SkillMarketCatalogQuery,
   normalizeSkillMarketCatalogQuery,
 } from "@opencode-ai/protocol/groups/skill-market-catalog"
+import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import { Effect, Layer } from "effect"
 import { HttpEffect, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -18,9 +19,10 @@ import { randomSecret } from "./security"
 import type { Submissions } from "./submissions"
 import { createAdminHttp } from "./http/admin"
 import { createAuthHttp } from "./http/auth"
-import { createCatalogHttp } from "./http/catalog"
+import { createCatalogHttp, packageHeaders, packageNotFoundProblem, packageReadProblem } from "./http/catalog"
 import { createSecurityLayers } from "./http/middleware"
 import { createSubmissionsHttp } from "./http/submissions"
+import { createCatalogPackageReader, type CatalogPackageReader } from "./package-reader"
 
 type SnapshotLoader = () => Promise<CatalogSnapshot>
 
@@ -32,6 +34,7 @@ export interface MarketHttpOptions {
   readonly moderation: Moderation
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
+  readonly publicPrefix: string
   readonly webOrigin: string
   readonly webBaseUrl: string
   readonly sessionCookieName: string
@@ -42,8 +45,9 @@ export interface MarketHttpOptions {
 }
 
 export function createMarketRoutes(options: MarketHttpOptions) {
+  const packages = createCatalogPackageReader(options.store, options.publicPrefix)
   const groups = [
-    createCatalogHttp(options.loadSnapshot),
+    createCatalogHttp(options.loadSnapshot, packages, options.emit),
     createAuthHttp(options),
     createSubmissionsHttp(options),
     createAdminHttp(options),
@@ -151,7 +155,7 @@ function controlHeaders(webOrigin: string) {
   )
 }
 
-export function createCatalogHandler(loadSnapshot: SnapshotLoader) {
+export function createCatalogHandler(loadSnapshot: SnapshotLoader, packages?: CatalogPackageReader) {
   return (request: Request) => {
     if (request.method === "OPTIONS") return Promise.resolve(response(null, 204))
     const url = new URL(request.url)
@@ -159,12 +163,12 @@ export function createCatalogHandler(loadSnapshot: SnapshotLoader) {
     if (request.method !== "GET" && request.method !== "HEAD")
       return Promise.resolve(json({ code: "method-not-allowed" }, 405, false, { allow: "GET, HEAD, OPTIONS" }))
     return loadSnapshot()
-      .then((snapshot) => route(request, url, snapshot))
+      .then((snapshot) => route(request, url, snapshot, packages))
       .catch(() => json({ code: "market-unavailable", message: "Skill 市场暂不可用" }, 503, request.method === "HEAD"))
   }
 }
 
-function route(request: Request, url: URL, snapshot: CatalogSnapshot) {
+function route(request: Request, url: URL, snapshot: CatalogSnapshot, packages: CatalogPackageReader | undefined) {
   const head = request.method === "HEAD"
   const headers = snapshotHeaders(snapshot)
   if (url.pathname === "/v1/catalog/skills") {
@@ -182,7 +186,13 @@ function route(request: Request, url: URL, snapshot: CatalogSnapshot) {
     return json({ code: "not-found" }, 404, head, headers)
   const id = segments[4]
   if (!id) return json({ code: "not-found" }, 404, head, headers)
-  const detail = snapshot.details.get(key(source, decodeURIComponent(id)))
+  const decodedID = decodeURIComponent(id)
+  const detail = snapshot.details.get(key(source, decodedID))
+  const packageRoute = segments.length === 6 && segments[5] === "package"
+  if ((!detail || detail.delisted) && packageRoute) {
+    const problem = packageNotFoundProblem(source, decodedID)
+    return json(problem.body, problem.status, head)
+  }
   if (!detail || detail.delisted) return json({ code: "not-found" }, 404, head, headers)
   if (segments.length === 5) return json(detail, 200, head, headers)
   if (segments.length !== 6) return json({ code: "not-found" }, 404, head, headers)
@@ -194,7 +204,26 @@ function route(request: Request, url: URL, snapshot: CatalogSnapshot) {
       head,
       headers,
     )
+  if (segments[5] === "package") return packageWebResponse(packages, detail, head)
   return json({ code: "not-found" }, 404, head, headers)
+}
+
+async function packageWebResponse(
+  packages: CatalogPackageReader | undefined,
+  detail: SkillMarket.Detail,
+  head: boolean,
+) {
+  if (!packages) {
+    const problem = packageReadProblem(undefined, detail.source, detail.id)
+    return json(problem.body, problem.status, head)
+  }
+  return packages
+    .read(detail)
+    .then((verified) => response(head ? null : verified.body, 200, packageHeaders(detail, verified)))
+    .catch((error) => {
+      const problem = packageReadProblem(error, detail.source, detail.id)
+      return json(problem.body, problem.status, head)
+    })
 }
 
 function snapshotHeaders(snapshot: CatalogSnapshot) {
@@ -215,7 +244,7 @@ function json(value: unknown, status: number, head: boolean, headers?: Record<st
   })
 }
 
-function response(body: string | null, status: number, headers?: Record<string, string>) {
+function response(body: string | Uint8Array | null, status: number, headers?: Record<string, string>) {
   return new Response(body, {
     status,
     headers: {

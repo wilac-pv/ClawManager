@@ -83,6 +83,7 @@ const main = Effect.scoped(
       moderation,
       store,
       privatePrefix: config.privateOssPrefix,
+      publicPrefix: config.ossPrefix,
       webOrigin: config.webOrigin,
       webBaseUrl: config.webBaseUrl,
       sessionCookieName: config.sessionCookieName,

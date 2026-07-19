@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { createCatalogHandler } from "../src/handlers"
+import { createCatalogPackageReader, MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
+import type { ObjectStore } from "../src/oss"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 
 describe("catalog HTTP", () => {
@@ -84,4 +86,194 @@ describe("catalog HTTP", () => {
     expect(response.headers.get("x-skill-market-source-community")).toBe("fresh")
     expect(Schema.decodeUnknownSync(SkillMarket.Detail)(await response.json()).source).toBe("community")
   })
+
+  test("serves verified GET and HEAD package responses", async () => {
+    const fixture = packageFixture()
+    const handler = createCatalogHandler(async () => fixture.snapshot, fixture.packages)
+
+    const get = await handler(new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package"))
+    expect(get.status).toBe(200)
+    expect(new Uint8Array(await get.arrayBuffer())).toEqual(fixture.body)
+    expect(get.headers.get("content-type")).toBe("application/zip")
+    expect(get.headers.get("content-length")).toBe(String(fixture.body.byteLength))
+    expect(get.headers.get("etag")).toBe(`"${fixture.sha256}"`)
+    expect(get.headers.get("x-content-sha256")).toBe(fixture.sha256)
+    expect(get.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
+    expect(get.headers.get("content-disposition")).toBe('attachment; filename="skillhub-code-review-1.0.0.zip"')
+
+    const head = await handler(
+      new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package", {
+        method: "HEAD",
+      }),
+    )
+    expect(head.status).toBe(200)
+    expect(await head.text()).toBe("")
+    expect(head.headers.get("x-content-sha256")).toBe(fixture.sha256)
+    expect(fixture.store.getCalls).toBe(2)
+  })
+
+  test.each([
+    { name: "absent detail", status: 404, detail: "absent" as const, code: "skill-market-not-found" },
+    { name: "delisted detail", status: 404, detail: "delisted" as const, code: "skill-market-not-found" },
+    {
+      name: "declared oversize",
+      status: 413,
+      detail: "present" as const,
+      size: MAX_CATALOG_PACKAGE_SIZE + 1,
+      code: "skill-market-package-too-large",
+    },
+    {
+      name: "stored oversize",
+      status: 413,
+      detail: "present" as const,
+      headSize: MAX_CATALOG_PACKAGE_SIZE + 1,
+      code: "skill-market-package-too-large",
+    },
+    {
+      name: "missing object",
+      status: 502,
+      detail: "present" as const,
+      missingHead: true,
+      code: "skill-market-package-unavailable",
+    },
+    {
+      name: "length mismatch",
+      status: 502,
+      detail: "present" as const,
+      headSize: 1,
+      code: "skill-market-package-unavailable",
+    },
+    {
+      name: "SHA mismatch",
+      status: 502,
+      detail: "present" as const,
+      corruptBody: true,
+      code: "skill-market-package-unavailable",
+    },
+  ])("returns a bounded package problem for $name", async (options) => {
+    const fixture = packageFixture(options)
+    const response = await createCatalogHandler(
+      async () => fixture.snapshot,
+      fixture.packages,
+    )(new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package"))
+
+    expect(response.status).toBe(options.status)
+    expect(await response.json()).toMatchObject({
+      code: options.code,
+      source: "skillhub",
+      id: "code-review",
+      requestId: expect.any(String),
+    })
+    if (options.detail === "absent" || options.detail === "delisted") {
+      expect(fixture.store.headCalls).toBe(0)
+      expect(fixture.store.getCalls).toBe(0)
+    }
+  })
+
+  test("returns the existing unavailable problem when snapshot loading fails", async () => {
+    const fixture = packageFixture()
+    const response = await createCatalogHandler(async () => {
+      throw new Error("snapshot unavailable")
+    }, fixture.packages)(new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package"))
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ code: "market-unavailable", message: "Skill 市场暂不可用" })
+  })
+
+  test("does not fall back to the catalog URL when no package reader is injected", async () => {
+    const fixture = packageFixture({ canaryUrl: "https://attacker.example/never-fetch.zip" })
+    const response = await createCatalogHandler(async () => fixture.snapshot)(
+      new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package"),
+    )
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({
+      code: "skill-market-package-unavailable",
+      source: "skillhub",
+      id: "code-review",
+      requestId: expect.any(String),
+    })
+    expect(fixture.store.keys).toEqual([])
+  })
+
+  test("uses trusted package identity instead of catalog URLs or encoded route traversal", async () => {
+    const fixture = packageFixture({ canaryUrl: "https://attacker.example/never-fetch.zip" })
+    const handler = createCatalogHandler(async () => fixture.snapshot, fixture.packages)
+
+    expect(
+      (await handler(new Request("https://market.example.com/v1/catalog/skills/skillhub/code-review/package"))).status,
+    ).toBe(200)
+    expect(fixture.store.keys).toEqual([
+      `public-market/packages/${fixture.sha256}.zip`,
+      `public-market/packages/${fixture.sha256}.zip`,
+    ])
+    expect(fixture.store.keys.join("\n")).not.toContain("attacker.example")
+
+    const escaped = await handler(
+      new Request("https://market.example.com/v1/catalog/skills/skillhub/%2e%2e%2fprivate/package"),
+    )
+    expect(escaped.status).toBe(404)
+    expect(fixture.store.keys).toHaveLength(2)
+    expect(fixture.store.keys.every((value) => value.startsWith("public-market/"))).toBe(true)
+  })
 })
+
+function packageFixture(
+  options: {
+    detail?: "present" | "absent" | "delisted"
+    size?: number
+    headSize?: number
+    missingHead?: boolean
+    corruptBody?: boolean
+    canaryUrl?: string
+  } = {},
+) {
+  const body = new TextEncoder().encode("verified package body")
+  const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
+  const storedBody = options.corruptBody ? body.map((value, index) => (index === 0 ? value ^ 1 : value)) : body
+  const snapshot = sampleSnapshot("package-r1")
+  snapshot.details.set(
+    "skillhub:code-review",
+    sampleDetail({
+      delisted: options.detail === "delisted",
+      package: {
+        ...sampleDetail().package,
+        url: options.canaryUrl ?? sampleDetail().package.url,
+        sha256,
+        size: options.size ?? body.byteLength,
+      },
+    }),
+  )
+  if (options.detail === "absent") snapshot.details.delete("skillhub:code-review")
+  const keys: string[] = []
+  const calls = { head: 0, get: 0 }
+  const client: ObjectStore = {
+    async put() {},
+    async head(key) {
+      calls.head++
+      keys.push(key)
+      if (options.missingHead) throw new Error("object missing")
+      return { size: options.headSize ?? body.byteLength }
+    },
+    async get(key) {
+      calls.get++
+      keys.push(key)
+      return storedBody
+    },
+  }
+  return {
+    body,
+    sha256,
+    snapshot,
+    packages: createCatalogPackageReader(client, "public-market"),
+    store: {
+      keys,
+      get headCalls() {
+        return calls.head
+      },
+      get getCalls() {
+        return calls.get
+      },
+    },
+  }
+}
