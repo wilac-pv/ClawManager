@@ -17,6 +17,7 @@
 - 第一版不实现 Range、断点续传、条件请求、本地磁盘缓存或数据库缓存。
 - 保留 `/v1/catalog/skills/:source/:id/download` JSON 端点以兼容已有客户端。
 - Protocol 或 Server `HttpApi` 变更后，从 `packages/client` 执行 `bun run generate`；不得手工编辑 `src/generated` 或 `src/generated-effect`。
+- Skill Market Catalog API 保持为独立的 `SkillMarketCatalogApi`，不加入通用 OpenCode `ClientApi`；客户端生成用于验证公共 Protocol 变更未破坏生成器，不要求产生市场方法。
 - 测试和 `bun typecheck` 必须从具体 package 目录运行，不能从仓库根目录运行。
 - 当前工作区已有其他未提交改动。每次只暂存本任务列出的路径，先检查 `git diff -- <path>` 并合并现有内容，禁止覆盖或回退无关改动。
 
@@ -28,8 +29,10 @@
 | --- | --- |
 | `packages/protocol/src/groups/skill-market-catalog.ts` | 声明 GET/HEAD 包端点和 404/413/502 错误契约 |
 | `packages/protocol/test/skill-market-catalog.test.ts` | 验证公开端点集合和 HTTP 方法 |
-| `packages/client/src/generated/**` | 由生成器产生的普通客户端变更 |
-| `packages/client/src/generated-effect/**` | 由生成器产生的 Effect 客户端变更 |
+| `packages/schema/src/skill-market.ts` | 保证目录 URL schema 含代码生成所需的可移植元数据 |
+| `packages/schema/test/skill-market.test.ts` | 验证目录 URL schema 的业务约束 |
+| `packages/client/src/generated/**` | 运行生成器后的普通客户端校验；允许无内容变化 |
+| `packages/client/src/generated-effect/**` | 运行生成器后的 Effect 客户端校验；允许无内容变化 |
 | `packages/skill-market-server/src/package-reader.ts` | 构造可信对象键并校验包大小与 SHA-256 |
 | `packages/skill-market-server/test/package-reader.test.ts` | 包读取器的来源、上限、缺失和完整性测试 |
 | `packages/skill-market-server/src/http/catalog.ts` | 将 Protocol 包端点接到包读取器并构造二进制响应 |
@@ -48,42 +51,47 @@
 
 ---
 
-### Task 1: Protocol contract and generated clients
+### Task 1: Protocol contract and generator compatibility
 
 **Files:**
 - Modify: `packages/protocol/src/groups/skill-market-catalog.ts`
 - Modify: `packages/protocol/test/skill-market-catalog.test.ts`
-- Regenerate: `packages/client/src/generated/**`
-- Regenerate: `packages/client/src/generated-effect/**`
+- Modify: `packages/schema/src/skill-market.ts`
+- Modify: `packages/schema/test/skill-market.test.ts`
+- Verify generation: `packages/client/src/generated/**`
+- Verify generation: `packages/client/src/generated-effect/**`
 
 **Interfaces:**
 - Consumes: existing `Key`, `SkillMarket.Source`, `SkillMarket.Sha256`
-- Produces: endpoint IDs `skillMarket.catalog.package` and `skillMarket.catalog.packageHead`; error classes `SkillMarketPackageNotFound`, `SkillMarketPackageTooLarge`, `SkillMarketPackageUnavailable`
+- Produces: endpoint IDs `skillMarket.catalog.package` and `skillMarket.catalog.packageHead`; error classes `SkillMarketPackageNotFound`, `SkillMarketPackageTooLarge`, `SkillMarketPackageUnavailable`; a portable `MarketPageUrl` schema that lets the existing `ClientApi` generator complete
+- Does not produce Skill Market methods in the general OpenCode clients; `SkillMarketCatalogApi` remains separate by design
 
 - [ ] **Step 1: Extend the reflection test and verify red**
 
-Update the expected endpoint set and also collect methods:
+Update the expected endpoint set and collect methods, paths, success encodings, and error statuses. The test must fail if `/package`, GET binary encoding, HEAD empty 200, or the 404/413/502 errors regress:
 
 ```ts
 test("catalog api contains package GET and HEAD operations", () => {
-  const endpoints: Array<{ name: string; method: string }> = []
+  const endpoints: Array<{ name: string; method: string; path: string }> = []
   HttpApi.reflect(SkillMarketCatalogApi, {
     onGroup() {},
     onEndpoint({ endpoint }) {
-      endpoints.push({ name: endpoint.name, method: endpoint.method })
+      endpoints.push({ name: endpoint.name, method: endpoint.method, path: endpoint.path })
     },
   })
   expect(endpoints.toSorted((left, right) => left.name.localeCompare(right.name))).toEqual([
-    { name: "skillMarket.catalog.detail", method: "GET" },
-    { name: "skillMarket.catalog.download", method: "GET" },
-    { name: "skillMarket.catalog.facets", method: "GET" },
-    { name: "skillMarket.catalog.list", method: "GET" },
-    { name: "skillMarket.catalog.package", method: "GET" },
-    { name: "skillMarket.catalog.packageHead", method: "HEAD" },
-    { name: "skillMarket.catalog.versions", method: "GET" },
+    { name: "skillMarket.catalog.detail", method: "GET", path: "/v1/catalog/skills/:source/:id" },
+    { name: "skillMarket.catalog.download", method: "GET", path: "/v1/catalog/skills/:source/:id/download" },
+    { name: "skillMarket.catalog.facets", method: "GET", path: "/v1/catalog/facets" },
+    { name: "skillMarket.catalog.list", method: "GET", path: "/v1/catalog/skills" },
+    { name: "skillMarket.catalog.package", method: "GET", path: "/v1/catalog/skills/:source/:id/package" },
+    { name: "skillMarket.catalog.packageHead", method: "HEAD", path: "/v1/catalog/skills/:source/:id/package" },
+    { name: "skillMarket.catalog.versions", method: "GET", path: "/v1/catalog/skills/:source/:id/versions" },
   ])
 })
 ```
+
+Add an OpenAPI assertion for `/v1/catalog/skills/{source}/{id}/package` that checks GET status 200 is `application/octet-stream`, HEAD status 200 has no body schema, and both operations expose 404, 413, and 502 responses.
 
 Run from `packages/protocol`:
 
@@ -155,7 +163,9 @@ bun typecheck
 
 Expected: both commands exit 0; reflection reports seven operations.
 
-- [ ] **Step 4: Regenerate both clients**
+- [ ] **Step 4: Make the existing URL filter portable and validate generation**
+
+The working tree’s `MarketPageUrl` filter must keep its current business rule while supplying the metadata required by `packages/httpapi-codegen`. Follow an existing portable `Schema.makeFilter` example from the repository rather than replacing the filter or weakening its accepted URLs. Add schema tests proving valid public market URLs decode and invalid credentials/query/hash forms are rejected.
 
 From `packages/client`:
 
@@ -165,13 +175,15 @@ bun test test/contract-identity.test.ts
 bun typecheck
 ```
 
-Expected: generator changes only generated client trees, tests pass, and typecheck exits 0. Inspect generated methods and confirm both package operations use the declared paths/methods.
+Expected after the scheme decision: all commands exit 0. Because `ClientApi` intentionally excludes `SkillMarketCatalogApi`, generated trees may remain unchanged and must not contain Skill Market methods.
 
 - [ ] **Step 5: Commit the Protocol unit**
 
 ```sh
 git add packages/protocol/src/groups/skill-market-catalog.ts \
   packages/protocol/test/skill-market-catalog.test.ts \
+  packages/schema/src/skill-market.ts \
+  packages/schema/test/skill-market.test.ts \
   packages/client/src/generated \
   packages/client/src/generated-effect
 git diff --cached --check
