@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAuth } from "../src/auth"
 import { openDatabase } from "../src/database"
-import { createSecurity, SkillMarketSecurityError } from "../src/security"
+import { createModeration } from "../src/moderation"
+import { bootstrapAdmins, type Principal, createSecurity, SkillMarketSecurityError } from "../src/security"
 
 const directories: string[] = []
 
@@ -81,14 +82,12 @@ describe("SSO authentication", () => {
       fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User" }),
     })
     const fixture = await authenticationFixture(server.url.origin)
-    fixture.database.connection.run(
-      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
-      ["E000001", "E000001", fixture.clock.value, fixture.clock.value],
-    )
-    fixture.database.connection.run(
-      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
-      ["E000001", "reviewer", null, fixture.clock.value],
-    )
+    bootstrapAdmins(fixture.database, ["ADMIN"], fixture.clock.value)
+    createModeration({
+      database: fixture.database,
+      security: fixture.security,
+      now: () => fixture.clock.value,
+    }).assignRole(adminPrincipal(fixture.clock.value), { employeeID: "E000001", role: "reviewer" })
 
     const login = fixture.auth.begin("/admin")
     const result = await fixture.auth.complete(login.attemptID, "token")
@@ -278,4 +277,19 @@ async function securityFailure(promise: Promise<unknown>) {
 
 function sha256(value: string) {
   return new Bun.CryptoHasher("sha256").update(value).digest("hex")
+}
+
+function adminPrincipal(now: number): Principal {
+  const timestamp = new Date(now).toISOString()
+  return {
+    session: {
+      user: { employeeID: "ADMIN", displayName: "ADMIN" },
+      roles: ["admin"],
+      csrfToken: "_".repeat(43),
+      createdAt: timestamp,
+      absoluteExpiresAt: timestamp,
+      idleExpiresAt: timestamp,
+    },
+    csrfHash: sha256("_".repeat(43)),
+  }
 }

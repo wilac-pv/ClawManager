@@ -257,6 +257,12 @@ describe("submission moderation", () => {
       now: () => fixture.clock.value,
     })
 
+    const usersBefore = rowCount(fixture, "users")
+    await expectCode(
+      () => moderation.assignRole(fixture.admin, { employeeID: "", role: "reviewer" }),
+      "invalid-request",
+    )
+    expect(rowCount(fixture, "users")).toBe(usersBefore)
     expect(moderation.assignRole(fixture.admin, { employeeID: "future-user", role: "reviewer" })).toMatchObject({
       user: { employeeID: "future-user", displayName: "future-user" },
       role: "reviewer",
@@ -286,6 +292,49 @@ describe("submission moderation", () => {
         >("SELECT count(*) AS count FROM audit_events WHERE object_id = 'future-user:reviewer'")
         .get()!.count,
     ).toBe(1)
+
+    fixture.database.close()
+  })
+
+  test("preserves every existing user field when assigning a role", async () => {
+    const fixture = await moderationFixture()
+    const moderation = createModeration({
+      database: fixture.database,
+      security: fixture.security,
+      now: () => fixture.clock.value,
+    })
+    const createdAt = fixture.clock.value - 10_000
+    const lastLoginAt = fixture.clock.value - 5_000
+    const disabledAt = fixture.clock.value - 1_000
+    fixture.database.connection.run(
+      `UPDATE users
+       SET display_name = ?, email = ?, created_at = ?, last_login_at = ?, disabled_at = ?
+       WHERE employee_id = ?`,
+      ["Provisioned Author", "provisioned@example.com", createdAt, lastLoginAt, disabledAt, "author"],
+    )
+
+    moderation.assignRole(fixture.admin, { employeeID: "author", role: "reviewer" })
+
+    expect(
+      fixture.database.connection
+        .query<
+          {
+            display_name: string
+            email: string
+            created_at: number
+            last_login_at: number
+            disabled_at: number
+          },
+          [string]
+        >("SELECT display_name, email, created_at, last_login_at, disabled_at FROM users WHERE employee_id = ?")
+        .get("author"),
+    ).toEqual({
+      display_name: "Provisioned Author",
+      email: "provisioned@example.com",
+      created_at: createdAt,
+      last_login_at: lastLoginAt,
+      disabled_at: disabledAt,
+    })
 
     fixture.database.close()
   })
@@ -509,7 +558,7 @@ function publishSubmission(fixture: Awaited<ReturnType<typeof moderationFixture>
 }
 
 function rowCount(fixture: Awaited<ReturnType<typeof moderationFixture>>, table: string) {
-  if (!new Set(["submissions", "submission_revisions", "reviews", "publish_jobs", "audit_events"]).has(table))
+  if (!new Set(["users", "submissions", "submission_revisions", "reviews", "publish_jobs", "audit_events"]).has(table))
     throw new Error("unsupported table")
   return fixture.database.connection.query<{ count: number }, []>(`SELECT count(*) AS count FROM ${table}`).get()!.count
 }

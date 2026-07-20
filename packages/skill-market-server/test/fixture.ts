@@ -1,6 +1,7 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
-import { mergeCatalog } from "../src/catalog"
+import { key, mergeCatalog, queryCatalogIndex } from "../src/catalog"
+import type { CatalogReader } from "../src/catalog-reader"
 
 export function sampleDetail(overrides: Partial<SkillMarket.Detail> = {}) {
   return Schema.decodeUnknownSync(SkillMarket.Detail)({
@@ -58,5 +59,43 @@ export function sampleSnapshot(revision = "r1") {
     revision,
     createdAt: "2026-07-15T00:00:00.000Z",
     facets: { ...snapshot.facets, revision },
+  }
+}
+
+export function sampleCatalogReader(snapshot: ReturnType<typeof sampleSnapshot>, failure?: () => never): CatalogReader {
+  const index = async () => {
+    failure?.()
+    return {
+      revision: snapshot.revision,
+      createdAt: snapshot.createdAt,
+      items: snapshot.items,
+      details: new Map(),
+      facets: snapshot.facets,
+      sourceStatus: snapshot.sourceStatus,
+    }
+  }
+  const detail = async (source: SkillMarket.Source, id: string) => {
+    failure?.()
+    return snapshot.details.get(key(source, id))
+  }
+  return {
+    index,
+    async list(query, current) {
+      failure?.()
+      return queryCatalogIndex(current ?? (await index()), query)
+    },
+    async facets(current) {
+      failure?.()
+      return (current ?? (await index())).facets
+    },
+    detail,
+    async versions(source, id) {
+      return (await detail(source, id))?.versions
+    },
+    async download(source, id) {
+      const value = await detail(source, id)
+      if (!value) return undefined
+      return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
+    },
   }
 }

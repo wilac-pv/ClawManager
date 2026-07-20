@@ -13,21 +13,21 @@ export function createCatalogHttp(catalog: CatalogReader, packages: CatalogPacka
   return HttpApiBuilder.group(SkillMarketApi, "skillMarket.catalog", (handlers) =>
     handlers
       .handle("skillMarket.catalog.list", (context) =>
-        withCatalog(catalog, () => catalog.list(normalizeSkillMarketCatalogQuery(context.query))),
+        withCatalog(catalog, (current) => catalog.list(normalizeSkillMarketCatalogQuery(context.query), current)),
       )
-      .handle("skillMarket.catalog.facets", () => withCatalog(catalog, () => catalog.facets()))
+      .handle("skillMarket.catalog.facets", () => withCatalog(catalog, (current) => catalog.facets(current)))
       .handle("skillMarket.catalog.detail", (context) =>
-        withCatalog(catalog, () => detail(catalog, context.params.source, context.params.id)),
+        withCatalog(catalog, (current) => detail(catalog, current, context.params.source, context.params.id)),
       )
       .handle("skillMarket.catalog.versions", (context) =>
-        withCatalog(catalog, async () => {
-          const value = await detail(catalog, context.params.source, context.params.id)
+        withCatalog(catalog, async (current) => {
+          const value = await detail(catalog, current, context.params.source, context.params.id)
           return HttpServerResponse.isHttpServerResponse(value) ? value : value.versions
         }),
       )
       .handle("skillMarket.catalog.download", (context) =>
-        withCatalog(catalog, async () => {
-          const value = await detail(catalog, context.params.source, context.params.id)
+        withCatalog(catalog, async (current) => {
+          const value = await detail(catalog, current, context.params.source, context.params.id)
           if (HttpServerResponse.isHttpServerResponse(value)) return value
           return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
         }),
@@ -117,9 +117,15 @@ function packageResponse(
 
 function withCatalog<A>(
   catalog: CatalogReader,
-  use: () => Promise<A>,
+  use: (current: Awaited<ReturnType<CatalogReader["index"]>>) => Promise<A>,
 ): Effect.Effect<A | HttpServerResponse.HttpServerResponse, never, HttpServerRequest.HttpServerRequest> {
-  return Effect.tryPromise({ try: () => Promise.all([catalog.index(), use()]), catch: () => undefined }).pipe(
+  return Effect.tryPromise({
+    try: async () => {
+      const current = await catalog.index()
+      return [current, await use(current)] as const
+    },
+    catch: () => undefined,
+  }).pipe(
     Effect.matchEffect({
       onFailure: () =>
         Effect.succeed(
@@ -142,8 +148,13 @@ function withCatalog<A>(
   )
 }
 
-async function detail(catalog: CatalogReader, source: Parameters<CatalogReader["detail"]>[0], id: string) {
-  const value = await catalog.detail(source, id)
+async function detail(
+  catalog: CatalogReader,
+  current: Awaited<ReturnType<CatalogReader["index"]>>,
+  source: Parameters<CatalogReader["detail"]>[0],
+  id: string,
+) {
+  const value = await catalog.detail(source, id, current)
   if (value && !value.delisted) return value
   return HttpServerResponse.jsonUnsafe({ source, id }, { status: 404 })
 }

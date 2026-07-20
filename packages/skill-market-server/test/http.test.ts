@@ -49,6 +49,47 @@ describe("catalog HTTP", () => {
     expect(calls.detail).toBe(0)
   })
 
+  test("uses one acquired catalog revision for response headers and body", async () => {
+    const first = sampleSnapshot("revision-a")
+    const second = sampleSnapshot("revision-b")
+    const catalog: CatalogReader = {
+      async index() {
+        return { ...first, details: new Map() }
+      },
+      async list(query, current) {
+        const index = current ?? { ...second, details: new Map() }
+        return {
+          revision: index.revision,
+          sourceStatus: index.sourceStatus,
+          total: index.items.length,
+          page: query.page,
+          limit: query.limit,
+          items: index.items,
+        }
+      },
+      async facets(current) {
+        return (current ?? second).facets
+      },
+      async detail() {
+        return undefined
+      },
+      async versions() {
+        return undefined
+      },
+      async download() {
+        return undefined
+      },
+    }
+
+    const response = await createCatalogHandler(catalog)(
+      new Request("https://market.example.com/v1/catalog/skills?page=1&limit=30"),
+    )
+    const page = Schema.decodeUnknownSync(SkillMarket.Page)(await response.json())
+
+    expect(response.headers.get("x-skill-market-revision")).toBe("revision-a")
+    expect(page.revision).toBe("revision-a")
+  })
+
   test("serves all public operations from one loaded revision", async () => {
     const snapshot = sampleSnapshot("r1")
     let loads = 0

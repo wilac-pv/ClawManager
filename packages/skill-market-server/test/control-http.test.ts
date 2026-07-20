@@ -7,6 +7,7 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAuth } from "../src/auth"
+import type { CatalogReader } from "../src/catalog-reader"
 import { openDatabase } from "../src/database"
 import { createMarketWebHandler } from "../src/handlers"
 import { createModeration } from "../src/moderation"
@@ -14,7 +15,7 @@ import type { PrivateObjectStore } from "../src/oss"
 import { MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
 import { createSecurity } from "../src/security"
 import { createSubmissions } from "../src/submissions"
-import { sampleDetail, sampleSnapshot } from "./fixture"
+import { sampleCatalogReader, sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
 
 const directories: string[] = []
@@ -45,6 +46,46 @@ describe("skill market control HTTP", () => {
     expect(preflight.status).toBe(204)
     expect(preflight.headers.get("access-control-allow-origin")).toBe("*")
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, OPTIONS")
+  })
+
+  test("binds Effect catalog headers and body to one acquired revision", async () => {
+    const first = sampleSnapshot("effect-a")
+    const second = sampleSnapshot("effect-b")
+    const catalog: CatalogReader = {
+      async index() {
+        return { ...first, details: new Map() }
+      },
+      async list(query, current) {
+        const index = current ?? { ...second, details: new Map() }
+        return {
+          revision: index.revision,
+          sourceStatus: index.sourceStatus,
+          total: index.items.length,
+          page: query.page,
+          limit: query.limit,
+          items: index.items,
+        }
+      },
+      async facets(current) {
+        return (current ?? second).facets
+      },
+      async detail() {
+        return undefined
+      },
+      async versions() {
+        return undefined
+      },
+      async download() {
+        return undefined
+      },
+    }
+    await using fixture = await marketFixture({ catalog })
+
+    const response = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`)
+    const page = Schema.decodeUnknownSync(SkillMarket.Page)(await response.json())
+
+    expect(response.headers.get("x-skill-market-revision")).toBe("effect-a")
+    expect(page.revision).toBe("effect-a")
   })
 
   test("serves verified packages through GET and HEAD with bounded delivery metrics", async () => {
@@ -721,6 +762,7 @@ async function loginSession(
 async function marketFixture(
   options: {
     snapshotFailure?: boolean
+    catalog?: CatalogReader
     packageDetail?: "present" | "absent" | "delisted" | "oversize"
     packageFailure?: "stored-oversize" | "get" | "stored-size" | "body-size" | "sha256"
     packageUrl?: string
@@ -827,10 +869,16 @@ async function marketFixture(
   )
   if (options.packageDetail === "absent") snapshot.details.delete(`skillhub:${options.packageID ?? "code-review"}`)
   const web = createMarketWebHandler({
-    loadSnapshot: async () => {
-      if (options.snapshotFailure) throw new Error("snapshot unavailable with private dependency detail")
-      return snapshot
-    },
+    catalog:
+      options.catalog ??
+      sampleCatalogReader(
+        snapshot,
+        options.snapshotFailure
+          ? () => {
+              throw new Error("snapshot unavailable with private dependency detail")
+            }
+          : undefined,
+      ),
     auth,
     security,
     submissions,

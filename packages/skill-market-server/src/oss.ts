@@ -244,7 +244,7 @@ export async function loadCatalogIndex(client: ObjectStore, config: PublishConfi
       catalog.items.map((item) => {
         if (item.detail.key !== `details/${item.detail.sha256}.json`)
           throw new Error("catalog detail key does not match hash")
-        return [key(item.summary.source, item.summary.id), item.detail] as const
+        return [key(item.summary.source, item.summary.id), { ...item.detail, version: item.summary.version }] as const
       }),
     )
     if (details.size !== catalog.items.length) throw new Error("OSS catalog contains duplicate detail references")
@@ -257,19 +257,21 @@ export async function loadCatalogIndex(client: ObjectStore, config: PublishConfi
       sourceStatus: facets.sourceStatus,
     }
   }
+  const details = new Map(
+    catalog.items.map(
+      (item) =>
+        [
+          key(item.source, item.id),
+          { key: `details/${item.source}/${encodeURIComponent(item.id)}.json`, sha256: "", version: item.version },
+        ] as const,
+    ),
+  )
+  if (details.size !== catalog.items.length) throw new Error("OSS catalog contains duplicate detail references")
   return {
     revision: catalog.revision,
     createdAt: catalog.createdAt,
     items: [...catalog.items],
-    details: new Map(
-      catalog.items.map(
-        (item) =>
-          [
-            key(item.source, item.id),
-            { key: `details/${item.source}/${encodeURIComponent(item.id)}.json`, sha256: "" },
-          ] as const,
-      ),
-    ),
+    details,
     facets,
     sourceStatus: facets.sourceStatus,
   }
@@ -295,7 +297,7 @@ export async function loadCatalogDetail(
   const detail = await Schema.decodeUnknownPromise(SkillMarket.Detail)(
     await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body)),
   )
-  if (detail.source !== source || detail.id !== id)
+  if (detail.source !== source || detail.id !== id || detail.version !== ref.version)
     throw new Error(`OSS detail does not match catalog item: ${source}:${id}`)
   return detail
 }

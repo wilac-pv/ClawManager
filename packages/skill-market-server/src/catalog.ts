@@ -12,6 +12,7 @@ export type CatalogSnapshot = {
 export interface CatalogDetailRef {
   readonly key: string
   readonly sha256: string
+  readonly version: SkillMarket.Detail["version"]
 }
 
 export interface CatalogIndex {

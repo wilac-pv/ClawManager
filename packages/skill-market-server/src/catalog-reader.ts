@@ -6,18 +6,20 @@ export function createCatalogReader(options: {
   readonly store: ObjectStore
   readonly prefix: string
   readonly ttlMilliseconds?: number
+  readonly now?: () => number
 }) {
   const ttlMilliseconds = options.ttlMilliseconds ?? 60_000
+  const now = options.now ?? Date.now
   let cached: { readonly expiresAt: number; readonly index: CatalogIndex } | undefined
   let loading: Promise<CatalogIndex> | undefined
   const details = new Map<string, SkillMarket.Detail>()
   const pendingDetails = new Map<string, Promise<SkillMarket.Detail | undefined>>()
 
   const index = async () => {
-    if (cached && cached.expiresAt > Date.now()) return cached.index
+    if (cached && cached.expiresAt > now()) return cached.index
     if (loading) return loading
     loading = loadCatalogIndex(options.store, { prefix: options.prefix }).then((value) => {
-      cached = { index: value, expiresAt: Date.now() + ttlMilliseconds }
+      cached = { index: value, expiresAt: now() + ttlMilliseconds }
       return value
     })
     try {
@@ -27,8 +29,8 @@ export function createCatalogReader(options: {
     }
   }
 
-  const detail = async (source: SkillMarket.Source, id: string) => {
-    const catalog = await index()
+  const detail = async (source: SkillMarket.Source, id: string, current?: CatalogIndex) => {
+    const catalog = current ?? (await index())
     const entryKey = `${catalog.revision}:${key(source, id)}`
     const existing = details.get(entryKey)
     if (existing) {
@@ -54,11 +56,11 @@ export function createCatalogReader(options: {
 
   return {
     index,
-    async list(query: SkillMarket.PageQuery) {
-      return queryCatalogIndex(await index(), query)
+    async list(query: SkillMarket.PageQuery, current?: CatalogIndex) {
+      return queryCatalogIndex(current ?? (await index()), query)
     },
-    async facets() {
-      return (await index()).facets
+    async facets(current?: CatalogIndex) {
+      return (current ?? (await index())).facets
     },
     detail,
     async versions(source: SkillMarket.Source, id: string) {
