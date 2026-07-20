@@ -59,8 +59,11 @@ describe("systemd deployment", () => {
     services.slice(1, 4).forEach((service) =>
       expect(service).toContain("/run/lock/ruying-skill-market-ops.lock"),
     )
+    expect(services[1]).toContain(
+      "ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun src/worker.ts --once",
+    )
     expect(services[3]).toContain(
-      "ExecStart=/usr/bin/flock -n /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun src/skillhub-worker.js",
+      "ExecStart=/usr/bin/flock -w 30 /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun src/skillhub-worker.js",
     )
     expect(services[3]).toContain("Type=oneshot")
   })
