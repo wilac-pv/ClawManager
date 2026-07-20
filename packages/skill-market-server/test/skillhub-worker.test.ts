@@ -69,6 +69,19 @@ test("publishes the initial 1-1,999 item canary after its generation has waited 
   ).toBe(true)
 })
 
+test("does not publish fewer mirrored items than the durable publication checkpoint", () => {
+  expect(
+    shouldPublishSkillHub(
+      { mirrored: 77_099, sourceStatus: "stale", pending: 88, running: 0, retryWait: 4 },
+      {
+        lastPublishedCount: 77_187,
+        lastPublishedAt: "2026-07-17T00:00:00.000Z",
+      },
+      { batch: 2_000, minutes: 30, now: () => Date.parse("2026-07-20T00:00:00.000Z") },
+    ),
+  ).toBe(false)
+})
+
 test("records a publication checkpoint only after the catalog pointer publish succeeds", async () => {
   const checkpoints: number[] = []
   await runSkillHubWorker({

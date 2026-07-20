@@ -10,6 +10,7 @@ import {
 import { listPublishedCommunity, materializeCommunitySubmission, publishCommunityObjects } from "./community"
 import type { MarketDatabase } from "./database"
 import {
+  loadCatalogDetail,
   loadCatalogIndex,
   loadCurrentPointer,
   loadCurrentSnapshot,
@@ -159,7 +160,7 @@ export class Publisher {
     workerID: string,
     recommendations?: ReadonlySet<string>,
   ) {
-    const base = await this.basePublication()
+    const base = await this.basePublication({ skipLegacySkillHub: true })
     const progress = imports.progress()
     const current = new Map(
       base.index.items
@@ -189,18 +190,24 @@ export class Publisher {
     let revision = base.index.revision
     await this.withCatalogLease(workerID, async (publish) => {
       const latest = await this.latestIndex(base.index.sourceStatus)
-      const latestEntries = this.entries(latest, (summary) => summary.source !== "skillhub")
+      const publication =
+        latest.revision === base.index.revision ? base : await this.basePublication({ skipLegacySkillHub: true })
+      const latestEntries = this.entries(publication.index, (summary) => summary.source !== "skillhub")
       entries.forEach((entry, entryKey) => {
         if (entryKey.startsWith("skillhub:")) latestEntries.set(entryKey, entry)
       })
-      const index = createCatalogIndex({ entries: latestEntries, sourceStatus: { ...latest.sourceStatus, skillhub: progress.sourceStatus } })
+      const index = createCatalogIndex({
+        entries: latestEntries,
+        sourceStatus: { ...publication.index.sourceStatus, skillhub: progress.sourceStatus },
+      })
       revision = index.revision
-      await publish({ index, changedDetails: base.changedDetails })
+      await publish({ index, changedDetails: publication.changedDetails })
     })
     return { revision, mirrored: progress.mirrored }
   }
 
-  async seedLegacySkillHub(imports: Pick<SkillHubImportStore, "seedLegacy">, workerID: string) {
+  async seedLegacySkillHub(imports: Pick<SkillHubImportStore, "progress" | "seedLegacy">, workerID: string) {
+    if (imports.progress().discovered > 0) return 0
     const base = await this.basePublication()
     const legacy = Array.from(base.changedDetails.values())
       .filter((detail) => detail.source === "skillhub")
@@ -310,7 +317,7 @@ export class Publisher {
     return this.basePublication()
   }
 
-  private async basePublication(): Promise<Publication> {
+  private async basePublication(options: { readonly skipLegacySkillHub?: boolean } = {}): Promise<Publication> {
     const index = await loadCatalogIndexOrMissingPointer(this.options.store, { prefix: this.options.ossPrefix })
     if (!index) {
       const sourceStatus = { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const
@@ -318,6 +325,29 @@ export class Publisher {
     }
     if (Array.from(index.details.values()).every((ref) => ref.sha256.length === 64))
       return { index, changedDetails: new Map() }
+    if (options.skipLegacySkillHub) {
+      const converted = await Promise.all(
+        index.items
+          .filter((summary) => summary.source !== "skillhub")
+          .map(async (summary) => {
+            const detail = await loadCatalogDetail(
+              this.options.store,
+              { prefix: this.options.ossPrefix },
+              index,
+              summary.source,
+              summary.id,
+            )
+            if (!detail) throw new Error(`legacy catalog detail is missing: ${summary.source}:${summary.id}`)
+            return [key(summary.source, summary.id), contentAddressDetail(detail)] as const
+          }),
+      )
+      const details = new Map(index.details)
+      converted.forEach(([entryKey, entry]) => details.set(entryKey, entry.ref))
+      return {
+        index: { ...index, details },
+        changedDetails: new Map(converted.map(([entryKey, entry]) => [entryKey, entry.detail])),
+      }
+    }
     const snapshot = await loadCurrentSnapshot(this.options.store, { prefix: this.options.ossPrefix })
     const entries = new Map<string, { summary: SkillMarket.Summary; ref: CatalogDetailRef }>()
     const changedDetails = new Map<string, SkillMarket.Detail>()

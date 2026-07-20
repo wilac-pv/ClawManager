@@ -51,6 +51,82 @@ describe("community publisher", () => {
     fixture.database.close()
   })
 
+  test("does not read the legacy catalog after the import store has already been seeded", async () => {
+    const fixture = await publisherFixture()
+    const detail = sampleSnapshot("seeded").details.get("skillhub:code-review")!
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{
+      slug: detail.id,
+      summary: sampleSnapshot("seeded").items[0]!,
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+    }])
+    const reads = { total: 0 }
+    const publisher = createPublisher({
+      ...publisherOptions(fixture),
+      store: {
+        ...fixture.store,
+        async get(key: string) {
+          reads.total++
+          return fixture.store.get(key)
+        },
+      },
+    })
+
+    expect(await publisher.seedLegacySkillHub(imports, "worker-resume")).toBe(0)
+    expect(reads.total).toBe(0)
+    fixture.database.close()
+  })
+
+  test("converts a legacy catalog without loading replaced SkillHub details", async () => {
+    const fixture = await publisherFixture()
+    await createPublisher(publisherOptions(fixture)).runOne("worker-community")
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const createdAt = "2026-07-15T02:00:00.000Z"
+    fixture.objects.set("skill-market/current.json", bytes(JSON.stringify({ revision: "legacy-mixed", createdAt })))
+    fixture.objects.set(
+      "skill-market/indexes/legacy-mixed/catalog.json",
+      bytes(JSON.stringify({ revision: "legacy-mixed", createdAt, items: snapshot.items })),
+    )
+    fixture.objects.set(
+      "skill-market/indexes/legacy-mixed/facets.json",
+      bytes(JSON.stringify({ ...snapshot.facets, revision: "legacy-mixed" })),
+    )
+    snapshot.details.forEach((detail) =>
+      fixture.objects.set(
+        `skill-market/indexes/legacy-mixed/details/${detail.source}/${encodeURIComponent(detail.id)}.json`,
+        bytes(JSON.stringify(detail)),
+      ),
+    )
+    const detail = snapshot.details.get("skillhub:code-review")!
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{
+      slug: detail.id,
+      summary: snapshot.items.find((item) => item.source === "skillhub")!,
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+    }])
+    const reads = { skillhubDetails: 0 }
+    const publisher = createPublisher({
+      ...publisherOptions(fixture),
+      store: {
+        ...fixture.store,
+        async get(key: string) {
+          if (key.includes("/details/skillhub/")) reads.skillhubDetails++
+          return fixture.store.get(key)
+        },
+      },
+    })
+
+    await publisher.publishMirroredSkillHub(imports, "worker-mirror")
+
+    expect(reads.skillhubDetails).toBe(0)
+    expect((await loadCatalogIndex(fixture.store, { prefix: "skill-market" })).items).toHaveLength(2)
+    fixture.database.close()
+  })
+
   test("publishes 2,000 mirrored summaries without loading their detail objects under the catalog lease", async () => {
     const fixture = await publisherFixture()
     await createPublisher(publisherOptions(fixture)).runOne("worker-community")

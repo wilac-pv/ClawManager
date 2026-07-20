@@ -216,6 +216,7 @@ export function shouldPublishSkillHub(
   checkpoint: { readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string },
   options: { readonly batch: number; readonly minutes: number; readonly now: () => number },
 ) {
+  if (progress.mirrored < checkpoint.lastPublishedCount) return false
   if (progress.mirrored - checkpoint.lastPublishedCount >= options.batch) return true
   const since = checkpoint.lastPublishedAt ?? checkpoint.startedAt
   if (since !== undefined && options.now() - Date.parse(since) >= options.minutes * 60 * 1_000) return true
