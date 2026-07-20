@@ -1,9 +1,9 @@
 [Unit]
-Description=Synchronize Ruying Skill Market every two minutes
+Description=Synchronize Ruying Skill Market every thirty minutes
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=2min
+OnUnitActiveSec=30min
 RandomizedDelaySec=15s
 Persistent=true
 Unit=ruying-skill-market-sync.service
