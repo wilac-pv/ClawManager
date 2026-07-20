@@ -50,7 +50,7 @@ describe("systemd deployment", () => {
       expect(timer).toContain("WantedBy=timers.target")
     })
     expect(timers[0]).toContain("OnUnitActiveSec=1min")
-    expect(timers[1]).toContain("OnUnitActiveSec=2min")
+    expect(timers[1]).toContain("OnUnitActiveSec=30min")
     expect(timers[2]).toContain("OnCalendar=*-*-* 02:10:00")
     expect(timers[3]).toContain("OnCalendar=*-*-* 03:10:00")
     expect(timers[4]).toContain("OnCalendar=*-*-02 04:10:00")
