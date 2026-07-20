@@ -55,6 +55,16 @@ describe("systemd deployment", () => {
     expect(timers[3]).toContain("OnCalendar=*-*-* 03:10:00")
     expect(timers[4]).toContain("OnCalendar=*-*-02 04:10:00")
   })
+
+  test("documents retiring the legacy SkillHub timer before enabling the formal sync timer", async () => {
+    expect(await Bun.file(new URL("./README.md", import.meta.url)).text()).toContain(`\`\`\`bash
+systemctl disable --now ruying-skill-market-skillhub.timer
+rm -f /etc/systemd/system/ruying-skill-market-skillhub.timer
+rm -f /etc/systemd/system/ruying-skill-market-skillhub.service
+systemctl daemon-reload
+systemctl enable --now ruying-skill-market-sync.timer
+\`\`\``)
+  })
 })
 
 function read(name: string) {

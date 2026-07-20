@@ -225,6 +225,22 @@ For an upgrade, install a new immutable release, run preflight, pause timers,
 back up the database, migrate, atomically change `current`, restart, run smoke,
 then resume timers. Keep previous releases and backups.
 
+The legacy `ruying-skill-market-skillhub.timer` is only a compatibility bridge.
+It and the formal `ruying-skill-market-sync.timer` both execute a full sync, so
+exactly one full-sync timer may remain enabled. Retire the legacy timer before
+enabling the formal timer:
+
+```bash
+systemctl disable --now ruying-skill-market-skillhub.timer
+rm -f /etc/systemd/system/ruying-skill-market-skillhub.timer
+rm -f /etc/systemd/system/ruying-skill-market-skillhub.service
+systemctl daemon-reload
+systemctl enable --now ruying-skill-market-sync.timer
+```
+
+Production must verify `systemctl list-timers --all` shows only the formal
+full-sync timer before resuming the other timers.
+
 If health or smoke fails, restore the previous API and Web symlink targets and
 restart/reload. Do not delete the candidate release. No database restore is
 needed for a backward-compatible migration.
