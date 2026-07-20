@@ -11,7 +11,7 @@ import { emitMarketMetric } from "./metrics"
 import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
 import { createPublisher } from "./publisher"
-import { type SkillHubRecord, loadSkillHub } from "./skillhub"
+import { type SkillHubRecord, loadSkillHub, loadSkillHubRecommendations } from "./skillhub"
 import { inspectZipArchive } from "./submission-archive"
 import { createSubmissions } from "./submissions"
 import { createWorker } from "./worker"
@@ -120,6 +120,20 @@ export async function materializeSkillHubRecords(
   return details.filter((detail): detail is SkillMarket.Detail => detail !== undefined)
 }
 
+export function applySkillHubRecommendations(
+  details: ReadonlyArray<SkillMarket.Detail>,
+  recommendations: ReadonlySet<string> | undefined,
+  previous: ReadonlyMap<string, SkillMarket.Detail>,
+) {
+  return details.map((detail) => {
+    const ids = [detail.id, ...(detail.aliases ?? [])]
+    const featured = recommendations
+      ? ids.some((id) => recommendations.has(id))
+      : ids.map((id) => previous.get(id)).find(Boolean)?.featured ?? false
+    return detail.featured === featured ? detail : { ...detail, featured }
+  })
+}
+
 export function verifySkillArchive(body: Uint8Array) {
   const archive = inspectZipArchive(body, {
     compressed: compressedLimit,
@@ -170,6 +184,9 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
         )
       : [],
   )
+  const recommendationsPromise = settled(
+    loadSkillHubRecommendations(options.fetcher, options.config.skillhubBaseUrl),
+  )
   const canReuseSkillhub =
     previous.ok &&
     state.lastSkillhubAt !== undefined &&
@@ -191,6 +208,15 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
           reused: false as const,
         })),
       )
+  const recommendations = await recommendationsPromise
+  if (!recommendations.ok)
+    console.warn(
+      JSON.stringify({
+        skill_market_showcase_error: {
+          message: recommendations.error instanceof Error ? recommendations.error.message : String(recommendations.error),
+        },
+      }),
+    )
   const enterprise = await settled(
     loadEnterpriseConditional(options, state).then(async (value) => ({
       ...value,
@@ -213,20 +239,25 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
 
   if (!skillhub.ok && !enterprise.ok && !community.ok && !previous.ok)
     throw new Error("all skill market sources failed and no prior snapshot exists")
-  if (!skillhub.ok && !enterprise.ok && !community.ok && previous.ok) {
+  if (!skillhub.ok && !enterprise.ok && !community.ok && previous.ok && !recommendations.ok) {
     emitMetrics(performance.now() - started, previous.value, false, false, false)
     return { snapshot: previous.value, published: false }
   }
 
+  const loadedSkillhubDetails = skillhub.ok
+    ? skillhub.value.details
+    : previous.ok
+      ? sourceDetails(previous.value, "skillhub")
+      : []
+  const skillhubDetails = applySkillHubRecommendations(
+    loadedSkillhubDetails,
+    recommendations.ok ? recommendations.value : undefined,
+    previousSkillhub,
+  )
   const enterpriseDetails = enterprise.ok
     ? enterprise.value.details
     : previous.ok
       ? sourceDetails(previous.value, "enterprise")
-      : []
-  const skillhubDetails = skillhub.ok
-    ? skillhub.value.details
-    : previous.ok
-      ? sourceDetails(previous.value, "skillhub")
       : []
   const communityDetails = community.ok
     ? community.value

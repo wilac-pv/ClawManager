@@ -7,7 +7,13 @@ import { openDatabase } from "../src/database"
 import type { PrivateObjectStore } from "../src/oss"
 import { publishSnapshot } from "../src/oss"
 import { createPublisher } from "../src/publisher"
-import { materializeSkillHubRecord, materializeSkillHubRecords, synchronize, verifySkillArchive } from "../src/sync"
+import {
+  applySkillHubRecommendations,
+  materializeSkillHubRecord,
+  materializeSkillHubRecords,
+  synchronize,
+  verifySkillArchive,
+} from "../src/sync"
 import type { SkillHubRecord } from "../src/skillhub"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
@@ -19,6 +25,35 @@ afterEach(async () => {
 })
 
 describe("catalog synchronization", () => {
+  test("applies official recommendations by id or alias and clears absent slugs", () => {
+    const aliased = sampleDetail({ id: "manifest-name", aliases: ["showcase-slug"] })
+    const removed = sampleDetail({ id: "removed", featured: true })
+    const result = applySkillHubRecommendations(
+      [aliased, removed],
+      new Set(["showcase-slug"]),
+      new Map([
+        ["showcase-slug", aliased],
+        ["removed", removed],
+      ]),
+    )
+
+    expect(result.find((detail) => detail.id === "manifest-name")?.featured).toBe(true)
+    expect(result.find((detail) => detail.id === "removed")?.featured).toBe(false)
+  })
+
+  test("preserves prior recommendations only when the Showcase request fails", () => {
+    const previous = sampleDetail({ featured: true })
+    const current = sampleDetail({ featured: false })
+
+    expect(
+      applySkillHubRecommendations([current], undefined, new Map([[previous.id, previous]]))[0]?.featured,
+    ).toBe(true)
+    expect(applySkillHubRecommendations([current], undefined, new Map())[0]?.featured).toBe(false)
+    expect(applySkillHubRecommendations([previous], new Set(), new Map([[previous.id, previous]]))[0]?.featured).toBe(
+      false,
+    )
+  })
+
   test("reuses an unchanged verified SkillHub detail without downloading it again", async () => {
     const detail = sampleDetail()
     const reused = await materializeSkillHubRecords(
@@ -180,6 +215,46 @@ describe("catalog synchronization", () => {
     expect(result.published).toBe(true)
     expect(result.snapshot.sourceStatus.enterprise).toBe("stale")
     expect(result.snapshot.items[0]?.name).toBe("企业 Code Review")
+  })
+
+  test("publishes refreshed recommendations when catalog sources fall back to the prior snapshot", async () => {
+    const objects = new Map<string, Uint8Array>()
+    const store = memoryStore(objects)
+    await publishSnapshot(store, { prefix: "skill-market" }, sampleSnapshot("prior"))
+    await store.put(
+      "skill-market/sync-state.json",
+      JSON.stringify({
+        lastSkillhubAt: "2026-07-15T00:00:00.000Z",
+        enterpriseIndex: { schemaVersion: 1, updatedAt: "2026-07-15T00:00:00.000Z", skills: [] },
+      }),
+      "application/json",
+      "no-store",
+    )
+    const result = await synchronize({
+      config: loadConfig({
+        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+        SKILL_MARKET_PUBLIC_BASE_URL: "https://oss.example.com/skill-market/",
+        SKILL_MARKET_OSS_PREFIX: "skill-market",
+        SKILL_MARKET_ALLOWED_HOSTS: "api.skillhub.cn,oss.example.com",
+      }),
+      store,
+      now: () => new Date("2026-07-15T00:20:00.000Z"),
+      fetcher: async (input) => {
+        const url = requestUrl(input)
+        if (url.endsWith("/api/v1/showcase/recommended"))
+          return Response.json({
+            section: "recommended",
+            total: 1,
+            skills: [{ slug: "code-review" }],
+          })
+        return new Response(null, { status: 500 })
+      },
+    })
+
+    expect(result.published).toBe(true)
+    expect(result.snapshot.items.find((item) => item.id === "code-review")?.featured).toBe(true)
+    expect(result.snapshot.sourceStatus.skillhub).toBe("stale")
   })
 
   test("reuses a cached enterprise index on ETag 304", async () => {
