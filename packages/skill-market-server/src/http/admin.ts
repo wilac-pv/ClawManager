@@ -180,6 +180,12 @@ function reviewProblem(error: unknown) {
 }
 
 function roleCreateProblem(error: unknown) {
+  if (error instanceof SkillMarketSecurityError && error.message === "role is already assigned")
+    return new SkillMarketInvalidRequest({
+      code: "invalid-request",
+      message: "该用户已拥有此角色",
+      requestId: requestID(),
+    })
   if (error instanceof SkillMarketSecurityError && (error.code === "invalid-request" || error.code === "not-found"))
     return new SkillMarketInvalidRequest({
       code: "invalid-request",

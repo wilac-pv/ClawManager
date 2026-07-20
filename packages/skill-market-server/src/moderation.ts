@@ -316,13 +316,19 @@ export class Moderation {
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "role assignment is invalid")
     const now = this.options.now?.() ?? Date.now()
     return this.options.database.transaction((connection) => {
+      connection.run(
+        `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(employee_id) DO NOTHING`,
+        [decoded.value.employeeID, decoded.value.employeeID, now, now],
+      )
       const target = connection
         .query<
           { employee_id: string; display_name: string; email: string | null; disabled_at: number | null },
           [string]
         >("SELECT employee_id, display_name, email, disabled_at FROM users WHERE employee_id = ?")
         .get(decoded.value.employeeID)
-      if (!target) throw new SkillMarketSecurityError("not-found", "role target user was not found")
+      if (!target) throw new Error("role target user is missing after provisioning")
       const existing = connection
         .query<
           { count: number },

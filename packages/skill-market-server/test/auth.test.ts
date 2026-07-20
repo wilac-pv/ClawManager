@@ -74,6 +74,35 @@ describe("SSO authentication", () => {
     fixture.database.close()
   })
 
+  test("hydrates a preassigned placeholder user on first SSO login and preserves the role", async () => {
+    using server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User" }),
+    })
+    const fixture = await authenticationFixture(server.url.origin)
+    fixture.database.connection.run(
+      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+      ["E000001", "E000001", fixture.clock.value, fixture.clock.value],
+    )
+    fixture.database.connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
+      ["E000001", "reviewer", null, fixture.clock.value],
+    )
+
+    const login = fixture.auth.begin("/admin")
+    const result = await fixture.auth.complete(login.attemptID, "token")
+
+    expect(result.session.user).toEqual({ employeeID: "E000001", displayName: "Test User" })
+    expect(result.session.roles).toEqual(["reviewer"])
+    expect(
+      fixture.database.connection
+        .query<{ display_name: string }, [string]>("SELECT display_name FROM users WHERE employee_id = ?")
+        .get("E000001"),
+    ).toEqual({ display_name: "Test User" })
+    fixture.database.close()
+  })
+
   test("allows only declared same-site return paths", async () => {
     using server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({}) })
     const fixture = await authenticationFixture(server.url.origin)

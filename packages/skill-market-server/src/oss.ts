@@ -10,7 +10,7 @@ import {
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { Readable } from "node:stream"
-import { type CatalogSnapshot, key } from "./catalog"
+import { type CatalogIndex, type CatalogSnapshot, key } from "./catalog"
 
 export type ObjectStore = {
   readonly put: (key: string, body: string | Uint8Array, contentType: string, cacheControl: string) => Promise<void>
@@ -202,6 +202,31 @@ export async function loadCurrentPointer(client: ObjectStore, config: PublishCon
 }
 
 export async function loadCurrentSnapshot(client: ObjectStore, config: PublishConfig): Promise<CatalogSnapshot> {
+  const index = await loadCatalogIndex(client, config)
+  const loadedDetails = await loadDetails(index.items, (item) =>
+    loadCatalogDetail(client, config, index, item.source, item.id),
+  )
+  const details = loadedDetails.filter((detail): detail is SkillMarket.Detail => detail !== undefined)
+  if (details.length !== index.items.length) throw new Error("OSS snapshot is missing a catalog detail")
+  const entries = details.map((detail) => [key(detail.source, detail.id), detail] as const)
+  const detailMap = new Map(entries)
+  if (detailMap.size !== index.items.length) throw new Error("OSS snapshot contains duplicate catalog keys")
+  index.items.forEach((item) => {
+    const detail = detailMap.get(key(item.source, item.id))
+    if (!detail || detail.version !== item.version)
+      throw new Error(`OSS detail does not match catalog item: ${item.source}:${item.id}`)
+  })
+  return {
+    revision: index.revision,
+    createdAt: index.createdAt,
+    items: [...index.items],
+    details: detailMap,
+    facets: index.facets,
+    sourceStatus: index.sourceStatus,
+  }
+}
+
+export async function loadCatalogIndex(client: ObjectStore, config: PublishConfig): Promise<CatalogIndex> {
   const prefix = normalizePrefix(config.prefix)
   const pointer = await loadObject(client, `${prefix}/current.json`, Pointer)
   const objectKeys = keys({ prefix }, pointer.revision)
@@ -214,38 +239,65 @@ export async function loadCurrentSnapshot(client: ObjectStore, config: PublishCo
     : await Schema.decodeUnknownPromise(CatalogObjectV1)(catalogValue)
   if (catalog.revision !== pointer.revision || facets.revision !== pointer.revision)
     throw new Error("OSS snapshot revision mismatch")
-
-  const items = "schemaVersion" in catalog ? catalog.items.map((item) => item.summary) : catalog.items
-  const details =
-    "schemaVersion" in catalog
-      ? await loadDetails(catalog.items, async (item) => {
-          if (item.detail.key !== `details/${item.detail.sha256}.json`)
-            throw new Error("catalog detail key does not match hash")
-          const body = await loadBytes(client, `${prefix}/${item.detail.key}`)
-          if (sha256(body) !== item.detail.sha256) throw new Error(`OSS detail hash mismatch: ${item.detail.key}`)
-          return Schema.decodeUnknownPromise(SkillMarket.Detail)(
-            await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body)),
-          )
-        })
-      : await loadDetails(items, (item) =>
-          loadObject(client, objectKeys.detail(item.source, item.id), SkillMarket.Detail),
-        )
-  const entries = details.map((detail) => [key(detail.source, detail.id), detail] as const)
-  const detailMap = new Map(entries)
-  if (detailMap.size !== items.length) throw new Error("OSS snapshot contains duplicate catalog keys")
-  items.forEach((item) => {
-    const detail = detailMap.get(key(item.source, item.id))
-    if (!detail || detail.version !== item.version)
-      throw new Error(`OSS detail does not match catalog item: ${item.source}:${item.id}`)
-  })
+  if ("schemaVersion" in catalog) {
+    const details = new Map(
+      catalog.items.map((item) => {
+        if (item.detail.key !== `details/${item.detail.sha256}.json`)
+          throw new Error("catalog detail key does not match hash")
+        return [key(item.summary.source, item.summary.id), item.detail] as const
+      }),
+    )
+    if (details.size !== catalog.items.length) throw new Error("OSS catalog contains duplicate detail references")
+    return {
+      revision: catalog.revision,
+      createdAt: catalog.createdAt,
+      items: catalog.items.map((item) => item.summary),
+      details,
+      facets,
+      sourceStatus: facets.sourceStatus,
+    }
+  }
   return {
-    revision: pointer.revision,
+    revision: catalog.revision,
     createdAt: catalog.createdAt,
-    items: [...items],
-    details: detailMap,
+    items: [...catalog.items],
+    details: new Map(
+      catalog.items.map(
+        (item) =>
+          [
+            key(item.source, item.id),
+            { key: `details/${item.source}/${encodeURIComponent(item.id)}.json`, sha256: "" },
+          ] as const,
+      ),
+    ),
     facets,
     sourceStatus: facets.sourceStatus,
   }
+}
+
+export async function loadCatalogDetail(
+  client: ObjectStore,
+  config: PublishConfig,
+  index: CatalogIndex,
+  source: SkillMarket.Source,
+  id: string,
+) {
+  const ref = index.details.get(key(source, id))
+  if (!ref) return undefined
+  const body = await loadBytes(
+    client,
+    Schema.is(SkillMarket.Sha256)(ref.sha256)
+      ? `${normalizePrefix(config.prefix)}/${ref.key}`
+      : `${keys(config, index.revision).root}/${ref.key}`,
+  )
+  if (Schema.is(SkillMarket.Sha256)(ref.sha256) && sha256(body) !== ref.sha256)
+    throw new Error(`OSS detail hash mismatch: ${ref.key}`)
+  const detail = await Schema.decodeUnknownPromise(SkillMarket.Detail)(
+    await Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body)),
+  )
+  if (detail.source !== source || detail.id !== id)
+    throw new Error(`OSS detail does not match catalog item: ${source}:${id}`)
+  return detail
 }
 
 function keys(config: PublishConfig, revision: string) {
@@ -253,6 +305,7 @@ function keys(config: PublishConfig, revision: string) {
   if (!/^[a-zA-Z0-9._-]+$/.test(revision)) throw new Error("snapshot revision contains invalid characters")
   return {
     current: `${prefix}/current.json`,
+    root: `${prefix}/indexes/${revision}`,
     catalog: `${prefix}/indexes/${revision}/catalog.json`,
     facets: `${prefix}/indexes/${revision}/facets.json`,
     detail: (source: SkillMarket.Source, id: string) =>
@@ -294,7 +347,7 @@ async function loadBytes(client: ObjectStore, key: string) {
   return body
 }
 
-async function loadDetails<T>(items: ReadonlyArray<T>, load: (item: T) => Promise<SkillMarket.Detail>) {
+async function loadDetails<T, R>(items: ReadonlyArray<T>, load: (item: T) => Promise<R>) {
   return mapBatches(items, load)
 }
 

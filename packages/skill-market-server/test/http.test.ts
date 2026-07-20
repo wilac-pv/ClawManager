@@ -2,12 +2,53 @@ import { describe, expect, test } from "bun:test"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { createServer } from "node:net"
+import type { CatalogReader } from "../src/catalog-reader"
 import { createCatalogHandler } from "../src/handlers"
 import { createCatalogPackageReader, MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
 import type { ObjectStore } from "../src/oss"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 
 describe("catalog HTTP", () => {
+  test("lists catalog summaries without reading any detail", async () => {
+    const snapshot = sampleSnapshot("summary-only")
+    const calls = { detail: 0 }
+    const catalog: CatalogReader = {
+      async index() {
+        return { ...snapshot, details: new Map() }
+      },
+      async list() {
+        return {
+          revision: snapshot.revision,
+          sourceStatus: snapshot.sourceStatus,
+          total: snapshot.items.length,
+          page: 1,
+          limit: 30,
+          items: snapshot.items,
+        }
+      },
+      async facets() {
+        return snapshot.facets
+      },
+      async detail() {
+        calls.detail++
+        return undefined
+      },
+      async versions() {
+        return undefined
+      },
+      async download() {
+        return undefined
+      },
+    }
+
+    const response = await createCatalogHandler(catalog)(
+      new Request("https://market.example.com/v1/catalog/skills?page=1&limit=30"),
+    )
+
+    expect(response.status).toBe(200)
+    expect(calls.detail).toBe(0)
+  })
+
   test("serves all public operations from one loaded revision", async () => {
     const snapshot = sampleSnapshot("r1")
     let loads = 0

@@ -594,6 +594,46 @@ describe("skill market control HTTP", () => {
     expect(await admin.json()).toMatchObject({ code: "forbidden" })
   })
 
+  test("preassigns roles over HTTP and reports duplicate assignments clearly", async () => {
+    await using fixture = await marketFixture()
+    fixture.database.connection.run(
+      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+      ["E123456", "E123456", now, now],
+    )
+    fixture.database.connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
+      ["E123456", "admin", null, now],
+    )
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin%2Froles`, { redirect: "manual" })
+    const session = await loginSession(fixture, login, "/admin/roles")
+    const request = () =>
+      fetch(`${fixture.url}/v1/admin/roles`, {
+        method: "POST",
+        headers: {
+          cookie: session.cookie,
+          origin: webOrigin,
+          "x-csrf-token": session.csrf,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ employeeID: "future-user", role: "reviewer" }),
+      })
+
+    const assigned = await request()
+    expect(assigned.status).toBe(200)
+    expect(await assigned.json()).toMatchObject({
+      user: { employeeID: "future-user", displayName: "future-user" },
+      role: "reviewer",
+    })
+
+    const duplicate = await request()
+    expect(duplicate.status).toBe(400)
+    expect(await duplicate.json()).toMatchObject({
+      code: "invalid-request",
+      message: "该用户已拥有此角色",
+      requestId: expect.any(String),
+    })
+  })
+
   test("returns bounded stable errors for malformed control requests without leaking private data", async () => {
     await using fixture = await marketFixture()
     const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin`, { redirect: "manual" })

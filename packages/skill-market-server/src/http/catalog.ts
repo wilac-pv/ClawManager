@@ -4,53 +4,45 @@ import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Effect } from "effect"
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
-import { type CatalogSnapshot, key, queryCatalog } from "../catalog"
+import type { CatalogReader } from "../catalog-reader"
 import type { MarketMetricEmitter } from "../metrics"
 import { CatalogPackageReadError, type CatalogPackageReader } from "../package-reader"
 import { requestID } from "./middleware"
 
-type SnapshotLoader = () => Promise<CatalogSnapshot>
-
-export function createCatalogHttp(
-  loadSnapshot: SnapshotLoader,
-  packages: CatalogPackageReader,
-  emit?: MarketMetricEmitter,
-) {
+export function createCatalogHttp(catalog: CatalogReader, packages: CatalogPackageReader, emit?: MarketMetricEmitter) {
   return HttpApiBuilder.group(SkillMarketApi, "skillMarket.catalog", (handlers) =>
     handlers
       .handle("skillMarket.catalog.list", (context) =>
-        withSnapshot(loadSnapshot, (snapshot) =>
-          queryCatalog(snapshot, normalizeSkillMarketCatalogQuery(context.query)),
-        ),
+        withCatalog(catalog, () => catalog.list(normalizeSkillMarketCatalogQuery(context.query))),
       )
-      .handle("skillMarket.catalog.facets", () => withSnapshot(loadSnapshot, (snapshot) => snapshot.facets))
+      .handle("skillMarket.catalog.facets", () => withCatalog(catalog, () => catalog.facets()))
       .handle("skillMarket.catalog.detail", (context) =>
-        withSnapshot(loadSnapshot, (snapshot) => detail(snapshot, context.params.source, context.params.id)),
+        withCatalog(catalog, () => detail(catalog, context.params.source, context.params.id)),
       )
       .handle("skillMarket.catalog.versions", (context) =>
-        withSnapshot(loadSnapshot, (snapshot) => {
-          const value = detail(snapshot, context.params.source, context.params.id)
+        withCatalog(catalog, async () => {
+          const value = await detail(catalog, context.params.source, context.params.id)
           return HttpServerResponse.isHttpServerResponse(value) ? value : value.versions
         }),
       )
       .handle("skillMarket.catalog.download", (context) =>
-        withSnapshot(loadSnapshot, (snapshot) => {
-          const value = detail(snapshot, context.params.source, context.params.id)
+        withCatalog(catalog, async () => {
+          const value = await detail(catalog, context.params.source, context.params.id)
           if (HttpServerResponse.isHttpServerResponse(value)) return value
           return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
         }),
       )
       .handleRaw("skillMarket.catalog.package", (context) =>
-        packageResponse(loadSnapshot, packages, context.params.source, context.params.id, false, emit),
+        packageResponse(catalog, packages, context.params.source, context.params.id, false, emit),
       )
       .handleRaw("skillMarket.catalog.packageHead", (context) =>
-        packageResponse(loadSnapshot, packages, context.params.source, context.params.id, true, emit),
+        packageResponse(catalog, packages, context.params.source, context.params.id, true, emit),
       ),
   )
 }
 
 function packageResponse(
-  loadSnapshot: SnapshotLoader,
+  catalog: CatalogReader,
   packages: CatalogPackageReader,
   source: SkillMarket.Source,
   id: string,
@@ -58,7 +50,7 @@ function packageResponse(
   emit?: MarketMetricEmitter,
 ) {
   const method = head ? "HEAD" : "GET"
-  return Effect.tryPromise({ try: loadSnapshot, catch: () => undefined }).pipe(
+  return Effect.tryPromise({ try: () => catalog.detail(source, id), catch: () => undefined }).pipe(
     Effect.matchEffect({
       onFailure: () => {
         const requestId = requestID()
@@ -79,9 +71,8 @@ function packageResponse(
           ),
         )
       },
-      onSuccess: (snapshot) => {
-        const detail = snapshot.details.get(key(source, id))
-        if (!detail || detail.delisted) {
+      onSuccess: (value) => {
+        if (!value || value.delisted) {
           const problem = packageNotFoundProblem(source, id)
           emit?.({
             skill_market_package_delivery: {
@@ -95,7 +86,7 @@ function packageResponse(
           })
           return Effect.succeed(HttpServerResponse.jsonUnsafe(problem.body, { status: problem.status }))
         }
-        return Effect.tryPromise({ try: () => packages.read(detail), catch: (error) => error }).pipe(
+        return Effect.tryPromise({ try: () => packages.read(value), catch: (error) => error }).pipe(
           Effect.match({
             onFailure: (error) => {
               const problem = packageReadProblem(error, source, id)
@@ -113,7 +104,7 @@ function packageResponse(
             },
             onSuccess: (verified) => {
               emit?.({ skill_market_package_delivery: { success: 1, source, id, method } })
-              const headers = packageHeaders(detail, verified)
+              const headers = packageHeaders(value, verified)
               if (head) return HttpServerResponse.empty({ status: 200, headers })
               return HttpServerResponse.uint8Array(verified.body, { headers })
             },
@@ -124,17 +115,17 @@ function packageResponse(
   )
 }
 
-function withSnapshot<A>(
-  loadSnapshot: SnapshotLoader,
-  use: (snapshot: CatalogSnapshot) => A,
+function withCatalog<A>(
+  catalog: CatalogReader,
+  use: () => Promise<A>,
 ): Effect.Effect<A | HttpServerResponse.HttpServerResponse, never, HttpServerRequest.HttpServerRequest> {
-  return Effect.tryPromise({ try: loadSnapshot, catch: () => undefined }).pipe(
+  return Effect.tryPromise({ try: () => Promise.all([catalog.index(), use()]), catch: () => undefined }).pipe(
     Effect.matchEffect({
       onFailure: () =>
         Effect.succeed(
           HttpServerResponse.jsonUnsafe({ code: "market-unavailable", message: "Skill 市场暂不可用" }, { status: 503 }),
         ),
-      onSuccess: (snapshot) =>
+      onSuccess: ([snapshot, value]) =>
         HttpEffect.appendPreResponseHandler((_request, response) =>
           Effect.succeed(
             HttpServerResponse.setHeaders(response, {
@@ -146,13 +137,13 @@ function withSnapshot<A>(
               "x-skill-market-source-community": snapshot.sourceStatus.community,
             }),
           ),
-        ).pipe(Effect.andThen(Effect.sync(() => use(snapshot)))),
+        ).pipe(Effect.andThen(Effect.succeed(value))),
     }),
   )
 }
 
-function detail(snapshot: CatalogSnapshot, source: Parameters<typeof key>[0], id: string) {
-  const value = snapshot.details.get(key(source, id))
+async function detail(catalog: CatalogReader, source: Parameters<CatalogReader["detail"]>[0], id: string) {
+  const value = await catalog.detail(source, id)
   if (value && !value.delisted) return value
   return HttpServerResponse.jsonUnsafe({ source, id }, { status: 404 })
 }

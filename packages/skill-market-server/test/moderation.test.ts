@@ -80,9 +80,10 @@ describe("submission moderation", () => {
     expect(rowCount(fixture, "publish_jobs")).toBe(1)
     expect(
       fixture.database.connection
-        .query<{ reviewer_employee_id: string; decision: string; comment: string }, []>(
-          "SELECT reviewer_employee_id, decision, comment FROM reviews",
-        )
+        .query<
+          { reviewer_employee_id: string; decision: string; comment: string },
+          []
+        >("SELECT reviewer_employee_id, decision, comment FROM reviews")
         .get(),
     ).toEqual({
       reviewer_employee_id: "admin",
@@ -91,9 +92,10 @@ describe("submission moderation", () => {
     })
     expect(
       fixture.database.connection
-        .query<{ action: string; actor_employee_id: string; before_json: string; after_json: string }, []>(
-          "SELECT action, actor_employee_id, before_json, after_json FROM audit_events",
-        )
+        .query<
+          { action: string; actor_employee_id: string; before_json: string; after_json: string },
+          []
+        >("SELECT action, actor_employee_id, before_json, after_json FROM audit_events")
         .get(),
     ).toEqual({
       action: "review-approved",
@@ -243,6 +245,47 @@ describe("submission moderation", () => {
         .all()
         .map((audit) => audit.action),
     ).toEqual(["role-assigned", "role-removed", "role-assigned", "role-removed"])
+
+    fixture.database.close()
+  })
+
+  test("preassigns a role before the employee's first login without duplicating audit records", async () => {
+    const fixture = await moderationFixture()
+    const moderation = createModeration({
+      database: fixture.database,
+      security: fixture.security,
+      now: () => fixture.clock.value,
+    })
+
+    expect(moderation.assignRole(fixture.admin, { employeeID: "future-user", role: "reviewer" })).toMatchObject({
+      user: { employeeID: "future-user", displayName: "future-user" },
+      role: "reviewer",
+      createdBy: "admin",
+    })
+    expect(
+      fixture.database.connection
+        .query<
+          { display_name: string; created_at: number; last_login_at: number },
+          [string]
+        >("SELECT display_name, created_at, last_login_at FROM users WHERE employee_id = ?")
+        .get("future-user"),
+    ).toEqual({
+      display_name: "future-user",
+      created_at: fixture.clock.value,
+      last_login_at: fixture.clock.value,
+    })
+    await expectCode(
+      () => moderation.assignRole(fixture.admin, { employeeID: "future-user", role: "reviewer" }),
+      "invalid-request",
+    )
+    expect(
+      fixture.database.connection
+        .query<
+          { count: number },
+          []
+        >("SELECT count(*) AS count FROM audit_events WHERE object_id = 'future-user:reviewer'")
+        .get()!.count,
+    ).toBe(1)
 
     fixture.database.close()
   })
