@@ -5,6 +5,7 @@ const serviceNames = [
   "ruying-skill-market.service",
   "ruying-skill-market-worker.service",
   "ruying-skill-market-sync.service",
+  "ruying-skill-market-skillhub.service",
   "ruying-skill-market-backup.service",
   "ruying-skill-market-cleanup.service",
   "ruying-skill-market-restore-drill.service",
@@ -12,6 +13,24 @@ const serviceNames = [
 const timerNames = serviceNames.slice(1).map((name) => name.replace(/\.service$/, ".timer"))
 
 describe("systemd deployment", () => {
+  test("documents immutable releases, secret-safe preflight, and writer quiescence", async () => {
+    const readme = await Bun.file(new URL("./README.md", import.meta.url)).text()
+
+    expect(readme).toContain("bun run build:release <output-directory>")
+    expect(readme).toContain("src/skillhub-worker.js")
+    expect(readme).toContain("Do not deploy a source archive or use")
+    expect(readme).toContain("sudo -u ruying-market /bin/bash -c")
+    expect(readme).toContain("set -a")
+    expect(readme).toContain(". /etc/ruying-skill-market/market.env")
+    expect(readme).toContain("set +a")
+    expect(readme).toContain("ruying-skill-market-skillhub.timer")
+    expect(readme).toContain("systemctl stop")
+    expect(readme).toContain("systemctl is-active --quiet")
+    expect(readme).toContain("exec /usr/local/bin/bun script/deploy-check.ts smoke --allow-private-canary")
+    expect(readme).toContain("private canary")
+    expect(readme).toContain("confirm it is absent")
+  })
+
   test("runs every command as the dedicated unprivileged identity", async () => {
     const services = await Promise.all(serviceNames.map(read))
     services.forEach((service) => {
@@ -37,9 +56,13 @@ describe("systemd deployment", () => {
       expect(service).toContain("ReadWritePaths=/var/lib/ruying-skill-market /var/backups/ruying-skill-market")
       expect(service).toContain("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6")
     })
-    services.slice(1, 3).forEach((service) =>
+    services.slice(1, 4).forEach((service) =>
       expect(service).toContain("/run/lock/ruying-skill-market-ops.lock"),
     )
+    expect(services[3]).toContain(
+      "ExecStart=/usr/bin/flock -n /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun src/skillhub-worker.js",
+    )
+    expect(services[3]).toContain("Type=oneshot")
   })
 
   test("defines persistent randomized worker, sync, daily, and monthly timers", async () => {
@@ -51,18 +74,19 @@ describe("systemd deployment", () => {
     })
     expect(timers[0]).toContain("OnUnitActiveSec=1min")
     expect(timers[1]).toContain("OnUnitActiveSec=30min")
-    expect(timers[2]).toContain("OnCalendar=*-*-* 02:10:00")
-    expect(timers[3]).toContain("OnCalendar=*-*-* 03:10:00")
-    expect(timers[4]).toContain("OnCalendar=*-*-02 04:10:00")
+    expect(timers[2]).toContain("OnUnitActiveSec=1min")
+    expect(timers[2]).toContain("OnBootSec=2min")
+    expect(timers[2]).toMatch(/RandomizedDelaySec=(?:[0-9]|10)s/)
+    expect(timers[3]).toContain("OnCalendar=*-*-* 02:10:00")
+    expect(timers[4]).toContain("OnCalendar=*-*-* 03:10:00")
+    expect(timers[5]).toContain("OnCalendar=*-*-02 04:10:00")
   })
 
-  test("documents retiring the legacy SkillHub timer before enabling the formal sync timer", async () => {
+  test("documents retiring the legacy full sync timer before enabling the bounded SkillHub timer", async () => {
     expect(await Bun.file(new URL("./README.md", import.meta.url)).text()).toContain(`\`\`\`bash
-systemctl disable --now ruying-skill-market-skillhub.timer
-rm -f /etc/systemd/system/ruying-skill-market-skillhub.timer
-rm -f /etc/systemd/system/ruying-skill-market-skillhub.service
+systemctl disable --now ruying-skill-market-sync.timer
 systemctl daemon-reload
-systemctl enable --now ruying-skill-market-sync.timer
+systemctl enable --now ruying-skill-market-skillhub.timer
 \`\`\``)
   })
 })

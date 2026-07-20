@@ -181,7 +181,8 @@ function allowedReturnTo(value: string) {
     value === "/admin" ||
     /^\/admin\/submissions\/sub_[a-zA-Z0-9_-]{8,64}$/.test(value) ||
     value === "/admin/roles" ||
-    value === "/admin/audit"
+    value === "/admin/audit" ||
+    value === "/admin/skillhub"
   )
 }
 

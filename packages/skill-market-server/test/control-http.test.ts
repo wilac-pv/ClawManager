@@ -14,6 +14,8 @@ import { createModeration } from "../src/moderation"
 import type { PrivateObjectStore } from "../src/oss"
 import { MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
 import { createSecurity } from "../src/security"
+import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
+import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { createSubmissions } from "../src/submissions"
 import { sampleCatalogReader, sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
@@ -675,6 +677,32 @@ describe("skill market control HTTP", () => {
     })
   })
 
+  test("returns durable SkillHub import progress to an authenticated admin", async () => {
+    await using fixture = await marketFixture()
+    fixture.database.connection.run(
+      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+      ["E123456", "E123456", now, now],
+    )
+    fixture.database.connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
+      ["E123456", "admin", null, now],
+    )
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin%2Fskillhub`, { redirect: "manual" })
+    const session = await loginSession(fixture, login, "/admin/skillhub")
+    const response = await fetch(`${fixture.url}/v1/admin/skillhub-import`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+
+    expect(response.status).toBe(200)
+    expect(Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportProgress)(await response.json())).toMatchObject({
+      pending: 0,
+      running: 0,
+      mirrored: 0,
+      retryWait: 0,
+      rejected: 0,
+    })
+  })
+
   test("returns bounded stable errors for malformed control requests without leaking private data", async () => {
     await using fixture = await marketFixture()
     const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin`, { redirect: "manual" })
@@ -851,6 +879,12 @@ async function marketFixture(
   }
   const submissions = createSubmissions({ database, now: () => now })
   const moderation = createModeration({ database, security, now: () => now })
+  const skillhubImportAdmin = createSkillHubImportAdmin({
+    database,
+    security,
+    imports: createSkillHubImportStore({ database, now: () => now }),
+    now: () => now,
+  })
   const snapshot = sampleSnapshot()
   snapshot.details.delete("skillhub:code-review")
   snapshot.details.set(
@@ -883,6 +917,7 @@ async function marketFixture(
     security,
     submissions,
     moderation,
+    skillhubImportAdmin,
     store,
     privatePrefix: "skill-market-private",
     publicPrefix: "skill-market",

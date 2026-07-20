@@ -268,6 +268,72 @@ export const RoleAssignment = Schema.Struct({
   createdAt: SkillMarket.Timestamp,
 }).annotate({ identifier: "SkillMarketControl.RoleAssignment" })
 
+export const SkillHubImportState = Schema.Literals(["idle", "running", "paused", "completed", "failed"])
+export type SkillHubImportState = typeof SkillHubImportState.Type
+
+export const SkillHubImportCommand = Schema.Literals(["pause", "resume", "retry-wait", "retry-rejected"])
+export type SkillHubImportCommand = typeof SkillHubImportCommand.Type
+
+const hasSQLiteSkillHubSlugLength = Schema.makeFilter<string>(
+  (value) => {
+    const firstNul = value.indexOf("\0")
+    const firstNulOrEnd = firstNul === -1 ? value.length : firstNul
+    const length = Array.from(value.slice(0, firstNulOrEnd)).length
+    return length >= 1 && length <= 256
+  },
+  { expected: "a string whose SQLite TEXT length is between 1 and 256" },
+)
+
+export const SkillHubImportSlug = Schema.String.check(hasSQLiteSkillHubSlugLength)
+export type SkillHubImportSlug = typeof SkillHubImportSlug.Type
+
+const UntargetedSkillHubImportCommand = Schema.Struct({
+  command: Schema.Literals(["pause", "resume", "retry-wait"]),
+  slugs: Schema.Never.pipe(optional),
+})
+const RetryRejectedSkillHubImportCommand = Schema.Struct({
+  command: Schema.Literal("retry-rejected"),
+  slugs: Schema.Array(SkillHubImportSlug).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+})
+export const SkillHubImportCommandInput = Schema.Union([
+  UntargetedSkillHubImportCommand,
+  RetryRejectedSkillHubImportCommand,
+]).annotate({ identifier: "SkillMarketControl.SkillHubImportCommandInput" })
+export type SkillHubImportCommandInput = typeof SkillHubImportCommandInput.Type
+
+export const SkillHubImportErrorCode = Schema.Literals(["upstream", "download", "validation", "storage", "rate_limited"])
+export type SkillHubImportErrorCode = typeof SkillHubImportErrorCode.Type
+
+export const SkillHubImportError = Schema.Struct({
+  code: SkillHubImportErrorCode,
+  summary: bounded(1, 500),
+  occurredAt: SkillMarket.Timestamp,
+}).annotate({ identifier: "SkillMarketControl.SkillHubImportError" })
+export type SkillHubImportError = typeof SkillHubImportError.Type
+
+export const SkillHubImportProgress = Schema.Struct({
+  state: SkillHubImportState,
+  sourceStatus: Schema.Literals(["fresh", "stale", "unavailable"]),
+  upstreamTotal: NonNegative,
+  discovered: NonNegative,
+  pending: NonNegative,
+  running: NonNegative,
+  mirrored: NonNegative,
+  retryWait: NonNegative,
+  rejected: NonNegative,
+  uploadedBytes: NonNegative,
+  ratePerMinute: NonNegative,
+  estimatedSecondsRemaining: NonNegative.pipe(optional),
+  lastPublishedAt: SkillMarket.Timestamp.pipe(optional),
+  recentError: SkillHubImportError.pipe(optional),
+  discoveryPage: NonNegative,
+  sweep: NonNegative,
+  metadataConcurrency: Positive,
+  packageConcurrency: Positive,
+  updatedAt: SkillMarket.Timestamp,
+}).annotate({ identifier: "SkillMarketControl.SkillHubImportProgress" })
+export type SkillHubImportProgress = typeof SkillHubImportProgress.Type
+
 export const AuditAction = Schema.Literals([
   "bootstrap-admin",
   "role-assigned",
@@ -287,6 +353,9 @@ export const AuditAction = Schema.Literals([
   "community-restored",
   "user-disabled",
   "user-enabled",
+  "skillhub-import-paused",
+  "skillhub-import-resumed",
+  "skillhub-import-retried",
 ])
 export type AuditAction = typeof AuditAction.Type
 
@@ -297,6 +366,7 @@ export const AuditObjectType = Schema.Literals([
   "revision",
   "publish_job",
   "community_skill",
+  "skillhub_import",
 ])
 export type AuditObjectType = typeof AuditObjectType.Type
 

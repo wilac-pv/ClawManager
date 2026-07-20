@@ -119,6 +119,30 @@ available for desktop compatibility and service probes.
 Do not enable an HTTP public URL for a hostname or public address. The application
 rejects that configuration even when the flag is set.
 
+## SkillHub mirror controls
+
+The `ruying-skill-market-skillhub.timer` starts two minutes after boot and then
+runs once per minute. It shares `/run/lock/ruying-skill-market-ops.lock` with
+community publication, cleanup, and legacy synchronization so only one catalog
+writer can run at a time.
+
+Use the six resource controls in the environment file at their design defaults
+unless a measured operational need requires adjustment:
+
+| Variable | Default | Bound |
+| --- | ---: | --- |
+| `SKILL_MARKET_SKILLHUB_PAGE_CONCURRENCY` | `4` | maximum `16` |
+| `SKILL_MARKET_SKILLHUB_METADATA_CONCURRENCY` | `8` | maximum `32` |
+| `SKILL_MARKET_SKILLHUB_PACKAGE_CONCURRENCY` | `6` | maximum `12` |
+| `SKILL_MARKET_SKILLHUB_PUBLISH_BATCH` | `2000` | positive integer |
+| `SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES` | `30` | positive integer |
+| `SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB` | `1536` | minimum `512` MiB |
+
+`SKILL_MARKET_SKILLHUB_LIMIT=30` is an emergency canary override only. Omit it
+from every production full-mirror environment. Preflight prints only these
+numeric values and validates that both database and migration-backup directories
+are writable; it never prints environment values or secrets.
+
 ## Bootstrap Admin
 
 Set `SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS` to employee IDs only. On an empty
@@ -132,41 +156,85 @@ Admin.
 
 ## Build and transfer a release
 
-Record the source identity and run all repository gates before transfer:
+Build from a clean, committed checkout. Do not deploy a source archive or use
+`git archive`: transfer only the prebuilt immutable release output, which
+contains the generated Bun JavaScript entrypoints.
+Run `bun run build:release <output-directory>` before any transfer.
 
 ```bash
-git rev-parse HEAD
-git status --short
-git diff --check
+test -z "$(git status --porcelain)"
+release_commit=$(git rev-parse HEAD)
+release_output=/tmp/ruying-skill-market-${release_commit}
+bun run build:release "$release_output"
+printf '{"commit":"%s","builtAt":"%s"}\n' "$release_commit" "$(date -u +%FT%TZ)" > "$release_output/RELEASE.json"
+test -s "$release_output/RELEASE.json"
+test -f "$release_output/packages/skill-market-server/package.json"
+test -s "$release_output/packages/skill-market-server/src/skillhub-worker.js"
 ```
 
-Create the archive from tracked files only. Exclude `.git`, `.codegraph`,
-`.superpowers/brainstorm`, caches, `.env` files, databases, and build output.
-Store a `RELEASE.json` beside the release containing only commit SHA, build time,
-and Web release ID.
+Transfer exactly `$release_output` and its `RELEASE.json`, then install that
+verified directory as `root:root 0755` under
+`/srv/ruying-skill-market/releases/<git-sha>`. Do not rebuild or install
+dependencies on the host; the service user never receives write permission to a
+release.
 
-Install the extracted archive as `root:root 0755` under
-`/srv/ruying-skill-market/releases/<git-sha>`. Install dependencies without
-granting the service user write permission to the release.
+The immutable server runtime includes bundled server, sync, durable worker, and
+SkillHub worker entrypoints. The SkillHub unit runs the bundled
+`src/skillhub-worker.js` entrypoint; do not substitute the source `.ts` path.
 
 ## Preflight and initial migration
 
 Before mutation, run the read-only checks as the service identity:
 
 ```bash
-sudo -u ruying-market /usr/local/bin/bun script/deploy-check.ts preflight
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/deploy-check.ts preflight
+'
 ```
 
 Resolve every `FAIL`. An unreachable optional proxy may be `SKIP` only when all
-external dependencies are directly reachable.
+external dependencies are directly reachable. `sudo` changes to the service
+identity before the group-readable environment file is sourced; do not use
+`cat`, `env`, shell tracing, or a command that prints the loaded values.
 
-If a database exists, stop the API and worker/sync timers, create a verified
-local and OSS backup, and record its non-sensitive identity. Switch the code
-symlink only after the backup succeeds. Run migration without exposing the HTTP
-port, then verify:
+If a database exists, record active timers, then stop every writer timer before
+the backup or migration. Wait for an already-running oneshot writer to finish,
+stop the API service, and confirm it is inactive before mutating data:
 
 ```bash
-sudo -u ruying-market /usr/local/bin/bun script/migrate.ts
+writer_timers=(
+  ruying-skill-market-worker.timer ruying-skill-market-sync.timer ruying-skill-market-skillhub.timer
+  ruying-skill-market-cleanup.timer ruying-skill-market-backup.timer ruying-skill-market-restore-drill.timer
+)
+active_timers=()
+for timer in "${writer_timers[@]}"; do systemctl is-active --quiet "$timer" && active_timers+=("$timer"); done
+systemctl stop "${writer_timers[@]}"
+while systemctl is-active --quiet ruying-skill-market-worker.service || \
+  systemctl is-active --quiet ruying-skill-market-sync.service || \
+  systemctl is-active --quiet ruying-skill-market-skillhub.service || \
+  systemctl is-active --quiet ruying-skill-market-cleanup.service || \
+  systemctl is-active --quiet ruying-skill-market-backup.service || \
+  systemctl is-active --quiet ruying-skill-market-restore-drill.service; do sleep 1; done
+systemctl stop ruying-skill-market.service
+! systemctl is-active --quiet ruying-skill-market.service
+```
+
+Create a verified local and OSS backup and record its non-sensitive identity.
+Switch the code symlink only after the backup succeeds. Run migration without
+exposing the HTTP port, then verify:
+
+```bash
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/migrate.ts
+'
 ```
 
 ```text
@@ -175,7 +243,17 @@ PRAGMA foreign_key_check;
 PRAGMA user_version;
 ```
 
-Never continue after a failed migration.
+Never continue after a failed migration. After a successful migration, start the
+API service and run the smoke checks. Only then restore the timers recorded as
+active before the quiescence procedure; do not enable a timer that was
+intentionally inactive. Keep the same root shell open for the recorded timer
+array:
+
+```bash
+systemctl start ruying-skill-market.service
+# Run smoke in this shell, then resume only the recorded active timers.
+((${#active_timers[@]})) && systemctl start "${active_timers[@]}"
+```
 
 ## Install systemd and Nginx
 
@@ -195,7 +273,7 @@ Start in this order:
 4. for an empty OSS prefix, run `ruying-skill-market-sync.service` once and
    require a non-empty 2xx catalog response;
 5. HTTP smoke and private OSS canary;
-6. worker and sync timers;
+6. worker, sync, and SkillHub mirror timers;
 7. backup, cleanup, and restore-drill timers.
 
 Do not treat a `503` catalog response as a CORS failure during first install.
@@ -211,13 +289,34 @@ Record the previous API and Web symlink targets before switching them.
 Run the HTTP checks after the API and Web are reachable:
 
 ```bash
-sudo -u ruying-market /usr/local/bin/bun script/deploy-check.ts smoke
-sudo -u ruying-market /usr/local/bin/bun script/deploy-check.ts smoke --allow-private-canary
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/deploy-check.ts smoke
+'
 ```
 
-The canary is allowed only below the private `canary/` directory and must be
-written, read, verified, deleted, and confirmed absent. Then run an initial
-database backup and confirm that it is not anonymously readable.
+Ordinary smoke is read-only and does not replace the private canary. During an
+explicit deployment window only, run the separate private canary command with
+the same service identity, environment-file loading, and release working
+directory:
+
+```bash
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/deploy-check.ts smoke --allow-private-canary
+'
+```
+
+The private canary is allowed only below the private `canary/` directory. It
+writes, reads, verifies, and deletes the object; it then uses a post-delete
+404/absence check to confirm it is absent. Then run an initial database backup
+and confirm that it is not anonymously readable.
 
 ## Upgrade and code rollback
 
@@ -225,21 +324,20 @@ For an upgrade, install a new immutable release, run preflight, pause timers,
 back up the database, migrate, atomically change `current`, restart, run smoke,
 then resume timers. Keep previous releases and backups.
 
-The legacy `ruying-skill-market-skillhub.timer` is only a compatibility bridge.
-It and the formal `ruying-skill-market-sync.timer` both execute a full sync, so
-exactly one full-sync timer may remain enabled. Retire the legacy timer before
-enabling the formal timer:
+The generic `ruying-skill-market-sync.timer` still exists for manual recovery
+and initial-prefix bootstrap, but it loads a complete catalog snapshot. Keep it
+disabled after the durable SkillHub mirror has been installed. Enable only the
+bounded SkillHub timer for normal operation:
 
 ```bash
-systemctl disable --now ruying-skill-market-skillhub.timer
-rm -f /etc/systemd/system/ruying-skill-market-skillhub.timer
-rm -f /etc/systemd/system/ruying-skill-market-skillhub.service
+systemctl disable --now ruying-skill-market-sync.timer
 systemctl daemon-reload
-systemctl enable --now ruying-skill-market-sync.timer
+systemctl enable --now ruying-skill-market-skillhub.timer
 ```
 
-Production must verify `systemctl list-timers --all` shows only the formal
-full-sync timer before resuming the other timers.
+Production must verify `systemctl list-timers --all` shows the dedicated
+SkillHub timer and does not show the generic sync timer before resuming the
+other writers.
 
 If health or smoke fails, restore the previous API and Web symlink targets and
 restart/reload. Do not delete the candidate release. No database restore is

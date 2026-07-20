@@ -1,17 +1,19 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import matter from "gray-matter"
-import { type CatalogSnapshot, key, mergeCatalog } from "./catalog"
-import { listPublishedCommunity } from "./community"
+import { applyEnterprise, contentAddressDetail, createCatalogIndex, type CatalogSnapshot, key, mergeCatalog } from "./catalog"
+import { listPublishedCommunity, materializePublishedCommunitySkill } from "./community"
 import { type SkillMarketConfig, loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { emitMarketMetric } from "./metrics"
-import { type ObjectStore, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
+import { type ObjectStore, loadCatalogDetail, loadCatalogIndex, loadCatalogIndexOrMissingPointer, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
 import type { Publisher } from "./publisher"
-import { createPublisher } from "./publisher"
-import { type SkillHubRecord, loadSkillHub, loadSkillHubRecommendations } from "./skillhub"
+import { createPublisher, normalizeMirrorDetailKey } from "./publisher"
+import { normalizeSkillHubArchive } from "./skillhub-archive"
+import { type SkillHubRecord, loadSkillHubRecommendations } from "./skillhub"
+import { createSkillHubImportStore } from "./skillhub-import-store"
 import { inspectZipArchive } from "./submission-archive"
 import { createSubmissions } from "./submissions"
 import { createWorker } from "./worker"
@@ -49,16 +51,14 @@ type SyncState = typeof SyncState.Type
 
 export async function materializeSkillHubRecord(record: SkillHubRecord, options: MaterializeOptions) {
   const downloaded = await download(options.fetcher, record.downloadUrl, options.allowedHosts, compressedLimit)
-  const archive = verifySkillArchive(downloaded.body)
-  assertManifest(record.files, archive.files)
-  assertSkillHubMetadata(record, archive.metadata)
-  const packageKey = `${normalizePrefix(options.ossPrefix)}/packages/${downloaded.sha256}.zip`
-  await options.store.put(packageKey, downloaded.body, "application/zip", "public, max-age=31536000, immutable")
+  const archive = normalizeSkillHubArchive(downloaded.body, record)
+  const packageKey = `${normalizePrefix(options.ossPrefix)}/packages/${archive.sha256}.zip`
+  await options.store.put(packageKey, archive.body, "application/zip", "public, max-age=31536000, immutable")
   const iconUrl = record.iconUrl ? await mirrorIcon(record.iconUrl, options).catch(() => undefined) : undefined
   const publishedAt =
     record.versions.find((version) => version.version === record.version)?.publishedAt ?? record.updatedAt
   return Schema.decodeUnknownPromise(SkillMarket.Detail)({
-    id: archive.name,
+    id: archive.id,
     source: "skillhub",
     sourceUrl: record.sourceUrl,
     name: record.name,
@@ -66,7 +66,7 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
     ...(iconUrl ? { iconUrl } : {}),
     categories: record.categories,
     tags: record.tags,
-    ...(record.slug === archive.name ? {} : { aliases: [record.slug] }),
+    ...(record.slug === archive.id ? {} : { aliases: [record.slug] }),
     requiresApiKey: record.requiresApiKey,
     risk: record.risk,
     version: record.version,
@@ -80,13 +80,13 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
     readme: archive.readme,
     ...(archive.license ? { license: archive.license } : {}),
     author: record.author,
-    versions: [{ version: record.version, publishedAt, sha256: downloaded.sha256, size: downloaded.body.byteLength }],
+    versions: [{ version: record.version, publishedAt, sha256: archive.sha256, size: archive.body.byteLength }],
     securityReports: record.securityReports,
     ...(record.riskReason ? { riskReason: record.riskReason } : {}),
     package: {
-      url: publicUrl(options.publicBaseUrl, `packages/${downloaded.sha256}.zip`),
-      sha256: downloaded.sha256,
-      size: downloaded.body.byteLength,
+      url: publicUrl(options.publicBaseUrl, `packages/${archive.sha256}.zip`),
+      sha256: archive.sha256,
+      size: archive.body.byteLength,
       files: archive.files,
     },
     publicDetailUrl: record.publicDetailUrl,
@@ -94,28 +94,26 @@ export async function materializeSkillHubRecord(record: SkillHubRecord, options:
 }
 
 export async function materializeSkillHubRecords(
-  records: ReadonlyArray<SkillHubRecord | SkillMarket.Detail>,
+  records: readonly SkillHubRecord[],
   options: MaterializeOptions,
   previous: ReadonlyMap<string, SkillMarket.Detail> = new Map(),
 ) {
   const details = await materializeInBatches(records, (record) =>
-    "source" in record
-      ? Promise.resolve(record)
-      : materializeSkillHubRecord(record, options).then(
-          (detail) => detail,
-          (error: unknown) => {
-            console.warn(
-              JSON.stringify({
-                skill_market_materialize_error: {
-                  source: "skillhub",
-                  id: record.slug,
-                  message: error instanceof Error ? error.message : String(error),
-                },
-              }),
-            )
-            return previous.get(record.slug)
-          },
-        ),
+    materializeSkillHubRecord(record, options).then(
+      (detail) => detail,
+      (error: unknown) => {
+        console.warn(
+          JSON.stringify({
+            skill_market_materialize_error: {
+              source: "skillhub",
+              id: record.slug,
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+        )
+        return previous.get(record.slug)
+      },
+    ),
   )
   return details.filter((detail): detail is SkillMarket.Detail => detail !== undefined)
 }
@@ -167,9 +165,130 @@ export async function synchronize(options: SyncOptions) {
     return synchronizeUnlocked(options, (snapshot) =>
       publishSnapshot(options.store, { prefix: options.config.ossPrefix }, snapshot).then(() => undefined),
     )
-  await options.publisher.recover()
-  await drainPublisher(options.publisher)
-  return options.publisher.withCatalogLease("sync", (publish) => synchronizeUnlocked(options, publish))
+  return synchronizeIndexed(options, options.publisher)
+}
+
+async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
+  const started = performance.now()
+  const now = (options.now ?? (() => new Date()))()
+  const state = await loadState(options.store, options.config.ossPrefix)
+  await publisher.recover()
+  await drainPublisher(publisher)
+  const imports = options.database ? createSkillHubImportStore({ database: options.database }) : undefined
+  const beforeMigration = await catalogIndexOrMissing(options.store, options.config.ossPrefix)
+  if (imports && beforeMigration && Array.from(beforeMigration.details.values()).some((ref) => ref.sha256.length !== 64))
+    await publisher.seedLegacySkillHub(imports, "sync-migration")
+  const current = await catalogIndexOrMissing(options.store, options.config.ossPrefix)
+  const base = current
+    ? current
+    : createCatalogIndex({
+        entries: new Map(),
+        sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
+      })
+  const imported = imports?.progress()
+  const mirrored = imports
+    ? new Map(
+      imports.mirroredEntries().flatMap((entry) =>
+        [entry.summary.id, ...(entry.summary.aliases ?? [])].map((id) => [id, {
+          ...entry,
+          detailKey: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, options.config.ossPrefix),
+        }] as const),
+      ),
+    )
+    : new Map()
+  const enterprise = await settled(loadEnterpriseConditional(options, state))
+  const changedDetails = new Map<string, SkillMarket.Detail>()
+  const materialized = enterprise.ok && !enterprise.value.notModified
+    ? await materializeInBatches(
+      enterprise.value.index.skills.filter((entry) => entry.source === "enterprise"),
+      async (entry) => {
+        const present = base.items.find((summary) => summary.source === "enterprise" && (summary.id === entry.id || summary.aliases?.includes(entry.id)))
+        if (present && enterpriseEntryUnchanged(entry, state.enterpriseIndex)) {
+          return { summary: present, ref: base.details.get(key(present.source, present.id))! }
+        }
+        const detail = await materializeEnterpriseRecord(entry, enterprise.value.index.updatedAt, materializeOptions(options))
+        changedDetails.set(key(detail.source, detail.id), detail)
+        return contentAddressDetail(detail)
+      },
+      )
+    : []
+  const sourceStatus: SkillMarket.SourceStatus = {
+    skillhub: imported?.sourceStatus ?? base.sourceStatus.skillhub,
+    enterprise: enterprise.ok ? "fresh" : base.sourceStatus.enterprise === "unavailable" ? "unavailable" : "stale",
+    community: options.database ? "fresh" : base.sourceStatus.community,
+  }
+  let snapshot: CatalogSnapshot | undefined
+  await publisher.withCatalogLease("sync", async (publish) => {
+    const latest = (await loadCatalogIndexOrMissingPointer(options.store, { prefix: options.config.ossPrefix })) ?? createCatalogIndex({
+      entries: new Map(),
+      sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
+    })
+    const latestEntries = new Map(
+      latest.items.map((summary) => [key(summary.source, summary.id), {
+        summary,
+        ref: latest.details.get(key(summary.source, summary.id))!,
+      }] as const),
+    )
+    if (enterprise.ok && !enterprise.value.notModified) {
+      Array.from(latestEntries.keys()).filter((entryKey) => entryKey.startsWith("enterprise:")).forEach((entryKey) => latestEntries.delete(entryKey))
+      materialized.forEach((entry) => latestEntries.set(key(entry.summary.source, entry.summary.id), entry))
+      const overrides = enterprise.value.index.skills.filter((entry) => entry.source !== "enterprise")
+      const previousOverrides = state.enterpriseIndex?.skills.filter((entry) => entry.source !== "enterprise") ?? []
+      const affected = new Map(
+        [...overrides, ...previousOverrides].map((entry) => [key(entry.source, entry.referenceId ?? entry.id), entry]),
+      )
+      for (const [targetKey, previous] of affected) {
+        const active = overrides.filter((entry) => key(entry.source, entry.referenceId ?? entry.id) === targetKey)
+        if (active.length === 1 && enterpriseEntryUnchanged(active[0]!, state.enterpriseIndex)) continue
+        const [source, targetID] = targetKey.split(":", 2) as [SkillMarket.Source, string]
+        const target = latest.items.find((summary) =>
+          summary.source === source && [summary.id, ...(summary.aliases ?? [])].includes(targetID),
+        )
+        if (!target) continue
+        const authoritative = source === "skillhub" ? mirrored.get(targetID) : undefined
+        const detail = authoritative
+          ? await loadCatalogDetail(
+              options.store,
+              { prefix: options.config.ossPrefix },
+              {
+                ...latest,
+                details: new Map([
+                  ...latest.details,
+                  [
+                    key(target.source, target.id),
+                    {
+                      key: authoritative.detailKey,
+                      sha256: authoritative.detailSha256,
+                      version: target.version,
+                    },
+                  ],
+                ]),
+              },
+              target.source,
+              target.id,
+            )
+          : source === "community" && options.database
+            ? await materializePublishedCommunitySkill(options.database, { store: options.store, publicPrefix: options.config.ossPrefix, publicBaseUrl: options.config.publicBaseUrl, webBaseUrl: options.config.webBaseUrl }, target.id)
+            : undefined
+        if (!detail) continue
+        const changed = active.toSorted((left, right) => left.id.localeCompare(right.id)).reduce(applyEnterprise, detail)
+        const entry = contentAddressDetail(changed)
+        latestEntries.set(key(changed.source, changed.id), entry)
+        if (latest.details.get(key(changed.source, changed.id))?.sha256 !== entry.ref.sha256)
+          changedDetails.set(key(changed.source, changed.id), changed)
+      }
+    }
+    const index = createCatalogIndex({ entries: latestEntries, sourceStatus: { ...latest.sourceStatus, ...sourceStatus } })
+    snapshot = { revision: index.revision, createdAt: index.createdAt, items: index.items, details: new Map(), facets: index.facets, sourceStatus: index.sourceStatus }
+    await publish({ index, changedDetails })
+  })
+  await saveState(options.store, options.config.ossPrefix, {
+    lastSkillhubAt: state.lastSkillhubAt,
+    enterpriseEtag: enterprise.ok ? enterprise.value.etag : state.enterpriseEtag,
+    enterpriseIndex: enterprise.ok ? enterprise.value.index : state.enterpriseIndex,
+  }).catch(() => undefined)
+  emitMetrics(performance.now() - started, snapshot!, true, enterprise.ok, Boolean(options.database))
+  return { snapshot: snapshot!, published: true }
 }
 
 async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: CatalogSnapshot) => Promise<void>) {
@@ -184,31 +303,9 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
         )
       : [],
   )
-  const recommendationsPromise = settled(
+  const recommendations = await settled(
     loadSkillHubRecommendations(options.fetcher, options.config.skillhubBaseUrl),
   )
-  const canReuseSkillhub =
-    previous.ok &&
-    state.lastSkillhubAt !== undefined &&
-    now.getTime() - Date.parse(state.lastSkillhubAt) < 10 * 60 * 1_000
-  const skillhub = canReuseSkillhub
-    ? ({
-        ok: true,
-        value: { value: previous.value.items.length, details: sourceDetails(previous.value, "skillhub"), reused: true },
-      } as const)
-    : await settled(
-        loadSkillHub(
-          options.fetcher,
-          options.config.skillhubBaseUrl,
-          previousSkillhub,
-          options.config.skillhubLimit,
-        ).then(async (records) => ({
-          value: records.length,
-          details: await materializeSkillHubRecords(records, materializeOptions(options), previousSkillhub),
-          reused: false as const,
-        })),
-      )
-  const recommendations = await recommendationsPromise
   if (!recommendations.ok)
     console.warn(
       JSON.stringify({
@@ -217,6 +314,16 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
         },
       }),
     )
+  const imported = options.database ? createSkillHubImportStore({ database: options.database }).progress() : undefined
+  const skillhub = {
+    ok: true,
+    value: {
+      value: imported?.mirrored ?? 0,
+      details: previous.ok ? sourceDetails(previous.value, "skillhub") : [],
+      reused: true as const,
+      status: imported?.sourceStatus ?? (previous.ok ? "stale" : "unavailable"),
+    },
+  } as const
   const enterprise = await settled(
     loadEnterpriseConditional(options, state).then(async (value) => ({
       ...value,
@@ -272,7 +379,7 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
         )
   const index = enterprise.ok ? enterprise.value.index : emptyEnterpriseIndex(now)
   const sourceStatus: SkillMarket.SourceStatus = {
-    skillhub: skillhub.ok ? "fresh" : skillhubDetails.length ? "stale" : "unavailable",
+    skillhub: skillhub.value.status,
     enterprise:
       enterprise.ok || (previous.ok && previous.value.items.some((item) => item.enterprise))
         ? enterprise.ok
@@ -288,7 +395,7 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
   )
   await publish(snapshot)
   const nextState: SyncState = {
-    lastSkillhubAt: skillhub.ok && !skillhub.value.reused ? now.toISOString() : state.lastSkillhubAt,
+    lastSkillhubAt: state.lastSkillhubAt,
     enterpriseEtag: enterprise.ok ? enterprise.value.etag : state.enterpriseEtag,
     enterpriseIndex: enterprise.ok ? enterprise.value.index : state.enterpriseIndex,
   }
@@ -361,12 +468,13 @@ async function loadEnterpriseConditional(options: SyncOptions, state: SyncState)
   )
   if (response.status === 304) {
     if (!state.enterpriseIndex) throw new Error("enterprise index returned 304 without a cached index")
-    return { index: state.enterpriseIndex, etag: state.enterpriseEtag }
+    return { index: state.enterpriseIndex, etag: state.enterpriseEtag, notModified: true as const }
   }
   if (!response.ok) throw new Error(`enterprise index request failed with ${response.status}`)
   return {
     index: await decodeEnterpriseIndex(await response.json(), options.config.allowedHosts),
     etag: response.headers.get("etag") ?? undefined,
+    notModified: false as const,
   }
 }
 
@@ -557,6 +665,18 @@ function dedupe(details: ReadonlyArray<SkillMarket.Detail>) {
 
 function emptyEnterpriseIndex(now: Date): SkillMarket.EnterpriseIndex {
   return { schemaVersion: 1, updatedAt: now.toISOString(), skills: [] }
+}
+
+function enterpriseEntryUnchanged(
+  entry: SkillMarket.EnterpriseIndex["skills"][number],
+  previous: SkillMarket.EnterpriseIndex | undefined,
+) {
+  const matching = previous?.skills.find((candidate) => candidate.source === "enterprise" && candidate.id === entry.id)
+  return matching !== undefined && JSON.stringify(matching) === JSON.stringify(entry)
+}
+
+async function catalogIndexOrMissing(store: ObjectStore, prefix: string) {
+  return loadCatalogIndexOrMissingPointer(store, { prefix })
 }
 
 function riskRank(risk: SkillMarket.Risk) {

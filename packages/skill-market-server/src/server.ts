@@ -12,6 +12,8 @@ import { createModeration } from "./moderation"
 import { makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
 import { bootstrapAdmins, createSecurity } from "./security"
+import { createSkillHubImportAdmin } from "./skillhub-import-admin"
+import { createSkillHubImportStore } from "./skillhub-import-store"
 import { createSubmissions } from "./submissions"
 import { createWorker, type Worker } from "./worker"
 
@@ -59,6 +61,12 @@ const main = Effect.scoped(
     }
     const submissions = createSubmissions({ database, onValidationReady: wake })
     const moderation = createModeration({ database, security })
+    const imports = createSkillHubImportStore({
+      database,
+      metadataConcurrency: config.skillhubMetadataConcurrency,
+      packageConcurrency: config.skillhubPackageConcurrency,
+    })
+    const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports })
     const worker = createWorker({
       database,
       submissions,
@@ -82,6 +90,7 @@ const main = Effect.scoped(
       security,
       submissions,
       moderation,
+      skillhubImportAdmin,
       store,
       privatePrefix: config.privateOssPrefix,
       publicPrefix: config.ossPrefix,

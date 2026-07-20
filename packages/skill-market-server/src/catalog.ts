@@ -24,6 +24,11 @@ export interface CatalogIndex {
   readonly sourceStatus: SkillMarket.SourceStatus
 }
 
+export type CatalogDetail = {
+  readonly summary: SkillMarket.Summary
+  readonly ref: CatalogDetailRef
+  readonly detail: SkillMarket.Detail
+}
 export function key(source: SkillMarket.Source, id: string) {
   return `${source}:${id}`
 }
@@ -57,6 +62,36 @@ export function mergeCatalog(
     details: new Map(details.map((detail) => [key(detail.source, detail.id), detail])),
     facets,
     sourceStatus,
+  }
+}
+
+export function contentAddressDetail(detail: SkillMarket.Detail): CatalogDetail {
+  const body = JSON.stringify(detail)
+  const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
+  return {
+    summary: toSummary(detail),
+    ref: { key: `details/${sha256}.json`, sha256, version: detail.version },
+    detail,
+  }
+}
+
+export function createCatalogIndex(input: {
+  readonly entries: ReadonlyMap<string, Pick<CatalogDetail, "summary" | "ref">>
+  readonly sourceStatus: SkillMarket.SourceStatus
+  readonly createdAt?: string
+}): CatalogIndex {
+  const entries = Array.from(input.entries.entries()).toSorted(([left], [right]) => left.localeCompare(right))
+  const revision = new Bun.CryptoHasher("sha256")
+    .update(JSON.stringify({ entries, sourceStatus: input.sourceStatus }))
+    .digest("hex")
+  const items = entries.map(([, entry]) => entry.summary)
+  return {
+    revision,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    items,
+    details: new Map(entries.map(([entryKey, entry]) => [entryKey, entry.ref])),
+    facets: buildFacets(revision, input.sourceStatus, items.filter((item) => !item.delisted)),
+    sourceStatus: input.sourceStatus,
   }
 }
 
@@ -102,7 +137,7 @@ export function queryCatalogIndex(index: CatalogIndex, query: SkillMarket.PageQu
   }
 }
 
-function applyEnterprise(
+export function applyEnterprise(
   detail: SkillMarket.Detail,
   override: SkillMarket.EnterpriseIndex["skills"][number] | undefined,
 ) {
@@ -123,7 +158,7 @@ function applyEnterprise(
   } satisfies SkillMarket.Detail
 }
 
-function toSummary(detail: SkillMarket.Detail): SkillMarket.Summary {
+export function toSummary(detail: SkillMarket.Detail): SkillMarket.Summary {
   return {
     id: detail.id,
     source: detail.source,

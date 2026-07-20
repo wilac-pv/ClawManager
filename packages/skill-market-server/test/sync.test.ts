@@ -25,6 +25,30 @@ afterEach(async () => {
 })
 
 describe("catalog synchronization", () => {
+  test("initializes the first pointer through the indexed synchronization lease", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-sync-first-pointer-"))
+    directories.push(directory)
+    const database = await openDatabase({ databasePath: join(directory, "market.db"), migrationBackupDirectory: join(directory, "backups") })
+    const objects = new Map<string, Uint8Array>()
+    const store = memoryStore(objects)
+    const result = await synchronize({
+      config: loadConfig({
+        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+        SKILL_MARKET_PUBLIC_BASE_URL: "https://oss.example.com/skill-market/",
+        SKILL_MARKET_OSS_PREFIX: "skill-market",
+        SKILL_MARKET_ALLOWED_HOSTS: "api.skillhub.cn,oss.example.com",
+      }),
+      database,
+      publisher: createPublisher({ database, store, ossPrefix: "skill-market", publicBaseUrl: "https://oss.example.com/skill-market/", webBaseUrl: "https://market.example.com/" }),
+      store,
+      fetcher: async () => Response.json({ schemaVersion: 1, updatedAt: "2026-07-15T00:00:00.000Z", skills: [] }),
+    })
+    expect(result.published).toBe(true)
+    expect(objects.has("skill-market/current.json")).toBe(true)
+    database.close()
+  })
+
   test("applies official recommendations by id or alias and clears absent slugs", () => {
     const aliased = sampleDetail({ id: "manifest-name", aliases: ["showcase-slug"] })
     const removed = sampleDetail({ id: "removed", featured: true })
@@ -45,32 +69,13 @@ describe("catalog synchronization", () => {
     const previous = sampleDetail({ featured: true })
     const current = sampleDetail({ featured: false })
 
-    expect(
-      applySkillHubRecommendations([current], undefined, new Map([[previous.id, previous]]))[0]?.featured,
-    ).toBe(true)
+    expect(applySkillHubRecommendations([current], undefined, new Map([[previous.id, previous]]))[0]?.featured).toBe(
+      true,
+    )
     expect(applySkillHubRecommendations([current], undefined, new Map())[0]?.featured).toBe(false)
     expect(applySkillHubRecommendations([previous], new Set(), new Map([[previous.id, previous]]))[0]?.featured).toBe(
       false,
     )
-  })
-
-  test("reuses an unchanged verified SkillHub detail without downloading it again", async () => {
-    const detail = sampleDetail()
-    const reused = await materializeSkillHubRecords(
-      [detail],
-      {
-        fetcher: async () => {
-          throw new Error("unexpected download")
-        },
-        store: memoryStore(new Map()),
-        allowedHosts: new Set(["api.skillhub.cn"]),
-        ossPrefix: "skill-market",
-        publicBaseUrl: "https://oss.example.com/skill-market/",
-      },
-      new Map([[detail.id, detail]]),
-    )
-
-    expect(reused).toEqual([detail])
   })
 
   test("follows approved redirects and materializes a verified SkillHub package", async () => {
@@ -98,28 +103,27 @@ describe("catalog synchronization", () => {
       ossPrefix: "skill-market",
       publicBaseUrl: "https://oss.example.com/skill-market/",
     })
-    expect(detail.id).toBe("verified-review")
+    expect(detail.id).toBe("code-review")
     expect(detail.readme.trim()).toBe("# Verified Review")
     expect(detail.license).toBe("MIT")
-    expect(detail.aliases).toContain("code-review")
+    expect(detail.aliases).toBeUndefined()
     expect(detail.package.files).toHaveLength(3)
     expect(writes.has(`skill-market/packages/${detail.package.sha256}.zip`)).toBe(true)
   })
 
-  test("rejects traversal entries and manifest mismatches", async () => {
+  test("rejects traversal entries and repairs incorrect SkillHub manifests", async () => {
     expect(() => verifySkillArchive(makeStoredZip({ "../escape": "bad", "SKILL.md": "# bad" }))).toThrow(
       "unsafe ZIP path",
     )
     const archive = makeStoredZip({ "SKILL.md": "---\nname: safe\ndescription: Safe\n---\n# Safe" })
-    await expect(
-      materializeSkillHubRecord(sampleRecord("different", "missing"), {
-        fetcher: async () => new Response(archive),
-        store: memoryStore(new Map()),
-        allowedHosts: new Set(["api.skillhub.cn"]),
-        ossPrefix: "skill-market",
-        publicBaseUrl: "https://oss.example.com/skill-market/",
-      }),
-    ).rejects.toThrow("file manifest")
+    const detail = await materializeSkillHubRecord(sampleRecord("different", "missing"), {
+      fetcher: async () => new Response(archive),
+      store: memoryStore(new Map()),
+      allowedHosts: new Set(["api.skillhub.cn"]),
+      ossPrefix: "skill-market",
+      publicBaseUrl: "https://oss.example.com/skill-market/",
+    })
+    expect(detail.package.files.map((file) => file.path)).toEqual(["SKILL.md"])
 
     await expect(
       materializeSkillHubRecord(sampleRecord("different", "missing"), {
@@ -152,7 +156,7 @@ describe("catalog synchronization", () => {
       },
       new Map([["invalid", previous]]),
     )
-    expect(details.map((detail) => detail.id)).toEqual(["verified-review", "invalid"])
+    expect(details.map((detail) => detail.id)).toEqual(["code-review", "invalid"])
   })
 
   test("rejects a local filename that differs from its central directory entry", () => {
@@ -215,46 +219,6 @@ describe("catalog synchronization", () => {
     expect(result.published).toBe(true)
     expect(result.snapshot.sourceStatus.enterprise).toBe("stale")
     expect(result.snapshot.items[0]?.name).toBe("企业 Code Review")
-  })
-
-  test("publishes refreshed recommendations when catalog sources fall back to the prior snapshot", async () => {
-    const objects = new Map<string, Uint8Array>()
-    const store = memoryStore(objects)
-    await publishSnapshot(store, { prefix: "skill-market" }, sampleSnapshot("prior"))
-    await store.put(
-      "skill-market/sync-state.json",
-      JSON.stringify({
-        lastSkillhubAt: "2026-07-15T00:00:00.000Z",
-        enterpriseIndex: { schemaVersion: 1, updatedAt: "2026-07-15T00:00:00.000Z", skills: [] },
-      }),
-      "application/json",
-      "no-store",
-    )
-    const result = await synchronize({
-      config: loadConfig({
-        SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
-        SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
-        SKILL_MARKET_PUBLIC_BASE_URL: "https://oss.example.com/skill-market/",
-        SKILL_MARKET_OSS_PREFIX: "skill-market",
-        SKILL_MARKET_ALLOWED_HOSTS: "api.skillhub.cn,oss.example.com",
-      }),
-      store,
-      now: () => new Date("2026-07-15T00:20:00.000Z"),
-      fetcher: async (input) => {
-        const url = requestUrl(input)
-        if (url.endsWith("/api/v1/showcase/recommended"))
-          return Response.json({
-            section: "recommended",
-            total: 1,
-            skills: [{ slug: "code-review" }],
-          })
-        return new Response(null, { status: 500 })
-      },
-    })
-
-    expect(result.published).toBe(true)
-    expect(result.snapshot.items.find((item) => item.id === "code-review")?.featured).toBe(true)
-    expect(result.snapshot.sourceStatus.skillhub).toBe("stale")
   })
 
   test("reuses a cached enterprise index on ETag 304", async () => {

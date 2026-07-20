@@ -14,7 +14,7 @@ const defaultLimits = {
   retainedContent: 1024 * 1024,
 }
 
-interface ArchiveEntry {
+export interface ArchiveEntry {
   readonly path: string
   readonly content: Uint8Array
   readonly sha256: string
@@ -233,8 +233,16 @@ export function validateSubmissionArchive(
   }
 }
 
-export function inspectZipArchive(body: Uint8Array, overrides: Partial<typeof defaultLimits> = {}) {
-  const limits = { ...defaultLimits, ...overrides }
+type InspectZipArchiveOptions = Partial<typeof defaultLimits> & { readonly requireRootSkill?: boolean }
+
+export function inspectZipArchive(
+  body: Uint8Array,
+  overrides: InspectZipArchiveOptions & { readonly requireRootSkill: false },
+): { readonly entries: ArchiveEntry[]; readonly skill?: ArchiveEntry }
+export function inspectZipArchive(body: Uint8Array, overrides?: InspectZipArchiveOptions): { readonly entries: ArchiveEntry[]; readonly skill: ArchiveEntry }
+export function inspectZipArchive(body: Uint8Array, overrides: InspectZipArchiveOptions = {}) {
+  const { requireRootSkill = true, ...limitOverrides } = overrides
+  const limits = { ...defaultLimits, ...limitOverrides }
   if (body.byteLength > limits.compressed) throw new Error("archive exceeds compressed size limit")
   const view = new DataView(body.buffer, body.byteOffset, body.byteLength)
   const endOffset = findEndRecord(view)
@@ -300,9 +308,9 @@ export function inspectZipArchive(body: Uint8Array, overrides: Partial<typeof de
   }
   if (position !== centralOffset + centralSize) throw new Error("ZIP central directory size mismatch")
   const skill = output.find((entry) => entry.path === "SKILL.md")
-  if (!skill) throw new Error("archive must contain root SKILL.md")
-  if (skill.size > limits.retainedContent) throw new Error("root SKILL.md exceeds size limit")
-  return { entries: output, skill }
+  if (!skill && requireRootSkill) throw new Error("archive must contain root SKILL.md")
+  if (skill && skill.size > limits.retainedContent) throw new Error("root SKILL.md exceeds size limit")
+  return skill ? { entries: output, skill } : { entries: output }
 }
 
 function readEntry(
