@@ -3,7 +3,7 @@ import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { loadConfig } from "../src/config"
 import { loadEnterprise } from "../src/enterprise"
-import { loadSkillHub } from "../src/skillhub"
+import { loadSkillHub, loadSkillHubRecommendations } from "../src/skillhub"
 import { sampleDetail } from "./fixture"
 
 const fixtures = new URL("../fixtures/", import.meta.url)
@@ -82,6 +82,39 @@ describe("catalog sources", () => {
 
     expect(records).toEqual([])
     expect(maximum).toBeLessThanOrEqual(4)
+  })
+
+  test("loads every official SkillHub recommendation without a local limit", async () => {
+    const slugs = Array.from({ length: 100 }, (_, index) => `recommended-${index + 1}`)
+    const calls: string[] = []
+    const recommendations = await loadSkillHubRecommendations(async (input) => {
+      calls.push(requestUrl(input))
+      return Response.json({
+        section: "recommended",
+        total: slugs.length,
+        skills: slugs.map((slug) => ({ slug })),
+      })
+    }, "https://api.skillhub.cn")
+
+    expect(calls).toEqual(["https://api.skillhub.cn/api/v1/showcase/recommended"])
+    expect(Array.from(recommendations)).toEqual(slugs)
+  })
+
+  test("rejects malformed and cross-host recommendation responses", async () => {
+    await expect(
+      loadSkillHubRecommendations(
+        async () => Response.json({ section: "recommended", total: 1, skills: [{}] }),
+        "https://api.skillhub.cn",
+      ),
+    ).rejects.toThrow()
+
+    await expect(
+      loadSkillHubRecommendations(async () => {
+        const response = Response.json({ section: "recommended", total: 1, skills: [{ slug: "safe" }] })
+        Object.defineProperty(response, "url", { value: "https://evil.example.com/api/v1/showcase/recommended" })
+        return response
+      }, "https://api.skillhub.cn"),
+    ).rejects.toThrow("redirected outside")
   })
 
   test("decodes enterprise metadata and rejects unapproved package hosts", async () => {

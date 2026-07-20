@@ -57,6 +57,9 @@ const ListResponse = Schema.Struct({
   data: Schema.Struct({ skills: Schema.Array(ListSkill), total: Schema.Number }),
   message: Schema.String,
 })
+const ShowcaseResponse = Schema.Struct({
+  skills: Schema.Array(Schema.Struct({ slug: Schema.String })),
+})
 
 const ExternalReport = Schema.Struct({
   reportUrl: Schema.String,
@@ -101,6 +104,17 @@ const VersionsResponse = Schema.Struct({
     }),
   ),
 })
+
+export async function loadSkillHubRecommendations(fetcher: Fetcher, input: string) {
+  const baseUrl = requireBaseUrl(input)
+  const response = await fetchJson(
+    fetcher,
+    new URL("/api/v1/showcase/recommended", baseUrl),
+    ShowcaseResponse,
+    baseUrl.hostname,
+  )
+  return new Set(response.skills.map((skill) => skill.slug))
+}
 
 export function loadSkillHub(
   fetcher: Fetcher,
