@@ -13,6 +13,7 @@ import { AuditLog } from "./admin/audit"
 import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
 import { RoleAdministration } from "./admin/roles"
+import { SkillHubImport } from "./admin/skillhub"
 import { copyText } from "./clipboard"
 import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
@@ -81,6 +82,7 @@ export function App() {
       <Route path="/admin/submissions/:id" component={() => <ReviewDetailRoute source={control} />} />
       <Route path="/admin/roles" component={() => <RoleAdministrationRoute source={control} />} />
       <Route path="/admin/audit" component={() => <AuditRoute source={control} />} />
+      <Route path="/admin/skillhub" component={() => <SkillHubImportRoute source={control} />} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
     </Router>
   )
@@ -194,6 +196,14 @@ function AuditRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireAdmin>
       <AuditLog source={props.source.audit} />
+    </RequireAdmin>
+  )
+}
+
+function SkillHubImportRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireAdmin>
+      <SkillHubImport source={props.source.skillhub} />
     </RequireAdmin>
   )
 }
