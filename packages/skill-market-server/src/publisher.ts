@@ -166,7 +166,7 @@ export class Publisher {
       return value
     } catch (error) {
       if (!state.revision) this.release(job, workerID)
-      if (state.revision && !pointerPublished && !signal && (await this.pointerRevision()) !== state.revision)
+      if (state.revision && !pointerPublished && !signal?.aborted && (await this.pointerRevision()) !== state.revision)
         this.release(job, workerID)
       throw error
     }

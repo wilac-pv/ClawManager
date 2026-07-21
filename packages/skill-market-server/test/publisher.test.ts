@@ -17,7 +17,7 @@ afterEach(async () => {
 })
 
 describe("community publisher", () => {
-  test("retries a TRACE publication after its pointer write fails without marking it published", async () => {
+  test("releases a TRACE publication lease after an un-aborted pointer write fails", async () => {
     const fixture = await publisherFixture()
     const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
     const summary = snapshot.items.find((item) => item.source === "skillhub")!
@@ -43,7 +43,16 @@ describe("community publisher", () => {
     fixture.failures.put = /current\.json$/
 
     const publisher = createPublisher(publisherOptions(fixture))
-    expect(await rejected(publisher.publishMirroredSkillHub(imports, "worker-trace"))).toBeInstanceOf(Error)
+    const controller = new AbortController()
+    expect(
+      await rejected(publisher.publishMirroredSkillHub(imports, "worker-trace", undefined, 100, controller.signal)),
+    ).toBeInstanceOf(Error)
+    expect(controller.signal.aborted).toBe(false)
+    expect(
+      fixture.database.connection
+        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'running'")
+        .get()!.count,
+    ).toBe(0)
     expect(await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).toEqual(snapshot)
     expect(
       fixture.database.connection
@@ -55,7 +64,7 @@ describe("community publisher", () => {
     expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual(["retry-score"])
 
     fixture.failures.put = undefined
-    await publisher.publishMirroredSkillHub(imports, "worker-trace")
+    await publisher.publishMirroredSkillHub(imports, "worker-trace", undefined, 100, controller.signal)
     const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
     expect(published.details.get("skillhub:retry-score")?.evaluationScore).toBe(4.45)
     expect(imports.completedEvaluations(1)).toEqual([])
