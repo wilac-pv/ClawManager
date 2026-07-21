@@ -6,11 +6,16 @@ export type SkillHubEvaluation = Record<(typeof dimensions)[number], number> & {
 
 const mean = (values: ReadonlyArray<number>) => values.reduce((total, value) => total + value, 0) / values.length
 
-export async function loadSkillHubEvaluation(fetcher: Fetcher, baseUrl: string, slug: string): Promise<SkillHubEvaluation> {
+export async function loadSkillHubEvaluation(
+  fetcher: Fetcher,
+  baseUrl: string,
+  slug: string,
+  signal?: AbortSignal,
+): Promise<SkillHubEvaluation> {
   const url = new URL(`/api/v1/skills/${encodeURIComponent(slug)}/evaluation`, baseUrl)
   let response: Response
   try {
-    response = await fetcher(url, { headers: { accept: "application/json" } })
+    response = await fetcher(url, { headers: { accept: "application/json" }, signal })
   } catch {
     throw new SkillHubRequestError("SkillHub evaluation request failed")
   }

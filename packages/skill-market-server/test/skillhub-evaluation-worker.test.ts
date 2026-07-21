@@ -56,6 +56,63 @@ describe("SkillHub evaluation worker", () => {
     expect(queue.completed).toEqual(["a", "b", "c"])
   })
 
+  test("does not start a reserved request when its rate-limit slot is at the runtime deadline", async () => {
+    const clock = { value: 0 }
+    const queue = createQueue(clock, ["first", "second"])
+    const starts: string[] = []
+    const result = await runSkillHubEvaluationWorker({
+      workerID: "evaluation-test",
+      evaluations: queue,
+      concurrency: 2,
+      durationMilliseconds: 1_000,
+      now: () => clock.value,
+      wait: async (milliseconds) => {
+        await Promise.resolve()
+        clock.value += milliseconds
+      },
+      loadEvaluation: async (slug) => {
+        starts.push(slug)
+        return evaluation
+      },
+    })
+
+    expect(starts).toEqual(["first"])
+    expect(result).toMatchObject({ completed: 1, retryWait: 1 })
+    expect(queue.retrying).toEqual(["second"])
+  })
+
+  test("aborts a hung evaluation at the runtime deadline and returns its lease to retry state", async () => {
+    const clock = { value: 0 }
+    const queue = createQueue(clock, ["hung"])
+    const timers = createTimers(clock)
+    const heartbeats = createIntervals()
+    let signal: AbortSignal | undefined
+    const run = runSkillHubEvaluationWorker({
+      workerID: "evaluation-test",
+      evaluations: queue,
+      durationMilliseconds: 1_000,
+      now: () => clock.value,
+      wait: async () => undefined,
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+      setInterval: heartbeats.setInterval,
+      clearInterval: heartbeats.clearInterval,
+      loadEvaluation: async (_slug, request?: { readonly signal: AbortSignal }) => {
+        signal = request?.signal
+        return new Promise<SkillHubEvaluation>(() => undefined)
+      },
+    })
+
+    await waitFor(() => signal !== undefined)
+    clock.value = 1_000
+    timers.runDue()
+
+    expect(signal?.aborted).toBe(true)
+    expect(await run).toMatchObject({ completed: 0, retryWait: 1 })
+    expect(queue.retrying).toEqual(["hung"])
+    expect(heartbeats.cleared).toBe(1)
+  })
+
   test("isolates failures and resumes the retryable durable item on a later run", async () => {
     const clock = { value: 0 }
     const queue = createQueue(clock, ["bad", "good"])
@@ -175,6 +232,7 @@ function createQueue(clock: { readonly value: number }, initial: readonly string
   const running = new Set<string>()
   const queue = {
     completed: [] as string[],
+    retrying: [] as string[],
     retryPolicies: [] as Array<{ readonly maximumAttempts?: number } | undefined>,
     unpublished: 0,
     claim(_workerID: string, limit: number) {
@@ -199,6 +257,7 @@ function createQueue(clock: { readonly value: number }, initial: readonly string
     },
     retry(_workerID: string, slug: string, _summary: string, policy?: { readonly maximumAttempts?: number }) {
       if (!running.delete(slug)) return false
+      queue.retrying.push(slug)
       queue.retryPolicies.push(policy)
       if (policy?.maximumAttempts === 1) return true
       retry.set(slug, clock.value + 1_000)
@@ -209,6 +268,46 @@ function createQueue(clock: { readonly value: number }, initial: readonly string
     },
   }
   return queue
+}
+
+function createTimers(clock: { readonly value: number }) {
+  let identifier = 0
+  const timers = new Map<number, { readonly callback: () => void; readonly at: number }>()
+  return {
+    setTimeout: ((callback: () => void, milliseconds?: number) => {
+      identifier += 1
+      timers.set(identifier, { callback, at: clock.value + (milliseconds ?? 0) })
+      return identifier
+    }) as unknown as typeof setTimeout,
+    clearTimeout: ((timer: number) => timers.delete(timer)) as unknown as typeof clearTimeout,
+    runDue() {
+      Array.from(timers)
+        .filter(([, timer]) => timer.at <= clock.value)
+        .forEach(([timer, entry]) => {
+          timers.delete(timer)
+          entry.callback()
+        })
+    },
+  }
+}
+
+function createIntervals() {
+  let identifier = 0
+  const active = new Set<number>()
+  let cleared = 0
+  return {
+    setInterval: ((_: () => void) => {
+      identifier += 1
+      active.add(identifier)
+      return identifier
+    }) as unknown as typeof setInterval,
+    clearInterval: ((interval: number) => {
+      if (active.delete(interval)) cleared += 1
+    }) as unknown as typeof clearInterval,
+    get cleared() {
+      return cleared
+    },
+  }
 }
 
 async function waitFor(condition: () => boolean) {

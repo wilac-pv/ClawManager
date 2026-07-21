@@ -19,7 +19,7 @@ interface EvaluationWorkerOptions {
     SkillHubEvaluationStore,
     "claim" | "renew" | "complete" | "retry" | "markDue"
   >
-  readonly loadEvaluation: (slug: string) => Promise<SkillHubEvaluation>
+  readonly loadEvaluation: (slug: string, request: EvaluationRequest) => Promise<SkillHubEvaluation>
   readonly publication?: EvaluationPublication
   readonly concurrency?: number
   readonly requestsPerMinute?: number
@@ -32,7 +32,14 @@ interface EvaluationWorkerOptions {
   readonly wait?: (milliseconds: number) => Promise<void>
   readonly setInterval?: typeof setInterval
   readonly clearInterval?: typeof clearInterval
+  readonly setTimeout?: typeof setTimeout
+  readonly clearTimeout?: typeof clearTimeout
   readonly emit?: MarketMetricEmitter
+}
+
+interface EvaluationRequest {
+  readonly signal: AbortSignal
+  readonly deadline: number
 }
 
 export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptions) {
@@ -54,6 +61,7 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
   requireRange("SkillHub evaluation lease", leaseMilliseconds, 1, 86_400_000)
 
   const started = now()
+  const deadline = started + durationMilliseconds
   const interval = Math.ceil(60_000 / requestsPerMinute)
   let nextStart = started
   let completed = 0
@@ -65,9 +73,13 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
   let publicationFailures = 0
   const schedule = async () => {
     const timestamp = now()
-    const delay = Math.max(0, nextStart - timestamp)
-    nextStart = Math.max(nextStart, timestamp) + interval
+    if (timestamp >= deadline) return false
+    const scheduled = Math.max(nextStart, timestamp)
+    if (scheduled >= deadline) return false
+    const delay = scheduled - timestamp
+    nextStart = scheduled + interval
     if (delay > 0) await wait(delay)
+    return now() < deadline
   }
   const publish = async () => {
     if (!options.publication) return
@@ -84,7 +96,7 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
   }
 
   options.evaluations.markDue(refreshDays * 24 * 60 * 60 * 1_000)
-  while (now() - started < durationMilliseconds) {
+  while (now() < deadline) {
     const claimed = options.evaluations.claim(options.workerID, concurrency, leaseMilliseconds)
     if (claimed.length === 0) break
     const outcomes = await Promise.all(
@@ -95,9 +107,13 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
           evaluations: options.evaluations,
           loadEvaluation: options.loadEvaluation,
           leaseMilliseconds,
+          deadline,
+          now,
           schedule,
           setInterval: options.setInterval ?? setInterval,
           clearInterval: options.clearInterval ?? clearInterval,
+          setTimeout: options.setTimeout ?? setTimeout,
+          clearTimeout: options.clearTimeout ?? clearTimeout,
         }),
       ),
     )
@@ -129,12 +145,18 @@ async function evaluateClaim(options: {
   readonly item: ClaimedSkillHubEvaluation
   readonly workerID: string
   readonly evaluations: Pick<SkillHubEvaluationStore, "renew" | "complete" | "retry">
-  readonly loadEvaluation: (slug: string) => Promise<SkillHubEvaluation>
+  readonly loadEvaluation: (slug: string, request: EvaluationRequest) => Promise<SkillHubEvaluation>
   readonly leaseMilliseconds: number
-  readonly schedule: () => Promise<void>
+  readonly deadline: number
+  readonly now: () => number
+  readonly schedule: () => Promise<boolean>
   readonly setInterval: typeof setInterval
   readonly clearInterval: typeof clearInterval
+  readonly setTimeout: typeof setTimeout
+  readonly clearTimeout: typeof clearTimeout
 }) {
+  const timedOut = Symbol("skillhub-evaluation-timeout")
+  let deadlineReached = false
   const heartbeat = options.setInterval(() => {
     try {
       options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds)
@@ -142,15 +164,26 @@ async function evaluateClaim(options: {
       // The foreground operation will fence itself before mutating durable state.
     }
   }, Math.max(1, Math.floor(options.leaseMilliseconds / 2)))
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
-    await options.schedule()
+    if (!(await options.schedule())) throw new EvaluationDeadlineError()
     if (!options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds)) return "stale" as const
-    const evaluation = await options.loadEvaluation(options.item.slug)
+    if (options.now() >= options.deadline) throw new EvaluationDeadlineError()
+    const controller = new AbortController()
+    const untilDeadline = new Promise<typeof timedOut>((resolve) => {
+      timeout = options.setTimeout(() => {
+        deadlineReached = true
+        controller.abort()
+        resolve(timedOut)
+      }, options.deadline - options.now())
+    })
+    const evaluation = await Promise.race([options.loadEvaluation(options.item.slug, { signal: controller.signal, deadline: options.deadline }), untilDeadline])
+    if (evaluation === timedOut) throw new EvaluationDeadlineError()
     if (!options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds)) return "stale" as const
     return options.evaluations.complete(options.workerID, options.item.slug, evaluation) ? "completed" as const : "stale" as const
   } catch (error) {
     try {
-      const permanent = error instanceof SkillHubRequestError && error.permanent
+      const permanent = !deadlineReached && error instanceof SkillHubRequestError && error.permanent
       const retried = options.evaluations.retry(
         options.workerID,
         options.item.slug,
@@ -163,9 +196,12 @@ async function evaluateClaim(options: {
       return "storage_failure" as const
     }
   } finally {
+    if (timeout !== undefined) options.clearTimeout(timeout)
     options.clearInterval(heartbeat)
   }
 }
+
+class EvaluationDeadlineError extends Error {}
 
 export async function runConfiguredSkillHubEvaluationWorker(
   options: {
@@ -211,7 +247,7 @@ async function runWithDatabase(
   return runSkillHubEvaluationWorker({
     workerID,
     evaluations,
-    loadEvaluation: (slug) => loadSkillHubEvaluation(fetcher, config.skillhubBaseUrl, slug),
+    loadEvaluation: (slug, request) => loadSkillHubEvaluation(fetcher, config.skillhubBaseUrl, slug, request.signal),
     publication: evaluationPublication(imports, publisher, workerID, config.skillhubEvaluationPublishBatch),
     concurrency: config.skillhubEvaluationConcurrency,
     requestsPerMinute: config.skillhubEvaluationRequestsPerMinute,

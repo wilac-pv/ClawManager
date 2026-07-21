@@ -18,6 +18,22 @@ const evaluation = {
 }
 
 describe("SkillHub evaluations", () => {
+  test("forwards an evaluation cancellation signal to the TRACE request", async () => {
+    const controller = new AbortController()
+    let received: AbortSignal | null | undefined
+    await loadSkillHubEvaluation(
+      async (_input, init) => {
+        received = init?.signal
+        return Response.json(evaluation)
+      },
+      "https://api.skillhub.cn",
+      "skill",
+      controller.signal,
+    )
+
+    expect(received).toBe(controller.signal)
+  })
+
   test("calculates means from named criteria at the encoded evaluation endpoint", async () => {
     const requested: string[] = []
     const result = await loadSkillHubEvaluation(
