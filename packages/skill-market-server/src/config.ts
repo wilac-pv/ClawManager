@@ -89,6 +89,37 @@ export function loadConfig(environment: Environment = process.env) {
       "SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES",
       environment.SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES ?? "30",
     ),
+    skillhubEvaluationConcurrency: positiveInteger(
+      "SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY",
+      environment.SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY ?? "2",
+      2,
+    ),
+    skillhubEvaluationRequestsPerMinute: positiveInteger(
+      "SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE",
+      environment.SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE ?? "60",
+      60,
+    ),
+    skillhubEvaluationRefreshDays: positiveInteger(
+      "SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS",
+      environment.SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS ?? "7",
+      366,
+    ),
+    skillhubEvaluationPublishBatch: positiveInteger(
+      "SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH",
+      environment.SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH ?? "100",
+      1_000,
+    ),
+    skillhubEvaluationPublishMinutes: positiveInteger(
+      "SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_MINUTES",
+      environment.SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_MINUTES ?? "30",
+      60,
+    ),
+    skillhubEvaluationDurationMilliseconds:
+      positiveInteger(
+        "SKILL_MARKET_SKILLHUB_EVALUATION_DURATION_SECONDS",
+        environment.SKILL_MARKET_SKILLHUB_EVALUATION_DURATION_SECONDS ?? "50",
+        50,
+      ) * 1_000,
     skillhubMemorySoftLimitMb,
     enterpriseIndexUrl: httpsUrl("SKILL_MARKET_ENTERPRISE_INDEX_URL", environment.SKILL_MARKET_ENTERPRISE_INDEX_URL),
     ossEndpoint: ossEndpointUrl(
