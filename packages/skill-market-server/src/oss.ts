@@ -19,9 +19,10 @@ export type ObjectStore = {
     contentType: string,
     cacheControl: string,
     metadata?: Readonly<Record<string, string>>,
+    request?: ObjectStoreRequest,
   ) => Promise<void>
-  readonly get: (key: string) => Promise<Uint8Array>
-  readonly head: (key: string) => Promise<{
+  readonly get: (key: string, request?: ObjectStoreRequest) => Promise<Uint8Array>
+  readonly head: (key: string, request?: ObjectStoreRequest) => Promise<{
     size: number
     contentType?: string
     etag?: string
@@ -35,6 +36,7 @@ export interface PrivateObjectStore extends ObjectStore {
     body: AsyncIterable<Uint8Array>,
     contentType: string,
     metadata?: Readonly<Record<string, string>>,
+    request?: ObjectStoreRequest,
   ) => Promise<void>
   readonly copy: (
     source: string,
@@ -42,8 +44,13 @@ export interface PrivateObjectStore extends ObjectStore {
     contentType?: string,
     metadata?: Readonly<Record<string, string>>,
     cacheControl?: string,
+    request?: ObjectStoreRequest,
   ) => Promise<void>
-  readonly delete: (key: string) => Promise<void>
+  readonly delete: (key: string, request?: ObjectStoreRequest) => Promise<void>
+}
+
+export interface ObjectStoreRequest {
+  readonly signal?: AbortSignal
 }
 
 export interface MaintenanceObjectStore extends PrivateObjectStore {
@@ -77,7 +84,7 @@ export function makeS3ObjectStore(config: {
     requestChecksumCalculation: "WHEN_REQUIRED",
   })
   return {
-    async put(key, body, contentType, cacheControl, metadata) {
+    async put(key, body, contentType, cacheControl, metadata = undefined, request = undefined) {
       await client.send(
         new PutObjectCommand({
           Bucket: config.bucket,
@@ -87,15 +94,16 @@ export function makeS3ObjectStore(config: {
           CacheControl: cacheControl,
           Metadata: metadata,
         }),
+        { abortSignal: request?.signal },
       )
     },
-    async get(key) {
-      const output = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }))
+    async get(key, request = undefined) {
+      const output = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }), { abortSignal: request?.signal })
       if (!output.Body) throw new Error(`OSS object has no body: ${key}`)
       return output.Body.transformToByteArray()
     },
-    async head(key) {
-      const output = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }))
+    async head(key, request = undefined) {
+      const output = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }), { abortSignal: request?.signal })
       if (output.ContentLength === undefined) throw new Error(`OSS object has no content length: ${key}`)
       return {
         size: output.ContentLength,
@@ -104,7 +112,7 @@ export function makeS3ObjectStore(config: {
         ...(output.Metadata ? { metadata: output.Metadata } : {}),
       }
     },
-    async putPrivate(key, body, contentType, metadata) {
+    async putPrivate(key, body, contentType, metadata = undefined, request = undefined) {
       await client.send(
         new PutObjectCommand({
           Bucket: config.bucket,
@@ -114,9 +122,10 @@ export function makeS3ObjectStore(config: {
           CacheControl: "private, no-store",
           Metadata: metadata,
         }),
+        { abortSignal: request?.signal },
       )
     },
-    async copy(source, target, contentType, metadata, cacheControl) {
+    async copy(source, target, contentType = undefined, metadata = undefined, cacheControl = undefined, request = undefined) {
       await client.send(
         new CopyObjectCommand({
           Bucket: config.bucket,
@@ -127,10 +136,11 @@ export function makeS3ObjectStore(config: {
           Metadata: metadata,
           MetadataDirective: "REPLACE",
         }),
+        { abortSignal: request?.signal },
       )
     },
-    async delete(key) {
-      await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }))
+    async delete(key, request = undefined) {
+      await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }), { abortSignal: request?.signal })
     },
     async list(prefix) {
       return listObjects(client, config.bucket, prefix)

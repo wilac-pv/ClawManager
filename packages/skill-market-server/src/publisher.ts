@@ -86,7 +86,7 @@ export class Publisher {
     return { jobID: job.id, kind: job.kind, revision: publication.index.revision }
   }
 
-  async recover() {
+  async recover(store = this.options.store) {
     const now = this.now()
     const jobs = this.options.database.read((connection) =>
       connection
@@ -97,7 +97,7 @@ export class Publisher {
         .all(now),
     )
     if (jobs.length === 0) return 0
-    const pointer = await this.pointerRevision()
+    const pointer = await this.pointerRevision(store)
     return jobs.reduce(
       (pending, job) =>
         pending.then((count) => {
@@ -123,9 +123,13 @@ export class Publisher {
   async withCatalogLease<T>(
     workerID: string,
     operation: (publish: (publication: Publication) => Promise<void>) => Promise<T>,
+    store = this.options.store,
+    signal?: AbortSignal,
   ) {
     requireWorkerID(workerID)
-    await this.recover()
+    throwIfAborted(signal)
+    await this.recover(store)
+    throwIfAborted(signal)
     const now = this.now()
     const job = this.options.database.transaction((connection) => {
       const queued = connection
@@ -145,18 +149,25 @@ export class Publisher {
       return readJob(connection, jobID)!
     })
     const state: { revision?: string } = {}
+    let pointerPublished = false
     try {
       const value = await operation(async (publication) => {
-      if (state.revision) throw new Error("catalog lease cannot move the pointer more than once")
-      await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
-      this.persistTarget(job, workerID, publication.index.revision)
-      state.revision = publication.index.revision
-      await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
+        if (state.revision) throw new Error("catalog lease cannot move the pointer more than once")
+        throwIfAborted(signal)
+        await publishCatalogIndexObjects(store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
+        throwIfAborted(signal)
+        this.persistTarget(job, workerID, publication.index.revision)
+        state.revision = publication.index.revision
+        await publishCatalogIndexPointer(store, { prefix: this.options.ossPrefix }, publication.index)
+        pointerPublished = true
       })
+      throwIfAborted(signal)
       this.finalize({ ...job, target_revision: state.revision ?? null })
       return value
     } catch (error) {
-      if (!state.revision || (await this.pointerRevision()) !== state.revision) this.release(job, workerID)
+      if (!state.revision) this.release(job, workerID)
+      if (state.revision && !pointerPublished && !signal && (await this.pointerRevision()) !== state.revision)
+        this.release(job, workerID)
       throw error
     }
   }
@@ -169,11 +180,14 @@ export class Publisher {
     workerID: string,
     recommendations?: ReadonlySet<string>,
     evaluationLimit = 100,
+    signal?: AbortSignal,
   ) {
+    const store = signal ? abortableStore(this.options.store, signal) : this.options.store
+    throwIfAborted(signal)
     const evaluations = await Promise.all(
-      imports.completedEvaluations(evaluationLimit).map((evaluation) => this.materializeSkillHubEvaluation(evaluation)),
+      imports.completedEvaluations(evaluationLimit).map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
     )
-    const base = await this.basePublication({ skipLegacySkillHub: true })
+    const base = await this.basePublication({ skipLegacySkillHub: true }, store)
     const progress = imports.progress()
     const current = new Map(
       base.index.items
@@ -182,9 +196,9 @@ export class Publisher {
     )
     let revision = base.index.revision
     await this.withCatalogLease(workerID, async (publish) => {
-      const latest = await this.latestIndex(base.index.sourceStatus)
+      const latest = await this.latestIndex(base.index.sourceStatus, store)
       const publication =
-        latest.revision === base.index.revision ? base : await this.basePublication({ skipLegacySkillHub: true })
+        latest.revision === base.index.revision ? base : await this.basePublication({ skipLegacySkillHub: true }, store)
       const latestEntries = this.entries(publication.index, (summary) => summary.source !== "skillhub")
       const mirrored = imports.mirroredEntries()
       const evaluated = evaluations.filter((evaluation) =>
@@ -223,8 +237,9 @@ export class Publisher {
         changedDetails.set(key(evaluation.entry.summary.source, evaluation.entry.summary.id), evaluation.detail),
       )
       await publish({ index, changedDetails })
+      throwIfAborted(signal)
       imports.replaceCompletedEvaluationDetails(evaluated)
-    })
+    }, store, signal)
     return { revision, mirrored: progress.mirrored }
   }
 
@@ -339,9 +354,9 @@ export class Publisher {
     return this.basePublication()
   }
 
-  private async materializeSkillHubEvaluation(evaluation: CompletedSkillHubEvaluation) {
+  private async materializeSkillHubEvaluation(evaluation: CompletedSkillHubEvaluation, store = this.options.store) {
     const key = normalizeMirrorDetailKey(evaluation.detailKey, evaluation.detailSha256, this.options.ossPrefix)
-    const body = await this.options.store.get(`${this.options.ossPrefix}/${key}`)
+    const body = await store.get(`${this.options.ossPrefix}/${key}`)
     const json = Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(new TextDecoder().decode(body))
     const detail = Schema.decodeUnknownSync(SkillMarket.Detail)(json)
     if (detail.source !== "skillhub" || detail.id !== evaluation.summary.id)
@@ -373,8 +388,8 @@ export class Publisher {
     } satisfies EvaluatedSkillHubEntry & { readonly detail: SkillMarket.Detail }
   }
 
-  private async basePublication(options: { readonly skipLegacySkillHub?: boolean } = {}): Promise<Publication> {
-    const index = await loadCatalogIndexOrMissingPointer(this.options.store, { prefix: this.options.ossPrefix })
+  private async basePublication(options: { readonly skipLegacySkillHub?: boolean } = {}, store = this.options.store): Promise<Publication> {
+    const index = await loadCatalogIndexOrMissingPointer(store, { prefix: this.options.ossPrefix })
     if (!index) {
       const sourceStatus = { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const
       return { index: createCatalogIndex({ entries: new Map(), sourceStatus }), changedDetails: new Map() }
@@ -387,7 +402,7 @@ export class Publisher {
           .filter((summary) => summary.source !== "skillhub")
           .map(async (summary) => {
             const detail = await loadCatalogDetail(
-              this.options.store,
+              store,
               { prefix: this.options.ossPrefix },
               index,
               summary.source,
@@ -447,8 +462,8 @@ export class Publisher {
     )
   }
 
-  private async latestIndex(fallback: SkillMarket.SourceStatus) {
-    const index = await loadCatalogIndexOrMissingPointer(this.options.store, { prefix: this.options.ossPrefix })
+  private async latestIndex(fallback: SkillMarket.SourceStatus, store = this.options.store) {
+    const index = await loadCatalogIndexOrMissingPointer(store, { prefix: this.options.ossPrefix })
     return index ?? createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
   }
 
@@ -471,8 +486,8 @@ export class Publisher {
     })
   }
 
-  private async pointerRevision() {
-    const pointer = await settled(loadCurrentPointer(this.options.store, { prefix: this.options.ossPrefix }))
+  private async pointerRevision(store = this.options.store) {
+    const pointer = await settled(loadCurrentPointer(store, { prefix: this.options.ossPrefix }))
     return pointer.ok ? pointer.value.revision : undefined
   }
 
@@ -577,6 +592,43 @@ function insertPublishStarted(connection: Database, job: JobRow, now: number) {
 function requireWorkerID(value: string) {
   if (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value)) return value
   throw new Error("publisher worker ID is invalid")
+}
+
+function abortableStore(store: PrivateObjectStore, signal: AbortSignal): PrivateObjectStore {
+  return {
+    async put(key, body, contentType, cacheControl, metadata) {
+      await awaitAbortable(signal, () => store.put(key, body, contentType, cacheControl, metadata, { signal }))
+    },
+    get: (key) => awaitAbortable(signal, () => store.get(key, { signal })),
+    head: (key) => awaitAbortable(signal, () => store.head(key, { signal })),
+    async putPrivate(key, body, contentType, metadata) {
+      await awaitAbortable(signal, () => store.putPrivate(key, body, contentType, metadata, { signal }))
+    },
+    async copy(source, target, contentType, metadata, cacheControl) {
+      await awaitAbortable(signal, () => store.copy(source, target, contentType, metadata, cacheControl, { signal }))
+    },
+    async delete(key) {
+      await awaitAbortable(signal, () => store.delete(key, { signal }))
+    },
+  }
+}
+
+async function awaitAbortable<T>(signal: AbortSignal, operation: () => Promise<T>) {
+  throwIfAborted(signal)
+  try {
+    const value = await operation()
+    throwIfAborted(signal)
+    return value
+  } catch (error) {
+    throwIfAborted(signal)
+    throw error
+  }
+}
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+  if (!signal?.aborted) return
+  if (signal.reason instanceof Error) throw signal.reason
+  throw new Error("catalog publication was aborted")
 }
 
 export function normalizeMirrorDetailKey(value: string, sha256: string, prefix: string) {

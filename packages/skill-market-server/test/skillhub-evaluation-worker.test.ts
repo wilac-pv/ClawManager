@@ -209,6 +209,97 @@ describe("SkillHub evaluation worker", () => {
 
     expect(published).toBe(1)
   })
+
+  test("passes a deadline-bound abort signal to a due publication", async () => {
+    const result = await runSkillHubEvaluationWorker({
+      workerID: "evaluation-test",
+      evaluations: createQueue({ value: 0 }, []),
+      durationMilliseconds: 1_000,
+      now: () => 0,
+      wait: async () => undefined,
+      publication: {
+        pending: () => ({ count: 1, oldestCheckedAt: 0 }),
+        publish: async (request) => {
+          expect(request.signal.aborted).toBe(false)
+        },
+      },
+      publicationBatch: 1,
+      loadEvaluation: async () => evaluation,
+    })
+
+    expect(result).toMatchObject({ published: 1, publicationFailures: 0 })
+  })
+
+  test("stops a deadline-cancelled publication before the caller can close its database", async () => {
+    const clock = { value: 0 }
+    const timers = createTimers(clock)
+    let signal: AbortSignal | undefined
+    let stopped = false
+    let pointerMutations = 0
+    let markerMutations = 0
+    let closed = false
+    const run = runSkillHubEvaluationWorker({
+      workerID: "evaluation-test",
+      evaluations: createQueue(clock, []),
+      durationMilliseconds: 1_000,
+      now: () => clock.value,
+      wait: async () => undefined,
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+      publication: {
+        pending: () => ({ count: 1, oldestCheckedAt: 0 }),
+        publish: async (request) => {
+          signal = request.signal
+          await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => {
+            stopped = true
+            resolve()
+          }, { once: true }))
+          if (!request.signal.aborted) pointerMutations += 1
+          if (!request.signal.aborted) markerMutations += 1
+        },
+      },
+      publicationBatch: 1,
+      loadEvaluation: async () => evaluation,
+    }).finally(() => {
+      expect(stopped).toBe(true)
+      closed = true
+    })
+
+    await waitFor(() => signal !== undefined)
+    clock.value = 1_000
+    timers.runDue()
+
+    expect(await run).toMatchObject({ published: 0, publicationFailures: 0 })
+    expect(closed).toBe(true)
+    expect(pointerMutations).toBe(0)
+    expect(markerMutations).toBe(0)
+  })
+
+  test("does not start a due publication at the runtime deadline", async () => {
+    const clock = { value: 0 }
+    let started = false
+    const result = await runSkillHubEvaluationWorker({
+      workerID: "evaluation-test",
+      evaluations: createQueue(clock, []),
+      durationMilliseconds: 1_000,
+      now: () => clock.value,
+      wait: async () => undefined,
+      publication: {
+        pending: () => {
+          clock.value = 1_000
+          return { count: 1, oldestCheckedAt: 0 }
+        },
+        publish: async () => {
+          started = true
+        },
+      },
+      publicationBatch: 1,
+      loadEvaluation: async () => evaluation,
+    })
+
+    expect(result).toMatchObject({ published: 0, publicationFailures: 0 })
+    expect(started).toBe(false)
+  })
 })
 
 test("reads bounded TRACE evaluation defaults", () => {

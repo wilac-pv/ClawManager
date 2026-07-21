@@ -10,7 +10,7 @@ import { SkillHubRequestError, type Fetcher } from "./skillhub"
 
 interface EvaluationPublication {
   readonly pending: () => { readonly count: number; readonly oldestCheckedAt?: number }
-  readonly publish: () => Promise<void>
+  readonly publish: (request: EvaluationRequest) => Promise<void>
 }
 
 interface EvaluationWorkerOptions {
@@ -83,15 +83,24 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
   }
   const publish = async () => {
     if (!options.publication) return
+    if (now() >= deadline) return
     const pending = options.publication.pending()
     const dueByCount = pending.count >= publicationBatch
     const dueByTime = pending.oldestCheckedAt !== undefined && now() - pending.oldestCheckedAt >= publicationMinutes * 60 * 1_000
     if (!dueByCount && !dueByTime) return
+    const remaining = deadline - now()
+    if (remaining <= 0) return
+    const controller = new AbortController()
+    let timeout: ReturnType<typeof setTimeout> | undefined
     try {
-      await options.publication.publish()
+      timeout = (options.setTimeout ?? setTimeout)(() => controller.abort(), remaining)
+      await options.publication.publish({ signal: controller.signal, deadline })
+      if (controller.signal.aborted) return
       published += 1
     } catch {
       publicationFailures += 1
+    } finally {
+      if (timeout !== undefined) (options.clearTimeout ?? clearTimeout)(timeout)
     }
   }
 
@@ -273,7 +282,7 @@ function evaluationPublication(
         ...(evaluations[0] ? { oldestCheckedAt: evaluations[0].evaluation.checkedAt } : {}),
       }
     },
-    publish: () => publisher.publishMirroredSkillHub(imports, workerID, undefined, batch).then(() => undefined),
+    publish: (request) => publisher.publishMirroredSkillHub(imports, workerID, undefined, batch, request.signal).then(() => undefined),
   }
 }
 

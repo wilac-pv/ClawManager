@@ -62,6 +62,65 @@ describe("community publisher", () => {
     fixture.database.close()
   })
 
+  test("cancels a TRACE pointer write without moving the pointer or materializing its evaluation", async () => {
+    const fixture = await publisherFixture()
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const summary = snapshot.items.find((item) => item.source === "skillhub")!
+    const detail = { ...snapshot.details.get(`skillhub:${summary.id}`)!, id: "cancel-score", aliases: ["cancel-score"] }
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+    fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(detail)))
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{
+      slug: "cancel-score",
+      summary: { ...summary, id: "cancel-score", aliases: ["cancel-score"] },
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+    }])
+    fixture.database.connection.run(
+      `UPDATE skillhub_import_items
+       SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
+           evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
+           evaluation_effectiveness = 4.625, evaluation_checked_at = ?
+       WHERE slug = 'cancel-score'`,
+      [fixture.clock.value],
+    )
+    let pointerStarted = false
+    const controller = new AbortController()
+    const publisher = createPublisher({
+      ...publisherOptions(fixture),
+      store: {
+        ...fixture.store,
+        async put(key, body, contentType, cacheControl, metadata, request) {
+          if (!key.endsWith("/current.json"))
+            return fixture.store.put(key, body, contentType, cacheControl, metadata, request)
+          pointerStarted = true
+          await new Promise<void>((_, reject) => request?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))
+        },
+      },
+    })
+    const publication = publisher.publishMirroredSkillHub(imports, "worker-trace", undefined, 100, controller.signal)
+
+    await waitFor(() => pointerStarted)
+    controller.abort()
+
+    expect(await rejected(publication)).toBeInstanceOf(Error)
+    expect(await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).toEqual(snapshot)
+    expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual(["cancel-score"])
+    expect(
+      fixture.database.connection
+        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'running'")
+        .get()!.count,
+    ).toBe(1)
+    fixture.clock.value += 30_001
+    expect(await publisher.recover()).toBe(1)
+    expect(
+      fixture.database.connection
+        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'")
+        .get()!.count,
+    ).toBe(1)
+    fixture.database.close()
+  })
+
   test("rematerializes legacy evaluated details with a public zero ranking score", async () => {
     const fixture = await publisherFixture()
     const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
@@ -732,6 +791,10 @@ function rejected<T>(promise: Promise<T>) {
 
 function bytes(value: string) {
   return new TextEncoder().encode(value)
+}
+
+async function waitFor(condition: () => boolean) {
+  while (!condition()) await Promise.resolve()
 }
 
 function evaluationTrace(checkedAt: number) {
