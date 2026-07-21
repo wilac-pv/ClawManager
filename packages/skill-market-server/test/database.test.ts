@@ -25,7 +25,7 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5)
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
@@ -66,6 +66,7 @@ describe("control-plane database", () => {
     expect(indexes).toContain("audit_events_created")
     expect(indexes).toContain("skillhub_import_queue")
     expect(indexes).toContain("skillhub_single_unsettled_generation")
+    expect(indexes).toContain("skillhub_evaluation_queue")
 
     database.connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
@@ -185,7 +186,7 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([4, 4])
+    ).toEqual([5, 5])
     databases.forEach((database) => database.close())
   })
 
@@ -286,7 +287,7 @@ describe("control-plane database", () => {
     v3.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5)
     expect(
       upgraded.connection
         .query<
@@ -415,6 +416,47 @@ describe("control-plane database", () => {
     ).toEqual({ last_published_count: 2 })
     expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
     expect(upgraded.connection.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check).toBe("ok")
+    upgraded.close()
+  })
+
+  test("upgrades persisted v4 imports into the evaluation queue", async () => {
+    const directory = await temporaryDirectory()
+    const migrations = join(directory, "v4-migrations")
+    const path = join(directory, "market.db")
+    const backups = join(directory, "backups")
+    await mkdir(migrations)
+    await Promise.all(
+      ["001_control_plane.sql", "002_submission_icons.sql", "003_skillhub_import.sql", "004_skillhub_import_invariants.sql"].map(
+        async (file) => Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file))),
+      ),
+    )
+    const v4 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+    v4.connection.run(
+      "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('complete', 'completed', 1, 1, 1, 1, 1)",
+    )
+    v4.connection.run(
+      "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, summary_json, detail_key, detail_sha256, mirrored_at, last_seen_generation, created_at, updated_at) VALUES ('mirrored', 'complete', '1.0.0', 1, 'mirrored', '{}', '{\"score\":100000}', 'details/mirrored.json', ?, 1, 'complete', 1, 1), ('pending', 'complete', '1.0.0', 1, 'pending', '{}', NULL, NULL, NULL, NULL, 'complete', 1, 1)",
+      ["a".repeat(64)],
+    )
+    v4.close()
+
+    const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5)
+    const row = upgraded.connection
+      .query<{ evaluation_state: string; evaluation_score: number | null; summary_json: string }, [string]>(
+        "SELECT evaluation_state, evaluation_score, summary_json FROM skillhub_import_items WHERE slug = ?",
+      )
+      .get("mirrored")
+    expect(row?.evaluation_state).toBe("pending")
+    expect(row?.evaluation_score).toBeNull()
+    expect(JSON.parse(row?.summary_json ?? "{}").evaluationScore).toBeUndefined()
+    expect(
+      upgraded.connection
+        .query<{ evaluation_state: string }, [string]>(
+          "SELECT evaluation_state FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("pending"),
+    ).toEqual({ evaluation_state: "waiting" })
     upgraded.close()
   })
 })
