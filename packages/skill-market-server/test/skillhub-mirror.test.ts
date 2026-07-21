@@ -51,6 +51,37 @@ describe("SkillHub mirror", () => {
     fixture.database.close()
   })
 
+  test("keeps an upstream ranking weight private when materializing a new public detail", async () => {
+    const fixture = await databaseFixture()
+    const imports = createSkillHubImportStore({ database: fixture.database })
+    const generation = imports.beginGeneration(1)
+    imports.recordPage(generation.id, 1, [{ ...list("ranking-weight"), score: 100_000 }])
+    const objects = memoryStore()
+    const mirror = createSkillHubMirror({
+      imports,
+      store: objects,
+      allowedHosts: new Set(["packages.example.com"]),
+      publicBaseUrl: "https://market.example.com/skill-market/",
+      loadRecord: async (item) => ({ ...record(item.slug), score: 100_000 }),
+      fetcher: async () => new Response(packageZip("ranking-weight")),
+    })
+
+    expect(await mirror.runBatch("mirror-ranking-weight")).toEqual({ mirrored: 1, retryWait: 0, rejected: 0 })
+
+    const entry = imports.mirroredEntries()[0]!
+    const detail = JSON.parse(new TextDecoder().decode(await objects.get(`skillhub/${entry.detailKey}`)))
+    const stored = fixture.database.connection
+      .query<{ readonly record_json: string }, [string]>("SELECT record_json FROM skillhub_import_items WHERE slug = ?")
+      .get("ranking-weight")!
+
+    expect(detail).toMatchObject({ score: 0 })
+    expect(detail.evaluationScore).toBeUndefined()
+    expect(entry.summary).toMatchObject({ score: 0 })
+    expect(entry.summary.evaluationScore).toBeUndefined()
+    expect(JSON.parse(stored.record_json).score).toBe(100_000)
+    fixture.database.close()
+  })
+
   test("handles one bounded claim per batch and retains publicly addressable object keys", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })

@@ -294,7 +294,7 @@ function detailFor(
     updatedAt: record.updatedAt,
     downloads: record.downloads,
     favorites: record.favorites,
-    score: record.score,
+    score: 0,
     featured: false,
     enterprise: false,
     delisted: false,

@@ -19,6 +19,26 @@ export interface MirroredSkillHubEntry {
   readonly detailSha256: string
 }
 
+export interface CompletedSkillHubEvaluation extends MirroredSkillHubEntry {
+  readonly slug: string
+  readonly evaluation: {
+    readonly trust: number
+    readonly reliability: number
+    readonly adaptability: number
+    readonly convention: number
+    readonly effectiveness: number
+    readonly score: number
+    readonly checkedAt: number
+  }
+}
+
+export interface EvaluatedSkillHubEntry {
+  readonly slug: string
+  readonly previousDetailSha256: string
+  readonly checkedAt: number
+  readonly entry: MirroredSkillHubEntry
+}
+
 export interface CompletedSkillHubImport {
   readonly entry: MirroredSkillHubEntry
   readonly record: SkillHubRecord
@@ -104,6 +124,8 @@ export interface SkillHubImportStore {
     input: SkillMarketControl.SkillHubImportCommandInput,
   ) => SkillHubImportCommandTransition
   readonly mirroredEntries: () => MirroredSkillHubEntry[]
+  readonly completedEvaluations: (limit: number) => CompletedSkillHubEvaluation[]
+  readonly replaceCompletedEvaluationDetails: (entries: readonly EvaluatedSkillHubEntry[]) => string[]
   readonly seedLegacy: (entries: readonly LegacyMirroredSkillHubEntry[]) => number
 }
 
@@ -313,18 +335,58 @@ export function createSkillHubImportStore(options: {
       return options.database.read((connection) =>
         connection
           .query<MirroredRow, []>(
-            "SELECT summary_json, detail_key, detail_sha256 FROM skillhub_import_items WHERE state = 'mirrored' ORDER BY slug",
+            "SELECT summary_json, detail_key, detail_sha256, record_json, evaluation_checked_at FROM skillhub_import_items WHERE state = 'mirrored' ORDER BY slug",
           )
           .all()
           .flatMap((row) =>
             row.summary_json && row.detail_key && row.detail_sha256
               ? [{
-                  summary: Schema.decodeUnknownSync(Schema.fromJsonString(SkillMarket.Summary))(row.summary_json),
+                  summary: publicSummary(row),
                   detailKey: row.detail_key,
                   detailSha256: row.detail_sha256,
                 }]
               : [],
           ),
+      )
+    },
+    completedEvaluations(limit) {
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000)
+        throw new Error("SkillHub completed evaluation limit must be between 1 and 1000")
+      return options.database.read((connection) =>
+        connection
+          .query<CompletedEvaluationRow, [number]>(
+            `SELECT slug, summary_json, detail_key, detail_sha256, evaluation_trust, evaluation_reliability,
+                    evaluation_adaptability, evaluation_convention, evaluation_effectiveness, evaluation_score,
+                    evaluation_checked_at
+             FROM skillhub_import_items
+             WHERE state = 'mirrored' AND evaluation_state = 'completed'
+               AND COALESCE(json_extract(record_json, '$."$skillMarketEvaluationPublishedAt"'), -1) < evaluation_checked_at
+             ORDER BY evaluation_checked_at, slug LIMIT ?`,
+          )
+          .all(limit)
+          .flatMap((row) => completedEvaluation(row)),
+      )
+    },
+    replaceCompletedEvaluationDetails(entries) {
+      return options.database.transaction((connection) =>
+        entries.flatMap((value) =>
+          connection.run(
+            `UPDATE skillhub_import_items
+             SET summary_json = ?, detail_key = ?, detail_sha256 = ?,
+                 record_json = json_set(COALESCE(record_json, '{}'), '$."$skillMarketEvaluationPublishedAt"', ?), updated_at = ?
+             WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'completed' AND detail_sha256 = ? AND evaluation_checked_at = ?`,
+            [
+              JSON.stringify(value.entry.summary),
+              value.entry.detailKey,
+              value.entry.detailSha256,
+              value.checkedAt,
+              now(),
+              value.slug,
+              value.previousDetailSha256,
+              value.checkedAt,
+            ],
+          ).changes === 1 ? [value.slug] : [],
+        ),
       )
     },
     seedLegacy(entries) {
@@ -408,6 +470,64 @@ type MirroredRow = {
   readonly summary_json: string | null
   readonly detail_key: string | null
   readonly detail_sha256: string | null
+  readonly record_json: string | null
+  readonly evaluation_checked_at: number | null
+}
+
+type CompletedEvaluationRow = {
+  readonly slug: string
+  readonly summary_json: string | null
+  readonly detail_key: string | null
+  readonly detail_sha256: string | null
+  readonly evaluation_trust: number | null
+  readonly evaluation_reliability: number | null
+  readonly evaluation_adaptability: number | null
+  readonly evaluation_convention: number | null
+  readonly evaluation_effectiveness: number | null
+  readonly evaluation_score: number | null
+  readonly evaluation_checked_at: number | null
+}
+
+function completedEvaluation(row: CompletedEvaluationRow): CompletedSkillHubEvaluation[] {
+  if (
+    !row.summary_json ||
+    !row.detail_key ||
+    !row.detail_sha256 ||
+    row.evaluation_trust === null ||
+    row.evaluation_reliability === null ||
+    row.evaluation_adaptability === null ||
+    row.evaluation_convention === null ||
+    row.evaluation_effectiveness === null ||
+    row.evaluation_score === null ||
+    row.evaluation_checked_at === null
+  )
+    return []
+  return [{
+    slug: row.slug,
+    summary: Schema.decodeUnknownSync(Schema.fromJsonString(SkillMarket.Summary))(row.summary_json),
+    detailKey: row.detail_key,
+    detailSha256: row.detail_sha256,
+    evaluation: {
+      trust: Schema.decodeUnknownSync(SkillMarket.EvaluationScore)(row.evaluation_trust),
+      reliability: Schema.decodeUnknownSync(SkillMarket.EvaluationScore)(row.evaluation_reliability),
+      adaptability: Schema.decodeUnknownSync(SkillMarket.EvaluationScore)(row.evaluation_adaptability),
+      convention: Schema.decodeUnknownSync(SkillMarket.EvaluationScore)(row.evaluation_convention),
+      effectiveness: Schema.decodeUnknownSync(SkillMarket.EvaluationScore)(row.evaluation_effectiveness),
+      score: Schema.decodeUnknownSync(SkillMarket.EvaluationScore)(row.evaluation_score),
+      checkedAt: row.evaluation_checked_at,
+    },
+  }]
+}
+
+function publicSummary(row: MirroredRow) {
+  if (!row.summary_json) throw new Error("mirrored SkillHub summary is missing")
+  const summary = Schema.decodeUnknownSync(Schema.fromJsonString(SkillMarket.Summary))(row.summary_json)
+  const publishedAt = row.record_json
+    ? JSON.parse(row.record_json).$skillMarketEvaluationPublishedAt
+    : undefined
+  if (row.evaluation_checked_at === null || publishedAt === row.evaluation_checked_at) return summary
+  const { evaluationScore: _evaluationScore, traceEvaluation: _traceEvaluation, ...unscored } = summary
+  return unscored
 }
 
 function activeGeneration(connection: Database): ActiveSkillHubGeneration | undefined {

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
+import { Schema } from "effect"
 import {
   contentAddressDetail,
   createCatalogIndex,
@@ -21,7 +22,11 @@ import {
   publishCatalogIndexPointer,
 } from "./oss"
 import { randomSecret } from "./security"
-import type { SkillHubImportStore } from "./skillhub-import-store"
+import type {
+  CompletedSkillHubEvaluation,
+  EvaluatedSkillHubEntry,
+  SkillHubImportStore,
+} from "./skillhub-import-store"
 
 interface PublisherOptions {
   readonly database: MarketDatabase
@@ -156,10 +161,17 @@ export class Publisher {
   }
 
   async publishMirroredSkillHub(
-    imports: Pick<SkillHubImportStore, "mirroredEntries" | "progress">,
+    imports: Pick<
+      SkillHubImportStore,
+      "mirroredEntries" | "progress" | "completedEvaluations" | "replaceCompletedEvaluationDetails"
+    >,
     workerID: string,
     recommendations?: ReadonlySet<string>,
+    evaluationLimit = 100,
   ) {
+    const evaluations = await Promise.all(
+      imports.completedEvaluations(evaluationLimit).map((evaluation) => this.materializeSkillHubEvaluation(evaluation)),
+    )
     const base = await this.basePublication({ skipLegacySkillHub: true })
     const progress = imports.progress()
     const current = new Map(
@@ -167,41 +179,37 @@ export class Publisher {
         .filter((summary) => summary.source === "skillhub")
         .flatMap((summary) => [summary.id, ...(summary.aliases ?? [])].map((id) => [id, summary] as const)),
     )
-    const entries = new Map(
-      Array.from(base.index.items, (summary) => [key(summary.source, summary.id), {
-        summary,
-        ref: base.index.details.get(key(summary.source, summary.id))!,
-      }] as const).filter(([entryKey]) => !entryKey.startsWith("skillhub:")),
-    )
-    imports.mirroredEntries().forEach((entry) => {
-      const ids = [entry.summary.id, ...(entry.summary.aliases ?? [])]
-      const featured = recommendations
-        ? ids.some((id) => recommendations.has(id))
-        : ids.map((id) => current.get(id)).find(Boolean)?.featured ?? entry.summary.featured
-      entries.set(key(entry.summary.source, entry.summary.id), {
-        summary: entry.summary.featured === featured ? entry.summary : { ...entry.summary, featured },
-        ref: {
-          key: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix),
-          sha256: entry.detailSha256,
-          version: entry.summary.version,
-        },
-      })
-    })
     let revision = base.index.revision
     await this.withCatalogLease(workerID, async (publish) => {
+      const updated = new Set(imports.replaceCompletedEvaluationDetails(evaluations))
       const latest = await this.latestIndex(base.index.sourceStatus)
       const publication =
         latest.revision === base.index.revision ? base : await this.basePublication({ skipLegacySkillHub: true })
       const latestEntries = this.entries(publication.index, (summary) => summary.source !== "skillhub")
-      entries.forEach((entry, entryKey) => {
-        if (entryKey.startsWith("skillhub:")) latestEntries.set(entryKey, entry)
+      imports.mirroredEntries().forEach((entry) => {
+        const ids = [entry.summary.id, ...(entry.summary.aliases ?? [])]
+        const featured = recommendations
+          ? ids.some((id) => recommendations.has(id))
+          : ids.map((id) => current.get(id)).find(Boolean)?.featured ?? entry.summary.featured
+        latestEntries.set(key(entry.summary.source, entry.summary.id), {
+          summary: entry.summary.featured === featured ? entry.summary : { ...entry.summary, featured },
+          ref: {
+            key: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix),
+            sha256: entry.detailSha256,
+            version: entry.summary.version,
+          },
+        })
       })
       const index = createCatalogIndex({
         entries: latestEntries,
         sourceStatus: { ...publication.index.sourceStatus, skillhub: progress.sourceStatus },
       })
       revision = index.revision
-      await publish({ index, changedDetails: publication.changedDetails })
+      const changedDetails = new Map(publication.changedDetails)
+      evaluations
+        .filter((evaluation) => updated.has(evaluation.slug))
+        .forEach((evaluation) => changedDetails.set(key(evaluation.entry.summary.source, evaluation.entry.summary.id), evaluation.detail))
+      await publish({ index, changedDetails })
     })
     return { revision, mirrored: progress.mirrored }
   }
@@ -315,6 +323,39 @@ export class Publisher {
 
   private async baseSnapshot() {
     return this.basePublication()
+  }
+
+  private async materializeSkillHubEvaluation(evaluation: CompletedSkillHubEvaluation) {
+    const key = normalizeMirrorDetailKey(evaluation.detailKey, evaluation.detailSha256, this.options.ossPrefix)
+    const body = await this.options.store.get(`${this.options.ossPrefix}/${key}`)
+    const json = Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(new TextDecoder().decode(body))
+    const detail = Schema.decodeUnknownSync(SkillMarket.Detail)(json)
+    if (detail.source !== "skillhub" || detail.id !== evaluation.summary.id)
+      throw new Error(`mirrored SkillHub detail does not match evaluation: ${evaluation.slug}`)
+    const evaluated = Schema.decodeUnknownSync(SkillMarket.Detail)({
+      ...detail,
+      evaluationScore: evaluation.evaluation.score,
+      traceEvaluation: {
+        trust: evaluation.evaluation.trust,
+        reliability: evaluation.evaluation.reliability,
+        adaptability: evaluation.evaluation.adaptability,
+        convention: evaluation.evaluation.convention,
+        effectiveness: evaluation.evaluation.effectiveness,
+        evaluatedAt: new Date(evaluation.evaluation.checkedAt).toISOString(),
+      },
+    })
+    const addressed = contentAddressDetail(evaluated)
+    return {
+      slug: evaluation.slug,
+      previousDetailSha256: evaluation.detailSha256,
+      checkedAt: evaluation.evaluation.checkedAt,
+      entry: {
+        summary: addressed.summary,
+        detailKey: addressed.ref.key,
+        detailSha256: addressed.ref.sha256,
+      },
+      detail: evaluated,
+    } satisfies EvaluatedSkillHubEntry & { readonly detail: SkillMarket.Detail }
   }
 
   private async basePublication(options: { readonly skipLegacySkillHub?: boolean } = {}): Promise<Publication> {

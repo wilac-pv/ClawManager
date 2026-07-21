@@ -176,6 +176,8 @@ export function toSummary(detail: SkillMarket.Detail): SkillMarket.Summary {
     downloads: detail.downloads,
     favorites: detail.favorites,
     score: detail.score,
+    evaluationScore: detail.evaluationScore,
+    traceEvaluation: detail.traceEvaluation,
     featured: detail.featured,
     enterprise: detail.enterprise,
     delisted: detail.delisted,

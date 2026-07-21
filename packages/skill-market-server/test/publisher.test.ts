@@ -17,6 +17,123 @@ afterEach(async () => {
 })
 
 describe("community publisher", () => {
+  test("publishes a completed TRACE evaluation without changing immutable SkillHub package metadata", async () => {
+    const fixture = await publisherFixture()
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const summary = snapshot.items.find((item) => item.source === "skillhub")!
+    const original = snapshot.details.get(`skillhub:${summary.id}`)!
+    const unscored = { ...original, id: "trace-score", aliases: ["trace-score"] }
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(unscored)).digest("hex")
+    const ref = { key: `details/${detailSha256}.json`, sha256: detailSha256 }
+    fixture.objects.set(`skill-market/${ref.key}`, bytes(JSON.stringify(unscored)))
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{ slug: "trace-score", summary: { ...summary, id: "trace-score", aliases: ["trace-score"] }, detailKey: ref.key, detailSha256: ref.sha256 }])
+    fixture.database.connection.run(
+      `UPDATE skillhub_import_items
+       SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
+           evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
+           evaluation_effectiveness = 4.625, evaluation_checked_at = ?, summary_json = ?
+       WHERE slug = 'trace-score'`,
+      [fixture.clock.value, JSON.stringify({ ...summary, id: "trace-score", aliases: ["trace-score"], evaluationScore: 4.45, traceEvaluation: {
+        trust: 5,
+        reliability: 4,
+        adaptability: 4.3,
+        convention: 4.325,
+        effectiveness: 4.625,
+        evaluatedAt: new Date(fixture.clock.value).toISOString(),
+      } })],
+    )
+
+    await createPublisher(publisherOptions(fixture)).publishMirroredSkillHub(imports, "worker-trace")
+
+    const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const detail = published.details.get("skillhub:trace-score")!
+    expect(detail).toMatchObject({
+      evaluationScore: 4.45,
+      traceEvaluation: { trust: 5, reliability: 4, adaptability: 4.3, convention: 4.325, effectiveness: 4.625 },
+      package: snapshot.details.get(`skillhub:${summary.id}`)!.package,
+      aliases: ["trace-score"],
+      featured: summary.featured,
+      source: "skillhub",
+    })
+    expect(published.items.find((item) => item.id === "trace-score")).toMatchObject({
+      evaluationScore: 4.45,
+      traceEvaluation: { trust: 5, reliability: 4, adaptability: 4.3, convention: 4.325, effectiveness: 4.625 },
+      source: "skillhub",
+    })
+    const updated = fixture.database.connection
+      .query<{ readonly detail_key: string; readonly detail_sha256: string }, [string]>("SELECT detail_key, detail_sha256 FROM skillhub_import_items WHERE slug = ?")
+      .get("trace-score")!
+    expect(updated).not.toEqual({ detail_key: ref.key, detail_sha256: ref.sha256 })
+    fixture.database.close()
+  })
+
+  test("fences a stale evaluated detail before it can move the catalog pointer", async () => {
+    const fixture = await publisherFixture()
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const summary = snapshot.items.find((item) => item.source === "skillhub")!
+    const original = snapshot.details.get(`skillhub:${summary.id}`)!
+    const staleDetail = { ...original, id: "fenced-score", aliases: ["fenced-score"] }
+    const staleSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(staleDetail)).digest("hex")
+    const currentDetail = { ...staleDetail, description: "newer mirror detail" }
+    const currentSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(currentDetail)).digest("hex")
+    fixture.objects.set(`skill-market/details/${staleSha256}.json`, bytes(JSON.stringify(staleDetail)))
+    fixture.objects.set(`skill-market/details/${currentSha256}.json`, bytes(JSON.stringify(currentDetail)))
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{
+      slug: "fenced-score",
+      summary: { ...summary, id: "fenced-score", aliases: ["fenced-score"] },
+      detailKey: `details/${staleSha256}.json`,
+      detailSha256: staleSha256,
+    }])
+    fixture.database.connection.run(
+      `UPDATE skillhub_import_items
+       SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
+           evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
+           evaluation_effectiveness = 4.625, evaluation_checked_at = ?, summary_json = ?
+       WHERE slug = 'fenced-score'`,
+      [fixture.clock.value, JSON.stringify({ ...summary, id: "fenced-score", aliases: ["fenced-score"], evaluationScore: 4.45, traceEvaluation: evaluationTrace(fixture.clock.value) })],
+    )
+    let changed = false
+    const publisher = createPublisher({
+      ...publisherOptions(fixture),
+      store: {
+        ...fixture.store,
+        async get(key) {
+          const body = await fixture.store.get(key)
+          if (!changed && key === `skill-market/details/${staleSha256}.json`) {
+            changed = true
+            fixture.database.connection.run(
+              `UPDATE skillhub_import_items
+               SET detail_key = ?, detail_sha256 = ?, evaluation_score = 4.8, evaluation_checked_at = ?, summary_json = ?
+               WHERE slug = 'fenced-score'`,
+              [
+                `details/${currentSha256}.json`,
+                currentSha256,
+                fixture.clock.value + 1,
+                JSON.stringify({ ...summary, id: "fenced-score", aliases: ["fenced-score"], description: currentDetail.description, evaluationScore: 4.8, traceEvaluation: evaluationTrace(fixture.clock.value + 1) }),
+              ],
+            )
+          }
+          return body
+        },
+      },
+    })
+
+    await publisher.publishMirroredSkillHub(imports, "worker-fenced")
+
+    const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    expect(published.details.get("skillhub:fenced-score")).toMatchObject({ description: "newer mirror detail" })
+    expect(published.details.get("skillhub:fenced-score")?.evaluationScore).toBeUndefined()
+    expect(published.items.find((item) => item.id === "fenced-score")?.evaluationScore).toBeUndefined()
+    expect(
+      fixture.database.connection
+        .query<{ readonly detail_sha256: string; readonly evaluation_score: number }, [string]>("SELECT detail_sha256, evaluation_score FROM skillhub_import_items WHERE slug = ?")
+        .get("fenced-score"),
+    ).toEqual({ detail_sha256: currentSha256, evaluation_score: 4.8 })
+    fixture.database.close()
+  })
+
   test("seeds all legacy SkillHub entries into the import store without downloading packages", async () => {
     const fixture = await publisherFixture()
     fixture.database.connection.run("DELETE FROM publish_jobs")
@@ -477,4 +594,15 @@ function rejected<T>(promise: Promise<T>) {
 
 function bytes(value: string) {
   return new TextEncoder().encode(value)
+}
+
+function evaluationTrace(checkedAt: number) {
+  return {
+    trust: 5,
+    reliability: 4,
+    adaptability: 4.3,
+    convention: 4.325,
+    effectiveness: 4.625,
+    evaluatedAt: new Date(checkedAt).toISOString(),
+  }
 }
