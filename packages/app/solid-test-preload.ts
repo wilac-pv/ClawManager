@@ -1,4 +1,14 @@
+import { mock } from "bun:test"
 import solidPlugin from "vite-plugin-solid"
+
+const solidRuntime = await import("solid-js/dist/solid.js")
+mock.module("solid-js", () => solidRuntime)
+
+const solidStore = await import("solid-js/store/dist/store.js")
+mock.module("solid-js/store", () => solidStore)
+
+const solidWeb = await import("solid-js/web/dist/web.js")
+mock.module("solid-js/web", () => solidWeb)
 
 const solid = solidPlugin({ dev: false })
 

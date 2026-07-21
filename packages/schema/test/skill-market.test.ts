@@ -48,6 +48,87 @@ describe("SkillMarket", () => {
     expect(Schema.decodeUnknownSync(SkillMarket.Source)("community")).toBe("community")
   })
 
+  test("decodes complete TRACE evaluation scores", () => {
+    const traceEvaluation = {
+      trust: 4.5,
+      reliability: 4.25,
+      adaptability: 4,
+      convention: 3.75,
+      effectiveness: 5,
+      evaluatedAt: "2026-07-20T00:00:00.000Z",
+    }
+    const summary = Schema.decodeUnknownSync(SkillMarket.Summary)({
+      id: "trace-review",
+      source: "skillhub",
+      sourceUrl: "https://skillhub.cn/skills/trace-review",
+      name: "TRACE Review",
+      description: "Review a TRACE evaluation",
+      categories: ["Development"],
+      tags: [],
+      requiresApiKey: false,
+      risk: "safe",
+      version: "1.0.0",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+      downloads: 0,
+      favorites: 0,
+      score: 0,
+      evaluationScore: 4.3,
+      traceEvaluation,
+      featured: false,
+      enterprise: false,
+      delisted: false,
+    })
+
+    expect(summary.evaluationScore).toBe(4.3)
+    expect(summary.traceEvaluation).toEqual(traceEvaluation)
+  })
+
+  test("rejects invalid TRACE evaluation scores", () => {
+    const traceEvaluation = {
+      trust: 4.5,
+      reliability: 4.25,
+      adaptability: 4,
+      convention: 3.75,
+      effectiveness: 5,
+      evaluatedAt: "2026-07-20T00:00:00.000Z",
+    }
+    const summary = {
+      id: "trace-review",
+      source: "skillhub",
+      sourceUrl: "https://skillhub.cn/skills/trace-review",
+      name: "TRACE Review",
+      description: "Review a TRACE evaluation",
+      categories: ["Development"],
+      tags: [],
+      requiresApiKey: false,
+      risk: "safe",
+      version: "1.0.0",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+      downloads: 0,
+      favorites: 0,
+      score: 0,
+      evaluationScore: 4.3,
+      traceEvaluation,
+      featured: false,
+      enterprise: false,
+      delisted: false,
+    }
+
+    for (const evaluationScore of [-0.1, 5.1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() => Schema.decodeUnknownSync(SkillMarket.Summary)({ ...summary, evaluationScore })).toThrow()
+    }
+    for (const invalidTraceEvaluation of [
+      { ...traceEvaluation, trust: -0.1 },
+      { ...traceEvaluation, reliability: 5.1 },
+      { ...traceEvaluation, adaptability: Number.NaN },
+      { ...traceEvaluation, convention: Number.POSITIVE_INFINITY },
+      { ...traceEvaluation, effectiveness: Number.NEGATIVE_INFINITY },
+      { ...traceEvaluation, effectiveness: undefined },
+    ]) {
+      expect(() => Schema.decodeUnknownSync(SkillMarket.Summary)({ ...summary, traceEvaluation: invalidTraceEvaluation })).toThrow()
+    }
+  })
+
   test("accepts private HTTP market pages without relaxing remote assets", () => {
     const summary = {
       id: "private-review",
