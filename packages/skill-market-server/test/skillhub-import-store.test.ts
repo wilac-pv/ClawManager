@@ -3,6 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDatabase } from "../src/database"
+import { createPublisher } from "../src/publisher"
+import type { PrivateObjectStore } from "../src/oss"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import type { SkillHubListRecord, SkillHubRecord } from "../src/skillhub"
 import { sampleDetail } from "./fixture"
@@ -415,7 +417,7 @@ describe("SkillHub import store", () => {
     reopened.close()
   })
 
-  test("persists a deferred upstream transition until a catalog publication fence releases", async () => {
+  test("releases deferred transitions after restart recovers an expired catalog lease", async () => {
     const clock = { value: 1_752_537_600_000 }
     const fixture = await temporaryDatabaseFixture()
     const store = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
@@ -448,7 +450,19 @@ describe("SkillHub import store", () => {
     fixture.database.close()
 
     const reopened = await reopenDatabase(fixture)
-    reopened.connection.run("UPDATE publish_jobs SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL WHERE id = 'catalog-fence'")
+    reopened.connection.run("UPDATE publish_jobs SET lease_expires_at = ? WHERE id = 'catalog-fence'", [clock.value - 1])
+    const publisher = createPublisher({
+      database: reopened,
+      store: missingPointerStore,
+      ossPrefix: "skill-market",
+      publicBaseUrl: "https://market.example.com/",
+      webBaseUrl: "https://market.example.com/",
+      now: () => clock.value,
+    })
+    expect(await publisher.recover()).toBe(1)
+    expect(
+      reopened.connection.query<{ readonly status: string }, [string]>("SELECT status FROM publish_jobs WHERE id = ?").get("catalog-fence"),
+    ).toEqual({ status: "pending" })
     const resumed = createSkillHubImportStore({ database: reopened, now: () => clock.value })
     resumed.recordPage(generation.id, 2, [listRecord("fenced", "1.0.1", clock.value + 1)])
     expect(
@@ -461,6 +475,11 @@ describe("SkillHub import store", () => {
     expect(
       reopened.connection.query<{ readonly count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_deferred_import_items").get()?.count,
     ).toBe(0)
+    expect(resumed.completeSweep(generation.id)).toEqual({ stable: false })
+    resumed.claim("worker", 1, 60_000)
+    resumed.complete("worker", "fenced", completed("fenced"))
+    resumed.recordPage(generation.id, 1, [listRecord("fenced", "1.0.1", clock.value + 1)])
+    expect(resumed.completeSweep(generation.id)).toEqual({ stable: true })
     reopened.close()
   })
 
@@ -642,6 +661,15 @@ describe("SkillHub import store", () => {
     database.close()
   })
 })
+
+const missingPointerStore: PrivateObjectStore = {
+  put: async () => undefined,
+  get: async (key) => Promise.reject(new Error(`missing ${key}`)),
+  head: async () => Promise.reject(new Error("missing object")),
+  putPrivate: async () => undefined,
+  copy: async () => undefined,
+  delete: async () => undefined,
+}
 
 function listRecord(slug: string, version: string, updatedAt = 1_752_537_600_000): SkillHubListRecord {
   return {

@@ -59,6 +59,26 @@ test("does not call an unavailable publisher boundary", async () => {
   expect(published).toBe(false)
 })
 
+test("recovers expired catalog work before discovery can release deferred imports", async () => {
+  const calls: string[] = []
+  await runSkillHubWorker({
+    workerID: "skillhub-restart",
+    recover: async () => {
+      calls.push("recover")
+    },
+    discover: async () => {
+      calls.push("discover")
+    },
+    mirror: { runBatch: async () => ({ mirrored: 0, retryWait: 0, rejected: 0 }) },
+    progress: () => ({ mirrored: 0 }),
+    publicationCheckpoint: () => ({ lastPublishedCount: 0 }),
+    shouldPublish: () => false,
+    emit: () => undefined,
+  })
+
+  expect(calls).toEqual(["recover", "discover"])
+})
+
 test("publishes the initial 1-1,999 item canary after its generation has waited 30 minutes", () => {
   expect(
     shouldPublishSkillHub(

@@ -55,6 +55,7 @@ export function createSkillHubWorkerWake(options: {
 
 export async function runSkillHubWorker(options: {
   readonly workerID: string
+  readonly recover?: () => Promise<unknown>
   readonly discover: () => Promise<void>
   readonly mirror: Pick<SkillHubMirror, "runBatch">
   readonly progress: () => { readonly mirrored: number }
@@ -71,6 +72,7 @@ export async function runSkillHubWorker(options: {
 }) {
   const now = options.now ?? Date.now
   const started = now()
+  await options.recover?.()
   await options.discover()
   let total: MirrorBatch = { mirrored: 0, retryWait: 0, rejected: 0 }
   while (now() - started < (options.durationMilliseconds ?? 50_000)) {
@@ -169,6 +171,7 @@ async function runWithDatabase(
   await publisher.seedLegacySkillHub(imports, workerID)
   return runSkillHubWorker({
     workerID,
+    recover: () => publisher.recover(),
     discover: () =>
       discoverSkillHub({
         fetcher,
