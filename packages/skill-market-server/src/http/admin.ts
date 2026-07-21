@@ -163,6 +163,15 @@ export function createAdminHttp(options: AdminHttpOptions) {
           if (context.payload.command !== "pause") options.onSkillHubWorkReady?.()
           return result
         }),
+      )
+      .handle("skillMarket.admin.skillhub.evaluation", () =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () => options.skillhubImportAdmin.evaluation(principal),
+            catch: dependencyProblem,
+          })
+        }),
       ),
   )
 }

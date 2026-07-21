@@ -227,6 +227,27 @@ describe("skill market control data source", () => {
     expect(requests[1]?.body).toBe(JSON.stringify({ command: "pause" }))
   })
 
+  test("reads TRACE evaluation progress through its independent admin endpoint", async () => {
+    const evaluation = {
+      total: 100,
+      waiting: 0,
+      pending: 50,
+      running: 2,
+      retryWait: 3,
+      completed: 40,
+      failed: 5,
+      ratePerMinute: 60,
+      estimatedSecondsRemaining: 55,
+    } satisfies SkillMarketControl.SkillHubEvaluationProgress
+    const server = serve((request) => {
+      expect(new URL(request.url).pathname).toBe("/v1/admin/skillhub-evaluation")
+      return Response.json(evaluation)
+    })
+    const source = createSkillMarketControlDataSource(server.url)
+
+    await expect(source.skillhub.evaluation()).resolves.toEqual(evaluation)
+  })
+
   test("covers logout, moderation operations, and role administration", async () => {
     const requests: Array<{ method: string; path: string; body?: string }> = []
     const assignment = {

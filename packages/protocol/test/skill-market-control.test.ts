@@ -20,6 +20,7 @@ const expected = [
   ["skillMarket.admin.submissions.retry", "POST", "/v1/admin/submissions/:submissionID/retry-publish"],
   ["skillMarket.admin.skillhub.status", "GET", "/v1/admin/skillhub-import"],
   ["skillMarket.admin.skillhub.command", "POST", "/v1/admin/skillhub-import/command"],
+  ["skillMarket.admin.skillhub.evaluation", "GET", "/v1/admin/skillhub-evaluation"],
   ["skillMarket.admin.roles.list", "GET", "/v1/admin/roles"],
   ["skillMarket.admin.roles.create", "POST", "/v1/admin/roles"],
   ["skillMarket.admin.roles.delete", "DELETE", "/v1/admin/roles/:employeeID/:role"],

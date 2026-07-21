@@ -16,6 +16,7 @@ import { MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
 import { createSecurity } from "../src/security"
 import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
+import { createSkillHubEvaluationStore } from "../src/skillhub-evaluation-store"
 import { createSubmissions } from "../src/submissions"
 import { sampleCatalogReader, sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
@@ -703,6 +704,36 @@ describe("skill market control HTTP", () => {
     })
   })
 
+  test("returns TRACE evaluation progress only to an authenticated admin", async () => {
+    await using fixture = await marketFixture()
+
+    const anonymous = await fetch(`${fixture.url}/v1/admin/skillhub-evaluation`, { headers: { origin: webOrigin } })
+    expect(anonymous.status).toBe(401)
+
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin%2Fskillhub`, { redirect: "manual" })
+    const session = await loginSession(fixture, login, "/admin/skillhub")
+    const member = await fetch(`${fixture.url}/v1/admin/skillhub-evaluation`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(member.status).toBe(403)
+
+    fixture.database.connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
+      ["E123456", "admin", null, now],
+    )
+    const admin = await fetch(`${fixture.url}/v1/admin/skillhub-evaluation`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(admin.status).toBe(200)
+    expect(Schema.decodeUnknownSync(SkillMarketControl.SkillHubEvaluationProgress)(await admin.json())).toMatchObject({
+      total: 0,
+      pending: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+    })
+  })
+
   test("returns bounded stable errors for malformed control requests without leaking private data", async () => {
     await using fixture = await marketFixture()
     const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin`, { redirect: "manual" })
@@ -883,6 +914,7 @@ async function marketFixture(
     database,
     security,
     imports: createSkillHubImportStore({ database, now: () => now }),
+    evaluations: createSkillHubEvaluationStore({ database, now: () => now }),
     now: () => now,
   })
   const snapshot = sampleSnapshot()

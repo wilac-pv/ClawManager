@@ -2696,6 +2696,15 @@ export type SkillMarketListOutput = {
     readonly downloads: number | "Infinity" | "-Infinity" | "NaN"
     readonly favorites: number | "Infinity" | "-Infinity" | "NaN"
     readonly score: number | "Infinity" | "-Infinity" | "NaN"
+    readonly evaluationScore?: number
+    readonly traceEvaluation?: {
+      readonly trust: number
+      readonly reliability: number
+      readonly adaptability: number
+      readonly convention: number
+      readonly effectiveness: number
+      readonly evaluatedAt: string
+    }
     readonly featured: boolean
     readonly enterprise: boolean
     readonly delisted: boolean
@@ -2741,6 +2750,15 @@ export type SkillMarketDetailOutput = {
   readonly downloads: number | "Infinity" | "-Infinity" | "NaN"
   readonly favorites: number | "Infinity" | "-Infinity" | "NaN"
   readonly score: number | "Infinity" | "-Infinity" | "NaN"
+  readonly evaluationScore?: number
+  readonly traceEvaluation?: {
+    readonly trust: number
+    readonly reliability: number
+    readonly adaptability: number
+    readonly convention: number
+    readonly effectiveness: number
+    readonly evaluatedAt: string
+  }
   readonly featured: boolean
   readonly enterprise: boolean
   readonly delisted: boolean

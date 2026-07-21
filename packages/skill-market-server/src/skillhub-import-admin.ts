@@ -4,16 +4,19 @@ import { Option, Schema } from "effect"
 import type { MarketDatabase } from "./database"
 import { randomSecret, type MarketSecurity, type Principal, SkillMarketSecurityError } from "./security"
 import type { SkillHubImportStore } from "./skillhub-import-store"
+import type { SkillHubEvaluationStore } from "./skillhub-evaluation-store"
 
 interface SkillHubImportAdminOptions {
   readonly database: MarketDatabase
   readonly security: MarketSecurity
   readonly imports: SkillHubImportStore
+  readonly evaluations: SkillHubEvaluationStore
   readonly now?: () => number
 }
 
 export interface SkillHubImportAdmin {
   readonly status: (principal: Principal) => SkillMarketControl.SkillHubImportProgress
+  readonly evaluation: (principal: Principal) => SkillMarketControl.SkillHubEvaluationProgress
   readonly command: (principal: Principal, input: unknown) => SkillMarketControl.SkillHubImportProgress
 }
 
@@ -23,6 +26,10 @@ export function createSkillHubImportAdmin(options: SkillHubImportAdminOptions): 
     status(principal) {
       options.security.requireAdmin(principal)
       return options.imports.progress()
+    },
+    evaluation(principal) {
+      options.security.requireAdmin(principal)
+      return options.evaluations.progress()
     },
     command(principal, input) {
       options.security.requireAdmin(principal)

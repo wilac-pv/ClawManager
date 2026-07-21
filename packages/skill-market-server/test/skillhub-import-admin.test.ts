@@ -6,6 +6,7 @@ import { openDatabase } from "../src/database"
 import { createSecurity, type Principal } from "../src/security"
 import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
+import { createSkillHubEvaluationStore } from "../src/skillhub-evaluation-store"
 
 const directories: string[] = []
 
@@ -185,7 +186,13 @@ async function adminFixture() {
     database,
     clock,
     imports,
-    admin: createSkillHubImportAdmin({ database, security, imports, now: () => clock.value }),
+    admin: createSkillHubImportAdmin({
+      database,
+      security,
+      imports,
+      evaluations: createSkillHubEvaluationStore({ database, now: () => clock.value }),
+      now: () => clock.value,
+    }),
   }
 }
 

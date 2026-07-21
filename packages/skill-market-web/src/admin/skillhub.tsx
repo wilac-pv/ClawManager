@@ -3,7 +3,7 @@ import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-que
 import { Match, Show, Switch, createSignal } from "solid-js"
 import { MarketControlError, type SkillMarketControlDataSource } from "../control-data-source"
 
-export type SkillHubImportSource = Pick<SkillMarketControlDataSource["skillhub"], "status" | "command">
+export type SkillHubImportSource = Pick<SkillMarketControlDataSource["skillhub"], "status" | "command" | "evaluation">
 
 interface SkillHubImportProps {
   readonly source: SkillHubImportSource
@@ -18,6 +18,11 @@ export function SkillHubImport(props: SkillHubImportProps) {
     queryKey: ["skill-market", "skillhub-import"] as const,
     queryFn: ({ signal }) => props.source.status(signal),
     refetchInterval: (query) => (query.state.data?.state === "running" ? 5_000 : 30_000),
+  }))
+  const evaluation = createQuery(() => ({
+    queryKey: ["skill-market", "skillhub-evaluation"] as const,
+    queryFn: ({ signal }) => props.source.evaluation(signal),
+    refetchInterval: (query) => skillHubEvaluationRefetchInterval(query.state.data),
   }))
   const command = createMutation(() => ({
     mutationFn: (input: SkillMarketControl.SkillHubImportCommandInput) => props.source.command(input),
@@ -129,6 +134,53 @@ export function SkillHubImport(props: SkillHubImportProps) {
               )}
             </Show>
 
+            <section class="skillhub-import-progress" aria-labelledby="skillhub-evaluation-heading">
+              <div class="skillhub-import-progress__heading">
+                <div>
+                  <h2 id="skillhub-evaluation-heading">TRACE 评分补齐</h2>
+                  <span>补齐 SkillHub 的真实 TRACE 评分，不影响内容同步。</span>
+                </div>
+                <Show when={evaluation.data} fallback={<strong>加载中</strong>}>
+                  {(progress) => <strong>{formatEvaluationPercent(progress())}%</strong>}
+                </Show>
+              </div>
+              <Show when={evaluation.data}>
+                {(progress) => (
+                  <>
+                    <div
+                      class="skillhub-import-progress__bar"
+                      role="progressbar"
+                      aria-label="TRACE 评分进度"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      aria-valuenow={formatEvaluationPercent(progress())}
+                    >
+                      <span style={{ width: `${evaluationPercent(progress())}%` }} />
+                    </div>
+                    <section class="skillhub-import-cards" aria-label="TRACE 评分统计">
+                      <StatCard label="已完成评分" value={formatNumber(progress().completed)} />
+                      <StatCard label="待评分" value={formatNumber(progress().pending)} />
+                      <StatCard label="评分中" value={formatNumber(progress().running)} />
+                      <StatCard label="等待重试评分" value={formatNumber(progress().retryWait)} />
+                      <StatCard label="评分失败" value={formatNumber(progress().failed)} />
+                      <StatCard label="评分速率" value={`${formatNumber(progress().ratePerMinute)} 个/分钟`} />
+                      <StatCard label="评分预计剩余时间" value={formatEta(progress().estimatedSecondsRemaining)} />
+                    </section>
+                    <Show when={progress().recentError}>
+                      <section class="submission-form__errors skillhub-import-error" role="alert">
+                        TRACE 评分最近失败。详情请查看服务端日志
+                      </section>
+                    </Show>
+                  </>
+                )}
+              </Show>
+              <Show when={evaluation.error}>
+                <section class="submission-form__errors skillhub-import-error" role="alert">
+                  TRACE 评分进度加载失败，请稍后重试。
+                </section>
+              </Show>
+            </section>
+
             <section class="skillhub-import-controls" aria-label="同步控制">
               <Show when={progress().state === "running"}>
                 <button type="button" disabled={pending()} onClick={() => send({ command: "pause" })}>
@@ -214,6 +266,20 @@ function formatPercent(progress: SkillMarketControl.SkillHubImportProgress) {
 
 function roundedProgressPercent(progress: SkillMarketControl.SkillHubImportProgress) {
   return Number(progressPercent(progress).toFixed(1))
+}
+
+export function skillHubEvaluationRefetchInterval(progress: SkillMarketControl.SkillHubEvaluationProgress | undefined) {
+  if (progress && progress.pending + progress.running + progress.retryWait > 0) return 5_000
+  return false
+}
+
+function evaluationPercent(progress: SkillMarketControl.SkillHubEvaluationProgress) {
+  if (progress.total === 0) return 0
+  return Math.min(100, ((progress.completed + progress.failed) / progress.total) * 100)
+}
+
+function formatEvaluationPercent(progress: SkillMarketControl.SkillHubEvaluationProgress) {
+  return Number(evaluationPercent(progress).toFixed(1))
 }
 
 function formatNumber(value: number) {

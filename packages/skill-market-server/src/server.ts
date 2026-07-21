@@ -14,6 +14,7 @@ import { createPublisher } from "./publisher"
 import { bootstrapAdmins, createSecurity } from "./security"
 import { createSkillHubImportAdmin } from "./skillhub-import-admin"
 import { createSkillHubImportStore } from "./skillhub-import-store"
+import { createSkillHubEvaluationStore } from "./skillhub-evaluation-store"
 import { createSubmissions } from "./submissions"
 import { createWorker, type Worker } from "./worker"
 
@@ -66,7 +67,8 @@ const main = Effect.scoped(
       metadataConcurrency: config.skillhubMetadataConcurrency,
       packageConcurrency: config.skillhubPackageConcurrency,
     })
-    const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports })
+    const evaluations = createSkillHubEvaluationStore({ database })
+    const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports, evaluations })
     const worker = createWorker({
       database,
       submissions,

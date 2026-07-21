@@ -214,6 +214,8 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         read("/v1/admin/skillhub-import", SkillMarketControl.SkillHubImportProgress, signal),
       command: (input: SkillMarketControl.SkillHubImportCommandInput, signal?: AbortSignal) =>
         write("/v1/admin/skillhub-import/command", SkillMarketControl.SkillHubImportProgress, input, signal),
+      evaluation: (signal?: AbortSignal) =>
+        read("/v1/admin/skillhub-evaluation", SkillMarketControl.SkillHubEvaluationProgress, signal),
     },
   }
 }

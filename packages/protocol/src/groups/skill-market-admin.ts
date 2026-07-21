@@ -86,6 +86,12 @@ export const SkillMarketAdminGroup = ReviewerEndpoints.add(
       .middleware(SkillMarketAdminMiddleware),
   )
   .add(
+    HttpApiEndpoint.get("skillMarket.admin.skillhub.evaluation", "/v1/admin/skillhub-evaluation", {
+      success: SkillMarketControl.SkillHubEvaluationProgress,
+      error: [SkillMarketForbidden, SkillMarketDependencyUnavailable],
+    }).middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
     HttpApiEndpoint.get("skillMarket.admin.roles.list", "/v1/admin/roles", {
       success: Schema.Array(SkillMarketControl.RoleAssignment),
       error: SkillMarketDependencyUnavailable,
