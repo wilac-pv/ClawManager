@@ -54,6 +54,22 @@ export const MarketPageUrl = Schema.String.check(
   ),
 )
 export const Timestamp = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/))
+export const EvaluationScore = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThanOrEqualTo(0),
+  Schema.isLessThanOrEqualTo(5),
+)
+export type EvaluationScore = typeof EvaluationScore.Type
+
+export const TraceEvaluation = Schema.Struct({
+  trust: EvaluationScore,
+  reliability: EvaluationScore,
+  adaptability: EvaluationScore,
+  convention: EvaluationScore,
+  effectiveness: EvaluationScore,
+  evaluatedAt: Timestamp,
+})
+export type TraceEvaluation = typeof TraceEvaluation.Type
 
 const NonNegative = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))
 const PageNumber = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100_000))
@@ -103,6 +119,8 @@ export const Summary = Schema.Struct({
   downloads: NonNegative,
   favorites: NonNegative,
   score: Schema.Number,
+  evaluationScore: EvaluationScore.pipe(optional),
+  traceEvaluation: TraceEvaluation.pipe(optional),
   featured: Schema.Boolean,
   enterprise: Schema.Boolean,
   delisted: Schema.Boolean,

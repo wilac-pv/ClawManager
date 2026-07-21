@@ -5,6 +5,7 @@ import { createStore } from "solid-js/store"
 import { DesktopSkillActions } from "./desktop-actions"
 import { MarketMarkdown } from "./markdown"
 import { useSkillMarket } from "./provider"
+import { scoreLabel } from "./score-label"
 import type { SkillKey, SkillMarketActions } from "./types"
 
 type DetailTab = "overview" | "versions" | "security"
@@ -272,8 +273,8 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
                     <dd>{new Intl.NumberFormat("zh-CN").format(record.downloads)}</dd>
                   </div>
                   <div>
-                    <dt>综合评分</dt>
-                    <dd>{record.score.toFixed(1)}</dd>
+                    <dt>评分</dt>
+                    <dd>{scoreLabel(record)}</dd>
                   </div>
                   <div>
                     <dt>包大小</dt>

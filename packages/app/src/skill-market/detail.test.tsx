@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test"
-import { render, waitFor } from "@solidjs/testing-library"
+import { cleanup, render, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
@@ -22,7 +22,7 @@ const detail = {
   updatedAt: "2026-07-15T01:00:00.000Z",
   downloads: 1200,
   favorites: 80,
-  score: 98.6,
+  score: 100000,
   featured: true,
   enterprise: false,
   delisted: false,
@@ -213,6 +213,49 @@ test("shows approved community attribution without private employee data", async
   expect(view.getByText("如影用户")).toBeTruthy()
   expect(view.getByText("审核时间")).toBeTruthy()
   expect(view.container.textContent).not.toContain("employee")
+})
+
+test("labels pending, evaluated, and community scores without ranking weights", async () => {
+  const view = renderDetail(source(), {
+    kind: "web",
+    prompt: () => prompt,
+    copyPrompt: async () => undefined,
+    download: async () => undefined,
+  })
+
+  await view.findByRole("heading", { name: detail.name, level: 1 })
+  expect(view.getByText("待评分")).toBeTruthy()
+  expect(view.queryByText(/100000/)).toBeNull()
+  cleanup()
+
+  const scored = renderDetail(source({ ...detail, evaluationScore: 4.45 }), {
+    kind: "web",
+    prompt: () => prompt,
+    copyPrompt: async () => undefined,
+    download: async () => undefined,
+  })
+
+  await scored.findByRole("heading", { name: detail.name, level: 1 })
+  expect(scored.getByText("4.5/5")).toBeTruthy()
+  cleanup()
+
+  const community = renderDetail(
+    source({
+      ...detail,
+      source: "community",
+      sourceUrl: "https://market.example.com/skills/community/code-review",
+      publicDetailUrl: "https://market.example.com/skills/community/code-review",
+    }),
+    {
+      kind: "web",
+      prompt: () => prompt,
+      copyPrompt: async () => undefined,
+      download: async () => undefined,
+    },
+  )
+
+  await community.findByRole("heading", { name: detail.name, level: 1 })
+  expect(community.getByText("未评分")).toBeTruthy()
 })
 
 test("renders loading and unavailable states", async () => {

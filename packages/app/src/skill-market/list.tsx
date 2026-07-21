@@ -5,6 +5,7 @@ import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DesktopInstalledActions } from "./desktop-actions"
 import { useSkillMarket } from "./provider"
+import { scoreLabel } from "./score-label"
 import type { SkillKey } from "./types"
 
 type MarketScope = "all" | "featured" | "enterprise" | "community" | "installed" | "updates"
@@ -432,7 +433,7 @@ function SkillCard(props: { item: SkillMarket.Summary; view: MarketView; onOpen:
           <span>{sourceLabel(props.item.source)}</span>
           <span>v{props.item.version}</span>
           <span>↓ {formatNumber(props.item.downloads)}</span>
-          <span>评分 {props.item.score.toFixed(1)}</span>
+          <span>评分 {scoreLabel(props.item)}</span>
         </div>
       </div>
       <span class="ruying-skill-market__card-arrow" aria-hidden="true">

@@ -23,7 +23,7 @@ const codeReview = {
   updatedAt: "2026-07-15T01:00:00.000Z",
   downloads: 1200,
   favorites: 80,
-  score: 98.6,
+  score: 100000,
   featured: true,
   enterprise: false,
   delisted: false,
@@ -215,6 +215,23 @@ test("hides the submission action when no handler is provided", async () => {
 
   await view.findByRole("button", { name: /Code Review/ })
   expect(view.queryByRole("button", { name: "投稿 Skill" })).toBeNull()
+})
+
+test("labels pending, evaluated, and community scores without ranking weights", async () => {
+  const view = renderMarket(dataSource(async () => page([codeReview])))
+
+  expect(await view.findByText("评分 待评分")).toBeTruthy()
+  expect(view.queryByText(/100000/)).toBeNull()
+  cleanup()
+
+  const scored = renderMarket(dataSource(async () => page([{ ...codeReview, evaluationScore: 4.45 }])))
+
+  expect(await scored.findByText("评分 4.5/5")).toBeTruthy()
+  cleanup()
+
+  const community = renderMarket(dataSource(async () => page([communitySkill])))
+
+  expect(await community.findByText("评分 未评分")).toBeTruthy()
 })
 
 test("renders a useful empty state and keyboard focus", async () => {
