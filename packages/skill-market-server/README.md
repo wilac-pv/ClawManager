@@ -20,6 +20,7 @@ bun typecheck
 - `worker --once` performs cleanup and drains validation jobs followed by publication jobs, then exits. The `--once` flag is mandatory.
 - `sync` first drains recoverable control-plane work, then synchronizes SkillHub, enterprise, and community sources under the shared catalog publication lease.
 - `skillhub-worker` discovers and mirrors SkillHub incrementally, then publishes a fresh mirror under its independent systemd lock. It is intended to run every minute.
+- `evaluation-worker` fills missing SkillHub TRACE scores under its own one-minute systemd timer. It is bounded to 50 seconds and uses a dedicated lock so an overlapping run exits without doing work.
 - `sync` is intended to run every two minutes. Successful SkillHub data is reused for ten minutes while the enterprise index is checked with its ETag on every run.
 
 Example cron entries:
@@ -46,6 +47,10 @@ Leases make a later invocation safe after a crashed process. Avoid intentionally
 | `SKILL_MARKET_SKILLHUB_PUBLISH_BATCH`       | No                  | `2000`                                        | Mirrored records accumulated before a publication; positive integer.                                      |
 | `SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES`     | No                  | `30`                                          | Maximum delay before publishing accumulated records; positive integer.                                     |
 | `SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB`| No                  | `1536`                                        | Mirror memory soft limit in MiB; minimum `512`.                                                            |
+| `SKILL_MARKET_EVALUATION_CONCURRENCY`      | No                  | `2`                                           | Concurrent TRACE evaluation fetches; maximum `2`.                                                          |
+| `SKILL_MARKET_EVALUATION_REQUESTS_PER_MINUTE` | No                | `60`                                          | TRACE request-start ceiling across the worker.                                                              |
+| `SKILL_MARKET_EVALUATION_REFRESH_DAYS`     | No                  | `7`                                           | Re-evaluate a successful TRACE score after this many days.                                                 |
+| `SKILL_MARKET_EVALUATION_PUBLISH_BATCH`    | No                  | `100`                                         | Completed TRACE scores accumulated before publishing.                                                       |
 | `SKILL_MARKET_ENTERPRISE_INDEX_URL`         | Yes                 | —                                             | HTTPS enterprise catalog index URL.                                                                        |
 | `SKILL_MARKET_OSS_ENDPOINT`                 | Yes                 | —                                             | HTTPS S3-compatible OSS endpoint.                                                                          |
 | `SKILL_MARKET_OSS_REGION`                   | No                  | `cn-baoding`                                  | S3 signing region.                                                                                         |
@@ -90,11 +95,19 @@ SKILL_MARKET_WEB_ORIGIN=https://skills.example.internal
 SKILL_MARKET_API_PUBLIC_URL=https://skills-api.example.internal
 SKILL_MARKET_SSO_LOGIN_URL=https://sso.example.internal/login
 SKILL_MARKET_ADMIN_API_BASE_URL=https://admin-api.example.internal
+SKILL_MARKET_EVALUATION_CONCURRENCY=2
+SKILL_MARKET_EVALUATION_REQUESTS_PER_MINUTE=60
+SKILL_MARKET_EVALUATION_REFRESH_DAYS=7
+SKILL_MARKET_EVALUATION_PUBLISH_BATCH=100
 SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS=E000001
 SKILL_MARKET_ALLOWED_HOSTS=api.skillhub.cn,oss.example.internal,packages.example.internal
 AWS_ACCESS_KEY_ID=REDACTED
 AWS_SECRET_ACCESS_KEY=REDACTED
 ```
+
+The `SKILL_MARKET_EVALUATION_*` names are canonical. Existing
+`SKILL_MARKET_SKILLHUB_EVALUATION_*` names remain supported for a rolling
+deployment upgrade, but canonical values take precedence when both are set.
 
 ## HTTP API
 

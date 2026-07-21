@@ -8,6 +8,7 @@ const entrypoints = [
   { source: "src/sync.ts", output: "src/sync.ts" },
   { source: "src/worker.ts", output: "src/worker.ts" },
   { source: "src/skillhub-worker.ts", output: "src/skillhub-worker.js" },
+  { source: "src/skillhub-evaluation-worker.ts", output: "src/skillhub-evaluation-worker.js" },
   { source: "script/backup.ts", output: "script/backup.ts" },
   { source: "script/cleanup.ts", output: "script/cleanup.ts" },
   { source: "script/deploy-check.ts", output: "script/deploy-check.ts" },

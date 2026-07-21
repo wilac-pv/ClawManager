@@ -58,6 +58,42 @@ export function loadConfig(environment: Environment = process.env) {
   )
   if (skillhubMemorySoftLimitMb < 512)
     throw new Error("SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB must be at least 512")
+  const evaluationConcurrency = evaluationSetting(
+    environment,
+    "SKILL_MARKET_EVALUATION_CONCURRENCY",
+    "SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY",
+    "2",
+  )
+  const evaluationRequestsPerMinute = evaluationSetting(
+    environment,
+    "SKILL_MARKET_EVALUATION_REQUESTS_PER_MINUTE",
+    "SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE",
+    "60",
+  )
+  const evaluationRefreshDays = evaluationSetting(
+    environment,
+    "SKILL_MARKET_EVALUATION_REFRESH_DAYS",
+    "SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS",
+    "7",
+  )
+  const evaluationPublishBatch = evaluationSetting(
+    environment,
+    "SKILL_MARKET_EVALUATION_PUBLISH_BATCH",
+    "SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH",
+    "100",
+  )
+  const evaluationPublishMinutes = evaluationSetting(
+    environment,
+    "SKILL_MARKET_EVALUATION_PUBLISH_MINUTES",
+    "SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_MINUTES",
+    "30",
+  )
+  const evaluationDurationSeconds = evaluationSetting(
+    environment,
+    "SKILL_MARKET_EVALUATION_DURATION_SECONDS",
+    "SKILL_MARKET_SKILLHUB_EVALUATION_DURATION_SECONDS",
+    "50",
+  )
 
   return Object.freeze({
     port,
@@ -89,37 +125,20 @@ export function loadConfig(environment: Environment = process.env) {
       "SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES",
       environment.SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES ?? "30",
     ),
-    skillhubEvaluationConcurrency: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY",
-      environment.SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY ?? "2",
-      2,
-    ),
+    skillhubEvaluationConcurrency: positiveInteger(evaluationConcurrency.name, evaluationConcurrency.value, 2),
     skillhubEvaluationRequestsPerMinute: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE",
-      environment.SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE ?? "60",
+      evaluationRequestsPerMinute.name,
+      evaluationRequestsPerMinute.value,
       60,
     ),
-    skillhubEvaluationRefreshDays: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS",
-      environment.SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS ?? "7",
-      366,
-    ),
-    skillhubEvaluationPublishBatch: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH",
-      environment.SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH ?? "100",
-      1_000,
-    ),
-    skillhubEvaluationPublishMinutes: positiveInteger(
-      "SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_MINUTES",
-      environment.SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_MINUTES ?? "30",
-      60,
-    ),
-    skillhubEvaluationDurationMilliseconds:
-      positiveInteger(
-        "SKILL_MARKET_SKILLHUB_EVALUATION_DURATION_SECONDS",
-        environment.SKILL_MARKET_SKILLHUB_EVALUATION_DURATION_SECONDS ?? "50",
-        50,
-      ) * 1_000,
+    skillhubEvaluationRefreshDays: positiveInteger(evaluationRefreshDays.name, evaluationRefreshDays.value, 366),
+    skillhubEvaluationPublishBatch: positiveInteger(evaluationPublishBatch.name, evaluationPublishBatch.value, 1_000),
+    skillhubEvaluationPublishMinutes: positiveInteger(evaluationPublishMinutes.name, evaluationPublishMinutes.value, 60),
+    skillhubEvaluationDurationMilliseconds: positiveInteger(
+      evaluationDurationSeconds.name,
+      evaluationDurationSeconds.value,
+      50,
+    ) * 1_000,
     skillhubMemorySoftLimitMb,
     enterpriseIndexUrl: httpsUrl("SKILL_MARKET_ENTERPRISE_INDEX_URL", environment.SKILL_MARKET_ENTERPRISE_INDEX_URL),
     ossEndpoint: ossEndpointUrl(
@@ -186,6 +205,12 @@ function positiveInteger(name: string, value: string, maximum = Number.MAX_SAFE_
 
 function optionalPositiveInteger(name: string, value: string | undefined) {
   return value === undefined ? undefined : positiveInteger(name, value)
+}
+
+function evaluationSetting(environment: Environment, canonicalName: string, legacyName: string, defaultValue: string) {
+  if (environment[canonicalName] !== undefined) return { name: canonicalName, value: environment[canonicalName] }
+  if (environment[legacyName] !== undefined) return { name: legacyName, value: environment[legacyName] }
+  return { name: canonicalName, value: defaultValue }
 }
 
 function booleanFlag(name: string, value: string | undefined) {

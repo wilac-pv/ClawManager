@@ -37,6 +37,9 @@ describe("runtime release build", () => {
     const skillhubWorker = Bun.file(join(serverDirectory, "src/skillhub-worker.js"))
     expect(await skillhubWorker.exists()).toBe(true)
     expect(await skillhubWorker.text()).toContain("runConfiguredSkillHubWorker")
+    const evaluationWorker = Bun.file(join(serverDirectory, "src/skillhub-evaluation-worker.js"))
+    expect(await evaluationWorker.exists()).toBe(true)
+    expect(await evaluationWorker.text()).toContain("runConfiguredSkillHubEvaluationWorker")
     await setPermissions(outputDirectory, 0o555, 0o444)
     await chmod(homeDirectory, 0o555)
 

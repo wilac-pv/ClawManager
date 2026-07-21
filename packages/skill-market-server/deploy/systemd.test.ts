@@ -6,6 +6,7 @@ const serviceNames = [
   "ruying-skill-market-worker.service",
   "ruying-skill-market-sync.service",
   "ruying-skill-market-skillhub.service",
+  "ruying-skill-market-evaluation.service",
   "ruying-skill-market-backup.service",
   "ruying-skill-market-cleanup.service",
   "ruying-skill-market-restore-drill.service",
@@ -18,12 +19,14 @@ describe("systemd deployment", () => {
 
     expect(readme).toContain("bun run build:release <output-directory>")
     expect(readme).toContain("src/skillhub-worker.js")
+    expect(readme).toContain("src/skillhub-evaluation-worker.js")
     expect(readme).toContain("Do not deploy a source archive or use")
     expect(readme).toContain("sudo -u ruying-market /bin/bash -c")
     expect(readme).toContain("set -a")
     expect(readme).toContain(". /etc/ruying-skill-market/market.env")
     expect(readme).toContain("set +a")
     expect(readme).toContain("ruying-skill-market-skillhub.timer")
+    expect(readme).toContain("ruying-skill-market-evaluation.timer")
     expect(readme).toContain("systemctl stop")
     expect(readme).toContain("systemctl is-active --quiet")
     expect(readme).toContain("exec /usr/local/bin/bun script/deploy-check.ts smoke --allow-private-canary")
@@ -66,6 +69,11 @@ describe("systemd deployment", () => {
       "ExecStart=/usr/bin/flock -w 30 /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun src/skillhub-worker.js",
     )
     expect(services[3]).toContain("Type=oneshot")
+    expect(services[4]).toContain(
+      "ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-evaluation.lock /usr/local/bin/bun src/skillhub-evaluation-worker.js",
+    )
+    expect(services[4]).toContain("MemoryMax=1536M")
+    expect(services[4]).toContain("Type=oneshot")
   })
 
   test("defines persistent randomized worker, sync, daily, and monthly timers", async () => {
@@ -80,9 +88,12 @@ describe("systemd deployment", () => {
     expect(timers[2]).toContain("OnUnitActiveSec=1min")
     expect(timers[2]).toContain("OnBootSec=2min")
     expect(timers[2]).toMatch(/RandomizedDelaySec=(?:[0-9]|10)s/)
-    expect(timers[3]).toContain("OnCalendar=*-*-* 02:10:00")
-    expect(timers[4]).toContain("OnCalendar=*-*-* 03:10:00")
-    expect(timers[5]).toContain("OnCalendar=*-*-02 04:10:00")
+    expect(timers[3]).toContain("OnUnitActiveSec=1min")
+    expect(timers[3]).toContain("OnBootSec=1min")
+    expect(timers[3]).toMatch(/RandomizedDelaySec=(?:[0-9]|10)s/)
+    expect(timers[4]).toContain("OnCalendar=*-*-* 02:10:00")
+    expect(timers[5]).toContain("OnCalendar=*-*-* 03:10:00")
+    expect(timers[6]).toContain("OnCalendar=*-*-02 04:10:00")
   })
 
   test("documents retiring the legacy full sync timer before enabling the bounded SkillHub timer", async () => {
@@ -90,6 +101,13 @@ describe("systemd deployment", () => {
 systemctl disable --now ruying-skill-market-sync.timer
 systemctl daemon-reload
 systemctl enable --now ruying-skill-market-skillhub.timer
+\`\`\``)
+  })
+
+  test("documents enabling the isolated evaluation timer", async () => {
+    expect(await Bun.file(new URL("./README.md", import.meta.url)).text()).toContain(`\`\`\`bash
+systemctl daemon-reload
+systemctl enable --now ruying-skill-market-evaluation.timer
 \`\`\``)
   })
 })

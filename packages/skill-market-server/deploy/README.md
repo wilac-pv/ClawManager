@@ -143,6 +143,27 @@ from every production full-mirror environment. Preflight prints only these
 numeric values and validates that both database and migration-backup directories
 are writable; it never prints environment values or secrets.
 
+## TRACE evaluation controls
+
+The `ruying-skill-market-evaluation.timer` starts one minute after boot and then
+runs once a minute. It uses a dedicated lock so a prior evaluation run causes a
+later invocation to exit cleanly, without blocking the independent SkillHub
+mirror. The service is constrained to `MemoryMax=1536M` and can write only the
+market data, backup, and lock directories.
+
+Use these canonical environment settings:
+
+```dotenv
+SKILL_MARKET_EVALUATION_CONCURRENCY=2
+SKILL_MARKET_EVALUATION_REQUESTS_PER_MINUTE=60
+SKILL_MARKET_EVALUATION_REFRESH_DAYS=7
+SKILL_MARKET_EVALUATION_PUBLISH_BATCH=100
+```
+
+The older `SKILL_MARKET_SKILLHUB_EVALUATION_*` names remain accepted while hosts
+roll forward, but the canonical value wins if both are present. Preflight emits
+only the resulting numeric values, never environment values or secrets.
+
 ## Bootstrap Admin
 
 Set `SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS` to employee IDs only. On an empty
@@ -170,6 +191,7 @@ printf '{"commit":"%s","builtAt":"%s"}\n' "$release_commit" "$(date -u +%FT%TZ)"
 test -s "$release_output/RELEASE.json"
 test -f "$release_output/packages/skill-market-server/package.json"
 test -s "$release_output/packages/skill-market-server/src/skillhub-worker.js"
+test -s "$release_output/packages/skill-market-server/src/skillhub-evaluation-worker.js"
 ```
 
 Transfer exactly `$release_output` and its `RELEASE.json`, then install that
@@ -178,9 +200,10 @@ verified directory as `root:root 0755` under
 dependencies on the host; the service user never receives write permission to a
 release.
 
-The immutable server runtime includes bundled server, sync, durable worker, and
-SkillHub worker entrypoints. The SkillHub unit runs the bundled
-`src/skillhub-worker.js` entrypoint; do not substitute the source `.ts` path.
+The immutable server runtime includes bundled server, sync, durable worker,
+SkillHub mirror, and TRACE evaluation entrypoints. The SkillHub units run the
+bundled `src/skillhub-worker.js` and `src/skillhub-evaluation-worker.js`
+entrypoints; do not substitute source `.ts` paths.
 
 ## Preflight and initial migration
 
@@ -208,7 +231,8 @@ stop the API service, and confirm it is inactive before mutating data:
 ```bash
 writer_timers=(
   ruying-skill-market-worker.timer ruying-skill-market-sync.timer ruying-skill-market-skillhub.timer
-  ruying-skill-market-cleanup.timer ruying-skill-market-backup.timer ruying-skill-market-restore-drill.timer
+  ruying-skill-market-evaluation.timer ruying-skill-market-cleanup.timer ruying-skill-market-backup.timer
+  ruying-skill-market-restore-drill.timer
 )
 active_timers=()
 for timer in "${writer_timers[@]}"; do systemctl is-active --quiet "$timer" && active_timers+=("$timer"); done
@@ -216,6 +240,7 @@ systemctl stop "${writer_timers[@]}"
 while systemctl is-active --quiet ruying-skill-market-worker.service || \
   systemctl is-active --quiet ruying-skill-market-sync.service || \
   systemctl is-active --quiet ruying-skill-market-skillhub.service || \
+  systemctl is-active --quiet ruying-skill-market-evaluation.service || \
   systemctl is-active --quiet ruying-skill-market-cleanup.service || \
   systemctl is-active --quiet ruying-skill-market-backup.service || \
   systemctl is-active --quiet ruying-skill-market-restore-drill.service; do sleep 1; done
@@ -273,7 +298,7 @@ Start in this order:
 4. for an empty OSS prefix, run `ruying-skill-market-sync.service` once and
    require a non-empty 2xx catalog response;
 5. HTTP smoke and private OSS canary;
-6. worker, sync, and SkillHub mirror timers;
+6. worker, sync, SkillHub mirror, and TRACE evaluation timers;
 7. backup, cleanup, and restore-drill timers.
 
 Do not treat a `503` catalog response as a CORS failure during first install.
@@ -335,9 +360,17 @@ systemctl daemon-reload
 systemctl enable --now ruying-skill-market-skillhub.timer
 ```
 
+Enable the independent TRACE evaluation timer only after the API release has
+migrated successfully:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now ruying-skill-market-evaluation.timer
+```
+
 Production must verify `systemctl list-timers --all` shows the dedicated
-SkillHub timer and does not show the generic sync timer before resuming the
-other writers.
+SkillHub mirror and TRACE evaluation timers and does not show the generic sync
+timer before resuming the other writers.
 
 If health or smoke fails, restore the previous API and Web symlink targets and
 restart/reload. Do not delete the candidate release. No database restore is

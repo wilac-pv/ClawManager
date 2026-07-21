@@ -198,6 +198,41 @@ describe("catalog sources", () => {
     ).toThrow("SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE")
   })
 
+  test("prefers canonical TRACE evaluation settings and accepts legacy aliases", () => {
+    const environment = {
+      SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",
+      SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+      SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com",
+    }
+    const legacy = loadConfig({
+      ...environment,
+      SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY: "1",
+      SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE: "59",
+      SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS: "6",
+      SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH: "99",
+    })
+    expect(legacy.skillhubEvaluationConcurrency).toBe(1)
+    expect(legacy.skillhubEvaluationRequestsPerMinute).toBe(59)
+    expect(legacy.skillhubEvaluationRefreshDays).toBe(6)
+    expect(legacy.skillhubEvaluationPublishBatch).toBe(99)
+
+    const canonical = loadConfig({
+      ...environment,
+      SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY: "1",
+      SKILL_MARKET_EVALUATION_CONCURRENCY: "2",
+      SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE: "59",
+      SKILL_MARKET_EVALUATION_REQUESTS_PER_MINUTE: "60",
+      SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS: "6",
+      SKILL_MARKET_EVALUATION_REFRESH_DAYS: "7",
+      SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH: "99",
+      SKILL_MARKET_EVALUATION_PUBLISH_BATCH: "100",
+    })
+    expect(canonical.skillhubEvaluationConcurrency).toBe(2)
+    expect(canonical.skillhubEvaluationRequestsPerMinute).toBe(60)
+    expect(canonical.skillhubEvaluationRefreshDays).toBe(7)
+    expect(canonical.skillhubEvaluationPublishBatch).toBe(100)
+  })
+
   test("normalizes control-plane configuration and applies safe defaults", () => {
     const config = loadConfig({
       SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://oss.example.com/enterprise.json",

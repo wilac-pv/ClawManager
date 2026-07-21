@@ -1,0 +1,31 @@
+[Unit]
+Description=Backfill SkillHub TRACE evaluations for Ruying Skill Market
+After=network-online.target ruying-skill-market.service
+
+[Service]
+Type=oneshot
+User=ruying-market
+Group=ruying-market
+EnvironmentFile=/etc/ruying-skill-market/market.env
+WorkingDirectory=/srv/ruying-skill-market/current/packages/skill-market-server
+ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-evaluation.lock /usr/local/bin/bun src/skillhub-evaluation-worker.js
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/ruying-skill-market /var/backups/ruying-skill-market
+ReadWritePaths=/run/lock
+UMask=0077
+MemoryMax=1536M
+LimitNOFILE=65536
+TasksMax=256
+StandardOutput=journal
+StandardError=journal

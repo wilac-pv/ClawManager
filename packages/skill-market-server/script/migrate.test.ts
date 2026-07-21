@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { migrateDatabase } from "./migrate"
@@ -21,7 +21,7 @@ describe("database migration command", () => {
       migrationBackupDirectory: join(directory, "backups"),
     })
 
-    expect(result).toEqual({ userVersion: 4, integrity: "ok", foreignKeyViolations: 0 })
+    expect(result).toEqual({ userVersion: 6, integrity: "ok", foreignKeyViolations: 0 })
     const database = new Database(databasePath, { create: false, readwrite: true })
     expect(database.query<{ count: number }, []>("SELECT count(*) AS count FROM submissions").get()?.count).toBe(0)
     database.close()
@@ -35,16 +35,27 @@ describe("database migration command", () => {
   test("accepts a production database that already applied historical migrations", async () => {
     const directory = await temporaryDirectory()
     const databasePath = join(directory, "market.db")
-    const database = new Database(databasePath, { create: true, readwrite: true })
-    database.run("PRAGMA user_version = 4")
-    database.close()
+    const migrations = join(directory, "v4-migrations")
+    await mkdir(migrations)
+    await Promise.all(
+      ["001_control_plane.sql", "002_submission_icons.sql", "003_skillhub_import.sql", "004_skillhub_import_invariants.sql"].map(
+        (file) => Bun.write(join(migrations, file), Bun.file(new URL(`../migrations/${file}`, import.meta.url))),
+      ),
+    )
+    await expect(
+      migrateDatabase({
+        databasePath,
+        migrationBackupDirectory: join(directory, "backups"),
+        migrationDirectory: migrations,
+      }),
+    ).resolves.toEqual({ userVersion: 4, integrity: "ok", foreignKeyViolations: 0 })
 
     await expect(
       migrateDatabase({
         databasePath,
         migrationBackupDirectory: join(directory, "backups"),
       }),
-    ).resolves.toEqual({ userVersion: 4, integrity: "ok", foreignKeyViolations: 0 })
+    ).resolves.toEqual({ userVersion: 6, integrity: "ok", foreignKeyViolations: 0 })
   })
 
   test("runs with only migration-specific environment", async () => {
@@ -63,7 +74,7 @@ describe("database migration command", () => {
 
     expect(await subprocess.exited).toBe(0)
     expect(await new Response(subprocess.stdout).json()).toEqual({
-      userVersion: 4,
+      userVersion: 6,
       integrity: "ok",
       foreignKeyViolations: 0,
     })

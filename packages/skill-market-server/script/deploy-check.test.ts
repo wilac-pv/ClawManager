@@ -103,6 +103,10 @@ describe("deployment checks", () => {
     environment.SKILL_MARKET_SKILLHUB_PUBLISH_BATCH = "2000"
     environment.SKILL_MARKET_SKILLHUB_PUBLISH_MINUTES = "30"
     environment.SKILL_MARKET_SKILLHUB_MEMORY_SOFT_LIMIT_MB = "1536"
+    environment.SKILL_MARKET_SKILLHUB_EVALUATION_CONCURRENCY = "2"
+    environment.SKILL_MARKET_SKILLHUB_EVALUATION_REQUESTS_PER_MINUTE = "60"
+    environment.SKILL_MARKET_SKILLHUB_EVALUATION_REFRESH_DAYS = "7"
+    environment.SKILL_MARKET_SKILLHUB_EVALUATION_PUBLISH_BATCH = "100"
 
     const checks = await runPreflight({ environment, environmentFile, findBinary: () => "/usr/bin/tool", probe: async () => true })
     const output = formatChecks(checks)
@@ -110,6 +114,10 @@ describe("deployment checks", () => {
     expect(checks.find((check) => check.name === "backup-directory")?.status).toBe("PASS")
     expect(output).toContain("PASS skillhub-page-concurrency=4")
     expect(output).toContain("PASS skillhub-memory-soft-limit-mb=1536")
+    expect(output).toContain("PASS skillhub-evaluation-concurrency=2")
+    expect(output).toContain("PASS skillhub-evaluation-requests-per-minute=60")
+    expect(output).toContain("PASS skillhub-evaluation-refresh-days=7")
+    expect(output).toContain("PASS skillhub-evaluation-publish-batch=100")
     expect(output).not.toContain("AWS_SECRET_ACCESS_KEY")
 
     await rm(backupDirectory, { force: true, recursive: true })

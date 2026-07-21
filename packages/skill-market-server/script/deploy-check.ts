@@ -35,6 +35,13 @@ export async function runPreflight(options: {
           { name: `skillhub-publish-batch=${configuration.skillhubPublishBatch}`, status: "PASS" as const },
           { name: `skillhub-publish-minutes=${configuration.skillhubPublishMinutes}`, status: "PASS" as const },
           { name: `skillhub-memory-soft-limit-mb=${configuration.skillhubMemorySoftLimitMb}`, status: "PASS" as const },
+          { name: `skillhub-evaluation-concurrency=${configuration.skillhubEvaluationConcurrency}`, status: "PASS" as const },
+          {
+            name: `skillhub-evaluation-requests-per-minute=${configuration.skillhubEvaluationRequestsPerMinute}`,
+            status: "PASS" as const,
+          },
+          { name: `skillhub-evaluation-refresh-days=${configuration.skillhubEvaluationRefreshDays}`, status: "PASS" as const },
+          { name: `skillhub-evaluation-publish-batch=${configuration.skillhubEvaluationPublishBatch}`, status: "PASS" as const },
         ]
       : []),
   ]
