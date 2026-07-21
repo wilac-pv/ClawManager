@@ -138,6 +138,57 @@ describe("SkillHub import store", () => {
     database.close()
   })
 
+  test("clears completed TRACE state when upstream content changes", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const database = await temporaryDatabase()
+    const store = createSkillHubImportStore({ database, now: () => clock.value })
+    const generation = store.beginGeneration(1)
+    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    store.claim("worker-a", 1, 60_000)
+    expect(store.complete("worker-a", "alpha", completed("alpha"))).toBe(true)
+    database.connection.run(
+      `UPDATE skillhub_import_items
+       SET evaluation_state = 'completed', evaluation_attempts = 2, evaluation_next_attempt_at = ?,
+           evaluation_lease_owner = 'stale-worker', evaluation_lease_expires_at = ?, evaluation_trust = 5,
+           evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
+           evaluation_effectiveness = 4.625, evaluation_score = 4.45, evaluation_checked_at = ?,
+           evaluation_error_summary = 'stale result'
+       WHERE slug = 'alpha'`,
+      [clock.value + 1, clock.value + 2, clock.value],
+    )
+
+    store.recordPage(generation.id, 2, [listRecord("alpha", "1.0.1", clock.value + 3)])
+
+    expect(
+      database.connection
+        .query<{
+          readonly state: string
+          readonly evaluation_state: string
+          readonly evaluation_attempts: number
+          readonly evaluation_next_attempt_at: number | null
+          readonly evaluation_lease_owner: string | null
+          readonly evaluation_lease_expires_at: number | null
+          readonly evaluation_score: number | null
+          readonly evaluation_checked_at: number | null
+          readonly evaluation_error_summary: string | null
+        }, [string]>(
+          "SELECT state, evaluation_state, evaluation_attempts, evaluation_next_attempt_at, evaluation_lease_owner, evaluation_lease_expires_at, evaluation_score, evaluation_checked_at, evaluation_error_summary FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("alpha"),
+    ).toEqual({
+      state: "pending",
+      evaluation_state: "waiting",
+      evaluation_attempts: 0,
+      evaluation_next_attempt_at: null,
+      evaluation_lease_owner: null,
+      evaluation_lease_expires_at: null,
+      evaluation_score: null,
+      evaluation_checked_at: null,
+      evaluation_error_summary: null,
+    })
+    database.close()
+  })
+
   test("requires a complete no-new sweep before discovery is stable", async () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()

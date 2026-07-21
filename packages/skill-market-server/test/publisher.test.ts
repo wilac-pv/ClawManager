@@ -17,6 +17,82 @@ afterEach(async () => {
 })
 
 describe("community publisher", () => {
+  test("retries a TRACE publication after its pointer write fails without marking it published", async () => {
+    const fixture = await publisherFixture()
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const summary = snapshot.items.find((item) => item.source === "skillhub")!
+    const original = snapshot.details.get(`skillhub:${summary.id}`)!
+    const unscored = { ...original, id: "retry-score", aliases: ["retry-score"] }
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(unscored)).digest("hex")
+    fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(unscored)))
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{
+      slug: "retry-score",
+      summary: { ...summary, id: "retry-score", aliases: ["retry-score"] },
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+    }])
+    fixture.database.connection.run(
+      `UPDATE skillhub_import_items
+       SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
+           evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
+           evaluation_effectiveness = 4.625, evaluation_checked_at = ?
+       WHERE slug = 'retry-score'`,
+      [fixture.clock.value],
+    )
+    fixture.failures.put = /current\.json$/
+
+    const publisher = createPublisher(publisherOptions(fixture))
+    expect(await rejected(publisher.publishMirroredSkillHub(imports, "worker-trace"))).toBeInstanceOf(Error)
+    expect(await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).toEqual(snapshot)
+    expect(
+      fixture.database.connection
+        .query<{ readonly detail_sha256: string; readonly record_json: string | null }, [string]>(
+          "SELECT detail_sha256, record_json FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("retry-score"),
+    ).toEqual({ detail_sha256: detailSha256, record_json: null })
+    expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual(["retry-score"])
+
+    fixture.failures.put = undefined
+    await publisher.publishMirroredSkillHub(imports, "worker-trace")
+    const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    expect(published.details.get("skillhub:retry-score")?.evaluationScore).toBe(4.45)
+    expect(imports.completedEvaluations(1)).toEqual([])
+    fixture.database.close()
+  })
+
+  test("rematerializes legacy evaluated details with a public zero ranking score", async () => {
+    const fixture = await publisherFixture()
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const summary = snapshot.items.find((item) => item.source === "skillhub")!
+    const raw = { ...snapshot.details.get(`skillhub:${summary.id}`)!, id: "legacy-score", aliases: ["legacy-score"], score: 100000 }
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(raw)).digest("hex")
+    fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(raw)))
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{
+      slug: "legacy-score",
+      summary: { ...summary, id: "legacy-score", aliases: ["legacy-score"], score: 100000 },
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+    }])
+    fixture.database.connection.run(
+      `UPDATE skillhub_import_items
+       SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
+           evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
+           evaluation_effectiveness = 4.625, evaluation_checked_at = ?
+       WHERE slug = 'legacy-score'`,
+      [fixture.clock.value],
+    )
+
+    await createPublisher(publisherOptions(fixture)).publishMirroredSkillHub(imports, "worker-trace")
+
+    const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    expect(published.details.get("skillhub:legacy-score")?.score).toBe(0)
+    expect(published.items.find((item) => item.id === "legacy-score")?.score).toBe(0)
+    fixture.database.close()
+  })
+
   test("publishes a completed TRACE evaluation without changing immutable SkillHub package metadata", async () => {
     const fixture = await publisherFixture()
     const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })

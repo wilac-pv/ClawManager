@@ -611,7 +611,7 @@ function recordItem(connection: Database, generation: GenerationRow, item: Skill
     return false
   }
   connection.run(
-    "UPDATE skillhub_import_items SET generation_id = ?, upstream_version = ?, upstream_updated_at = ?, state = 'pending', attempts = 0, next_attempt_at = NULL, lease_owner = NULL, lease_expires_at = NULL, list_json = ?, record_json = NULL, summary_json = NULL, detail_key = NULL, detail_sha256 = NULL, original_package_sha256 = NULL, package_sha256 = NULL, package_size = NULL, repair_json = NULL, error_code = NULL, error_summary = NULL, mirrored_at = NULL, last_seen_generation = ?, last_seen_sweep = ?, updated_at = ? WHERE slug = ?",
+    "UPDATE skillhub_import_items SET generation_id = ?, upstream_version = ?, upstream_updated_at = ?, state = 'pending', attempts = 0, next_attempt_at = NULL, lease_owner = NULL, lease_expires_at = NULL, list_json = ?, record_json = NULL, summary_json = NULL, detail_key = NULL, detail_sha256 = NULL, original_package_sha256 = NULL, package_sha256 = NULL, package_size = NULL, repair_json = NULL, error_code = NULL, error_summary = NULL, mirrored_at = NULL, evaluation_state = 'waiting', evaluation_attempts = 0, evaluation_next_attempt_at = NULL, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, evaluation_trust = NULL, evaluation_reliability = NULL, evaluation_adaptability = NULL, evaluation_convention = NULL, evaluation_effectiveness = NULL, evaluation_score = NULL, evaluation_checked_at = NULL, evaluation_error_summary = NULL, last_seen_generation = ?, last_seen_sweep = ?, updated_at = ? WHERE slug = ?",
     [generation.id, item.version, item.updated_at, JSON.stringify(item), generation.id, generation.sweep, timestamp, item.slug],
   )
   return false

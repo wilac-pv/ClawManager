@@ -181,22 +181,34 @@ export class Publisher {
     )
     let revision = base.index.revision
     await this.withCatalogLease(workerID, async (publish) => {
-      const updated = new Set(imports.replaceCompletedEvaluationDetails(evaluations))
       const latest = await this.latestIndex(base.index.sourceStatus)
       const publication =
         latest.revision === base.index.revision ? base : await this.basePublication({ skipLegacySkillHub: true })
       const latestEntries = this.entries(publication.index, (summary) => summary.source !== "skillhub")
-      imports.mirroredEntries().forEach((entry) => {
-        const ids = [entry.summary.id, ...(entry.summary.aliases ?? [])]
+      const mirrored = imports.mirroredEntries()
+      const evaluated = evaluations.filter((evaluation) =>
+        mirrored.some(
+          (entry) =>
+            entry.summary.id === evaluation.entry.summary.id && entry.detailSha256 === evaluation.previousDetailSha256,
+        ),
+      )
+      const evaluationsByDetail = new Map(evaluated.map((evaluation) => [evaluation.previousDetailSha256, evaluation]))
+      mirrored.forEach((entry) => {
+        const evaluation = evaluationsByDetail.get(entry.detailSha256)
+        const mirroredEntry = evaluation?.entry ?? entry
+        const ids = [mirroredEntry.summary.id, ...(mirroredEntry.summary.aliases ?? [])]
         const featured = recommendations
           ? ids.some((id) => recommendations.has(id))
-          : ids.map((id) => current.get(id)).find(Boolean)?.featured ?? entry.summary.featured
-        latestEntries.set(key(entry.summary.source, entry.summary.id), {
-          summary: entry.summary.featured === featured ? entry.summary : { ...entry.summary, featured },
+          : ids.map((id) => current.get(id)).find(Boolean)?.featured ?? mirroredEntry.summary.featured
+        latestEntries.set(key(mirroredEntry.summary.source, mirroredEntry.summary.id), {
+          summary:
+            mirroredEntry.summary.featured === featured
+              ? mirroredEntry.summary
+              : { ...mirroredEntry.summary, featured },
           ref: {
-            key: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, this.options.ossPrefix),
-            sha256: entry.detailSha256,
-            version: entry.summary.version,
+            key: normalizeMirrorDetailKey(mirroredEntry.detailKey, mirroredEntry.detailSha256, this.options.ossPrefix),
+            sha256: mirroredEntry.detailSha256,
+            version: mirroredEntry.summary.version,
           },
         })
       })
@@ -206,10 +218,11 @@ export class Publisher {
       })
       revision = index.revision
       const changedDetails = new Map(publication.changedDetails)
-      evaluations
-        .filter((evaluation) => updated.has(evaluation.slug))
-        .forEach((evaluation) => changedDetails.set(key(evaluation.entry.summary.source, evaluation.entry.summary.id), evaluation.detail))
+      evaluated.forEach((evaluation) =>
+        changedDetails.set(key(evaluation.entry.summary.source, evaluation.entry.summary.id), evaluation.detail),
+      )
       await publish({ index, changedDetails })
+      imports.replaceCompletedEvaluationDetails(evaluated)
     })
     return { revision, mirrored: progress.mirrored }
   }
@@ -334,6 +347,7 @@ export class Publisher {
       throw new Error(`mirrored SkillHub detail does not match evaluation: ${evaluation.slug}`)
     const evaluated = Schema.decodeUnknownSync(SkillMarket.Detail)({
       ...detail,
+      score: 0,
       evaluationScore: evaluation.evaluation.score,
       traceEvaluation: {
         trust: evaluation.evaluation.trust,
