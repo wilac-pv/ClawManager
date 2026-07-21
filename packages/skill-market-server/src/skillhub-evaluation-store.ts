@@ -155,7 +155,7 @@ export function createSkillHubEvaluationStore(options: {
       return options.database.transaction((connection) => {
         const timestamp = now()
         return connection.run(
-          "UPDATE skillhub_import_items SET evaluation_state = 'pending', evaluation_next_attempt_at = NULL, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, updated_at = ? WHERE state = 'mirrored' AND evaluation_state = 'completed' AND evaluation_checked_at <= ?",
+          "UPDATE skillhub_import_items SET evaluation_state = 'pending', evaluation_attempts = 0, evaluation_next_attempt_at = NULL, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, updated_at = ? WHERE state = 'mirrored' AND evaluation_state = 'completed' AND evaluation_checked_at <= ?",
           [timestamp, timestamp - refreshMilliseconds],
         ).changes
       })

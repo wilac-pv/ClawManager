@@ -132,6 +132,30 @@ describe("SkillHub evaluation store", () => {
     database.close()
   })
 
+  test("refreshes a completed evaluation with a fresh retry budget", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const database = await temporaryDatabase()
+    seed(database, clock.value, ["a"])
+    const store = createSkillHubEvaluationStore({ database, now: () => clock.value })
+    const policy = { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 }
+
+    store.claim("worker-a", 1, 60_000)
+    store.retry("worker-a", "a", "first", policy)
+    clock.value += 1_000
+    store.claim("worker-a", 1, 60_000)
+    store.retry("worker-a", "a", "second", policy)
+    clock.value += 2_000
+    store.claim("worker-a", 1, 60_000)
+    expect(store.complete("worker-a", "a", evaluation)).toBe(true)
+
+    clock.value += 7 * 24 * 60 * 60 * 1_000
+    expect(store.markDue()).toBe(1)
+    expect(store.claim("worker-b", 1, 60_000)).toEqual([{ slug: "a", attempts: 1 }])
+    expect(store.retry("worker-b", "a", "refresh failed", policy)).toBe(true)
+    expect(row(database, "a")).toMatchObject({ evaluation_state: "retry_wait", evaluation_next_attempt_at: clock.value + 1_000 })
+    database.close()
+  })
+
   test("recovers expired leases, refreshes completed evaluations after seven days, and reports aggregate progress", async () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
