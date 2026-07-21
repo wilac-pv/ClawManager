@@ -76,6 +76,18 @@ describe("SkillHub evaluations", () => {
     await expect(rejected).rejects.not.toThrow("internal upstream details")
   })
 
+  test("rejects redirects outside the configured HTTPS host", async () => {
+    const response = Response.json(evaluation)
+    Object.defineProperty(response, "url", { value: "https://untrusted.example/api/v1/skills/skill/evaluation" })
+
+    const rejected = loadSkillHubEvaluation(async () => response, "https://api.skillhub.cn", "skill")
+
+    await expect(rejected).rejects.toMatchObject({
+      permanent: true,
+      message: "SkillHub redirected outside its API host",
+    })
+  })
+
   test("rejects malformed JSON", async () => {
     await expect(
       loadSkillHubEvaluation(async () => new Response("{not json"), "https://api.skillhub.cn", "skill"),

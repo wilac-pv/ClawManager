@@ -21,6 +21,11 @@ export async function loadSkillHubEvaluation(fetcher: Fetcher, baseUrl: string, 
       response.headers.get("retry-after"),
       response.status < 500 && response.status !== 429,
     )
+  if (response.url) {
+    const finalUrl = new URL(response.url)
+    if (finalUrl.protocol !== "https:" || finalUrl.hostname !== url.hostname)
+      throw new SkillHubRequestError("SkillHub redirected outside its API host", undefined, undefined, true)
+  }
   let body: unknown
   try {
     body = await response.json()
