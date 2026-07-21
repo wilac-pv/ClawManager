@@ -210,6 +210,68 @@ describe("community publisher", () => {
     fixture.database.close()
   })
 
+  test("defers an upstream transition that arrives after score publication admission until its pointer commits", async () => {
+    const fixture = await publisherFixture()
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const summary = snapshot.items.find((item) => item.source === "skillhub")!
+    const original = snapshot.details.get(`skillhub:${summary.id}`)!
+    const detail = { ...original, id: "pointer-fenced-score", aliases: ["pointer-fenced-score"] }
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+    fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(detail)))
+    const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    imports.seedLegacy([{
+      slug: "pointer-fenced-score",
+      summary: { ...summary, id: "pointer-fenced-score", aliases: ["pointer-fenced-score"] },
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+    }])
+    fixture.database.connection.run(
+      `UPDATE skillhub_import_items
+       SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
+           evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
+           evaluation_effectiveness = 4.625, evaluation_checked_at = ?, summary_json = ?
+       WHERE slug = 'pointer-fenced-score'`,
+      [fixture.clock.value, JSON.stringify({ ...summary, id: "pointer-fenced-score", aliases: ["pointer-fenced-score"], evaluationScore: 4.45, traceEvaluation: evaluationTrace(fixture.clock.value) })],
+    )
+    const generation = imports.beginGeneration(1)
+    let transitioned = false
+    const publisher = createPublisher({
+      ...publisherOptions(fixture),
+      store: {
+        ...fixture.store,
+        async put(key, body, contentType, cacheControl, metadata) {
+          if (!transitioned && key === "skill-market/current.json") {
+            transitioned = true
+            imports.recordPage(generation.id, 1, [updatedListRecord("pointer-fenced-score", fixture.clock.value + 1)])
+            expect(
+              fixture.database.connection
+                .query<{ readonly state: string; readonly detail_sha256: string; readonly evaluation_state: string }, [string]>(
+                  "SELECT state, detail_sha256, evaluation_state FROM skillhub_import_items WHERE slug = ?",
+                )
+                .get("pointer-fenced-score"),
+            ).toEqual({ state: "mirrored", detail_sha256: detailSha256, evaluation_state: "completed" })
+          }
+          await fixture.store.put(key, body, contentType, cacheControl, metadata)
+        },
+      },
+    })
+
+    await publisher.publishMirroredSkillHub(imports, "worker-pointer-fence")
+
+    expect(transitioned).toBe(true)
+    const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    expect(published.details.get("skillhub:pointer-fenced-score")?.evaluationScore).toBe(4.45)
+    imports.recordPage(generation.id, 1, [updatedListRecord("pointer-fenced-score", fixture.clock.value + 1)])
+    expect(
+      fixture.database.connection
+        .query<{ readonly upstream_version: string; readonly state: string; readonly evaluation_state: string }, [string]>(
+          "SELECT upstream_version, state, evaluation_state FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("pointer-fenced-score"),
+    ).toEqual({ upstream_version: "1.0.1", state: "pending", evaluation_state: "waiting" })
+    fixture.database.close()
+  })
+
   test("seeds all legacy SkillHub entries into the import store without downloading packages", async () => {
     const fixture = await publisherFixture()
     fixture.database.connection.run("DELETE FROM publish_jobs")
@@ -680,5 +742,23 @@ function evaluationTrace(checkedAt: number) {
     convention: 4.325,
     effectiveness: 4.625,
     evaluatedAt: new Date(checkedAt).toISOString(),
+  }
+}
+
+function updatedListRecord(slug: string, updatedAt: number) {
+  return {
+    category: "tools",
+    description: `${slug} updated`,
+    downloads: 1,
+    installs: 1,
+    name: slug,
+    ownerName: "owner",
+    score: 1,
+    slug,
+    source: "https://example.com/source",
+    stars: 1,
+    subCategories: [],
+    updated_at: updatedAt,
+    version: "1.0.1",
   }
 }

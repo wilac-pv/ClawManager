@@ -178,6 +178,7 @@ export function createSkillHubImportStore(options: {
       return options.database.transaction((connection) => {
         const generation = generationRow(connection, generationID)
         const timestamp = now()
+        if (!catalogPublicationRunning(connection)) applyDeferredItems(connection, generation, timestamp)
         const inserted = items.filter((item) => recordItem(connection, generation, item, timestamp)).length
         connection.run(
           "UPDATE skillhub_generations SET upstream_total = ?, discovery_page = CASE WHEN discovery_page + 1 = ? THEN ? ELSE discovery_page END, new_in_sweep = new_in_sweep + ?, updated_at = ? WHERE id = ?",
@@ -195,7 +196,8 @@ export function createSkillHubImportStore(options: {
             "SELECT COUNT(*) AS count FROM skillhub_import_items WHERE generation_id = ? AND last_seen_generation = ? AND last_seen_sweep = ?",
           )
           .get(generationID, generationID, generation.sweep)!.count
-        const stable = generation.sweep >= 1 && generation.new_in_sweep === 0 && observed >= generation.upstream_total
+        const deferred = connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_deferred_import_items").get()!.count
+        const stable = deferred === 0 && generation.sweep >= 1 && generation.new_in_sweep === 0 && observed >= generation.upstream_total
         if (stable) {
           connection.run(
             "UPDATE skillhub_generations SET discovery_completed_at = ?, updated_at = ? WHERE id = ?",
@@ -610,11 +612,65 @@ function recordItem(connection: Database, generation: GenerationRow, item: Skill
     )
     return false
   }
+  if (catalogPublicationRunning(connection)) {
+    connection.run(
+      `INSERT INTO skillhub_deferred_import_items (slug, upstream_version, upstream_updated_at, list_json, deferred_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(slug) DO UPDATE SET
+         upstream_version = excluded.upstream_version,
+         upstream_updated_at = excluded.upstream_updated_at,
+         list_json = excluded.list_json,
+         deferred_at = excluded.deferred_at`,
+      [item.slug, item.version, item.updated_at, JSON.stringify(item), timestamp],
+    )
+    connection.run(
+      "UPDATE skillhub_import_items SET generation_id = ?, last_seen_generation = ?, last_seen_sweep = ?, updated_at = ? WHERE slug = ?",
+      [generation.id, generation.id, generation.sweep, timestamp, item.slug],
+    )
+    return false
+  }
+  resetItemForUpstreamTransition(connection, generation, item, timestamp)
+  return false
+}
+
+function applyDeferredItems(connection: Database, generation: GenerationRow, timestamp: number) {
+  const deferred = connection
+    .query<{ slug: string; upstream_version: string; upstream_updated_at: number; list_json: string }, []>(
+      "SELECT slug, upstream_version, upstream_updated_at, list_json FROM skillhub_deferred_import_items ORDER BY deferred_at, slug",
+    )
+    .all()
+  deferred.forEach((item) => {
+    const existing = connection
+      .query<{ upstream_version: string; upstream_updated_at: number }, [string]>(
+        "SELECT upstream_version, upstream_updated_at FROM skillhub_import_items WHERE slug = ?",
+      )
+      .get(item.slug)
+    if (!existing) return
+    const list = Schema.decodeUnknownSync(Schema.fromJsonString(SkillHubListRecord))(item.list_json)
+    if (existing.upstream_version !== item.upstream_version || existing.upstream_updated_at !== item.upstream_updated_at)
+      resetItemForUpstreamTransition(connection, generation, list, timestamp)
+  })
+  if (deferred.length > 0) connection.run("DELETE FROM skillhub_deferred_import_items")
+}
+
+function resetItemForUpstreamTransition(
+  connection: Database,
+  generation: GenerationRow,
+  item: SkillHubListRecord,
+  timestamp: number,
+) {
   connection.run(
     "UPDATE skillhub_import_items SET generation_id = ?, upstream_version = ?, upstream_updated_at = ?, state = 'pending', attempts = 0, next_attempt_at = NULL, lease_owner = NULL, lease_expires_at = NULL, list_json = ?, record_json = NULL, summary_json = NULL, detail_key = NULL, detail_sha256 = NULL, original_package_sha256 = NULL, package_sha256 = NULL, package_size = NULL, repair_json = NULL, error_code = NULL, error_summary = NULL, mirrored_at = NULL, evaluation_state = 'waiting', evaluation_attempts = 0, evaluation_next_attempt_at = NULL, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, evaluation_trust = NULL, evaluation_reliability = NULL, evaluation_adaptability = NULL, evaluation_convention = NULL, evaluation_effectiveness = NULL, evaluation_score = NULL, evaluation_checked_at = NULL, evaluation_error_summary = NULL, last_seen_generation = ?, last_seen_sweep = ?, updated_at = ? WHERE slug = ?",
     [generation.id, item.version, item.updated_at, JSON.stringify(item), generation.id, generation.sweep, timestamp, item.slug],
   )
-  return false
+}
+
+function catalogPublicationRunning(connection: Database) {
+  return connection
+    .query<{ count: number }, []>(
+      "SELECT COUNT(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'running'",
+    )
+    .get()!.count > 0
 }
 
 function transitionFailure(

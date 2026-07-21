@@ -125,6 +125,7 @@ export class Publisher {
     operation: (publish: (publication: Publication) => Promise<void>) => Promise<T>,
   ) {
     requireWorkerID(workerID)
+    await this.recover()
     const now = this.now()
     const job = this.options.database.transaction((connection) => {
       const queued = connection

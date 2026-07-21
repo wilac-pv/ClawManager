@@ -415,6 +415,55 @@ describe("SkillHub import store", () => {
     reopened.close()
   })
 
+  test("persists a deferred upstream transition until a catalog publication fence releases", async () => {
+    const clock = { value: 1_752_537_600_000 }
+    const fixture = await temporaryDatabaseFixture()
+    const store = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
+    const generation = store.beginGeneration(1)
+    store.recordPage(generation.id, 1, [listRecord("fenced", "1.0.0")])
+    store.claim("worker", 1, 60_000)
+    store.complete("worker", "fenced", completed("fenced"))
+    fixture.database.connection.run(
+      `INSERT INTO publish_jobs
+        (id, kind, status, lease_owner, lease_expires_at, attempts, created_at, updated_at)
+       VALUES ('catalog-fence', 'catalog_rebuild', 'running', 'publisher', ?, 1, ?, ?)`,
+      [clock.value + 60_000, clock.value, clock.value],
+    )
+
+    store.recordPage(generation.id, 2, [listRecord("fenced", "1.0.1", clock.value + 1)])
+    expect(
+      fixture.database.connection
+        .query<{ readonly upstream_version: string; readonly state: string }, [string]>(
+          "SELECT upstream_version, state FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("fenced"),
+    ).toEqual({ upstream_version: "1.0.0", state: "mirrored" })
+    expect(
+      fixture.database.connection
+        .query<{ readonly upstream_version: string }, [string]>(
+          "SELECT upstream_version FROM skillhub_deferred_import_items WHERE slug = ?",
+        )
+        .get("fenced"),
+    ).toEqual({ upstream_version: "1.0.1" })
+    fixture.database.close()
+
+    const reopened = await reopenDatabase(fixture)
+    reopened.connection.run("UPDATE publish_jobs SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL WHERE id = 'catalog-fence'")
+    const resumed = createSkillHubImportStore({ database: reopened, now: () => clock.value })
+    resumed.recordPage(generation.id, 2, [listRecord("fenced", "1.0.1", clock.value + 1)])
+    expect(
+      reopened.connection
+        .query<{ readonly upstream_version: string; readonly state: string }, [string]>(
+          "SELECT upstream_version, state FROM skillhub_import_items WHERE slug = ?",
+        )
+        .get("fenced"),
+    ).toEqual({ upstream_version: "1.0.1", state: "pending" })
+    expect(
+      reopened.connection.query<{ readonly count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_deferred_import_items").get()?.count,
+    ).toBe(0)
+    reopened.close()
+  })
+
   test("persists a contiguous discovery cursor across reopen", async () => {
     const fixture = await temporaryDatabaseFixture()
     const store = createSkillHubImportStore({ database: fixture.database })
