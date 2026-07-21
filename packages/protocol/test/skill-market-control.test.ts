@@ -139,6 +139,36 @@ test("skillhub import progress decodes representative progress", () => {
   ).toThrow()
 })
 
+test("skillhub evaluation progress decodes bounded counters and optional diagnostics", () => {
+  expect(
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubEvaluationProgress)({
+      total: 100,
+      waiting: 1,
+      pending: 50,
+      running: 2,
+      retryWait: 3,
+      completed: 40,
+      failed: 4,
+      ratePerMinute: 60,
+      estimatedSecondsRemaining: 55,
+      recentError: "SkillHub evaluation timed out",
+    }),
+  ).toMatchObject({ completed: 40 })
+  expect(() =>
+    Schema.decodeUnknownSync(SkillMarketControl.SkillHubEvaluationProgress)({
+      total: 0,
+      waiting: 0,
+      pending: 0,
+      running: 0,
+      retryWait: 0,
+      completed: 0,
+      failed: 0,
+      ratePerMinute: 0,
+      recentError: "x".repeat(501),
+    }),
+  ).toThrow()
+})
+
 test("skillhub import commands decode bounded slug selections", () => {
   expect(
     Schema.decodeUnknownSync(SkillMarketControl.SkillHubImportCommandInput)({ command: "pause" }).slugs,

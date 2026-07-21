@@ -334,6 +334,20 @@ export const SkillHubImportProgress = Schema.Struct({
 }).annotate({ identifier: "SkillMarketControl.SkillHubImportProgress" })
 export type SkillHubImportProgress = typeof SkillHubImportProgress.Type
 
+export const SkillHubEvaluationProgress = Schema.Struct({
+  total: NonNegative,
+  waiting: NonNegative,
+  pending: NonNegative,
+  running: NonNegative,
+  retryWait: NonNegative,
+  completed: NonNegative,
+  failed: NonNegative,
+  ratePerMinute: NonNegative,
+  estimatedSecondsRemaining: NonNegative.pipe(optional),
+  recentError: bounded(1, 500).pipe(optional),
+}).annotate({ identifier: "SkillMarketControl.SkillHubEvaluationProgress" })
+export type SkillHubEvaluationProgress = typeof SkillHubEvaluationProgress.Type
+
 export const AuditAction = Schema.Literals([
   "bootstrap-admin",
   "role-assigned",
