@@ -292,10 +292,6 @@ export class Publisher {
         return current?.evaluation.checkedAt === value.checkedAt && current.detailSha256 === value.previousDetailSha256
       })
       if (evaluated.length === 0) return
-      const latest = await this.latestIndex(
-        { skillhub: imports.progress().sourceStatus, enterprise: "unavailable", community: "fresh" },
-        store,
-      )
       const replacements = new Map(
         evaluated.map((value) => [
           key(value.entry.summary.source, value.entry.summary.id),
@@ -309,11 +305,18 @@ export class Publisher {
           },
         ] as const),
       )
-      const index = patchCatalogIndex({
-        index: latest,
-        replacements,
-        sourceStatus: { ...latest.sourceStatus, skillhub: imports.progress().sourceStatus },
-      })
+      const index = await (async () => {
+        const latest = await this.latestIndex(
+          { skillhub: imports.progress().sourceStatus, enterprise: "unavailable", community: "fresh" },
+          store,
+        )
+        return patchCatalogIndex({
+          index: latest,
+          replacements,
+          sourceStatus: { ...latest.sourceStatus, skillhub: imports.progress().sourceStatus },
+        })
+      })()
+      Bun.gc(true)
       revision = index.revision
       await publish({
         index,

@@ -70,7 +70,7 @@ describe("systemd deployment", () => {
     )
     expect(services[3]).toContain("Type=oneshot")
     expect(services[4]).toContain(
-      "ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-evaluation.lock /usr/local/bin/bun src/skillhub-evaluation-worker.js",
+      "ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-evaluation.lock /usr/local/bin/bun --smol src/skillhub-evaluation-worker.js",
     )
     expect(services[4]).toContain("MemoryHigh=896M")
     expect(services[4]).toContain("MemoryMax=1024M")

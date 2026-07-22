@@ -221,7 +221,8 @@ release.
 The immutable server runtime includes bundled server, sync, durable worker,
 SkillHub mirror, and TRACE evaluation entrypoints. The SkillHub units run the
 bundled `src/skillhub-worker.js` and `src/skillhub-evaluation-worker.js`
-entrypoints; do not substitute source `.ts` paths.
+entrypoints; the evaluation worker uses Bun's `--smol` mode to keep catalog
+parsing below its cgroup limit. Do not substitute source `.ts` paths.
 
 ## Preflight and initial migration
 

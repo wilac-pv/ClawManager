@@ -470,8 +470,13 @@ async function loadObject<S extends Schema.Decoder<unknown>>(client: ObjectStore
 }
 
 async function loadJsonObject(client: ObjectStore, key: string) {
-  const body = await loadBytes(client, key)
-  return Schema.decodeUnknownPromise(Schema.UnknownFromJsonString)(new TextDecoder().decode(body))
+  const json = decodeJsonBytes(await loadBytes(client, key))
+  Bun.gc(true)
+  return json
+}
+
+function decodeJsonBytes(body: Uint8Array) {
+  return Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(new TextDecoder().decode(body))
 }
 
 async function loadBytes(client: ObjectStore, key: string) {
