@@ -353,7 +353,7 @@ test("reads bounded TRACE evaluation defaults", () => {
   expect(config.skillhubEvaluationRefreshDays).toBe(7)
   expect(config.skillhubEvaluationPublishBatch).toBe(100)
   expect(config.skillhubEvaluationPublishMinutes).toBe(30)
-  expect(config.skillhubEvaluationDurationMilliseconds).toBe(50_000)
+  expect(config.skillhubEvaluationDurationMilliseconds).toBe(75_000)
 })
 
 test("rejects a TRACE evaluation publication batch larger than one hundred from the environment", () => {

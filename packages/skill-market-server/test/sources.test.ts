@@ -161,7 +161,7 @@ describe("catalog sources", () => {
     expect(config.skillhubEvaluationRefreshDays).toBe(7)
     expect(config.skillhubEvaluationPublishBatch).toBe(100)
     expect(config.skillhubEvaluationPublishMinutes).toBe(30)
-    expect(config.skillhubEvaluationDurationMilliseconds).toBe(50_000)
+    expect(config.skillhubEvaluationDurationMilliseconds).toBe(75_000)
     expect(config.skillhubMemorySoftLimitMb).toBe(1_536)
     expect(config.allowedHosts).toEqual(new Set(["api.skillhub.cn"]))
     expect(() =>

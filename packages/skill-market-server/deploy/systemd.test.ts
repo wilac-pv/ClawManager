@@ -74,7 +74,7 @@ describe("systemd deployment", () => {
     )
     expect(services[4]).toContain("MemoryHigh=896M")
     expect(services[4]).toContain("MemoryMax=1024M")
-    expect(services[4]).toContain("TimeoutStartSec=65s")
+    expect(services[4]).toContain("TimeoutStartSec=90s")
     expect(services[4]).toContain("TimeoutStopSec=10s")
     expect(services[4]).toContain("Type=oneshot")
   })

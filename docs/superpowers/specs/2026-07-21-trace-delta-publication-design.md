@@ -124,7 +124,7 @@ The evaluation service will use:
 - `MemoryHigh=896M` to leave the measured catalog serialization working set below
   the reclaim threshold while retaining headroom before the hard limit;
 - `MemoryMax=1024M` as a hard ceiling;
-- `TimeoutStartSec=65s` for the 50-second application budget plus cancellation;
+- `TimeoutStartSec=90s` for the 75-second application budget plus cancellation;
 - `TimeoutStopSec=10s` so systemd can terminate a process that is stuck in
   synchronous work;
 - the existing dedicated non-blocking flock and one-minute persistent timer.

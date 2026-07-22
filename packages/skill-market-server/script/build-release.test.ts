@@ -47,7 +47,7 @@ describe("runtime release build", () => {
     expect(await evaluationService.exists()).toBe(true)
     expect(await evaluationService.text()).toContain("MemoryHigh=896M")
     expect(await evaluationService.text()).toContain("MemoryMax=1024M")
-    expect(await evaluationService.text()).toContain("TimeoutStartSec=65s")
+    expect(await evaluationService.text()).toContain("TimeoutStartSec=90s")
     expect(await evaluationService.text()).toContain("TimeoutStopSec=10s")
     await setPermissions(outputDirectory, 0o555, 0o444)
     await chmod(homeDirectory, 0o555)

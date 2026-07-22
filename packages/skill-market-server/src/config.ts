@@ -92,7 +92,7 @@ export function loadConfig(environment: Environment = process.env) {
     environment,
     "SKILL_MARKET_EVALUATION_DURATION_SECONDS",
     "SKILL_MARKET_SKILLHUB_EVALUATION_DURATION_SECONDS",
-    "50",
+    "75",
   )
 
   return Object.freeze({
@@ -137,7 +137,7 @@ export function loadConfig(environment: Environment = process.env) {
     skillhubEvaluationDurationMilliseconds: positiveInteger(
       evaluationDurationSeconds.name,
       evaluationDurationSeconds.value,
-      50,
+      75,
     ) * 1_000,
     skillhubMemorySoftLimitMb,
     enterpriseIndexUrl: httpsUrl("SKILL_MARKET_ENTERPRISE_INDEX_URL", environment.SKILL_MARKET_ENTERPRISE_INDEX_URL),
