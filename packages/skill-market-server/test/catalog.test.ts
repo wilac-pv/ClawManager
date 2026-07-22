@@ -128,8 +128,13 @@ describe("catalog", () => {
     expect(() => mergeCatalog([sampleDetail(), sampleDetail()], enterprise)).toThrow("duplicate catalog key")
   })
 
-  test("patches selected catalog entries without changing unrelated entries or revision compatibility", () => {
-    const skillhub = contentAddressDetail(sampleDetail({ id: "a", name: "SkillHub A" }))
+  test("patches two SkillHub entries while preserving mixed catalog entries and revision compatibility", () => {
+    const skillhub = contentAddressDetail(
+      sampleDetail({ id: "a", name: "SkillHub A", aliases: ["skillhub-a-alias"], featured: true }),
+    )
+    const secondSkillhub = contentAddressDetail(
+      sampleDetail({ id: "b", name: "SkillHub B", aliases: ["skillhub-b-alias"], featured: true }),
+    )
     const community = contentAddressDetail(
       sampleDetail({
         id: "community-a",
@@ -137,12 +142,28 @@ describe("catalog", () => {
         sourceUrl: "https://market.example.com/skills/community-a",
         publicDetailUrl: "https://market.example.com/skills/community-a",
         name: "Community A",
+        aliases: ["community-a-alias"],
+        featured: true,
+      }),
+    )
+    const enterprise = contentAddressDetail(
+      sampleDetail({
+        id: "enterprise-a",
+        source: "enterprise",
+        sourceUrl: "https://market.example.com/skills/enterprise-a",
+        publicDetailUrl: "https://market.example.com/skills/enterprise-a",
+        name: "Enterprise A",
+        aliases: ["enterprise-a-alias"],
+        featured: true,
+        enterprise: true,
       }),
     )
     const index = createCatalogIndex({
       entries: new Map([
         [key(skillhub.summary.source, skillhub.summary.id), skillhub],
+        [key(secondSkillhub.summary.source, secondSkillhub.summary.id), secondSkillhub],
         [key(community.summary.source, community.summary.id), community],
+        [key(enterprise.summary.source, enterprise.summary.id), enterprise],
       ]),
       sourceStatus: { skillhub: "stale", enterprise: "fresh", community: "fresh" },
       createdAt: "2026-07-21T00:00:00.000Z",
@@ -150,22 +171,45 @@ describe("catalog", () => {
     const replacement = contentAddressDetail(
       sampleDetail({ id: "a", name: "TRACE A", evaluationScore: 4.45, score: 0 }),
     )
+    const secondReplacement = contentAddressDetail(
+      sampleDetail({ id: "b", name: "TRACE B", evaluationScore: 4.6, score: 0 }),
+    )
 
     const patched = patchCatalogIndex({
       index,
-      replacements: new Map([[key("skillhub", "a"), replacement]]),
+      replacements: new Map([
+        [key("skillhub", "a"), replacement],
+        [key("skillhub", "b"), secondReplacement],
+      ]),
       sourceStatus: { ...index.sourceStatus, skillhub: "fresh" },
       createdAt: "2026-07-22T00:00:00.000Z",
     })
 
     expect(patched.items.find((item) => item.id === "a")).toEqual(replacement.summary)
     expect(patched.details.get(key("skillhub", "a"))).toEqual(replacement.ref)
+    expect(patched.items.find((item) => item.id === "b")).toEqual(secondReplacement.summary)
+    expect(patched.details.get(key("skillhub", "b"))).toEqual(secondReplacement.ref)
     expect(patched.items.find((item) => item.id === "community-a")).toEqual(
       index.items.find((item) => item.id === "community-a"),
     )
     expect(patched.details.get(key("community", "community-a"))).toEqual(
       index.details.get(key("community", "community-a")),
     )
+    expect(patched.items.find((item) => item.id === "enterprise-a")).toEqual(
+      index.items.find((item) => item.id === "enterprise-a"),
+    )
+    expect(patched.details.get(key("enterprise", "enterprise-a"))).toEqual(
+      index.details.get(key("enterprise", "enterprise-a")),
+    )
+    expect(patched.items.find((item) => item.id === "community-a")).toMatchObject({
+      aliases: ["community-a-alias"],
+      featured: true,
+    })
+    expect(patched.items.find((item) => item.id === "enterprise-a")).toMatchObject({
+      aliases: ["enterprise-a-alias"],
+      featured: true,
+      enterprise: true,
+    })
     const entries = patched.items.map((summary) => [
       key(summary.source, summary.id),
       { summary, ref: patched.details.get(key(summary.source, summary.id))! },
@@ -199,5 +243,28 @@ describe("catalog", () => {
         sourceStatus: index.sourceStatus,
       }),
     ).toThrow("replacement key mismatch")
+  })
+
+  test.each([
+    ["an uppercase hash", { sha256: "A".repeat(64) }, "replacement hash is invalid"],
+    ["an invalid hash length", { sha256: "a".repeat(63) }, "replacement hash is invalid"],
+    ["a key that does not match its hash", { key: `details/${"b".repeat(64)}.json` }, "replacement detail key mismatch"],
+    ["a version that does not match its summary", { version: "2.0.0" }, "replacement version mismatch"],
+  ])("rejects a patch replacement with %s", (_name, refPatch, message) => {
+    const entry = contentAddressDetail(sampleDetail({ id: "a" }))
+    const index = createCatalogIndex({
+      entries: new Map([[key(entry.summary.source, entry.summary.id), entry]]),
+      sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "unavailable" },
+    })
+    const replacement = contentAddressDetail(sampleDetail({ id: "a", name: "TRACE A" }))
+    const invalidReplacement = { ...replacement, ref: { ...replacement.ref, ...refPatch } }
+
+    expect(() =>
+      patchCatalogIndex({
+        index,
+        replacements: new Map([[key("skillhub", "a"), invalidReplacement]]),
+        sourceStatus: index.sourceStatus,
+      }),
+    ).toThrow(message)
   })
 })

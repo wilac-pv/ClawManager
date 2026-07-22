@@ -24,8 +24,15 @@ test("patches 100 catalog entries in an 80,000-entry index within the worker bud
 
   expect(result.timedOut, errors).toBe(false)
   expect(result.exitCode, errors).toBe(0)
-  const metrics = JSON.parse(output) as { readonly elapsedMilliseconds: number; readonly maxRssKilobytes: number; readonly items: number }
+  const metrics = JSON.parse(output) as {
+    readonly elapsedMilliseconds: number
+    readonly maxRssKilobytes: number
+    readonly items: number
+    readonly catalogPayloadBytes: number
+  }
   expect(metrics.items).toBe(80_000)
+  expect(metrics.catalogPayloadBytes).toBeGreaterThanOrEqual(60 * 1024 * 1024)
+  expect(metrics.catalogPayloadBytes).toBeLessThanOrEqual(90 * 1024 * 1024)
   expect(metrics.elapsedMilliseconds).toBeLessThan(45_000)
   expect(metrics.maxRssKilobytes).toBeLessThan(1024 * 1024)
 }, 50_000)

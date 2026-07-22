@@ -102,6 +102,11 @@ export function patchCatalogIndex(input: {
     if (!input.index.details.has(entryKey)) throw new Error(`missing catalog key: ${entryKey}`)
     if (key(replacement.summary.source, replacement.summary.id) !== entryKey)
       throw new Error(`replacement key mismatch: ${entryKey}`)
+    if (!/^[a-f0-9]{64}$/.test(replacement.ref.sha256)) throw new Error(`replacement hash is invalid: ${entryKey}`)
+    if (replacement.ref.key !== `details/${replacement.ref.sha256}.json`)
+      throw new Error(`replacement detail key mismatch: ${entryKey}`)
+    if (replacement.ref.version !== replacement.summary.version)
+      throw new Error(`replacement version mismatch: ${entryKey}`)
   }
   const entries = input.index.items.map((summary) => {
     const entryKey = key(summary.source, summary.id)
