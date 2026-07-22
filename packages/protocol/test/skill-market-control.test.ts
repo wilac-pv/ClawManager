@@ -13,6 +13,8 @@ const expected = [
   ["skillMarket.submissions.list", "GET", "/v1/submissions"],
   ["skillMarket.submissions.create", "POST", "/v1/submissions"],
   ["skillMarket.submissions.detail", "GET", "/v1/submissions/:submissionID"],
+  ["skillMarket.submissions.package", "GET", "/v1/submissions/:submissionID/package"],
+  ["skillMarket.submissions.packageHead", "HEAD", "/v1/submissions/:submissionID/package"],
   ["skillMarket.submissions.revise", "POST", "/v1/submissions/:submissionID/revisions"],
   ["skillMarket.admin.submissions.list", "GET", "/v1/admin/submissions"],
   ["skillMarket.admin.submissions.detail", "GET", "/v1/admin/submissions/:submissionID"],

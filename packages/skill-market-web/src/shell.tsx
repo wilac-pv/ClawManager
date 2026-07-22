@@ -7,6 +7,7 @@ export function MarketShell(props: ParentProps) {
   const location = useLocation()
   const links = () => [
     { href: "/skills", label: "Skill 市场", visible: true },
+    { href: "/personal", label: "个人空间", visible: Boolean(current.session()) },
     { href: "/submissions", label: "我的投稿", visible: Boolean(current.session()) },
     { href: "/admin", label: "管理后台", visible: current.reviewer() },
     { href: "/admin/roles", label: "角色管理", visible: current.admin() },

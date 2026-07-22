@@ -6,6 +6,7 @@ import {
   type SkillMarketActions,
   type SkillKey,
 } from "@opencode-ai/app/skill-market"
+import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Navigate, Route, Router, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { Match, Show, Switch, createSignal, type ParentProps } from "solid-js"
@@ -76,6 +77,7 @@ export function App() {
       <Route path="/skills" component={SkillListRoute} />
       <Route path="/skills/:source/:id" component={SkillDetailRoute} />
       <Route path="/submissions" component={() => <SubmissionListRoute source={control} />} />
+      <Route path="/personal" component={() => <PersonalSpaceRoute source={control} />} />
       <Route path="/submissions/new" component={() => <SubmissionFormRoute source={control} />} />
       <Route path="/submissions/:id" component={() => <SubmissionDetailRoute source={control} />} />
       <Route path="/admin" component={() => <ReviewQueueRoute source={control} />} />
@@ -91,7 +93,15 @@ export function App() {
 function SubmissionListRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireSession>
-      <SubmissionList source={props.source.submissions} />
+      <SubmissionList source={props.source.submissions} target="company" />
+    </RequireSession>
+  )
+}
+
+function PersonalSpaceRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireSession>
+      <SubmissionList source={props.source.submissions} target="personal" />
     </RequireSession>
   )
 }
@@ -114,9 +124,19 @@ function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
     },
   }))
   const accepted = (submissionID: string) => navigate(`/submissions/${submissionID}`)
+  const target = () => (params.target === "personal" ? "personal" : "company") as SkillMarketControl.PublicationTarget
   return (
     <RequireSession>
-      <Show when={previousID()} fallback={<SubmissionForm source={props.source.submissions} onAccepted={accepted} />}>
+      <Show
+        when={previousID()}
+        fallback={
+          <SubmissionForm
+            source={props.source.submissions}
+            mode={{ kind: "create", target: target() }}
+            onAccepted={accepted}
+          />
+        }
+      >
         <Switch>
           <Match when={previous.isPending}>
             <ProtectedPlaceholder title="正在准备投稿" description="正在读取上一版本信息。" />
@@ -130,8 +150,8 @@ function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
                 source={props.source.submissions}
                 mode={
                   detail().status === "published"
-                    ? { kind: "version", initial: detail().metadata }
-                    : { kind: "create", initial: detail().metadata }
+                    ? { kind: "version", initial: detail().metadata, target: detail().target }
+                    : { kind: "create", initial: detail().metadata, target: detail().target }
                 }
                 onAccepted={accepted}
               />

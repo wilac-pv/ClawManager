@@ -10,6 +10,7 @@ export interface SubmissionSummaryRow {
   readonly email: string | null
   readonly disabled_at: number | null
   readonly target_version: string
+  readonly target_scope: SkillMarketControl.PublicationTarget
   readonly status: SkillMarketControl.SubmissionStatus
   readonly current_revision: number
   readonly version: number
@@ -63,6 +64,7 @@ export function submissionSummarySelect() {
     users.email,
     users.disabled_at,
     submissions.target_version,
+    submissions.target_scope,
     submissions.status,
     submissions.current_revision,
     submissions.version,
@@ -93,6 +95,7 @@ export function toSubmissionSummary(row: SubmissionSummaryRow) {
     skillID: row.skill_id,
     owner: user(row),
     targetVersion: row.target_version,
+    target: row.target_scope,
     status: row.status,
     currentRevision: row.current_revision,
     version: row.version,

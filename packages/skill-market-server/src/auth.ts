@@ -273,6 +273,7 @@ function allowedReturnTo(value: string) {
     value === "/skills" ||
     /^\/skills\/(skillhub|enterprise|community)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(value) ||
     value === "/submissions" ||
+    value === "/personal" ||
     value === "/submissions/new" ||
     /^\/submissions\/sub_[a-zA-Z0-9_-]{8,64}$/.test(value) ||
     value === "/admin" ||

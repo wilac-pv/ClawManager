@@ -638,6 +638,89 @@ describe("skill market control HTTP", () => {
     expect(await admin.json()).toMatchObject({ code: "forbidden" })
   })
 
+  test("serves a published personal package only to its owner and hides it from reviewers", async () => {
+    await using fixture = await marketFixture()
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fpersonal`, { redirect: "manual" })
+    const session = await loginSession(fixture, login, "/personal")
+    const packageBody = makeStoredZip({
+      "SKILL.md": "---\nname: personal-helper\ndescription: A private helper\n---\n# Personal Helper\n",
+    })
+    const form = new FormData()
+    form.set(
+      "metadata",
+      JSON.stringify({
+        target: "personal",
+        metadata: {
+          version: "1.0.0",
+          displayName: "Personal Helper",
+          description: "A private helper",
+          category: "Developer Tools",
+          tags: ["private"],
+          requiresApiKey: false,
+          changeNotes: "Initial personal upload",
+        },
+      }),
+    )
+    form.set("package", new Blob([packageBody], { type: "application/zip" }), "personal-helper.zip")
+    const created = await fetch(`${fixture.url}/v1/submissions`, {
+      method: "POST",
+      headers: {
+        cookie: session.cookie,
+        origin: webOrigin,
+        "x-csrf-token": session.csrf,
+        "idempotency-key": "personal-http-test-1",
+      },
+      body: form,
+    })
+    expect(created.status).toBe(202)
+    const accepted = Schema.decodeUnknownSync(SkillMarketControl.AcceptedSubmission)(await created.json())
+    expect(accepted.submission).toMatchObject({ target: "personal", status: "validating" })
+    fixture.database.connection.run("UPDATE submissions SET status = 'published' WHERE id = ?", [
+      accepted.submission.id,
+    ])
+
+    const downloaded = await fetch(`${fixture.url}/v1/submissions/${accepted.submission.id}/package`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(downloaded.status).toBe(200)
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(packageBody)
+    expect(downloaded.headers.get("cache-control")).toContain("no-store")
+    expect(downloaded.headers.get("content-disposition")).toBe(
+      'attachment; filename="personal-helper-1.0.0.zip"',
+    )
+
+    const head = await fetch(`${fixture.url}/v1/submissions/${accepted.submission.id}/package`, {
+      method: "HEAD",
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(head.status).toBe(200)
+    expect(await head.text()).toBe("")
+    expect(head.headers.get("x-content-sha256")).toHaveLength(64)
+
+    fixture.database.transaction((connection) => {
+      connection.run(
+        "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+        ["E999999", "REVIEWER", now, now],
+      )
+      connection.run(
+        "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
+        ["E999999", "reviewer", null, now],
+      )
+      connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", ["E999999", "E123456"])
+    })
+    const hiddenPackage = await fetch(`${fixture.url}/v1/submissions/${accepted.submission.id}/package`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(hiddenPackage.status).toBe(404)
+    expect(await hiddenPackage.json()).toMatchObject({ code: "not-found" })
+
+    const hiddenReview = await fetch(`${fixture.url}/v1/admin/submissions/${accepted.submission.id}`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(hiddenReview.status).toBe(404)
+    expect(await hiddenReview.json()).toMatchObject({ code: "not-found" })
+  })
+
   test("preassigns roles over HTTP and reports duplicate assignments clearly", async () => {
     await using fixture = await marketFixture()
     fixture.database.connection.run(

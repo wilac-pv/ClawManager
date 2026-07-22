@@ -6,13 +6,22 @@ import { MarketControlError, type SkillMarketControlDataSource } from "../contro
 export type SubmissionWriter = Pick<SkillMarketControlDataSource["submissions"], "create" | "revise">
 
 export type SubmissionFormMode =
-  | { readonly kind: "create"; readonly initial?: SkillMarketControl.SubmissionMetadata }
-  | { readonly kind: "version"; readonly initial: SkillMarketControl.SubmissionMetadata }
+  | {
+      readonly kind: "create"
+      readonly initial?: SkillMarketControl.SubmissionMetadata
+      readonly target?: SkillMarketControl.PublicationTarget
+    }
+  | {
+      readonly kind: "version"
+      readonly initial: SkillMarketControl.SubmissionMetadata
+      readonly target?: SkillMarketControl.PublicationTarget
+    }
   | {
       readonly kind: "revision"
       readonly submissionID: string
       readonly expectedVersion: number
       readonly initial: SkillMarketControl.SubmissionMetadata
+      readonly target?: SkillMarketControl.PublicationTarget
     }
 
 interface SubmissionFormProps {
@@ -30,6 +39,7 @@ const iconLimit = 1024 * 1024
 export function SubmissionForm(props: SubmissionFormProps) {
   const initial = props.mode?.initial
   const [fields, setFields] = createStore({
+    target: props.mode?.target ?? ("company" as SkillMarketControl.PublicationTarget),
     version: initial?.version ?? "",
     displayName: initial?.displayName ?? "",
     description: initial?.description ?? "",
@@ -60,7 +70,12 @@ export function SubmissionForm(props: SubmissionFormProps) {
     setRequestError(undefined)
     if (Object.keys(errors).length > 0) return focusError()
     const metadata = createMetadata(fields)
-    const input = { metadata, package: fields.packageFile!, ...(fields.iconFile ? { icon: fields.iconFile } : {}) }
+    const input = {
+      target: fields.target,
+      metadata,
+      package: fields.packageFile!,
+      ...(fields.iconFile ? { icon: fields.iconFile } : {}),
+    }
     const request =
       props.mode?.kind === "revision"
         ? props.source.revise(
@@ -91,7 +106,11 @@ export function SubmissionForm(props: SubmissionFormProps) {
         <div>
           <p class="submission-page__eyebrow">Skill package</p>
           <h1>{mode() === "revision" ? "提交修订" : mode() === "version" ? "提交新版本" : "投稿 Skill"}</h1>
-          <p>上传 ZIP 包后将自动校验和安全扫描，通过人工审核后上架。</p>
+          <p>
+            {fields.target === "personal"
+              ? "上传 ZIP 包后将自动校验和安全扫描，扫描通过后立即进入个人空间。"
+              : "上传 ZIP 包后将自动校验和安全扫描，通过人工审核后上架。"}
+          </p>
         </div>
       </header>
 
@@ -108,8 +127,44 @@ export function SubmissionForm(props: SubmissionFormProps) {
 
         <section class="submission-form__section">
           <div>
+            <h2>保存位置</h2>
+            <p>个人空间内容仅本人可见；全公司内容需要人工审核。</p>
+          </div>
+          <fieldset class="submission-form__fields">
+            <legend>上传到</legend>
+            <label class="submission-form__checkbox">
+              <input
+                type="radio"
+                name="target"
+                value="personal"
+                checked={fields.target === "personal"}
+                onChange={() => setFields("target", "personal")}
+              />
+              <span>
+                <strong>个人空间</strong>
+                <small>扫描通过立即可用，仅本人可以查看和下载。</small>
+              </span>
+            </label>
+            <label class="submission-form__checkbox">
+              <input
+                type="radio"
+                name="target"
+                value="company"
+                checked={fields.target === "company"}
+                onChange={() => setFields("target", "company")}
+              />
+              <span>
+                <strong>全公司</strong>
+                <small>扫描通过后进入人工审核，审核通过后发布到市场。</small>
+              </span>
+            </label>
+          </fieldset>
+        </section>
+
+        <section class="submission-form__section">
+          <div>
             <h2>基本信息</h2>
-            <p>这些信息会在审核通过后展示在公开市场。</p>
+            <p>{fields.target === "personal" ? "这些信息仅在你的个人空间展示。" : "这些信息会在审核通过后展示在公开市场。"}</p>
           </div>
           <div class="submission-form__fields">
             <Field label="版本号" description="使用 SemVer，例如 1.2.0。" error={validationErrors().version}>
@@ -222,9 +277,15 @@ export function SubmissionForm(props: SubmissionFormProps) {
         </section>
 
         <footer class="submission-form__actions">
-          <a href="/submissions">取消</a>
+          <a href={fields.target === "personal" ? "/personal" : "/submissions"}>取消</a>
           <button type="submit" class="market-primary-action" disabled={pending()}>
-            {pending() ? "正在提交…" : requestError() ? "重试提交" : "提交审核"}
+            {pending()
+              ? "正在提交…"
+              : requestError()
+                ? "重试提交"
+                : fields.target === "personal"
+                  ? "上传到个人空间"
+                  : "提交审核"}
           </button>
           <Show when={pending()}>
             <span role="status">正在上传，请勿关闭页面…</span>

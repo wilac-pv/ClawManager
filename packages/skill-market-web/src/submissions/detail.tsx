@@ -6,7 +6,10 @@ import type { SkillMarketControlDataSource } from "../control-data-source"
 import { SubmissionForm } from "./form"
 import { SubmissionStatusTimeline, submissionPollInterval } from "./status"
 
-export type SubmissionDetailSource = Pick<SkillMarketControlDataSource["submissions"], "detail" | "create" | "revise">
+export type SubmissionDetailSource = Pick<
+  SkillMarketControlDataSource["submissions"],
+  "detail" | "create" | "packageUrl" | "revise"
+>
 
 interface SubmissionDetailProps {
   readonly submissionID: string
@@ -60,6 +63,7 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
                   submissionID: detail().id,
                   expectedVersion: detail().version,
                   initial: detail().metadata,
+                  target: detail().target,
                 }}
                 onAccepted={() => {
                   setParams({ revise: undefined }, { replace: true })
@@ -72,16 +76,18 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
             <main class="submission-page submission-detail">
               <header class="submission-detail__header">
                 <div>
-                  <A href="/submissions">← 返回我的投稿</A>
+                  <A href={detail().target === "personal" ? "/personal" : "/submissions"}>
+                    ← 返回{detail().target === "personal" ? "个人空间" : "我的投稿"}
+                  </A>
                   <h1>{detail().metadata.displayName}</h1>
                   <p>
                     {detail().skillID} · 目标版本 {detail().targetVersion}
                   </p>
                 </div>
-                <SubmissionActions detail={detail()} />
+                <SubmissionActions detail={detail()} packageUrl={props.source.packageUrl(detail().id)} />
               </header>
 
-              <SubmissionStatusTimeline status={detail().status} timeline={detail().timeline} />
+              <SubmissionStatusTimeline status={detail().status} target={detail().target} timeline={detail().timeline} />
 
               <Show
                 when={requestCount() >= 20 && (detail().status === "validating" || detail().status === "publishing")}
@@ -171,7 +177,7 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
   )
 }
 
-function SubmissionActions(props: { detail: SkillMarketControl.SubmissionDetail }) {
+function SubmissionActions(props: { detail: SkillMarketControl.SubmissionDetail; packageUrl: string }) {
   return (
     <div class="submission-detail__actions">
       <Show when={props.detail.status === "validation_failed" || props.detail.status === "changes_requested"}>
@@ -186,11 +192,18 @@ function SubmissionActions(props: { detail: SkillMarketControl.SubmissionDetail 
       </Show>
       <Show when={props.detail.status === "published"}>
         <A class="market-primary-action" href={`/submissions/new?from=${encodeURIComponent(props.detail.id)}`}>
-          提交新版本
+          {props.detail.target === "personal" ? "上传新版本" : "提交新版本"}
         </A>
-        <A href={`/skills/community/${encodeURIComponent(props.detail.publicSkill?.id ?? props.detail.skillID)}`}>
-          查看公开 Skill
-        </A>
+        <Show
+          when={props.detail.target === "personal"}
+          fallback={
+            <A href={`/skills/community/${encodeURIComponent(props.detail.publicSkill?.id ?? props.detail.skillID)}`}>
+              查看公开 Skill
+            </A>
+          }
+        >
+          <a href={props.packageUrl}>下载个人 Skill</a>
+        </Show>
       </Show>
     </div>
   )

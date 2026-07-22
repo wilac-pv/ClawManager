@@ -63,6 +63,17 @@ describe("submission detail", () => {
     )
   })
 
+  test("offers the authenticated API download for a scanned personal Skill", async () => {
+    const fixture = renderDetail({ ...detail("published"), target: "personal" })
+
+    expect(await fixture.findByText("安全扫描已通过，个人 Skill 可以使用")).toBeTruthy()
+    expect(fixture.getByText("可用")).toBeTruthy()
+    expect(fixture.queryByRole("link", { name: "查看公开 Skill" })).toBeNull()
+    expect(fixture.getByRole("link", { name: "下载个人 Skill" }).getAttribute("href")).toBe(
+      "http://127.0.0.1:4210/v1/submissions/sub_abcdefgh/package",
+    )
+  })
+
   test("polls only working states and stops after the bounded request count", () => {
     expect(submissionPollInterval("validating", 1)).toBe(2_000)
     expect(submissionPollInterval("publishing", 19)).toBe(2_000)
@@ -76,6 +87,7 @@ function renderDetail(value: SkillMarketControl.SubmissionDetail) {
   const source: SubmissionDetailSource = {
     detail: () => Promise.resolve(value),
     create: () => Promise.resolve({ submission: value }),
+    packageUrl: (submissionID) => `http://127.0.0.1:4210/v1/submissions/${submissionID}/package`,
     revise: () => Promise.resolve({ submission: value }),
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })

@@ -38,6 +38,7 @@ export const SkillMarketSubmissionsGroup = HttpApiGroup.make("skillMarket.submis
     HttpApiEndpoint.get("skillMarket.submissions.list", "/v1/submissions", {
       query: Schema.Struct({
         status: SkillMarketControl.SubmissionStatus.pipe(Schema.optional),
+        target: SkillMarketControl.PublicationTarget.pipe(Schema.optional),
         page: PageNumber.pipe(Schema.optional),
         limit: PageLimit.pipe(Schema.optional),
       }),
@@ -56,6 +57,20 @@ export const SkillMarketSubmissionsGroup = HttpApiGroup.make("skillMarket.submis
     HttpApiEndpoint.get("skillMarket.submissions.detail", "/v1/submissions/:submissionID", {
       params: { submissionID: SkillMarketControl.SubmissionID },
       success: SkillMarketControl.SubmissionDetail,
+      error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("skillMarket.submissions.package", "/v1/submissions/:submissionID/package", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      success: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+      error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.head("skillMarket.submissions.packageHead", "/v1/submissions/:submissionID/package", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      success: HttpApiSchema.Empty(200),
       error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
     }),
   )

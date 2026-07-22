@@ -363,6 +363,43 @@ describe("submission lifecycle", () => {
 
     fixture.database.close()
   })
+
+  test("makes a scanned personal upload immediately available only to its owner", async () => {
+    const fixture = await submissionFixture()
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const aliceUpload = upload("private-helper", "1.0.0", "alice")
+    const bobUpload = upload("private-helper", "1.0.0", "bob")
+
+    const alice = await submissions.create(fixture.alice, {
+      target: "personal",
+      idempotencyKey: "personal-alice",
+      ...aliceUpload,
+    })
+    const bob = await submissions.create(fixture.bob, {
+      target: "personal",
+      idempotencyKey: "personal-bob",
+      ...bobUpload,
+    })
+    const ready = submissions.completeValidation(validation(aliceUpload, alice.submission.id, 1))
+
+    expect(ready.submission).toMatchObject({ target: "personal", status: "published", risk: "safe" })
+    expect(
+      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM community_skills").get()
+        ?.count,
+    ).toBe(0)
+    expect(submissions.listOwn(fixture.alice, { target: "personal", page: 1, limit: 30 }).items).toHaveLength(1)
+    expect(submissions.listOwn(fixture.alice, { target: "company", page: 1, limit: 30 }).items).toHaveLength(0)
+    expect(submissions.personalPackage(fixture.alice, alice.submission.id)).toEqual({
+      key: aliceUpload.package.key,
+      sha256: aliceUpload.package.sha256,
+      size: aliceUpload.package.size,
+      filename: "private-helper-1.0.0.zip",
+    })
+    expect(() => submissions.personalPackage(fixture.bob, alice.submission.id)).toThrow("not found")
+    expect(bob.submission.status).toBe("validating")
+
+    fixture.database.close()
+  })
 })
 
 async function submissionFixture() {

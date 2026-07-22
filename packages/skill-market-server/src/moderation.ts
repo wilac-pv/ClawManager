@@ -87,7 +87,8 @@ export class Moderation {
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "review queue query is invalid")
     const createdFrom = decoded.value.createdFrom ? Date.parse(decoded.value.createdFrom) : null
     const createdTo = decoded.value.createdTo ? Date.parse(decoded.value.createdTo) : null
-    const where = ` WHERE (? IS NULL OR submissions.status = ?)
+    const where = ` WHERE submissions.target_scope = 'company'
+      AND (? IS NULL OR submissions.status = ?)
       AND (? IS NULL OR json_extract(submission_revisions.scan_json, '$.risk') = ?)
       AND (? IS NULL OR submissions.owner_employee_id = ?)
       AND (? IS NULL OR submissions.created_at >= ?)
@@ -158,7 +159,14 @@ export class Moderation {
 
   get(principal: Principal, submissionID: string) {
     this.options.security.requireReviewer(principal)
-    const detail = this.options.database.read((connection) => readSubmissionDetail(connection, submissionID))
+    const detail = this.options.database.read((connection) => {
+      const visible = connection
+        .query<{ count: number }, [string]>(
+          "SELECT count(*) AS count FROM submissions WHERE id = ? AND target_scope = 'company'",
+        )
+        .get(submissionID)!.count
+      return visible === 1 ? readSubmissionDetail(connection, submissionID) : undefined
+    })
     if (detail) return detail
     throw new SkillMarketSecurityError("not-found", "submission was not found")
   }
@@ -181,7 +189,7 @@ export class Moderation {
            INNER JOIN submission_revisions
              ON submission_revisions.submission_id = submissions.id
             AND submission_revisions.revision_number = submissions.current_revision
-           WHERE submissions.id = ?`,
+           WHERE submissions.id = ? AND submissions.target_scope = 'company'`,
         )
         .get(submissionID)
       if (!submission) throw new SkillMarketSecurityError("not-found", "submission was not found")

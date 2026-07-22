@@ -99,6 +99,8 @@ describe("skill market control data source", () => {
     const packageFile = new File(["zip-body"], "safe-skill.zip", { type: "application/zip" })
     const iconFile = new File(["icon-body"], "safe-skill.png", { type: "image/png" })
 
+    expect(source.submissions.packageUrl(summary.id)).toBe(`${server.url}/v1/submissions/${summary.id}/package`)
+
     await expect(
       source.submissions.create({ metadata, package: packageFile, icon: iconFile }, "upload-key-0001"),
     ).resolves.toEqual({ submission: summary })
@@ -109,7 +111,7 @@ describe("skill market control data source", () => {
     expect(fields).toEqual([
       {
         path: "/v1/submissions",
-        metadata,
+        metadata: { target: "company", metadata },
         packageName: "safe-skill.zip",
         iconName: "safe-skill.png",
       },

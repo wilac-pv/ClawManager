@@ -14,16 +14,19 @@ const presentations: Record<SkillMarketControl.SubmissionStatus, { label: string
 
 export function SubmissionStatusTimeline(props: {
   status: SkillMarketControl.SubmissionStatus
+  target?: SkillMarketControl.PublicationTarget
   timeline: ReadonlyArray<SkillMarketControl.StatusEvent>
 }) {
   return (
     <section class="submission-detail__section" aria-labelledby="submission-timeline-title">
       <div class="submission-detail__section-heading">
         <h2 id="submission-timeline-title">状态时间线</h2>
-        <span class={`submission-status submission-status--${props.status}`}>{statusLabel(props.status)}</span>
+        <span class={`submission-status submission-status--${props.status}`}>
+          {props.target === "personal" && props.status === "published" ? "可用" : statusLabel(props.status)}
+        </span>
       </div>
       <p class="submission-status-message" aria-live="polite">
-        {statusMessage(props.status)}
+        {props.target === "personal" && props.status === "published" ? "安全扫描已通过，个人 Skill 可以使用" : statusMessage(props.status)}
       </p>
       <ol class="submission-timeline">
         <For each={props.timeline}>

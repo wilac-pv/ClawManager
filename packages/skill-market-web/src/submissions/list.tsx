@@ -8,6 +8,7 @@ export type SubmissionReader = Pick<SkillMarketControlDataSource["submissions"],
 
 interface SubmissionListProps {
   readonly source: SubmissionReader
+  readonly target?: SkillMarketControl.PublicationTarget
 }
 
 const statuses: ReadonlyArray<{ value: SkillMarketControl.SubmissionStatus; label: string }> = [
@@ -30,20 +31,28 @@ export function SubmissionList(props: SubmissionListProps) {
     return value
   }
   const submissions = createQuery(() => ({
-    queryKey: ["skill-market", "submissions", status(), page()] as const,
-    queryFn: ({ signal }) => props.source.list({ status: status(), page: page(), limit: 30 }, signal),
+    queryKey: ["skill-market", "submissions", props.target, status(), page()] as const,
+    queryFn: ({ signal }) =>
+      props.source.list({ target: props.target, status: status(), page: page(), limit: 30 }, signal),
   }))
 
   return (
     <main class="submission-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Contributor workspace</p>
-          <h1>我的投稿</h1>
-          <p>查看校验、审核和发布进度，或提交新的 Skill 版本。</p>
+          <p class="submission-page__eyebrow">{props.target === "personal" ? "Private workspace" : "Contributor workspace"}</p>
+          <h1>{props.target === "personal" ? "个人空间" : "我的投稿"}</h1>
+          <p>
+            {props.target === "personal"
+              ? "仅你本人可见；安全扫描通过后即可下载使用。"
+              : "查看校验、审核和发布进度，或提交新的 Skill 版本。"}
+          </p>
         </div>
-        <A class="market-primary-action submission-page__create" href="/submissions/new">
-          投稿 Skill
+        <A
+          class="market-primary-action submission-page__create"
+          href={props.target === "personal" ? "/submissions/new?target=personal" : "/submissions/new"}
+        >
+          {props.target === "personal" ? "上传 Skill" : "投稿 Skill"}
         </A>
       </header>
 
@@ -60,7 +69,9 @@ export function SubmissionList(props: SubmissionListProps) {
             <For each={statuses}>{(item) => <option value={item.value}>{item.label}</option>}</For>
           </select>
         </label>
-        <Show when={submissions.data}>{(result) => <strong>共 {result().total} 个投稿</strong>}</Show>
+        <Show when={submissions.data}>
+          {(result) => <strong>共 {result().total} 个{props.target === "personal" ? " Skill" : "投稿"}</strong>}
+        </Show>
       </section>
 
       <Switch>
@@ -84,7 +95,7 @@ export function SubmissionList(props: SubmissionListProps) {
               when={result().items.length > 0}
               fallback={
                 <section class="submission-state">
-                  <h2>还没有投稿</h2>
+                  <h2>{props.target === "personal" ? "个人空间还是空的" : "还没有投稿"}</h2>
                   <p>准备好 ZIP 包后即可提交第一个 Skill。</p>
                 </section>
               }
@@ -99,7 +110,7 @@ export function SubmissionList(props: SubmissionListProps) {
                             <A href={`/submissions/${item.id}`}>{item.skillID}</A>
                           </h2>
                           <span class={`submission-status submission-status--${item.status}`}>
-                            {statusLabel(item.status)}
+                            {item.target === "personal" && item.status === "published" ? "可用" : statusLabel(item.status)}
                           </span>
                         </div>
                         <p>
@@ -110,7 +121,9 @@ export function SubmissionList(props: SubmissionListProps) {
                       <div class="submission-card__actions">
                         <A href={`/submissions/${item.id}`}>查看详情</A>
                         <Show when={item.status === "published"}>
-                          <A href={`/submissions/new?from=${encodeURIComponent(item.id)}`}>提交新版本</A>
+                          <A href={`/submissions/new?from=${encodeURIComponent(item.id)}`}>
+                            {item.target === "personal" ? "上传新版本" : "提交新版本"}
+                          </A>
                         </Show>
                         <Show when={item.status === "validation_failed" || item.status === "changes_requested"}>
                           <A href={`/submissions/${item.id}`}>修改并重试</A>
@@ -120,7 +133,13 @@ export function SubmissionList(props: SubmissionListProps) {
                   )}
                 </For>
               </section>
-              <Pagination current={result().page} total={result().total} limit={result().limit} status={status()} />
+              <Pagination
+                current={result().page}
+                total={result().total}
+                limit={result().limit}
+                status={status()}
+                target={props.target}
+              />
             </Show>
           )}
         </Match>
@@ -134,28 +153,33 @@ function Pagination(props: {
   total: number
   limit: number
   status?: SkillMarketControl.SubmissionStatus
+  target?: SkillMarketControl.PublicationTarget
 }) {
   const pages = () => Math.max(1, Math.ceil(props.total / props.limit))
   return (
     <nav class="submission-pagination" aria-label="投稿分页">
       <Show when={props.current > 1} fallback={<span aria-hidden="true" />}>
-        <A href={pageUrl(props.current - 1, props.status)}>上一页</A>
+        <A href={pageUrl(props.current - 1, props.status, props.target)}>上一页</A>
       </Show>
       <span>
         第 {props.current} / {pages()} 页
       </span>
       <Show when={props.current < pages()} fallback={<span aria-hidden="true" />}>
-        <A href={pageUrl(props.current + 1, props.status)}>下一页</A>
+        <A href={pageUrl(props.current + 1, props.status, props.target)}>下一页</A>
       </Show>
     </nav>
   )
 }
 
-function pageUrl(page: number, status?: SkillMarketControl.SubmissionStatus) {
+function pageUrl(
+  page: number,
+  status?: SkillMarketControl.SubmissionStatus,
+  target?: SkillMarketControl.PublicationTarget,
+) {
   const query = new URLSearchParams()
   if (status) query.set("status", status)
   query.set("page", String(page))
-  return `/submissions?${query}`
+  return `${target === "personal" ? "/personal" : "/submissions"}?${query}`
 }
 
 function statusLabel(status: SkillMarketControl.SubmissionStatus) {

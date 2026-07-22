@@ -76,6 +76,9 @@ export type Role = typeof Role.Type
 export const PublicStatus = Schema.Literals(["published", "delisted"])
 export type PublicStatus = typeof PublicStatus.Type
 
+export const PublicationTarget = Schema.Literals(["company", "personal"])
+export type PublicationTarget = typeof PublicationTarget.Type
+
 export interface User extends Schema.Schema.Type<typeof User> {}
 export const User = Schema.Struct({
   employeeID: EmployeeID,
@@ -195,6 +198,7 @@ export const SubmissionSummary = Schema.Struct({
   currentRevision: Positive,
   version: Positive,
   risk: SkillMarket.Risk,
+  target: PublicationTarget.pipe(optional),
   currentPublicVersion: SemVer.pipe(optional),
   createdAt: SkillMarket.Timestamp,
   updatedAt: SkillMarket.Timestamp,
@@ -213,6 +217,7 @@ export const SubmissionDetail = Schema.Struct({
 export interface SubmissionListQuery extends Schema.Schema.Type<typeof SubmissionListQuery> {}
 export const SubmissionListQuery = Schema.Struct({
   status: SubmissionStatus.pipe(optional),
+  target: PublicationTarget.pipe(optional),
   page: PageNumber,
   limit: PageLimit,
 }).annotate({ identifier: "SkillMarketControl.SubmissionListQuery" })
@@ -246,6 +251,12 @@ export const RevisionInput = Schema.Struct({
   expectedVersion: Positive,
   metadata: SubmissionMetadata,
 }).annotate({ identifier: "SkillMarketControl.RevisionInput" })
+
+export interface SubmissionCreateInput extends Schema.Schema.Type<typeof SubmissionCreateInput> {}
+export const SubmissionCreateInput = Schema.Struct({
+  target: PublicationTarget,
+  metadata: SubmissionMetadata,
+}).annotate({ identifier: "SkillMarketControl.SubmissionCreateInput" })
 
 export interface DecisionInput extends Schema.Schema.Type<typeof DecisionInput> {}
 export const DecisionInput = Schema.Struct({

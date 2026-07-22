@@ -31,6 +31,7 @@ export interface SubmissionIcon extends SubmissionPackage {
 
 export interface CreateSubmissionInput {
   readonly idempotencyKey: string
+  readonly target?: SkillMarketControl.PublicationTarget
   readonly submissionID: SkillMarketControl.SubmissionID
   readonly verifiedSkillID: string
   readonly metadata: SkillMarketControl.SubmissionMetadata
@@ -62,6 +63,7 @@ interface SummaryRow {
   readonly email: string | null
   readonly disabled_at: number | null
   readonly target_version: string
+  readonly target_scope: SkillMarketControl.PublicationTarget
   readonly status: SkillMarketControl.SubmissionStatus
   readonly current_revision: number
   readonly version: number
@@ -76,6 +78,7 @@ interface SubmissionRow {
   readonly skill_id: string
   readonly owner_employee_id: string
   readonly target_version: string
+  readonly target_scope: SkillMarketControl.PublicationTarget
   readonly status: SkillMarketControl.SubmissionStatus
   readonly current_revision: number
   readonly version: number
@@ -145,30 +148,26 @@ export class Submissions {
   listOwn(principal: Principal, query: SkillMarketControl.SubmissionListQuery) {
     if (!Schema.is(SkillMarketControl.SubmissionListQuery)(query))
       throw new SkillMarketSecurityError("invalid-request", "submission list query is invalid")
-    const filter = query.status ? " AND submissions.status = ?" : ""
-    const total = query.status
-      ? this.options.database.connection
-          .query<
-            { count: number },
-            [string, SkillMarketControl.SubmissionStatus]
-          >(`SELECT count(*) AS count FROM submissions WHERE owner_employee_id = ?${filter}`)
-          .get(principal.session.user.employeeID, query.status)!.count
-      : this.options.database.connection
-          .query<{ count: number }, [string]>("SELECT count(*) AS count FROM submissions WHERE owner_employee_id = ?")
-          .get(principal.session.user.employeeID)!.count
-    const rows = query.status
-      ? this.options.database.connection
-          .query<SummaryRow, [string, SkillMarketControl.SubmissionStatus, number, number]>(
-            `${summarySql()} WHERE submissions.owner_employee_id = ?${filter}
-             ORDER BY submissions.updated_at DESC, submissions.id DESC LIMIT ? OFFSET ?`,
-          )
-          .all(principal.session.user.employeeID, query.status, query.limit, (query.page - 1) * query.limit)
-      : this.options.database.connection
-          .query<SummaryRow, [string, number, number]>(
-            `${summarySql()} WHERE submissions.owner_employee_id = ?
-             ORDER BY submissions.updated_at DESC, submissions.id DESC LIMIT ? OFFSET ?`,
-          )
-          .all(principal.session.user.employeeID, query.limit, (query.page - 1) * query.limit)
+    const filters = ["submissions.owner_employee_id = ?"]
+    const parameters: Array<string | number> = [principal.session.user.employeeID]
+    if (query.status) {
+      filters.push("submissions.status = ?")
+      parameters.push(query.status)
+    }
+    if (query.target) {
+      filters.push("submissions.target_scope = ?")
+      parameters.push(query.target)
+    }
+    const where = ` WHERE ${filters.join(" AND ")}`
+    const total = this.options.database.connection
+      .query<{ count: number }, Array<string | number>>(`SELECT count(*) AS count FROM submissions${where}`)
+      .get(...parameters)!.count
+    const rows = this.options.database.connection
+      .query<SummaryRow, Array<string | number>>(
+        `${summarySql()}${where}
+         ORDER BY submissions.updated_at DESC, submissions.id DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...parameters, query.limit, (query.page - 1) * query.limit)
     return Schema.decodeUnknownSync(SkillMarketControl.SubmissionPage)({
       total,
       page: query.page,
@@ -267,12 +266,15 @@ export class Submissions {
           },
         ]
       })
-    const community = this.options.database.connection
-      .query<
-        { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null; row_version: number },
-        [string]
-      >("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?")
-      .get(row.skill_id)
+    const community =
+      row.target_scope === "company"
+        ? this.options.database.connection
+            .query<
+              { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null; row_version: number },
+              [string]
+            >("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?")
+            .get(row.skill_id)
+        : undefined
     const currentMetadata = revisions.find((revision) => revision.number === row.current_revision)?.metadata
     if (!currentMetadata) throw new Error("submission current revision is missing")
     return Schema.decodeUnknownSync(SkillMarketControl.SubmissionDetail)({
@@ -302,16 +304,19 @@ export class Submissions {
     const icon = requireIcon(input.icon)
     const submissionID = requireSubmissionID(input.submissionID)
     const skillID = requireSkillID(input.verifiedSkillID)
+    if (input.target !== undefined && !Schema.is(SkillMarketControl.PublicationTarget)(input.target))
+      throw new SkillMarketSecurityError("invalid-request", "submission target is invalid")
+    const target = input.target ?? "company"
     const route = "submissions:create"
     const key = requireIdempotencyKey(input.idempotencyKey)
-    const requestHash = hashJson({ skillID, metadata, ...artifactIdentity(packageObject, icon) })
+    const requestHash = hashJson({ target, skillID, metadata, ...artifactIdentity(packageObject, icon) })
     const state = this.options.database.transaction((connection) => {
       const replay = readIdempotency(connection, principal, route, key, requestHash, now)
       if (replay) return { response: replay, queued: undefined }
       requireActiveUser(connection, principal)
       requireUploadAllowance(connection, principal, now)
       requireActiveAllowance(connection, principal)
-      requireOwnershipAndVersion(connection, principal, skillID, metadata.version)
+      requireOwnershipAndVersion(connection, principal, target, skillID, metadata.version)
 
       if (
         connection
@@ -321,16 +326,16 @@ export class Submissions {
         throw new SkillMarketSecurityError("submission-conflict", "submission ID has already been used")
       connection.run(
         `INSERT INTO submissions
-          (id, skill_id, owner_employee_id, target_version, status, current_revision, version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'validating', 1, 1, ?, ?)`,
-        [submissionID, skillID, principal.session.user.employeeID, metadata.version, now, now],
+          (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'validating', 1, 1, ?, ?)`,
+        [submissionID, skillID, principal.session.user.employeeID, metadata.version, target, now, now],
       )
       insertRevision(connection, submissionID, 1, metadata, packageObject, icon, now)
       insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "submission-created",
         submissionID,
-        after: { status: "validating", revision: 1 },
+        after: { status: "validating", revision: 1, target },
         now,
       })
       const response = { submission: requireSummary(connection, submissionID) }
@@ -364,7 +369,7 @@ export class Submissions {
       requireUploadAllowance(connection, principal, now)
       const submission = connection
         .query<SubmissionRow, [string, string]>(
-          `SELECT id, skill_id, owner_employee_id, target_version, status, current_revision, version
+          `SELECT id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version
            FROM submissions WHERE id = ? AND owner_employee_id = ?`,
         )
         .get(submissionID, principal.session.user.employeeID)
@@ -421,6 +426,7 @@ export class Submissions {
             submissions.owner_employee_id,
             submissions.target_version,
             submissions.status,
+            submissions.target_scope,
             submissions.current_revision,
             submissions.version,
             submission_revisions.package_sha256,
@@ -441,19 +447,26 @@ export class Submissions {
       )
         throw new SkillMarketSecurityError("validation-failed", "validation package does not match the upload")
 
-      const community = connection
-        .query<
-          { owner_employee_id: string },
-          [string]
-        >("SELECT owner_employee_id FROM community_skills WHERE skill_id = ?")
-        .get(submission.skill_id)
+      const community =
+        submission.target_scope === "company"
+          ? connection
+              .query<
+                { owner_employee_id: string },
+                [string]
+              >("SELECT owner_employee_id FROM community_skills WHERE skill_id = ?")
+              .get(submission.skill_id)
+          : undefined
       const ownershipIssue =
         community && community.owner_employee_id !== submission.owner_employee_id
           ? [{ code: "skill-owned-by-another-user", message: "Skill ID belongs to another employee" }]
           : []
       const issues = [...input.validationIssues, ...ownershipIssue]
-      const status = issues.length > 0 ? "validation_failed" : "pending_review"
-      assertSubmissionTransition(submission.status, status)
+      const status =
+        issues.length > 0 ? "validation_failed" : submission.target_scope === "personal" ? "published" : "pending_review"
+      if (status === "published") {
+        if (submission.status !== "validating")
+          throw new SkillMarketSecurityError("submission-conflict", "personal submission is no longer validating")
+      } else assertSubmissionTransition(submission.status, status)
 
       connection.run(
         `UPDATE submission_revisions
@@ -469,7 +482,7 @@ export class Submissions {
           input.revision,
         ],
       )
-      if (status === "pending_review" && !community)
+      if (submission.target_scope === "company" && status === "pending_review" && !community)
         connection.run(
           `INSERT INTO community_skills
             (skill_id, owner_employee_id, version, created_at, updated_at)
@@ -482,14 +495,51 @@ export class Submissions {
         input.submissionID,
       ])
       insertAudit(connection, {
-        action: status === "pending_review" ? "validation-succeeded" : "validation-failed",
+        action: status === "validation_failed" ? "validation-failed" : "validation-succeeded",
         submissionID: input.submissionID,
         before: { status: submission.status, revision: input.revision },
-        after: { status, revision: input.revision },
+        after: {
+          status,
+          revision: input.revision,
+          ...(submission.target_scope === "personal" && status === "published"
+            ? { message: "个人空间扫描通过，已可用" }
+            : {}),
+        },
         now,
       })
       return { submission: requireSummary(connection, input.submissionID) }
     })
+  }
+
+  personalPackage(principal: Principal, submissionID: string) {
+    const row = this.options.database.connection
+      .query<
+        { skill_id: string; target_version: string; private_package_key: string; package_sha256: string; package_size: number },
+        [string, string]
+      >(
+        `SELECT
+          submissions.skill_id,
+          submissions.target_version,
+          submission_revisions.private_package_key,
+          submission_revisions.package_sha256,
+          submission_revisions.package_size
+         FROM submissions
+         INNER JOIN submission_revisions
+           ON submission_revisions.submission_id = submissions.id
+          AND submission_revisions.revision_number = submissions.current_revision
+         WHERE submissions.id = ?
+           AND submissions.owner_employee_id = ?
+           AND submissions.target_scope = 'personal'
+           AND submissions.status = 'published'`,
+      )
+      .get(submissionID, principal.session.user.employeeID)
+    if (!row) throw new SkillMarketSecurityError("not-found", "personal Skill package was not found")
+    return {
+      key: row.private_package_key,
+      sha256: row.package_sha256,
+      size: row.package_size,
+      filename: `${row.skill_id}-${row.target_version}.zip`.replace(/[^a-zA-Z0-9._-]/g, "_"),
+    }
   }
 }
 
@@ -506,6 +556,7 @@ function summarySql() {
     users.email,
     users.disabled_at,
     submissions.target_version,
+    submissions.target_scope,
     submissions.status,
     submissions.current_revision,
     submissions.version,
@@ -518,7 +569,9 @@ function summarySql() {
    INNER JOIN submission_revisions
      ON submission_revisions.submission_id = submissions.id
     AND submission_revisions.revision_number = submissions.current_revision
-   LEFT JOIN community_skills ON community_skills.skill_id = submissions.skill_id`
+   LEFT JOIN community_skills
+     ON community_skills.skill_id = submissions.skill_id
+    AND submissions.target_scope = 'company'`
 }
 
 function requireSummary(connection: Database, submissionID: string) {
@@ -534,6 +587,7 @@ function summary(row: SummaryRow) {
     skillID: row.skill_id,
     owner: user(row),
     targetVersion: row.target_version,
+    target: row.target_scope,
     status: row.status,
     currentRevision: row.current_revision,
     version: row.version,
@@ -638,9 +692,23 @@ function requireActiveAllowance(connection: Database, principal: Principal) {
 function requireOwnershipAndVersion(
   connection: Database,
   principal: Principal,
+  target: SkillMarketControl.PublicationTarget,
   skillID: string,
   targetVersion: string,
 ) {
+  if (target === "personal") {
+    const prior = connection
+      .query<{ target_version: string }, [string, string]>(
+        `SELECT target_version FROM submissions
+         WHERE owner_employee_id = ? AND skill_id = ? AND target_scope = 'personal'
+           AND status IN (${ActiveStatusSql}, 'published')`,
+      )
+      .all(principal.session.user.employeeID, skillID)
+      .map((row) => row.target_version)
+    if (prior.some((version) => compareSemVer(targetVersion, version) <= 0))
+      throw new SkillMarketSecurityError("submission-conflict", "personal Skill version must increase")
+    return
+  }
   const community = connection
     .query<
       { owner_employee_id: string; current_version: string | null },
@@ -652,7 +720,8 @@ function requireOwnershipAndVersion(
   const active = connection
     .query<{ count: number }, [string, string]>(
       `SELECT count(*) AS count FROM submissions
-       WHERE skill_id = ? AND target_version = ? AND status IN (${ActiveStatusSql})`,
+       WHERE skill_id = ? AND target_version = ? AND target_scope = 'company'
+         AND status IN (${ActiveStatusSql})`,
     )
     .get(skillID, targetVersion)!.count
   if (active > 0)
@@ -661,7 +730,8 @@ function requireOwnershipAndVersion(
   const versions = connection
     .query<{ target_version: string }, [string, string]>(
       `SELECT target_version FROM submissions
-       WHERE skill_id = ? AND owner_employee_id = ? AND status IN (${ActiveStatusSql})`,
+       WHERE skill_id = ? AND owner_employee_id = ? AND target_scope = 'company'
+         AND status IN (${ActiveStatusSql})`,
     )
     .all(skillID, principal.session.user.employeeID)
     .map((row) => row.target_version)

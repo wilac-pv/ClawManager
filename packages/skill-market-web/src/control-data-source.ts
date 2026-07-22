@@ -10,6 +10,7 @@ interface ControlDataSourceOptions {
 }
 
 interface SubmissionUpload {
+  readonly target?: SkillMarketControl.PublicationTarget
   readonly metadata: SkillMarketControl.SubmissionMetadata
   readonly package: File
   readonly icon?: File
@@ -79,7 +80,7 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
       JSON.stringify(
         "expectedVersion" in input
           ? { expectedVersion: input.expectedVersion, metadata: input.metadata }
-          : input.metadata,
+          : { target: input.target ?? "company", metadata: input.metadata },
       ),
     )
     form.set("package", input.package)
@@ -120,6 +121,7 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         read(
           withQuery("/v1/submissions", [
             ["status", query.status],
+            ["target", query.target],
             ["page", query.page],
             ["limit", query.limit],
           ]),
@@ -130,6 +132,8 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         upload("/v1/submissions", input, idempotencyKey, signal),
       detail: (submissionID: string, signal?: AbortSignal) =>
         read(`/v1/submissions/${encodeURIComponent(submissionID)}`, SkillMarketControl.SubmissionDetail, signal),
+      packageUrl: (submissionID: string) =>
+        new URL(`/v1/submissions/${encodeURIComponent(submissionID)}/package`, base).href,
       revise: (submissionID: string, input: RevisionUpload, idempotencyKey: string, signal?: AbortSignal) =>
         upload(`/v1/submissions/${encodeURIComponent(submissionID)}/revisions`, input, idempotencyKey, signal),
     },

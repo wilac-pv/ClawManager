@@ -57,6 +57,7 @@ describe("submission form", () => {
     await waitFor(() => expect(accepted).toEqual([summary.id]))
     expect(calls).toHaveLength(1)
     expect(calls[0]?.input).toEqual({
+      target: "company",
       package: packageFile,
       icon: iconFile,
       metadata: {
@@ -71,6 +72,24 @@ describe("submission form", () => {
       },
     })
     expect(calls[0]?.key).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  test("uploads to personal space when selected", async () => {
+    const calls: Array<Parameters<SubmissionWriter["create"]>[0]> = []
+    const source = writer((input) => {
+      calls.push(input)
+      return Promise.resolve({ submission: { ...summary, target: "personal", status: "validating" } })
+    })
+    const fixture = renderForm(source)
+    fireEvent.click(fixture.view.getByRole("radio", { name: /个人空间/ }))
+    fillMetadata(fixture.view)
+    fireEvent.change(fixture.view.getByLabelText("Skill ZIP 包"), {
+      target: { files: [new File(["zip"], "personal.zip", { type: "application/zip" })] },
+    })
+    fireEvent.click(fixture.view.getByRole("button", { name: "上传到个人空间" }))
+
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0]?.target).toBe("personal")
   })
 
   test("submits when randomUUID is unavailable on private HTTP", async () => {

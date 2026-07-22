@@ -12,8 +12,8 @@ import {
 } from "@opencode-ai/protocol/skill-market-errors"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import { Effect, Schema, Stream } from "effect"
-import { HttpServerRequest, Multipart } from "effect/unstable/http"
+import { Effect, Option, Schema, Stream } from "effect"
+import { HttpServerRequest, HttpServerResponse, Multipart } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { MarketMetricEmitter } from "../metrics"
 import type { PrivateObjectStore } from "../oss"
@@ -44,6 +44,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             try: () =>
               options.submissions.listOwn(principal, {
                 status: context.query.status,
+                target: context.query.target,
                 page: context.query.page ?? 1,
                 limit: context.query.limit ?? 30,
               }),
@@ -57,6 +58,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
           const idempotencyKey = yield* readIdempotencyKey(request.headers["idempotency-key"])
           const submissionID = `sub_${randomSecret()}`
+          const state: { target?: SkillMarketControl.PublicationTarget } = {}
           const received = yield* receive(
             context.payload,
             options,
@@ -64,6 +66,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             submissionID,
             1,
             "create",
+            state,
           )
           const validated = yield* Effect.tryPromise({
             try: () => validateQuarantinedSubmission(received, options.store, Date.now, { persist: false }),
@@ -73,6 +76,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             try: () =>
               options.submissions.create(principal, {
                 idempotencyKey,
+                target: state.target ?? "company",
                 submissionID,
                 verifiedSkillID: validated.skillID,
                 metadata: received.metadata,
@@ -95,6 +99,10 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
           })
         }),
       )
+      .handleRaw("skillMarket.submissions.package", (context) => personalPackage(options, context.params.submissionID, false))
+      .handleRaw("skillMarket.submissions.packageHead", (context) =>
+        personalPackage(options, context.params.submissionID, true),
+      )
       .handle("skillMarket.submissions.revise", (context) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest
@@ -104,7 +112,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             try: () => options.submissions.getOwn(principal, context.params.submissionID),
             catch: reviseProblem,
           })
-          const state: { expectedVersion?: number } = {}
+          const state: { expectedVersion?: number; target?: SkillMarketControl.PublicationTarget } = {}
           const received = yield* receive(
             context.payload,
             options,
@@ -147,7 +155,7 @@ function receive(
   submissionID: SkillMarketControl.SubmissionID,
   revision: number,
   mode: "create" | "revise",
-  state: { expectedVersion?: number } = {},
+  state: { expectedVersion?: number; target?: SkillMarketControl.PublicationTarget } = {},
 ) {
   return Effect.tryPromise({
     try: () =>
@@ -165,13 +173,25 @@ function receive(
 async function* parts(
   stream: Stream.Stream<Multipart.Part, Multipart.MultipartError>,
   mode: "create" | "revise",
-  state: { expectedVersion?: number },
+  state: { expectedVersion?: number; target?: SkillMarketControl.PublicationTarget },
 ): AsyncIterable<SubmissionPart> {
   for await (const part of Stream.toAsyncIterable(stream)) {
     if (Multipart.isField(part)) {
       if (part.key !== "metadata") throw new Error("multipart field is not supported")
       if (mode === "create") {
-        yield { type: "field", name: "metadata", value: part.value }
+        const json = Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(part.value)
+        const input = Schema.decodeUnknownOption(SkillMarketControl.SubmissionCreateInput)(json)
+        if (Option.isSome(input)) {
+          state.target = input.value.target
+          yield { type: "field", name: "metadata", value: JSON.stringify(input.value.metadata) }
+          continue
+        }
+        state.target = "company"
+        yield {
+          type: "field",
+          name: "metadata",
+          value: JSON.stringify(Schema.decodeUnknownSync(SkillMarketControl.SubmissionMetadata)(json)),
+        }
         continue
       }
       const json = Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(part.value)
@@ -190,6 +210,73 @@ async function* parts(
       stream: Stream.toAsyncIterable(part.content),
     }
   }
+}
+
+function personalPackage(options: SubmissionsHttpOptions, submissionID: string, head: boolean) {
+  return Effect.gen(function* () {
+    const principal = principalFromSession(yield* SkillMarketPrincipal)
+    const identity = yield* Effect.try({
+      try: () => options.submissions.personalPackage(principal, submissionID),
+      catch: (error) => error,
+    }).pipe(
+      Effect.matchEffect({
+        onFailure: (error) =>
+          Effect.succeed(
+            error instanceof SkillMarketSecurityError && error.code === "not-found"
+              ? HttpServerResponse.jsonUnsafe(
+                  { code: "not-found", message: "个人 Skill 不存在", requestId: requestID() },
+                  { status: 404 },
+                )
+              : HttpServerResponse.jsonUnsafe(
+                  { code: "dependency-unavailable", message: "个人空间暂不可用", requestId: requestID() },
+                  { status: 503 },
+                ),
+          ),
+        onSuccess: Effect.succeed,
+      }),
+    )
+    if (HttpServerResponse.isHttpServerResponse(identity)) return identity
+    const verified = yield* Effect.tryPromise({
+      try: async () => {
+        const metadata = await options.store.head(identity.key)
+        if (metadata.size !== identity.size) throw new Error("personal package size mismatch")
+        if (head) return undefined
+        const body = await options.store.get(identity.key)
+        if (
+          body.byteLength !== identity.size ||
+          new Bun.CryptoHasher("sha256").update(body).digest("hex") !== identity.sha256
+        )
+          throw new Error("personal package integrity mismatch")
+        return body
+      },
+      catch: () => undefined,
+    }).pipe(
+      Effect.match({
+        onFailure: () =>
+          HttpServerResponse.jsonUnsafe(
+            { code: "dependency-unavailable", message: "个人 Skill 包暂不可用", requestId: requestID() },
+            { status: 502 },
+          ),
+        onSuccess: (body) => body,
+      }),
+    )
+    if (HttpServerResponse.isHttpServerResponse(verified)) return verified
+    const headers = {
+      "cache-control": "private, no-store",
+      "content-disposition": `attachment; filename="${identity.filename}"`,
+      "content-length": String(identity.size),
+      "content-type": "application/zip",
+      etag: `"${identity.sha256}"`,
+      "x-content-sha256": identity.sha256,
+    }
+    if (head) return HttpServerResponse.empty({ status: 200, headers })
+    if (!verified)
+      return HttpServerResponse.jsonUnsafe(
+        { code: "dependency-unavailable", message: "个人 Skill 包暂不可用", requestId: requestID() },
+        { status: 502 },
+      )
+    return HttpServerResponse.uint8Array(verified, { headers })
+  })
 }
 
 function cleanup(store: PrivateObjectStore, received: ReceivedSubmission) {
