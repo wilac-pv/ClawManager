@@ -17,7 +17,7 @@
 - Force evaluated SkillHub details and summaries to public `score: 0`.
 - Keep pointer publication atomic and preserve ambiguous-pointer expiry recovery.
 - Pre-target evaluation-delta failure must not leave a claimable generic catalog rebuild job.
-- Production service limits are `MemoryHigh=768M`, `MemoryMax=1024M`, `TimeoutStartSec=65s`, and `TimeoutStopSec=10s`.
+- Production service limits are `MemoryHigh=896M`, `MemoryMax=1024M`, `TimeoutStartSec=65s`, and `TimeoutStopSec=10s`.
 - The 80,000-entry scale fixture must finish inside 45 seconds with peak RSS below 1 GiB.
 - Keep evaluation and general publisher timers disabled until production verification passes.
 
@@ -279,14 +279,14 @@ git commit -m "fix(skill-market): publish trace deltas"
 
 **Interfaces:**
 - Consumes: the delta worker entrypoint from Task 2.
-- Produces: a release unit bounded by `MemoryHigh=768M`, `MemoryMax=1024M`, `TimeoutStartSec=65s`, and `TimeoutStopSec=10s`.
+- Produces: a release unit bounded by `MemoryHigh=896M`, `MemoryMax=1024M`, `TimeoutStartSec=65s`, and `TimeoutStopSec=10s`.
 
 - [ ] **Step 1: Write failing systemd assertions**
 
 Add exact unit tests:
 
 ```ts
-expect(service).toContain("MemoryHigh=768M")
+expect(service).toContain("MemoryHigh=896M")
 expect(service).toContain("MemoryMax=1024M")
 expect(service).toContain("TimeoutStartSec=65s")
 expect(service).toContain("TimeoutStopSec=10s")

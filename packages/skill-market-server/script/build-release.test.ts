@@ -45,7 +45,7 @@ describe("runtime release build", () => {
       join(serverDirectory, "deploy/systemd/ruying-skill-market-evaluation.service"),
     )
     expect(await evaluationService.exists()).toBe(true)
-    expect(await evaluationService.text()).toContain("MemoryHigh=768M")
+    expect(await evaluationService.text()).toContain("MemoryHigh=896M")
     expect(await evaluationService.text()).toContain("MemoryMax=1024M")
     expect(await evaluationService.text()).toContain("TimeoutStartSec=65s")
     expect(await evaluationService.text()).toContain("TimeoutStopSec=10s")

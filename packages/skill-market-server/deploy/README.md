@@ -148,7 +148,7 @@ are writable; it never prints environment values or secrets.
 The `ruying-skill-market-evaluation.timer` starts one minute after boot and then
 runs once a minute. It uses a dedicated lock so a prior evaluation run causes a
 later invocation to exit cleanly, without blocking the independent SkillHub
-mirror. The service is constrained to `MemoryHigh=768M`, `MemoryMax=1024M`,
+mirror. The service is constrained to `MemoryHigh=896M`, `MemoryMax=1024M`,
 `TimeoutStartSec=65s`, and `TimeoutStopSec=10s`; it can write only the market
 data, backup, and lock directories.
 
