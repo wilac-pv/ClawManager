@@ -18,7 +18,10 @@ import {
   loadCurrentSnapshot,
   isMissingObjectError,
   loadCatalogIndexOrMissingPointer,
+  prepareCatalogDelta,
+  type CatalogDelta,
   type PrivateObjectStore,
+  publishCatalogDeltaObjects,
   publishCatalogIndexObjects,
   publishCatalogIndexPointer,
 } from "./oss"
@@ -60,6 +63,11 @@ interface SubmissionState {
 
 type Publication = {
   readonly index: CatalogIndex
+  readonly changedDetails: ReadonlyMap<string, SkillMarket.Detail>
+}
+
+type CatalogLeasePublication = Publication | {
+  readonly delta: CatalogDelta
   readonly changedDetails: ReadonlyMap<string, SkillMarket.Detail>
 }
 
@@ -138,7 +146,7 @@ export class Publisher {
 
   async withCatalogLease<T>(
     workerID: string,
-    operation: (publish: (publication: Publication) => Promise<void>) => Promise<T>,
+    operation: (publish: (publication: CatalogLeasePublication) => Promise<void>) => Promise<T>,
     store = this.options.store,
     signal?: AbortSignal,
     preTargetFailure: "release" | "fail" = "release",
@@ -179,11 +187,25 @@ export class Publisher {
       const value = await operation(async (publication) => {
         if (state.revision) throw new Error("catalog lease cannot move the pointer more than once")
         throwIfAborted(signal)
-        await publishCatalogIndexObjects(store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
+        if ("delta" in publication)
+          await publishCatalogDeltaObjects(
+            store,
+            { prefix: this.options.ossPrefix },
+            publication.delta,
+            publication.changedDetails,
+          )
+        else
+          await publishCatalogIndexObjects(
+            store,
+            { prefix: this.options.ossPrefix },
+            publication.index,
+            publication.changedDetails,
+          )
         throwIfAborted(signal)
-        this.persistTarget(job, workerID, publication.index.revision)
-        state.revision = publication.index.revision
-        await publishCatalogIndexPointer(store, { prefix: this.options.ossPrefix }, publication.index)
+        const index = "delta" in publication ? publication.delta : publication.index
+        this.persistTarget(job, workerID, index.revision)
+        state.revision = index.revision
+        await publishCatalogIndexPointer(store, { prefix: this.options.ossPrefix }, index)
         pointerPublished = true
       })
       throwIfAborted(signal)
@@ -302,24 +324,21 @@ export class Publisher {
               sha256: value.entry.detailSha256,
               version: value.entry.summary.version,
             },
+            expectedSha256: value.previousDetailSha256,
           },
         ] as const),
       )
-      const index = await (async () => {
-        const latest = await this.latestIndex(
-          { skillhub: imports.progress().sourceStatus, enterprise: "unavailable", community: "fresh" },
-          store,
-        )
-        return patchCatalogIndex({
-          index: latest,
-          replacements,
-          sourceStatus: { ...latest.sourceStatus, skillhub: imports.progress().sourceStatus },
-        })
-      })()
-      Bun.gc(true)
-      revision = index.revision
+      const delta = await prepareCatalogDelta(
+        store,
+        { prefix: this.options.ossPrefix },
+        replacements,
+        { skillhub: imports.progress().sourceStatus },
+        undefined,
+        signal,
+      )
+      revision = delta.revision
       await publish({
-        index,
+        delta,
         changedDetails: new Map(evaluated.map((value) => [key(value.entry.summary.source, value.entry.summary.id), value.detail])),
       })
       throwIfAborted(signal)

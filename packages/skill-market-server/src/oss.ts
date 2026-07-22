@@ -10,7 +10,7 @@ import {
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { Readable } from "node:stream"
-import { type CatalogIndex, type CatalogSnapshot, key } from "./catalog"
+import { type CatalogDetailRef, type CatalogIndex, type CatalogSnapshot, key } from "./catalog"
 
 export type ObjectStore = {
   readonly put: (
@@ -193,17 +193,31 @@ const CatalogObjectV1 = Schema.Struct({
   createdAt: SkillMarket.Timestamp,
   items: Schema.Array(SkillMarket.Summary),
 })
+const CatalogItemV2 = Schema.Struct({
+  summary: SkillMarket.Summary,
+  detail: Schema.Struct({ key: Schema.String, sha256: SkillMarket.Sha256 }),
+})
 const CatalogObjectV2 = Schema.Struct({
   schemaVersion: Schema.Literal(2),
   revision: Schema.String,
   createdAt: SkillMarket.Timestamp,
-  items: Schema.Array(
-    Schema.Struct({
-      summary: SkillMarket.Summary,
-      detail: Schema.Struct({ key: Schema.String, sha256: SkillMarket.Sha256 }),
-    }),
-  ),
+  items: Schema.Array(CatalogItemV2),
 })
+
+export interface CatalogDeltaReplacement {
+  readonly summary: SkillMarket.Summary
+  readonly ref: CatalogDetailRef
+  readonly expectedSha256: string
+}
+
+export interface CatalogDelta {
+  readonly revision: string
+  readonly createdAt: string
+  readonly facets: SkillMarket.Facets
+  readonly references: ReadonlyMap<string, CatalogDetailRef>
+  readonly contentLength: number
+  readonly body: () => AsyncIterable<Uint8Array>
+}
 
 export async function publishSnapshot(client: ObjectStore, config: PublishConfig, snapshot: CatalogSnapshot) {
   const index = indexFromSnapshot(snapshot)
@@ -248,6 +262,119 @@ export async function publishCatalogIndexPointer(
   index: Pick<CatalogIndex, "revision" | "createdAt">,
 ) {
   return publishCatalogPointer(client, config, index)
+}
+
+export async function prepareCatalogDelta(
+  client: ObjectStore,
+  config: PublishConfig,
+  replacements: ReadonlyMap<string, CatalogDeltaReplacement>,
+  sourceStatus: Partial<SkillMarket.SourceStatus>,
+  createdAt = new Date().toISOString(),
+  signal?: AbortSignal,
+): Promise<CatalogDelta> {
+  validateDeltaReplacements(replacements)
+  const pointer = await loadCurrentPointer(client, config)
+  const objectKeys = keys(config, pointer.revision)
+  const [payload, currentFacets] = await Promise.all([
+    loadBytes(client, objectKeys.catalog),
+    loadObject(client, objectKeys.facets, SkillMarket.Facets),
+  ])
+  const catalog = parseCatalogBytes(payload)
+  if (catalog.revision !== pointer.revision || currentFacets.revision !== pointer.revision)
+    throw new Error("OSS snapshot revision mismatch")
+  const nextSourceStatus = { ...currentFacets.sourceStatus, ...sourceStatus }
+  const hash = new Bun.CryptoHasher("sha256").update('{"entries":[')
+  const counts = facetCounts()
+  const references = new Map<string, CatalogDetailRef>()
+  const encoder = new TextEncoder()
+  let itemBytes = 0
+  let position = 0
+  for (const item of catalog.items()) {
+    if (signal?.aborted) throw new Error("catalog delta preparation aborted")
+    const entryKey = key(item.summary.source, item.summary.id)
+    const entry = selectDeltaEntry(entryKey, item, replacements.get(entryKey))
+    if (position > 0) {
+      hash.update(",")
+      itemBytes++
+    }
+    hash.update(JSON.stringify([entryKey, { summary: entry.summary, ref: entry.ref }]))
+    itemBytes += encoder.encode(JSON.stringify({ summary: entry.summary, detail: entry.ref })).byteLength
+    addFacetCounts(counts, entry.summary)
+    if (replacements.has(entryKey)) references.set(entryKey, entry.ref)
+    position++
+  }
+  if (references.size !== replacements.size) throw new Error("catalog delta replacement is absent")
+  const revision = hash.update(`],"sourceStatus":${JSON.stringify(nextSourceStatus)}}`).digest("hex")
+  const facets = buildDeltaFacets(revision, nextSourceStatus, counts)
+  const header = `{"schemaVersion":2,"revision":${JSON.stringify(revision)},"createdAt":${JSON.stringify(createdAt)},"items":[`
+  const contentLength = encoder.encode(header).byteLength + itemBytes + 2
+  return {
+    revision,
+    createdAt,
+    facets,
+    references,
+    contentLength,
+    body: async function* () {
+      yield encoder.encode(header)
+      let bodyPosition = 0
+      for (const item of catalog.items()) {
+        if (signal?.aborted) throw new Error("catalog delta stream aborted")
+        const entryKey = key(item.summary.source, item.summary.id)
+        const entry = selectDeltaEntry(entryKey, item, replacements.get(entryKey))
+        if (bodyPosition > 0) yield encoder.encode(",")
+        yield encoder.encode(JSON.stringify({ summary: entry.summary, detail: entry.ref }))
+        bodyPosition++
+      }
+      yield encoder.encode("]}")
+    },
+  }
+}
+
+export async function publishCatalogDeltaObjects(
+  client: ObjectStore,
+  config: PublishConfig,
+  delta: CatalogDelta,
+  changedDetails: ReadonlyMap<string, SkillMarket.Detail>,
+) {
+  if (!client.putStream) throw new Error("catalog delta streaming is unavailable")
+  if (changedDetails.size !== delta.references.size) throw new Error("catalog delta details do not match replacements")
+  const objectKeys = keys(config, delta.revision)
+  const details = Array.from(changedDetails, ([entryKey, detail]) => {
+    const ref = delta.references.get(entryKey)
+    if (!ref) throw new Error(`changed catalog detail is absent from the delta: ${entryKey}`)
+    const body = JSON.stringify(detail)
+    const digest = sha256(new TextEncoder().encode(body))
+    if (ref.sha256 !== digest || ref.key !== `details/${digest}.json`)
+      throw new Error(`changed catalog detail does not match its delta reference: ${entryKey}`)
+    return { body, digest }
+  })
+  for (const detail of details)
+    await client.put(
+      `${objectKeys.details}/${detail.digest}.json`,
+      detail.body,
+      "application/json",
+      "public, max-age=31536000, immutable",
+      { sha256: detail.digest },
+    )
+  await client.putStream(
+    objectKeys.catalog,
+    delta.body(),
+    delta.contentLength,
+    "application/json",
+    "public, max-age=31536000, immutable",
+  )
+  const facetsBody = JSON.stringify(delta.facets)
+  await client.put(objectKeys.facets, facetsBody, "application/json", "public, max-age=31536000, immutable")
+  const [catalogMetadata, publishedFacets] = await Promise.all([
+    client.head(objectKeys.catalog),
+    loadObject(client, objectKeys.facets, SkillMarket.Facets),
+    ...details.map(async (detail) => {
+      const body = await loadBytes(client, `${objectKeys.details}/${detail.digest}.json`)
+      if (sha256(body) !== detail.digest) throw new Error(`published detail hash mismatch: ${detail.digest}`)
+    }),
+  ])
+  if (catalogMetadata.size !== delta.contentLength) throw new Error("published catalog length mismatch")
+  if (publishedFacets.revision !== delta.revision) throw new Error("published catalog facets mismatch")
 }
 
 async function publishCatalogObjects(
@@ -540,6 +667,161 @@ function requireCatalogObject(value: unknown) {
   }
   if (!Schema.is(CatalogObjectV1)(value)) throw new Error("OSS v1 catalog is invalid")
   return value
+}
+
+type CatalogItem = typeof CatalogItemV2.Type
+type FacetCounts = {
+  readonly sources: Map<SkillMarket.Source, number>
+  readonly categories: Map<string, number>
+  readonly requiresApiKey: { yes: number; no: number }
+}
+
+function validateDeltaReplacements(replacements: ReadonlyMap<string, CatalogDeltaReplacement>) {
+  if (replacements.size < 1 || replacements.size > 100) throw new Error("catalog delta must contain between 1 and 100 replacements")
+  replacements.forEach((replacement, entryKey) => {
+    if (key(replacement.summary.source, replacement.summary.id) !== entryKey)
+      throw new Error(`catalog delta replacement key mismatch: ${entryKey}`)
+    if (!Schema.is(SkillMarket.Sha256)(replacement.expectedSha256))
+      throw new Error(`catalog delta expected hash is invalid: ${entryKey}`)
+    if (!Schema.is(SkillMarket.Sha256)(replacement.ref.sha256))
+      throw new Error(`catalog delta replacement hash is invalid: ${entryKey}`)
+    if (replacement.ref.key !== `details/${replacement.ref.sha256}.json`)
+      throw new Error(`catalog delta detail key mismatch: ${entryKey}`)
+    if (replacement.ref.version !== replacement.summary.version)
+      throw new Error(`catalog delta replacement version mismatch: ${entryKey}`)
+  })
+}
+
+function selectDeltaEntry(entryKey: string, item: CatalogItem, replacement: CatalogDeltaReplacement | undefined) {
+  if (item.detail.key !== `details/${item.detail.sha256}.json`)
+    throw new Error(`catalog detail key does not match hash: ${entryKey}`)
+  if (!replacement)
+    return {
+      summary: item.summary,
+      ref: { key: item.detail.key, sha256: item.detail.sha256, version: item.summary.version },
+    }
+  if (item.detail.sha256 !== replacement.expectedSha256) throw new Error(`catalog delta replacement is stale: ${entryKey}`)
+  return { summary: replacement.summary, ref: replacement.ref }
+}
+
+function parseCatalogBytes(body: Uint8Array) {
+  const marker = new TextEncoder().encode('"items":[')
+  const markerStart = findBytes(body, marker)
+  if (markerStart < 0) throw new Error("OSS v2 catalog items are missing")
+  const itemsStart = markerStart + marker.byteLength
+  const header = Schema.decodeUnknownSync(CatalogObjectV2)(
+    decodeJsonBytes(new TextEncoder().encode(`${new TextDecoder().decode(body.subarray(0, itemsStart))}]}`)),
+  )
+  if (header.items.length !== 0) throw new Error("OSS v2 catalog header is invalid")
+  return {
+    revision: header.revision,
+    createdAt: header.createdAt,
+    *items() {
+      let position = skipWhitespace(body, itemsStart)
+      if (body[position] === 93) {
+        validateCatalogTail(body, position + 1)
+        return
+      }
+      while (position < body.byteLength) {
+        if (body[position] !== 123) throw new Error("OSS v2 catalog item is invalid")
+        const end = catalogObjectEnd(body, position)
+        yield Schema.decodeUnknownSync(CatalogItemV2)(decodeJsonBytes(body.subarray(position, end)))
+        position = skipWhitespace(body, end)
+        if (body[position] === 44) {
+          position = skipWhitespace(body, position + 1)
+          continue
+        }
+        if (body[position] !== 93) throw new Error("OSS v2 catalog item separator is invalid")
+        validateCatalogTail(body, position + 1)
+        return
+      }
+      throw new Error("OSS v2 catalog is truncated")
+    },
+  }
+}
+
+function findBytes(body: Uint8Array, expected: Uint8Array) {
+  for (let start = 0; start <= body.byteLength - expected.byteLength; start++) {
+    let matched = true
+    for (let offset = 0; offset < expected.byteLength; offset++)
+      if (body[start + offset] !== expected[offset]) {
+        matched = false
+        break
+      }
+    if (matched) return start
+  }
+  return -1
+}
+
+function catalogObjectEnd(body: Uint8Array, start: number) {
+  let depth = 0
+  let quoted = false
+  let escaped = false
+  for (let position = start; position < body.byteLength; position++) {
+    const value = body[position]
+    if (quoted) {
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (value === 92) {
+        escaped = true
+        continue
+      }
+      if (value === 34) quoted = false
+      continue
+    }
+    if (value === 34) {
+      quoted = true
+      continue
+    }
+    if (value === 123) depth++
+    if (value !== 125) continue
+    depth--
+    if (depth === 0) return position + 1
+  }
+  throw new Error("OSS v2 catalog item is truncated")
+}
+
+function skipWhitespace(body: Uint8Array, start: number) {
+  let position = start
+  while ([9, 10, 13, 32].includes(body[position] ?? -1)) position++
+  return position
+}
+
+function validateCatalogTail(body: Uint8Array, start: number) {
+  const end = skipWhitespace(body, start)
+  if (body[end] !== 125 || skipWhitespace(body, end + 1) !== body.byteLength)
+    throw new Error("OSS v2 catalog tail is invalid")
+}
+
+function facetCounts(): FacetCounts {
+  return { sources: new Map(), categories: new Map(), requiresApiKey: { yes: 0, no: 0 } }
+}
+
+function addFacetCounts(counts: FacetCounts, item: SkillMarket.Summary) {
+  if (item.delisted) return
+  counts.sources.set(item.source, (counts.sources.get(item.source) ?? 0) + 1)
+  item.categories.forEach((category) => counts.categories.set(category, (counts.categories.get(category) ?? 0) + 1))
+  if (item.requiresApiKey) {
+    counts.requiresApiKey.yes++
+    return
+  }
+  counts.requiresApiKey.no++
+}
+
+function buildDeltaFacets(revision: string, sourceStatus: SkillMarket.SourceStatus, counts: FacetCounts): SkillMarket.Facets {
+  return {
+    revision,
+    sourceStatus,
+    sources: Array.from(counts.sources, ([value, count]) => ({ value, count })).toSorted((left, right) =>
+      left.value.localeCompare(right.value),
+    ),
+    categories: Array.from(counts.categories, ([value, count]) => ({ value, count })).toSorted(
+      (left, right) => right.count - left.count || left.value.localeCompare(right.value),
+    ),
+    requiresApiKey: counts.requiresApiKey,
+  }
 }
 
 export function catalogIndexPayload(index: CatalogIndex) {

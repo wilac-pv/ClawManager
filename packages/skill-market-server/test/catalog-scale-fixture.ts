@@ -1,6 +1,6 @@
 import { type SkillMarket } from "@opencode-ai/schema/skill-market"
-import { createCatalogIndex, key, patchCatalogIndex, type CatalogDetailRef } from "../src/catalog"
-import { catalogIndexPayload } from "../src/oss"
+import { createCatalogIndex, key, type CatalogDetailRef } from "../src/catalog"
+import { catalogIndexPayload, prepareCatalogDelta, type ObjectStore } from "../src/oss"
 
 const started = performance.now()
 const entries = new Map<string, { readonly summary: SkillMarket.Summary; readonly ref: CatalogDetailRef }>()
@@ -58,22 +58,64 @@ const replacements = new Map(
     return [key(updated.source, updated.id), { summary: updated, ref: index.details.get(key(updated.source, updated.id))! }] as const
   }),
 )
-const patched = patchCatalogIndex({
-  index,
-  replacements,
-  sourceStatus: index.sourceStatus,
-})
-const catalogPayload = catalogIndexPayload(patched)
+const sourceBytes = await collectCatalogPayload(index)
+const objects = new Map([
+  ["skill-market/current.json", new TextEncoder().encode(JSON.stringify({ revision: index.revision, createdAt: index.createdAt }))],
+  [`skill-market/indexes/${index.revision}/catalog.json`, sourceBytes],
+  [`skill-market/indexes/${index.revision}/facets.json`, new TextEncoder().encode(JSON.stringify(index.facets))],
+])
+const store: ObjectStore = {
+  async put() {},
+  async get(objectKey) {
+    const body = objects.get(objectKey)
+    if (!body) throw new Error(`missing ${objectKey}`)
+    return body
+  },
+  async head(objectKey) {
+    const body = objects.get(objectKey)
+    if (!body) throw new Error(`missing ${objectKey}`)
+    return { size: body.byteLength }
+  },
+}
+const itemCount = index.items.length
+const deltaReplacements = new Map(
+  Array.from(replacements, ([entryKey, replacement]) => [
+    entryKey,
+    { ...replacement, expectedSha256: index.details.get(entryKey)!.sha256 },
+  ]),
+)
+entries.clear()
+replacements.clear()
+index.items.splice(0)
+if (index.details instanceof Map) index.details.clear()
+Bun.gc(true)
+const delta = await prepareCatalogDelta(
+  store,
+  { prefix: "skill-market" },
+  deltaReplacements,
+  {},
+)
 let streamedBytes = 0
-for await (const chunk of catalogPayload.body()) streamedBytes += chunk.byteLength
+for await (const chunk of delta.body()) streamedBytes += chunk.byteLength
 const maxRSS = process.resourceUsage().maxRSS
 
 console.log(
   JSON.stringify({
     elapsedMilliseconds: performance.now() - started,
     maxRssKilobytes: process.platform === "darwin" ? maxRSS / 1024 : maxRSS,
-    items: patched.items.length,
-    catalogPayloadBytes: catalogPayload.contentLength,
+    items: itemCount,
+    catalogPayloadBytes: delta.contentLength,
     streamedBytes,
   }),
 )
+
+async function collectCatalogPayload(index: Parameters<typeof catalogIndexPayload>[0]) {
+  const payload = catalogIndexPayload(index)
+  const body = new Uint8Array(payload.contentLength)
+  let offset = 0
+  for await (const chunk of payload.body()) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
+}
