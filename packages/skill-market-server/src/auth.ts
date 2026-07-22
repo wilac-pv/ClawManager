@@ -1,3 +1,4 @@
+import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { MarketDatabase } from "./database"
 import { hashSecret, MarketSecurity, randomSecret, SkillMarketSecurityError } from "./security"
 
@@ -28,6 +29,7 @@ interface UserRow {
 interface ProvisioningIdentity {
   readonly employeeID: string
   readonly displayName: string
+  readonly department?: SkillMarketControl.Department
 }
 
 export function createAuth(options: AuthOptions) {
@@ -79,13 +81,23 @@ export function createAuth(options: AuthOptions) {
           .query<UserRow, [string]>("SELECT disabled_at FROM users WHERE employee_id = ?")
           .get(identity.employeeID)
         if (user?.disabled_at !== null && user?.disabled_at !== undefined) return false
+        if (identity.department)
+          connection.run(
+            `INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(department_id) DO UPDATE SET
+               display_name = excluded.display_name,
+               last_seen_at = excluded.last_seen_at`,
+            [identity.department.id, identity.department.name, now, now],
+          )
         connection.run(
-          `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
-           VALUES (?, ?, ?, ?)
+          `INSERT INTO users (employee_id, display_name, department_id, created_at, last_login_at)
+           VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(employee_id) DO UPDATE SET
              display_name = excluded.display_name,
+             department_id = excluded.department_id,
              last_login_at = excluded.last_login_at`,
-          [identity.employeeID, identity.displayName, now, now],
+          [identity.employeeID, identity.displayName, identity.department?.id ?? null, now, now],
         )
         connection.run(
           `INSERT INTO sessions
@@ -158,17 +170,26 @@ async function provisionIdentity(options: AuthOptions, token: string) {
     throw new SkillMarketSecurityError("unauthenticated", "account provisioning is pending")
   if (body.status !== "ready" || typeof body.key !== "string" || !body.key || typeof body.tokenName !== "string")
     throw new SkillMarketSecurityError("dependency-unavailable", "provisioning response is malformed")
-  return parseIdentity(body.tokenName)
+  return parseIdentity(body.tokenName, body.departmentId, body.departmentName)
 }
 
-function parseIdentity(tokenName: string): ProvisioningIdentity {
+function parseIdentity(tokenName: string, departmentID: unknown, departmentName: unknown): ProvisioningIdentity {
   const name = tokenName.trim()
   const separator = name.indexOf("-")
   const employeeID = separator > 0 ? name.slice(0, separator) : ""
   const displayName = separator > 0 ? name.slice(separator + 1).trim() : ""
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(employeeID) || displayName.length < 1 || displayName.length > 100)
     throw new SkillMarketSecurityError("dependency-unavailable", "provisioning identity is malformed")
-  return { employeeID, displayName }
+  if (departmentID === undefined && departmentName === undefined) return { employeeID, displayName }
+  if (
+    typeof departmentID !== "string" ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(departmentID) ||
+    typeof departmentName !== "string" ||
+    departmentName.trim().length < 1 ||
+    departmentName.trim().length > 100
+  )
+    throw new SkillMarketSecurityError("dependency-unavailable", "provisioning department is malformed")
+  return { employeeID, displayName, department: { id: departmentID, name: departmentName.trim() } }
 }
 
 function allowedReturnTo(value: string) {

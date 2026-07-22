@@ -27,6 +27,8 @@ interface SessionRow {
   readonly employee_id: string
   readonly display_name: string
   readonly email: string | null
+  readonly department_id: string | null
+  readonly department_name: string | null
   readonly disabled_at: number | null
   readonly created_at: number
   readonly last_activity_at: number
@@ -62,12 +64,15 @@ export class MarketSecurity {
             sessions.employee_id,
             users.display_name,
             users.email,
+            users.department_id,
+            departments.display_name AS department_name,
             users.disabled_at,
             sessions.created_at,
             sessions.last_activity_at,
             sessions.absolute_expires_at
           FROM sessions
           INNER JOIN users ON users.employee_id = sessions.employee_id
+          LEFT JOIN departments ON departments.department_id = users.department_id
           WHERE sessions.session_hash = ?`,
         )
         .get(hashSecret(credentials.sessionToken))
@@ -101,6 +106,9 @@ export class MarketSecurity {
         employeeID: row.employee_id,
         displayName: row.display_name,
         ...(row.email ? { email: row.email } : {}),
+        ...(row.department_id && row.department_name
+          ? { department: { id: row.department_id, name: row.department_name } }
+          : {}),
       } satisfies SkillMarketControl.User
       return {
         kind: "active",

@@ -16,6 +16,17 @@ export const EmployeeID = Schema.String.check(
 ).annotate({ identifier: "SkillMarketControl.EmployeeID" })
 export type EmployeeID = typeof EmployeeID.Type
 
+export const DepartmentID = Schema.String.check(
+  Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/),
+).annotate({ identifier: "SkillMarketControl.DepartmentID" })
+export type DepartmentID = typeof DepartmentID.Type
+
+export interface Department extends Schema.Schema.Type<typeof Department> {}
+export const Department = Schema.Struct({
+  id: DepartmentID,
+  name: bounded(1, 100),
+}).annotate({ identifier: "SkillMarketControl.Department" })
+
 export const SubmissionID = Schema.String.check(
   Schema.isPattern(/^sub_[a-zA-Z0-9_-]{8,64}$/),
 ).annotate({ identifier: "SkillMarketControl.SubmissionID" })
@@ -70,6 +81,7 @@ export const User = Schema.Struct({
   employeeID: EmployeeID,
   displayName: bounded(1, 100),
   email: bounded(3, 254).pipe(optional),
+  department: Department.pipe(optional),
   disabledAt: SkillMarket.Timestamp.pipe(optional),
 }).annotate({ identifier: "SkillMarketControl.User" })
 

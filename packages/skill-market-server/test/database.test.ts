@@ -25,7 +25,7 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(6)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(7)
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
@@ -42,6 +42,7 @@ describe("control-plane database", () => {
       [
         "audit_events",
         "community_skills",
+        "departments",
         "idempotency_keys",
         "login_attempts",
         "publish_jobs",
@@ -69,6 +70,8 @@ describe("control-plane database", () => {
     expect(indexes).toContain("skillhub_single_unsettled_generation")
     expect(indexes).toContain("skillhub_evaluation_queue")
     expect(indexes).toContain("skillhub_deferred_imports")
+    expect(indexes).toContain("departments_last_seen")
+    expect(indexes).toContain("users_department")
 
     database.connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
@@ -188,7 +191,7 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([6, 6])
+    ).toEqual([7, 7])
     databases.forEach((database) => database.close())
   })
 
@@ -289,7 +292,7 @@ describe("control-plane database", () => {
     v3.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(6)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(7)
     expect(
       upgraded.connection
         .query<
@@ -443,7 +446,7 @@ describe("control-plane database", () => {
     v4.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(6)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(7)
     const row = upgraded.connection
       .query<{ evaluation_state: string; evaluation_score: number | null; summary_json: string }, [string]>(
         "SELECT evaluation_state, evaluation_score, summary_json FROM skillhub_import_items WHERE slug = ?",

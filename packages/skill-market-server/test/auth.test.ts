@@ -22,7 +22,13 @@ describe("SSO authentication", () => {
       async fetch(request) {
         expect(new URL(request.url).pathname).toBe("/api/provision/token")
         provisionBody = await request.json()
-        return Response.json({ status: "ready", key: "sk-sensitive-gateway-key", tokenName: "GW00178937-武晓达" })
+        return Response.json({
+          status: "ready",
+          key: "sk-sensitive-gateway-key",
+          tokenName: "GW00178937-武晓达",
+          departmentId: "D-001",
+          departmentName: "研发一部",
+        })
       },
     })
     const fixture = await authenticationFixture(server.url.origin)
@@ -43,7 +49,11 @@ describe("SSO authentication", () => {
     const result = await fixture.auth.complete(login.attemptID, "sso-sensitive-access-token")
     expect(provisionBody).toEqual({ ssoAccessToken: "sso-sensitive-access-token" })
     expect(result.returnTo).toBe("/submissions")
-    expect(result.session.user).toEqual({ employeeID: "GW00178937", displayName: "武晓达" })
+    expect(result.session.user).toEqual({
+      employeeID: "GW00178937",
+      displayName: "武晓达",
+      department: { id: "D-001", name: "研发一部" },
+    })
     expect(result.session.roles).toEqual([])
     expect(result.session.csrfToken).toBe(result.csrfToken)
     expect(result.sessionToken).toHaveLength(43)
@@ -72,6 +82,43 @@ describe("SSO authentication", () => {
     expect(
       fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM sessions").get()?.count,
     ).toBe(0)
+    fixture.database.close()
+  })
+
+  test("updates trusted department names and employee transfers on login", async () => {
+    const departments = [
+      { departmentId: "D-001", departmentName: "研发一部" },
+      { departmentId: "D-001", departmentName: "研发平台部" },
+      { departmentId: "D-002", departmentName: "质量部" },
+    ]
+    using server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User", ...departments.shift() }),
+    })
+    const fixture = await authenticationFixture(server.url.origin)
+
+    const first = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "first")
+    const renamed = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "renamed")
+    const transferred = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "transferred")
+
+    expect(first.session.user.department).toEqual({ id: "D-001", name: "研发一部" })
+    expect(renamed.session.user.department).toEqual({ id: "D-001", name: "研发平台部" })
+    expect(transferred.session.user.department).toEqual({ id: "D-002", name: "质量部" })
+    expect(fixture.auth.session(transferred.sessionToken, transferred.csrfToken).user.department).toEqual({
+      id: "D-002",
+      name: "质量部",
+    })
+    expect(
+      fixture.database.connection
+        .query<{ department_id: string; display_name: string }, []>(
+          "SELECT department_id, display_name FROM departments ORDER BY department_id",
+        )
+        .all(),
+    ).toEqual([
+      { department_id: "D-001", display_name: "研发平台部" },
+      { department_id: "D-002", display_name: "质量部" },
+    ])
     fixture.database.close()
   })
 
@@ -171,6 +218,8 @@ describe("SSO authentication", () => {
           typeof body === "object" && body !== null && "ssoAccessToken" in body ? body.ssoAccessToken : undefined
         if (token === "rejected") return new Response("invalid SSO", { status: 401 })
         if (token === "pending") return Response.json({ status: "pending_enable", tokenName: "E000001-Test User" })
+        if (token === "partial")
+          return Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User", departmentId: "D-1" })
         return Response.json({ status: "ready", key: "sk-key", tokenName: "missingdisplayname" })
       },
     })
@@ -185,6 +234,10 @@ describe("SSO authentication", () => {
     expect((await securityFailure(fixture.auth.complete(pending.attemptID, "pending"))).code).toBe("unauthenticated")
     const malformed = fixture.auth.begin("/submissions")
     expect((await securityFailure(fixture.auth.complete(malformed.attemptID, "malformed"))).code).toBe(
+      "dependency-unavailable",
+    )
+    const partial = fixture.auth.begin("/submissions")
+    expect((await securityFailure(fixture.auth.complete(partial.attemptID, "partial"))).code).toBe(
       "dependency-unavailable",
     )
     expect(
