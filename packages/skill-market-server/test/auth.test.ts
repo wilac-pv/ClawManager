@@ -145,6 +145,27 @@ describe("SSO authentication", () => {
     fixture.database.close()
   })
 
+  test("normalizes a safe numeric department ID from the provisioning service", async () => {
+    using server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        Response.json({
+          status: "ready",
+          key: "sk-key",
+          tokenName: "E000001-Test User",
+          departmentId: 100200300,
+          departmentName: "研发部",
+        }),
+    })
+    const fixture = await authenticationFixture(server.url.origin)
+
+    const result = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "numeric")
+
+    expect(result.session.user.department).toEqual({ id: "100200300", name: "研发部" })
+    fixture.database.close()
+  })
+
   test("hydrates a preassigned placeholder user on first SSO login and preserves the role", async () => {
     using server = Bun.serve({
       hostname: "127.0.0.1",

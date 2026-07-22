@@ -204,20 +204,57 @@ function parseIdentity(
       !departmentName.trim())
   )
     return { employeeID, displayName }
-  if (
-    typeof departmentID !== "string" ||
-    !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(departmentID) ||
-    typeof departmentName !== "string" ||
-    departmentName.trim().length < 1 ||
-    departmentName.trim().length > 100
-  )
-    throw provisioningFailure(options, "department", "dependency-unavailable", "provisioning department is malformed")
-  return { employeeID, displayName, department: { id: departmentID, name: departmentName.trim() } }
+  const normalizedDepartmentID =
+    typeof departmentID === "string"
+      ? departmentID.trim()
+      : typeof departmentID === "number" && Number.isSafeInteger(departmentID) && departmentID >= 0
+        ? String(departmentID)
+        : undefined
+  if (normalizedDepartmentID === undefined)
+    throw provisioningFailure(
+      options,
+      "department-id-type",
+      "dependency-unavailable",
+      "provisioning department is malformed",
+    )
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(normalizedDepartmentID))
+    throw provisioningFailure(
+      options,
+      "department-id-format",
+      "dependency-unavailable",
+      "provisioning department is malformed",
+    )
+  if (typeof departmentName !== "string")
+    throw provisioningFailure(
+      options,
+      "department-name-type",
+      "dependency-unavailable",
+      "provisioning department is malformed",
+    )
+  if (departmentName.trim().length < 1 || departmentName.trim().length > 100)
+    throw provisioningFailure(
+      options,
+      "department-name-length",
+      "dependency-unavailable",
+      "provisioning department is malformed",
+    )
+  return { employeeID, displayName, department: { id: normalizedDepartmentID, name: departmentName.trim() } }
 }
 
 function provisioningFailure(
   options: AuthOptions,
-  stage: "network" | "rejected" | "http" | "json" | "pending" | "response" | "identity" | "department",
+  stage:
+    | "network"
+    | "rejected"
+    | "http"
+    | "json"
+    | "pending"
+    | "response"
+    | "identity"
+    | "department-id-type"
+    | "department-id-format"
+    | "department-name-type"
+    | "department-name-length",
   code: "unauthenticated" | "dependency-unavailable",
   message: string,
   status?: number,
