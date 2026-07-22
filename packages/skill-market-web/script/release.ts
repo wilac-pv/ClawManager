@@ -6,6 +6,7 @@ const fallbackRoutes = [
   "/skills",
   "/skills/:source/:id",
   "/submissions",
+  "/personal",
   "/submissions/new",
   "/submissions/:id",
   "/admin",

@@ -61,6 +61,7 @@ test("publishes immutable files and advances the pointer only after verification
         "/skills",
         "/skills/:source/:id",
         "/submissions",
+        "/personal",
         "/submissions/new",
         "/submissions/:id",
         "/admin",
