@@ -308,25 +308,14 @@ export async function prepareCatalogDelta(
   const facets = buildDeltaFacets(revision, nextSourceStatus, counts)
   const header = `{"schemaVersion":2,"revision":${JSON.stringify(revision)},"createdAt":${JSON.stringify(createdAt)},"items":[`
   const contentLength = encoder.encode(header).byteLength + itemBytes + 2
+  const parts = () => deltaCatalogParts(catalog, header, replacements, signal)
   return {
     revision,
     createdAt,
     facets,
     references,
     contentLength,
-    body: async function* () {
-      yield encoder.encode(header)
-      let bodyPosition = 0
-      for (const item of catalog.items()) {
-        if (signal?.aborted) throw new Error("catalog delta stream aborted")
-        const entryKey = key(item.summary.source, item.summary.id)
-        const entry = selectDeltaEntry(entryKey, item, replacements.get(entryKey))
-        if (bodyPosition > 0) yield encoder.encode(",")
-        yield encoder.encode(JSON.stringify({ summary: entry.summary, detail: entry.ref }))
-        bodyPosition++
-      }
-      yield encoder.encode("]}")
-    },
+    body: () => encodeJsonChunks(parts()),
   }
 }
 
@@ -842,10 +831,50 @@ export function catalogIndexPayload(index: CatalogIndex) {
   for (const part of parts()) contentLength += encoder.encode(part).byteLength
   return {
     contentLength,
-    async *body() {
-      for (const part of parts()) yield encoder.encode(part)
-    },
+    body: () => encodeJsonChunks(parts()),
   }
+}
+
+function* deltaCatalogParts(
+  catalog: ReturnType<typeof parseCatalogBytes>,
+  header: string,
+  replacements: ReadonlyMap<string, CatalogDeltaReplacement>,
+  signal?: AbortSignal,
+) {
+  yield header
+  let position = 0
+  for (const item of catalog.items()) {
+    if (signal?.aborted) throw new Error("catalog delta stream aborted")
+    const entryKey = key(item.summary.source, item.summary.id)
+    const entry = selectDeltaEntry(entryKey, item, replacements.get(entryKey))
+    yield `${position > 0 ? "," : ""}${JSON.stringify({ summary: entry.summary, detail: entry.ref })}`
+    position++
+  }
+  yield "]}"
+}
+
+async function* encodeJsonChunks(parts: Iterable<string>) {
+  const encoder = new TextEncoder()
+  let buffer = new Uint8Array(256 * 1024)
+  let offset = 0
+  for (const part of parts) {
+    const bytes = encoder.encode(part)
+    if (bytes.byteLength > buffer.byteLength) {
+      if (offset > 0) yield buffer.slice(0, offset)
+      yield bytes
+      buffer = new Uint8Array(256 * 1024)
+      offset = 0
+      continue
+    }
+    if (offset + bytes.byteLength > buffer.byteLength) {
+      yield buffer.slice(0, offset)
+      buffer = new Uint8Array(256 * 1024)
+      offset = 0
+    }
+    buffer.set(bytes, offset)
+    offset += bytes.byteLength
+  }
+  if (offset > 0) yield buffer.slice(0, offset)
 }
 
 function* catalogIndexParts(index: CatalogIndex) {

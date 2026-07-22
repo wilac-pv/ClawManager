@@ -96,7 +96,11 @@ const delta = await prepareCatalogDelta(
   {},
 )
 let streamedBytes = 0
-for await (const chunk of delta.body()) streamedBytes += chunk.byteLength
+let streamedChunks = 0
+for await (const chunk of delta.body()) {
+  streamedBytes += chunk.byteLength
+  streamedChunks++
+}
 const maxRSS = process.resourceUsage().maxRSS
 
 console.log(
@@ -106,6 +110,7 @@ console.log(
     items: itemCount,
     catalogPayloadBytes: delta.contentLength,
     streamedBytes,
+    streamedChunks,
   }),
 )
 

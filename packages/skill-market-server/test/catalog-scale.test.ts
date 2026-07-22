@@ -39,11 +39,13 @@ test("patches 100 catalog entries in an 80,000-entry index within the worker bud
     readonly items: number
     readonly catalogPayloadBytes: number
     readonly streamedBytes: number
+    readonly streamedChunks: number
   }
   expect(metrics.items).toBe(80_000)
   expect(metrics.catalogPayloadBytes).toBeGreaterThanOrEqual(60 * 1024 * 1024)
   expect(metrics.catalogPayloadBytes).toBeLessThanOrEqual(90 * 1024 * 1024)
   expect(metrics.streamedBytes).toBe(metrics.catalogPayloadBytes)
+  expect(metrics.streamedChunks).toBeLessThan(400)
   expect(metrics.elapsedMilliseconds).toBeLessThan(45_000)
   expect(metrics.maxRssKilobytes).toBeLessThan(896 * 1024)
 }, 50_000)
