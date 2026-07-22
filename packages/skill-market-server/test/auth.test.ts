@@ -122,6 +122,29 @@ describe("SSO authentication", () => {
     fixture.database.close()
   })
 
+  test("treats null and blank department pairs as absent during rollout", async () => {
+    const departments = [
+      { departmentId: null, departmentName: null },
+      { departmentId: "", departmentName: "  " },
+    ]
+    using server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User", ...departments.shift() }),
+    })
+    const fixture = await authenticationFixture(server.url.origin)
+
+    const nullPair = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "null")
+    const blankPair = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "blank")
+
+    expect(nullPair.session.user.department).toBeUndefined()
+    expect(blankPair.session.user.department).toBeUndefined()
+    expect(
+      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM departments").get()?.count,
+    ).toBe(0)
+    fixture.database.close()
+  })
+
   test("hydrates a preassigned placeholder user on first SSO login and preserves the role", async () => {
     using server = Bun.serve({
       hostname: "127.0.0.1",

@@ -55,6 +55,7 @@ const main = Effect.scoped(
       cookieSecure: config.cookieSecure,
       loginAttemptMilliseconds: config.loginAttemptMilliseconds,
       sessionAbsoluteMilliseconds: config.sessionAbsoluteMilliseconds,
+      emit: emitMarketMetric,
     })
     const state: { worker?: Worker } = {}
     const wake = () => {

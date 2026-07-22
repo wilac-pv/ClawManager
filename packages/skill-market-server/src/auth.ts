@@ -1,5 +1,6 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { MarketDatabase } from "./database"
+import type { MarketMetricEmitter } from "./metrics"
 import { hashSecret, MarketSecurity, randomSecret, SkillMarketSecurityError } from "./security"
 
 interface AuthOptions {
@@ -14,6 +15,7 @@ interface AuthOptions {
   readonly sessionAbsoluteMilliseconds: number
   readonly now?: () => number
   readonly fetch?: typeof fetch
+  readonly emit?: MarketMetricEmitter
 }
 
 interface AttemptRow {
@@ -154,33 +156,54 @@ async function provisionIdentity(options: AuthOptions, token: string) {
   }).then(
     (value) => value,
     () => {
-      throw new SkillMarketSecurityError("dependency-unavailable", "provisioning service is unavailable")
+      throw provisioningFailure(options, "network", "dependency-unavailable", "provisioning service is unavailable")
     },
   )
   if (response.status === 401 || response.status === 403)
-    throw new SkillMarketSecurityError("unauthenticated", "SSO token was rejected")
-  if (!response.ok) throw new SkillMarketSecurityError("dependency-unavailable", "provisioning service is unavailable")
+    throw provisioningFailure(options, "rejected", "unauthenticated", "SSO token was rejected", response.status)
+  if (!response.ok)
+    throw provisioningFailure(
+      options,
+      "http",
+      "dependency-unavailable",
+      "provisioning service is unavailable",
+      response.status,
+    )
 
   const body = await response.json().then(
     (value) => value,
     () => undefined,
   )
-  if (!record(body)) throw new SkillMarketSecurityError("dependency-unavailable", "provisioning response is malformed")
+  if (!record(body))
+    throw provisioningFailure(options, "json", "dependency-unavailable", "provisioning response is malformed")
   if (body.status === "pending_enable")
-    throw new SkillMarketSecurityError("unauthenticated", "account provisioning is pending")
+    throw provisioningFailure(options, "pending", "unauthenticated", "account provisioning is pending")
   if (body.status !== "ready" || typeof body.key !== "string" || !body.key || typeof body.tokenName !== "string")
-    throw new SkillMarketSecurityError("dependency-unavailable", "provisioning response is malformed")
-  return parseIdentity(body.tokenName, body.departmentId, body.departmentName)
+    throw provisioningFailure(options, "response", "dependency-unavailable", "provisioning response is malformed")
+  return parseIdentity(options, body.tokenName, body.departmentId, body.departmentName)
 }
 
-function parseIdentity(tokenName: string, departmentID: unknown, departmentName: unknown): ProvisioningIdentity {
+function parseIdentity(
+  options: AuthOptions,
+  tokenName: string,
+  departmentID: unknown,
+  departmentName: unknown,
+): ProvisioningIdentity {
   const name = tokenName.trim()
   const separator = name.indexOf("-")
   const employeeID = separator > 0 ? name.slice(0, separator) : ""
   const displayName = separator > 0 ? name.slice(separator + 1).trim() : ""
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(employeeID) || displayName.length < 1 || displayName.length > 100)
-    throw new SkillMarketSecurityError("dependency-unavailable", "provisioning identity is malformed")
-  if (departmentID === undefined && departmentName === undefined) return { employeeID, displayName }
+    throw provisioningFailure(options, "identity", "dependency-unavailable", "provisioning identity is malformed")
+  if (
+    (departmentID === undefined && departmentName === undefined) ||
+    (departmentID === null && departmentName === null) ||
+    (typeof departmentID === "string" &&
+      typeof departmentName === "string" &&
+      !departmentID.trim() &&
+      !departmentName.trim())
+  )
+    return { employeeID, displayName }
   if (
     typeof departmentID !== "string" ||
     !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(departmentID) ||
@@ -188,8 +211,24 @@ function parseIdentity(tokenName: string, departmentID: unknown, departmentName:
     departmentName.trim().length < 1 ||
     departmentName.trim().length > 100
   )
-    throw new SkillMarketSecurityError("dependency-unavailable", "provisioning department is malformed")
+    throw provisioningFailure(options, "department", "dependency-unavailable", "provisioning department is malformed")
   return { employeeID, displayName, department: { id: departmentID, name: departmentName.trim() } }
+}
+
+function provisioningFailure(
+  options: AuthOptions,
+  stage: "network" | "rejected" | "http" | "json" | "pending" | "response" | "identity" | "department",
+  code: "unauthenticated" | "dependency-unavailable",
+  message: string,
+  status?: number,
+) {
+  options.emit?.({
+    skill_market_provisioning_failure: {
+      [stage]: 1,
+      ...(status === undefined ? {} : { [`http_${status}`]: 1 }),
+    },
+  })
+  return new SkillMarketSecurityError(code, message)
 }
 
 function allowedReturnTo(value: string) {
