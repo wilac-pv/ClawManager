@@ -606,6 +606,10 @@ function decodeJsonBytes(body: Uint8Array) {
   return Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(new TextDecoder().decode(body))
 }
 
+function parseJsonBytes(body: Uint8Array): unknown {
+  return JSON.parse(new TextDecoder().decode(body))
+}
+
 async function loadBytes(client: ObjectStore, key: string) {
   const [metadata, body] = await Promise.all([client.head(key), client.get(key)])
   if (metadata.size !== body.byteLength) throw new Error(`OSS object size mismatch: ${key}`)
@@ -718,6 +722,7 @@ function parseCatalogBytes(body: Uint8Array) {
     createdAt: header.createdAt,
     *items() {
       let position = skipWhitespace(body, itemsStart)
+      let decoded = 0
       if (body[position] === 93) {
         validateCatalogTail(body, position + 1)
         return
@@ -725,7 +730,13 @@ function parseCatalogBytes(body: Uint8Array) {
       while (position < body.byteLength) {
         if (body[position] !== 123) throw new Error("OSS v2 catalog item is invalid")
         const end = catalogObjectEnd(body, position)
-        yield Schema.decodeUnknownSync(CatalogItemV2)(decodeJsonBytes(body.subarray(position, end)))
+        // Avoid an Effect decoder copy for every item; the catalog contains
+        // enough short-lived objects to exceed the evaluation worker cgroup.
+        const item = parseJsonBytes(body.subarray(position, end))
+        if (!Schema.is(CatalogItemV2)(item)) throw new Error("OSS v2 catalog item schema is invalid")
+        yield item
+        decoded++
+        if (decoded % 4096 === 0) Bun.gc(true)
         position = skipWhitespace(body, end)
         if (body[position] === 44) {
           position = skipWhitespace(body, position + 1)
