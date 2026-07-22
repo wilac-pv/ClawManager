@@ -132,7 +132,7 @@ export function loadConfig(environment: Environment = process.env) {
       60,
     ),
     skillhubEvaluationRefreshDays: positiveInteger(evaluationRefreshDays.name, evaluationRefreshDays.value, 366),
-    skillhubEvaluationPublishBatch: positiveInteger(evaluationPublishBatch.name, evaluationPublishBatch.value, 1_000),
+    skillhubEvaluationPublishBatch: positiveInteger(evaluationPublishBatch.name, evaluationPublishBatch.value, 100),
     skillhubEvaluationPublishMinutes: positiveInteger(evaluationPublishMinutes.name, evaluationPublishMinutes.value, 60),
     skillhubEvaluationDurationMilliseconds: positiveInteger(
       evaluationDurationSeconds.name,

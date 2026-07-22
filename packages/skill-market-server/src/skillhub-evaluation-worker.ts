@@ -55,7 +55,7 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
   requireRange("SkillHub evaluation concurrency", concurrency, 1, 2)
   requireRange("SkillHub evaluation requests per minute", requestsPerMinute, 1, 60)
   requireRange("SkillHub evaluation refresh days", refreshDays, 1, 366)
-  requireRange("SkillHub evaluation publication batch", publicationBatch, 1, 1_000)
+  requireRange("SkillHub evaluation publication batch", publicationBatch, 1, 100)
   requireRange("SkillHub evaluation publication minutes", publicationMinutes, 1, 60)
   requireRange("SkillHub evaluation duration", durationMilliseconds, 1, 50_000)
   requireRange("SkillHub evaluation lease", leaseMilliseconds, 1, 86_400_000)

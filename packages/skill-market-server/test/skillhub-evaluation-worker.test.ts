@@ -15,6 +15,17 @@ const evaluation = {
 } as const satisfies SkillHubEvaluation
 
 describe("SkillHub evaluation worker", () => {
+  test("rejects a publication batch larger than one hundred", async () => {
+    await expect(
+      runSkillHubEvaluationWorker({
+        workerID: "evaluation-test",
+        evaluations: createQueue({ value: 0 }, []),
+        publicationBatch: 101,
+        loadEvaluation: async () => evaluation,
+      }),
+    ).rejects.toThrow("SkillHub evaluation publication batch must be between 1 and 100")
+  })
+
   test("routes completed evaluation publication through the delta publisher", async () => {
     let calls = 0
     const imports: Pick<SkillHubImportStore, "completedEvaluations" | "progress" | "replaceCompletedEvaluationDetails"> = {
@@ -343,6 +354,17 @@ test("reads bounded TRACE evaluation defaults", () => {
   expect(config.skillhubEvaluationPublishBatch).toBe(100)
   expect(config.skillhubEvaluationPublishMinutes).toBe(30)
   expect(config.skillhubEvaluationDurationMilliseconds).toBe(50_000)
+})
+
+test("rejects a TRACE evaluation publication batch larger than one hundred from the environment", () => {
+  expect(() =>
+    loadConfig({
+      SKILL_MARKET_ENTERPRISE_INDEX_URL: "https://enterprise.example.com/index.json",
+      SKILL_MARKET_OSS_ENDPOINT: "https://oss.example.com",
+      SKILL_MARKET_PUBLIC_BASE_URL: "https://market.example.com/public/",
+      SKILL_MARKET_EVALUATION_PUBLISH_BATCH: "101",
+    }),
+  ).toThrow("SKILL_MARKET_EVALUATION_PUBLISH_BATCH must be a positive integer up to 100")
 })
 
 function createQueue(clock: { readonly value: number }, initial: readonly string[]) {

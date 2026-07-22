@@ -161,6 +161,9 @@ SKILL_MARKET_EVALUATION_REFRESH_DAYS=7
 SKILL_MARKET_EVALUATION_PUBLISH_BATCH=100
 ```
 
+The publication batch must stay in the range `1..100`; the delta publisher
+enforces the same limit independently of environment parsing.
+
 The older `SKILL_MARKET_SKILLHUB_EVALUATION_*` names remain accepted while hosts
 roll forward, but the canonical value wins if both are present. Preflight emits
 only the resulting numeric values, never environment values or secrets.

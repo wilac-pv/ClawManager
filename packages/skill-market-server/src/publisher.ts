@@ -277,6 +277,8 @@ export class Publisher {
     evaluationLimit = 100,
     signal?: AbortSignal,
   ) {
+    if (!Number.isSafeInteger(evaluationLimit) || evaluationLimit < 1 || evaluationLimit > 100)
+      throw new Error("SkillHub evaluation publication limit must be between 1 and 100")
     const store = signal ? abortableStore(this.options.store, signal) : this.options.store
     throwIfAborted(signal)
     const materialized = await Promise.all(

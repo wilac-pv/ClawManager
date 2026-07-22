@@ -6,7 +6,7 @@ import { openDatabase } from "../src/database"
 import { mergeCatalog } from "../src/catalog"
 import { loadCatalogIndex, loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
 import { createPublisher } from "../src/publisher"
-import { createSkillHubImportStore } from "../src/skillhub-import-store"
+import { createSkillHubImportStore, type SkillHubImportStore } from "../src/skillhub-import-store"
 import { validateSubmissionArchive } from "../src/submission-archive"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
@@ -18,6 +18,25 @@ afterEach(async () => {
 })
 
 describe("community publisher", () => {
+  test("rejects a TRACE delta larger than one hundred before reading completed evaluations", async () => {
+    const fixture = await publisherFixture()
+    let reads = 0
+    const imports = {
+      completedEvaluations() {
+        reads += 1
+        return []
+      },
+      progress: () => ({ sourceStatus: "fresh", mirrored: 0 } as ReturnType<SkillHubImportStore["progress"]>),
+      replaceCompletedEvaluationDetails: () => [],
+    }
+
+    await expect(
+      createPublisher(publisherOptions(fixture)).publishCompletedSkillHubEvaluations(imports, "worker-trace", 101),
+    ).rejects.toThrow("SkillHub evaluation publication limit must be between 1 and 100")
+    expect(reads).toBe(0)
+    fixture.database.close()
+  })
+
   test("patches completed TRACE evaluations without decoding the full SkillHub mirror", async () => {
     const fixture = await publisherFixture()
     const evaluatedA = sampleDetail({ id: "trace-a", aliases: ["trace-a"], score: 100_000 })
