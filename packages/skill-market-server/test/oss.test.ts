@@ -233,10 +233,64 @@ describe("OSS snapshots", () => {
       else process.env.AWS_SECRET_ACCESS_KEY = secretAccessKey
     }
   })
+
+  test("uploads large catalog streams in bounded multipart requests", async () => {
+    const requests: Array<{ method: string; url: URL; body: Uint8Array }> = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url)
+        requests.push({ method: request.method, url, body: new Uint8Array(await request.arrayBuffer()) })
+        if (request.method === "POST" && url.searchParams.has("uploads"))
+          return new Response(
+            "<InitiateMultipartUploadResult><Bucket>test-bucket</Bucket><Key>catalog.json</Key><UploadId>upload-1</UploadId></InitiateMultipartUploadResult>",
+            { status: 200, headers: { "content-type": "application/xml" } },
+          )
+        if (request.method === "PUT")
+          return new Response(null, { status: 200, headers: { etag: `\"part-${url.searchParams.get("partNumber")}\"` } })
+        if (request.method === "POST" && url.searchParams.has("uploadId"))
+          return new Response(
+            "<CompleteMultipartUploadResult><Location>test</Location><Bucket>test-bucket</Bucket><Key>catalog.json</Key><ETag>\"complete\"</ETag></CompleteMultipartUploadResult>",
+            { status: 200, headers: { "content-type": "application/xml" } },
+          )
+        return new Response(null, { status: 500 })
+      },
+    })
+    const accessKeyID = process.env.AWS_ACCESS_KEY_ID
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
+    process.env.AWS_ACCESS_KEY_ID = "test-access-key"
+    process.env.AWS_SECRET_ACCESS_KEY = "test-secret-key"
+
+    try {
+      const store = makeS3ObjectStore({
+        endpoint: `http://127.0.0.1:${server.port}`,
+        region: "test-region",
+        bucket: "test-bucket",
+      })
+      const body = new Uint8Array(8 * 1024 * 1024 + 3).fill(97)
+      await store.putStream("catalog.json", arrayChunks(body, 300_000), body.byteLength, "application/json", "immutable")
+
+      const parts = requests.filter((request) => request.method === "PUT")
+      expect(parts.map((request) => request.body.byteLength)).toEqual([8 * 1024 * 1024, 3])
+      expect(parts.map((request) => request.url.searchParams.get("partNumber"))).toEqual(["1", "2"])
+      expect(requests.filter((request) => request.method === "POST")).toHaveLength(2)
+      expect(Math.max(...parts.map((request) => request.body.byteLength))).toBe(8 * 1024 * 1024)
+    } finally {
+      server.stop(true)
+      if (accessKeyID === undefined) delete process.env.AWS_ACCESS_KEY_ID
+      else process.env.AWS_ACCESS_KEY_ID = accessKeyID
+      if (secretAccessKey === undefined) delete process.env.AWS_SECRET_ACCESS_KEY
+      else process.env.AWS_SECRET_ACCESS_KEY = secretAccessKey
+    }
+  })
 })
 
 async function* chunks(...values: string[]) {
   for (const value of values) yield new TextEncoder().encode(value)
+}
+
+async function* arrayChunks(value: Uint8Array, size: number) {
+  for (let offset = 0; offset < value.byteLength; offset += size) yield value.subarray(offset, offset + size)
 }
 
 function memoryObjectStore() {

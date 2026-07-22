@@ -1,16 +1,22 @@
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from "@aws-sdk/client-s3"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { Readable } from "node:stream"
 import { type CatalogDetailRef, type CatalogIndex, type CatalogSnapshot, key } from "./catalog"
+
+const multipartPartBytes = 8 * 1024 * 1024
 
 export type ObjectStore = {
   readonly put: (
@@ -107,6 +113,8 @@ export function makeS3ObjectStore(config: {
       )
     },
     async putStream(key, body, contentLength, contentType, cacheControl, metadata = undefined, request = undefined) {
+      if (contentLength > multipartPartBytes)
+        return putMultipartObject(client, config, key, body, contentLength, contentType, cacheControl, metadata, request)
       await client.send(
         new PutObjectCommand({
           Bucket: config.bucket,
@@ -169,6 +177,102 @@ export function makeS3ObjectStore(config: {
       return listObjects(client, config.bucket, prefix)
     },
   } satisfies MaintenanceObjectStore
+}
+
+async function putMultipartObject(
+  client: S3Client,
+  config: { readonly bucket: string },
+  key: string,
+  body: AsyncIterable<Uint8Array>,
+  contentLength: number,
+  contentType: string,
+  cacheControl: string,
+  metadata: Readonly<Record<string, string>> | undefined,
+  request: ObjectStoreRequest | undefined,
+) {
+  const created = await client.send(
+    new CreateMultipartUploadCommand({
+      Bucket: config.bucket,
+      Key: key,
+      ContentType: contentType,
+      CacheControl: cacheControl,
+      Metadata: metadata,
+    }),
+    { abortSignal: request?.signal },
+  )
+  if (!created.UploadId) throw new Error(`OSS multipart upload has no upload ID: ${key}`)
+  const uploadID = created.UploadId
+  await uploadMultipartParts(client, config.bucket, key, uploadID, body, contentLength, request)
+    .then((parts) =>
+      client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: config.bucket,
+          Key: key,
+          UploadId: uploadID,
+          MultipartUpload: { Parts: parts },
+        }),
+        { abortSignal: request?.signal },
+      ),
+    )
+    .catch(async (error: unknown) => {
+      await client
+        .send(new AbortMultipartUploadCommand({ Bucket: config.bucket, Key: key, UploadId: uploadID }))
+        .catch(() => undefined)
+      throw error
+    })
+}
+
+async function uploadMultipartParts(
+  client: S3Client,
+  bucket: string,
+  key: string,
+  uploadID: string,
+  body: AsyncIterable<Uint8Array>,
+  contentLength: number,
+  request: ObjectStoreRequest | undefined,
+) {
+  const parts: Array<{ readonly ETag: string; readonly PartNumber: number }> = []
+  let partNumber = 1
+  for await (const part of fixedSizeParts(body, contentLength)) {
+    const uploaded = await client.send(
+      new UploadPartCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId: uploadID,
+        PartNumber: partNumber,
+        Body: part,
+        ContentLength: part.byteLength,
+      }),
+      { abortSignal: request?.signal },
+    )
+    if (!uploaded.ETag) throw new Error(`OSS multipart upload part has no ETag: ${key}#${partNumber}`)
+    parts.push({ ETag: uploaded.ETag, PartNumber: partNumber })
+    partNumber += 1
+  }
+  return parts
+}
+
+async function* fixedSizeParts(body: AsyncIterable<Uint8Array>, contentLength: number) {
+  if (!Number.isSafeInteger(contentLength) || contentLength < 0) throw new Error("OSS stream content length is invalid")
+  let written = 0
+  let part = new Uint8Array(Math.min(multipartPartBytes, contentLength))
+  let partOffset = 0
+  for await (const chunk of body) {
+    if (written + chunk.byteLength > contentLength) throw new Error("OSS stream exceeds declared content length")
+    let chunkOffset = 0
+    while (chunkOffset < chunk.byteLength) {
+      const copied = Math.min(part.byteLength - partOffset, chunk.byteLength - chunkOffset)
+      part.set(chunk.subarray(chunkOffset, chunkOffset + copied), partOffset)
+      partOffset += copied
+      chunkOffset += copied
+      written += copied
+      if (partOffset !== part.byteLength) continue
+      yield part
+      part = new Uint8Array(Math.min(multipartPartBytes, contentLength - written))
+      partOffset = 0
+    }
+  }
+  if (written !== contentLength) throw new Error("OSS stream is shorter than declared content length")
 }
 
 async function listObjects(
