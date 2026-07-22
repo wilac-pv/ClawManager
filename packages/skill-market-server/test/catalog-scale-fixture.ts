@@ -1,5 +1,6 @@
 import { type SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createCatalogIndex, key, patchCatalogIndex, type CatalogDetailRef } from "../src/catalog"
+import { catalogIndexPayload } from "../src/oss"
 
 const started = performance.now()
 const entries = new Map<string, { readonly summary: SkillMarket.Summary; readonly ref: CatalogDetailRef }>()
@@ -62,13 +63,9 @@ const patched = patchCatalogIndex({
   replacements,
   sourceStatus: index.sourceStatus,
 })
-const catalogPayload = JSON.stringify({
-  schemaVersion: 2,
-  revision: patched.revision,
-  createdAt: patched.createdAt,
-  items: patched.items.map((summary) => ({ summary, detail: patched.details.get(key(summary.source, summary.id)) })),
-})
-const catalogPayloadUtf8 = new TextEncoder().encode(catalogPayload)
+const catalogPayload = catalogIndexPayload(patched)
+let streamedBytes = 0
+for await (const chunk of catalogPayload.body()) streamedBytes += chunk.byteLength
 const maxRSS = process.resourceUsage().maxRSS
 
 console.log(
@@ -76,7 +73,7 @@ console.log(
     elapsedMilliseconds: performance.now() - started,
     maxRssKilobytes: process.platform === "darwin" ? maxRSS / 1024 : maxRSS,
     items: patched.items.length,
-    catalogPayloadBytes: catalogPayloadUtf8.byteLength,
-    catalogPayloadCharacters: catalogPayload.length,
+    catalogPayloadBytes: catalogPayload.contentLength,
+    streamedBytes,
   }),
 )

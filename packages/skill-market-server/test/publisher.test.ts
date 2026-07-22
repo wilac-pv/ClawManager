@@ -1044,6 +1044,17 @@ function memoryStore(
       if (failures.put?.test(key)) throw new Error(`configured put failure for ${key}`)
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
     },
+    async putStream(key, body, contentLength) {
+      if (failures.put?.test(key)) throw new Error(`configured put failure for ${key}`)
+      const chunks = await Array.fromAsync(body)
+      const output = new Uint8Array(contentLength)
+      const written = chunks.reduce((offset, chunk) => {
+        output.set(chunk, offset)
+        return offset + chunk.byteLength
+      }, 0)
+      if (written !== contentLength) throw new Error(`stream length mismatch for ${key}`)
+      objects.set(key, output)
+    },
     async get(key) {
       const body = objects.get(key)
       if (!body) throw new Error(`missing ${key}`)

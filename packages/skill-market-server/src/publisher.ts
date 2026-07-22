@@ -692,10 +692,20 @@ function requireWorkerID(value: string) {
 }
 
 function abortableStore(store: PrivateObjectStore, signal: AbortSignal): PrivateObjectStore {
+  const putStream = store.putStream
   return {
     async put(key, body, contentType, cacheControl, metadata) {
       await awaitAbortable(signal, () => store.put(key, body, contentType, cacheControl, metadata, { signal }))
     },
+    ...(putStream
+      ? {
+          async putStream(key, body, contentLength, contentType, cacheControl, metadata) {
+            await awaitAbortable(signal, () =>
+              putStream(key, body, contentLength, contentType, cacheControl, metadata, { signal }),
+            )
+          },
+        }
+      : {}),
     get: (key) => awaitAbortable(signal, () => store.get(key, { signal })),
     head: (key) => awaitAbortable(signal, () => store.head(key, { signal })),
     async putPrivate(key, body, contentType, metadata) {

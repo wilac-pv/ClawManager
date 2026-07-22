@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
-import { type CatalogIndex, key, mergeCatalog } from "../src/catalog"
+import { contentAddressDetail, createCatalogIndex, type CatalogIndex, key, mergeCatalog } from "../src/catalog"
 import {
+  catalogIndexPayload,
   loadCatalogDetail,
   loadCurrentSnapshot,
   loadCatalogIndex,
@@ -101,6 +102,28 @@ describe("OSS snapshots", () => {
     expect(store.objects.has("skill-market/current.json")).toBe(false)
     await publishSnapshotPointer(store.client, config, snapshot)
     expect(JSON.parse(new TextDecoder().decode(store.objects.get("skill-market/current.json"))).revision).toBe("r1")
+  })
+
+  test("streams a byte-identical v2 catalog payload with an exact content length", async () => {
+    const snapshot = sampleSnapshot("stream-v2")
+    const index = createCatalogIndex({
+      entries: new Map(Array.from(snapshot.details, ([entryKey, detail]) => [entryKey, contentAddressDetail(detail)])),
+      sourceStatus: snapshot.sourceStatus,
+      createdAt: snapshot.createdAt,
+    })
+    const expected = JSON.stringify({
+      schemaVersion: 2,
+      revision: index.revision,
+      createdAt: index.createdAt,
+      items: index.items.map((summary) => ({ summary, detail: index.details.get(key(summary.source, summary.id)) })),
+    })
+    const payload = catalogIndexPayload(index)
+    const chunks: Uint8Array[] = []
+    for await (const chunk of payload.body()) chunks.push(chunk)
+    const body = await new Blob(chunks).text()
+
+    expect(body).toBe(expected)
+    expect(payload.contentLength).toBe(new TextEncoder().encode(expected).byteLength)
   })
 
   test("publishes one changed detail for an 80,000-item v2 index before the index and pointer", async () => {
@@ -241,6 +264,18 @@ function memoryObjectStore() {
       if (state.putDelay) await Bun.sleep(state.putDelay)
       state.activePuts -= 1
       objects.set(key, typeof body === "string" ? new TextEncoder().encode(body) : body)
+      writes.push({ key, contentType, cacheControl })
+    },
+    async putStream(key, body, contentLength, contentType, cacheControl) {
+      if (state.failOn?.test(key)) throw new Error(`configured failure for ${key}`)
+      const chunks = await Array.fromAsync(body)
+      const output = new Uint8Array(contentLength)
+      const written = chunks.reduce((offset, chunk) => {
+        output.set(chunk, offset)
+        return offset + chunk.byteLength
+      }, 0)
+      if (written !== contentLength) throw new Error(`stream length mismatch for ${key}`)
+      objects.set(key, output)
       writes.push({ key, contentType, cacheControl })
     },
     async get(key) {

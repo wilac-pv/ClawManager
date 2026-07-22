@@ -21,6 +21,15 @@ export type ObjectStore = {
     metadata?: Readonly<Record<string, string>>,
     request?: ObjectStoreRequest,
   ) => Promise<void>
+  readonly putStream?: (
+    key: string,
+    body: AsyncIterable<Uint8Array>,
+    contentLength: number,
+    contentType: string,
+    cacheControl: string,
+    metadata?: Readonly<Record<string, string>>,
+    request?: ObjectStoreRequest,
+  ) => Promise<void>
   readonly get: (key: string, request?: ObjectStoreRequest) => Promise<Uint8Array>
   readonly head: (key: string, request?: ObjectStoreRequest) => Promise<{
     size: number
@@ -90,6 +99,20 @@ export function makeS3ObjectStore(config: {
           Bucket: config.bucket,
           Key: key,
           Body: body,
+          ContentType: contentType,
+          CacheControl: cacheControl,
+          Metadata: metadata,
+        }),
+        { abortSignal: request?.signal },
+      )
+    },
+    async putStream(key, body, contentLength, contentType, cacheControl, metadata = undefined, request = undefined) {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: config.bucket,
+          Key: key,
+          Body: Readable.from(body),
+          ContentLength: contentLength,
           ContentType: contentType,
           CacheControl: cacheControl,
           Metadata: metadata,
@@ -252,17 +275,7 @@ async function publishCatalogObjects(
       "public, max-age=31536000, immutable",
       { sha256: detail.digest },
     )
-  await client.put(
-    objectKeys.catalog,
-    JSON.stringify({
-      schemaVersion: 2,
-      revision: index.revision,
-      createdAt: index.createdAt,
-      items: index.items.map((summary) => ({ summary, detail: index.details.get(key(summary.source, summary.id)) })),
-    }),
-    "application/json",
-    "public, max-age=31536000, immutable",
-  )
+  await putCatalogObject(client, objectKeys.catalog, index)
   await client.put(
     objectKeys.facets,
     JSON.stringify(index.facets),
@@ -281,6 +294,29 @@ async function publishCatalogPointer(client: ObjectStore, config: PublishConfig,
     "public, max-age=60",
   )
   return { revision: index.revision, pointerKey: objectKeys.current }
+}
+
+async function putCatalogObject(client: ObjectStore, objectKey: string, index: CatalogIndex) {
+  if (!client.putStream)
+    return client.put(
+      objectKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        revision: index.revision,
+        createdAt: index.createdAt,
+        items: index.items.map((summary) => ({ summary, detail: index.details.get(key(summary.source, summary.id)) })),
+      }),
+      "application/json",
+      "public, max-age=31536000, immutable",
+    )
+  const payload = catalogIndexPayload(index)
+  return client.putStream(
+    objectKey,
+    payload.body(),
+    payload.contentLength,
+    "application/json",
+    "public, max-age=31536000, immutable",
+  )
 }
 
 export async function loadCurrentPointer(client: ObjectStore, config: PublishConfig) {
@@ -331,9 +367,7 @@ export async function loadCatalogIndex(client: ObjectStore, config: PublishConfi
     loadJsonObject(client, objectKeys.catalog),
     loadObject(client, objectKeys.facets, SkillMarket.Facets),
   ])
-  const catalog = isV2(catalogValue)
-    ? await Schema.decodeUnknownPromise(CatalogObjectV2)(catalogValue)
-    : await Schema.decodeUnknownPromise(CatalogObjectV1)(catalogValue)
+  const catalog = requireCatalogObject(catalogValue)
   if (catalog.revision !== pointer.revision || facets.revision !== pointer.revision)
     throw new Error("OSS snapshot revision mismatch")
   if ("schemaVersion" in catalog) {
@@ -492,6 +526,37 @@ function validateCatalogIndex(index: CatalogIndex) {
 
 function isV2(value: unknown): value is { readonly schemaVersion: 2 } {
   return typeof value === "object" && value !== null && (value as { schemaVersion?: unknown }).schemaVersion === 2
+}
+
+function requireCatalogObject(value: unknown) {
+  if (isV2(value)) {
+    if (!Schema.is(CatalogObjectV2)(value)) throw new Error("OSS v2 catalog is invalid")
+    return value
+  }
+  if (!Schema.is(CatalogObjectV1)(value)) throw new Error("OSS v1 catalog is invalid")
+  return value
+}
+
+export function catalogIndexPayload(index: CatalogIndex) {
+  const encoder = new TextEncoder()
+  const parts = () => catalogIndexParts(index)
+  let contentLength = 0
+  for (const part of parts()) contentLength += encoder.encode(part).byteLength
+  return {
+    contentLength,
+    async *body() {
+      for (const part of parts()) yield encoder.encode(part)
+    },
+  }
+}
+
+function* catalogIndexParts(index: CatalogIndex) {
+  yield `{"schemaVersion":2,"revision":${JSON.stringify(index.revision)},"createdAt":${JSON.stringify(index.createdAt)},"items":[`
+  for (const [position, summary] of index.items.entries()) {
+    if (position > 0) yield ","
+    yield JSON.stringify({ summary, detail: index.details.get(key(summary.source, summary.id)) })
+  }
+  yield "]}"
 }
 
 function sha256(body: Uint8Array) {
