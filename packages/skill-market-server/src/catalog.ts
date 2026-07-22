@@ -53,8 +53,7 @@ export function mergeCatalog(
     throw new Error("duplicate catalog key")
   const items = details.map(toSummary)
   const revision = new Bun.CryptoHasher("sha256").update(JSON.stringify({ details, sourceStatus })).digest("hex")
-  const visible = items.filter((item) => !item.delisted)
-  const facets = buildFacets(revision, sourceStatus, visible)
+  const facets = buildFacets(revision, sourceStatus, items)
   return {
     revision,
     createdAt: new Date().toISOString(),
@@ -81,16 +80,45 @@ export function createCatalogIndex(input: {
   readonly createdAt?: string
 }): CatalogIndex {
   const entries = Array.from(input.entries.entries()).toSorted(([left], [right]) => left.localeCompare(right))
-  const revision = new Bun.CryptoHasher("sha256")
-    .update(JSON.stringify({ entries, sourceStatus: input.sourceStatus }))
-    .digest("hex")
+  const revision = revisionForEntries(entries, input.sourceStatus)
   const items = entries.map(([, entry]) => entry.summary)
   return {
     revision,
     createdAt: input.createdAt ?? new Date().toISOString(),
     items,
     details: new Map(entries.map(([entryKey, entry]) => [entryKey, entry.ref])),
-    facets: buildFacets(revision, input.sourceStatus, items.filter((item) => !item.delisted)),
+    facets: buildFacets(revision, input.sourceStatus, items),
+    sourceStatus: input.sourceStatus,
+  }
+}
+
+export function patchCatalogIndex(input: {
+  readonly index: CatalogIndex
+  readonly replacements: ReadonlyMap<string, Pick<CatalogDetail, "summary" | "ref">>
+  readonly sourceStatus: SkillMarket.SourceStatus
+  readonly createdAt?: string
+}): CatalogIndex {
+  for (const [entryKey, replacement] of input.replacements) {
+    if (!input.index.details.has(entryKey)) throw new Error(`missing catalog key: ${entryKey}`)
+    if (key(replacement.summary.source, replacement.summary.id) !== entryKey)
+      throw new Error(`replacement key mismatch: ${entryKey}`)
+  }
+  const entries = input.index.items.map((summary) => {
+    const entryKey = key(summary.source, summary.id)
+    const replacement = input.replacements.get(entryKey)
+    return [
+      entryKey,
+      replacement ? { summary: replacement.summary, ref: replacement.ref } : { summary, ref: input.index.details.get(entryKey)! },
+    ] as const
+  })
+  const revision = revisionForEntries(entries, input.sourceStatus)
+  const items = entries.map(([, entry]) => entry.summary)
+  return {
+    revision,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    items,
+    details: new Map(entries.map(([entryKey, entry]) => [entryKey, entry.ref])),
+    facets: buildFacets(revision, input.sourceStatus, items),
     sourceStatus: input.sourceStatus,
   }
 }
@@ -196,9 +224,17 @@ function buildFacets(
 ): SkillMarket.Facets {
   const sourceCounts = new Map<SkillMarket.Source, number>()
   const categoryCounts = new Map<string, number>()
+  let requiresApiKey = 0
+  let doesNotRequireApiKey = 0
   items.forEach((item) => {
+    if (item.delisted) return
     sourceCounts.set(item.source, (sourceCounts.get(item.source) ?? 0) + 1)
     item.categories.forEach((category) => categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1))
+    if (item.requiresApiKey) {
+      requiresApiKey++
+      return
+    }
+    doesNotRequireApiKey++
   })
   return {
     revision,
@@ -210,10 +246,22 @@ function buildFacets(
       (left, right) => right.count - left.count || left.value.localeCompare(right.value),
     ),
     requiresApiKey: {
-      yes: items.filter((item) => item.requiresApiKey).length,
-      no: items.filter((item) => !item.requiresApiKey).length,
+      yes: requiresApiKey,
+      no: doesNotRequireApiKey,
     },
   }
+}
+
+function revisionForEntries(
+  entries: ReadonlyArray<readonly [string, Pick<CatalogDetail, "summary" | "ref">]>,
+  sourceStatus: SkillMarket.SourceStatus,
+) {
+  const hash = new Bun.CryptoHasher("sha256").update('{"entries":[')
+  entries.forEach((entry, index) => {
+    if (index > 0) hash.update(",")
+    hash.update(JSON.stringify(entry))
+  })
+  return hash.update(`],"sourceStatus":${JSON.stringify(sourceStatus)}}`).digest("hex")
 }
 
 function comparator(sort: SkillMarket.Sort) {

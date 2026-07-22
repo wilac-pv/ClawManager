@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
-import { mergeCatalog, queryCatalog } from "../src/catalog"
+import { contentAddressDetail, createCatalogIndex, key, mergeCatalog, patchCatalogIndex, queryCatalog } from "../src/catalog"
 import { sampleDetail } from "./fixture"
 
 const enterprise = Schema.decodeUnknownSync(SkillMarket.EnterpriseIndex)({
@@ -63,6 +63,19 @@ describe("catalog", () => {
     )
   })
 
+  test("keeps catalog index revisions compatible with legacy whole-value serialization", () => {
+    const entry = contentAddressDetail(sampleDetail())
+    const entries = new Map([[key(entry.summary.source, entry.summary.id), entry]])
+    const sourceStatus = { skillhub: "fresh", enterprise: "fresh", community: "unavailable" } as const
+
+    const index = createCatalogIndex({ entries, sourceStatus })
+    const legacyRevision = new Bun.CryptoHasher("sha256")
+      .update(JSON.stringify({ entries: Array.from(entries.entries()), sourceStatus }))
+      .digest("hex")
+
+    expect(index.revision).toBe(legacyRevision)
+  })
+
   test("filters, hides delisted skills, and returns summary DTOs", () => {
     const snapshot = mergeCatalog(
       [sampleDetail(), sampleDetail({ id: "hidden-review", name: "Hidden", delisted: true })],
@@ -113,5 +126,78 @@ describe("catalog", () => {
 
   test("rejects duplicate source and ID keys", () => {
     expect(() => mergeCatalog([sampleDetail(), sampleDetail()], enterprise)).toThrow("duplicate catalog key")
+  })
+
+  test("patches selected catalog entries without changing unrelated entries or revision compatibility", () => {
+    const skillhub = contentAddressDetail(sampleDetail({ id: "a", name: "SkillHub A" }))
+    const community = contentAddressDetail(
+      sampleDetail({
+        id: "community-a",
+        source: "community",
+        sourceUrl: "https://market.example.com/skills/community-a",
+        publicDetailUrl: "https://market.example.com/skills/community-a",
+        name: "Community A",
+      }),
+    )
+    const index = createCatalogIndex({
+      entries: new Map([
+        [key(skillhub.summary.source, skillhub.summary.id), skillhub],
+        [key(community.summary.source, community.summary.id), community],
+      ]),
+      sourceStatus: { skillhub: "stale", enterprise: "fresh", community: "fresh" },
+      createdAt: "2026-07-21T00:00:00.000Z",
+    })
+    const replacement = contentAddressDetail(
+      sampleDetail({ id: "a", name: "TRACE A", evaluationScore: 4.45, score: 0 }),
+    )
+
+    const patched = patchCatalogIndex({
+      index,
+      replacements: new Map([[key("skillhub", "a"), replacement]]),
+      sourceStatus: { ...index.sourceStatus, skillhub: "fresh" },
+      createdAt: "2026-07-22T00:00:00.000Z",
+    })
+
+    expect(patched.items.find((item) => item.id === "a")).toEqual(replacement.summary)
+    expect(patched.details.get(key("skillhub", "a"))).toEqual(replacement.ref)
+    expect(patched.items.find((item) => item.id === "community-a")).toEqual(
+      index.items.find((item) => item.id === "community-a"),
+    )
+    expect(patched.details.get(key("community", "community-a"))).toEqual(
+      index.details.get(key("community", "community-a")),
+    )
+    const entries = patched.items.map((summary) => [
+      key(summary.source, summary.id),
+      { summary, ref: patched.details.get(key(summary.source, summary.id))! },
+    ])
+    const legacyRevision = new Bun.CryptoHasher("sha256")
+      .update(JSON.stringify({ entries, sourceStatus: patched.sourceStatus }))
+      .digest("hex")
+    expect(patched.revision).toBe(legacyRevision)
+    expect(patched.createdAt).toBe("2026-07-22T00:00:00.000Z")
+  })
+
+  test("rejects a patch replacement with an absent or mismatched key", () => {
+    const entry = contentAddressDetail(sampleDetail({ id: "a" }))
+    const index = createCatalogIndex({
+      entries: new Map([[key(entry.summary.source, entry.summary.id), entry]]),
+      sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "unavailable" },
+    })
+    const replacement = contentAddressDetail(sampleDetail({ id: "other" }))
+
+    expect(() =>
+      patchCatalogIndex({
+        index,
+        replacements: new Map([[key("skillhub", "missing"), entry]]),
+        sourceStatus: index.sourceStatus,
+      }),
+    ).toThrow("missing catalog key")
+    expect(() =>
+      patchCatalogIndex({
+        index,
+        replacements: new Map([[key("skillhub", "a"), replacement]]),
+        sourceStatus: index.sourceStatus,
+      }),
+    ).toThrow("replacement key mismatch")
   })
 })
