@@ -62,21 +62,21 @@ const patched = patchCatalogIndex({
   replacements,
   sourceStatus: index.sourceStatus,
 })
+const catalogPayload = JSON.stringify({
+  schemaVersion: 2,
+  revision: patched.revision,
+  createdAt: patched.createdAt,
+  items: patched.items.map((summary) => ({ summary, detail: patched.details.get(key(summary.source, summary.id)) })),
+})
+const catalogPayloadUtf8 = new TextEncoder().encode(catalogPayload)
 const maxRSS = process.resourceUsage().maxRSS
-const catalogPayloadBytes = new TextEncoder().encode(
-  JSON.stringify({
-    schemaVersion: 2,
-    revision: patched.revision,
-    createdAt: patched.createdAt,
-    items: patched.items.map((summary) => ({ summary, detail: patched.details.get(key(summary.source, summary.id)) })),
-  }),
-).byteLength
 
 console.log(
   JSON.stringify({
     elapsedMilliseconds: performance.now() - started,
     maxRssKilobytes: process.platform === "darwin" ? maxRSS / 1024 : maxRSS,
     items: patched.items.length,
-    catalogPayloadBytes,
+    catalogPayloadBytes: catalogPayloadUtf8.byteLength,
+    catalogPayloadCharacters: catalogPayload.length,
   }),
 )
