@@ -149,7 +149,8 @@ TRACE evaluation publication is a bounded delta update. If a service timeout or
 memory guard fires before a catalog target revision is persisted, completed
 evaluation rows remain retryable and the transient catalog job is retired. If a
 target revision was persisted, lease-expiry recovery compares `current.json` and
-either finalizes the pointer outcome or safely retries it. Following an abnormal
+finalizes only a matching pointer outcome; a mismatch retires the delta job and
+the completed evaluation rows become the retry source. Following an abnormal
 memory or IO event, operators must keep the evaluation and general publication
 timers disabled until one manual bounded evaluation run passes its memory, swap,
 IO-wait, and target-less-job checks.

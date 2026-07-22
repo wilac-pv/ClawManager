@@ -169,8 +169,8 @@ If a bounded evaluation run is killed or times out before it persists a catalog
 target revision, its completed evaluation rows remain retryable: the transient
 catalog job is retired and the next bounded run selects those rows again. If a
 target revision already exists, do not clear its lease manually: expiry recovery
-checks the catalog pointer and either finalizes the publication or safely
-retries it.
+checks the catalog pointer, finalizes only a matching publication, and retires
+a mismatch so the completed evaluation rows are selected again by a later run.
 
 After an abnormal memory or IO event, leave both
 `ruying-skill-market-evaluation.timer` and

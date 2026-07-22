@@ -47,6 +47,8 @@ interface JobRow {
   readonly target_revision: string | null
   readonly lease_owner: string | null
   readonly lease_expires_at: number | null
+  readonly error_code: string | null
+  readonly error_summary: string | null
   readonly skill_id: string | null
   readonly target_version: string | null
 }
@@ -106,6 +108,19 @@ export class Publisher {
             this.finalize(job, true)
             return count + 1
           }
+          if (job.error_code === "catalog-delta") {
+            const retired = this.options.database.transaction(
+              (connection) =>
+                connection.run(
+                  `UPDATE publish_jobs
+                   SET status = 'failed', lease_owner = NULL, lease_expires_at = NULL,
+                       error_code = 'catalog-delta', error_summary = 'TRACE catalog publication interrupted', updated_at = ?
+                   WHERE id = ? AND status = 'running' AND lease_expires_at <= ?`,
+                  [now, job.id, now],
+                ).changes,
+            )
+            return count + Number(retired > 0)
+          }
           const reset = this.options.database.transaction(
             (connection) =>
               connection.run(
@@ -144,9 +159,17 @@ export class Publisher {
       const jobID = `job_${randomSecret()}`
       connection.run(
         `INSERT INTO publish_jobs
-          (id, kind, status, lease_owner, lease_expires_at, attempts, created_at, updated_at)
-         VALUES (?, 'catalog_rebuild', 'running', ?, ?, 1, ?, ?)`,
-        [jobID, workerID, now + (this.options.leaseMilliseconds ?? 5 * 60 * 1_000), now, now],
+          (id, kind, status, lease_owner, lease_expires_at, attempts, error_code, error_summary, created_at, updated_at)
+         VALUES (?, 'catalog_rebuild', 'running', ?, ?, 1, ?, ?, ?, ?)`,
+        [
+          jobID,
+          workerID,
+          now + (this.options.leaseMilliseconds ?? 5 * 60 * 1_000),
+          preTargetFailure === "fail" ? "catalog-delta" : null,
+          preTargetFailure === "fail" ? "TRACE catalog publication in progress" : null,
+          now,
+          now,
+        ],
       )
       return readJob(connection, jobID)!
     })
@@ -588,6 +611,8 @@ function jobSelect() {
     publish_jobs.target_revision,
     publish_jobs.lease_owner,
     publish_jobs.lease_expires_at,
+    publish_jobs.error_code,
+    publish_jobs.error_summary,
     submissions.skill_id,
     submissions.target_version
    FROM publish_jobs

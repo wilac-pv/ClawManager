@@ -211,6 +211,133 @@ describe("community publisher", () => {
     fixture.database.close()
   })
 
+  test("marks a TRACE catalog lease before entering its publication callback", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    const publisher = createPublisher(publisherOptions(fixture))
+    let release: (() => void) | undefined
+    let started = false
+    const operation = publisher.withCatalogLease(
+      "worker-trace",
+      async () => {
+        started = true
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      },
+      fixture.store,
+      undefined,
+      "fail",
+    )
+
+    await waitFor(() => started)
+    expect(
+      fixture.database.connection
+        .query<{ readonly status: string; readonly error_code: string | null; readonly error_summary: string | null }, []>(
+          "SELECT status, error_code, error_summary FROM publish_jobs",
+        )
+        .get(),
+    ).toEqual({
+      status: "running",
+      error_code: "catalog-delta",
+      error_summary: "TRACE catalog publication in progress",
+    })
+
+    release!()
+    await operation
+    fixture.database.close()
+  })
+
+  test("retires an expired target-less TRACE catalog lease instead of requeueing a rebuild", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    insertExpiredDeltaLease(fixture, "job_trace_no_target")
+    const publisher = createPublisher(publisherOptions(fixture))
+
+    expect(await publisher.recover()).toBe(1)
+    expect(readJobState(fixture, "job_trace_no_target")).toEqual({
+      status: "failed",
+      lease_owner: null,
+      lease_expires_at: null,
+      error_code: "catalog-delta",
+      error_summary: "TRACE catalog publication interrupted",
+    })
+    fixture.database.close()
+  })
+
+  test("retires an expired TRACE catalog lease when its target pointer did not publish", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    insertExpiredDeltaLease(fixture, "job_trace_pointer_mismatch", "unpublished-revision")
+    const publisher = createPublisher(publisherOptions(fixture))
+
+    expect(await publisher.recover()).toBe(1)
+    expect(readJobState(fixture, "job_trace_pointer_mismatch")).toEqual({
+      status: "failed",
+      lease_owner: null,
+      lease_expires_at: null,
+      error_code: "catalog-delta",
+      error_summary: "TRACE catalog publication interrupted",
+    })
+    fixture.database.close()
+  })
+
+  test("finalizes an expired TRACE catalog lease when its target pointer published", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    insertExpiredDeltaLease(fixture, "job_trace_pointer_match", "initial")
+    const publisher = createPublisher(publisherOptions(fixture))
+
+    expect(await publisher.recover()).toBe(1)
+    expect(readJobState(fixture, "job_trace_pointer_match")).toEqual({
+      status: "completed",
+      lease_owner: null,
+      lease_expires_at: null,
+      error_code: null,
+      error_summary: null,
+    })
+    fixture.database.close()
+  })
+
+  test("keeps an expired generic catalog rebuild claimable", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    fixture.database.connection.run(
+      `INSERT INTO publish_jobs
+        (id, kind, status, lease_owner, lease_expires_at, attempts, created_at, updated_at)
+       VALUES ('job_generic_rebuild', 'catalog_rebuild', 'running', 'crashed-worker', ?, 1, ?, ?)`,
+      [fixture.clock.value - 1, fixture.clock.value, fixture.clock.value],
+    )
+    const publisher = createPublisher(publisherOptions(fixture))
+
+    expect(await publisher.recover()).toBe(1)
+    expect(readJobState(fixture, "job_generic_rebuild")).toEqual({
+      status: "pending",
+      lease_owner: null,
+      lease_expires_at: null,
+      error_code: null,
+      error_summary: null,
+    })
+    fixture.database.close()
+  })
+
+  test("does not let runOne claim a recovered TRACE catalog lease", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    insertExpiredDeltaLease(fixture, "job_trace_not_claimable")
+    const publisher = createPublisher(publisherOptions(fixture))
+
+    expect(await publisher.runOne("worker-recovery")).toBeUndefined()
+    expect(readJobState(fixture, "job_trace_not_claimable")).toEqual({
+      status: "failed",
+      lease_owner: null,
+      lease_expires_at: null,
+      error_code: "catalog-delta",
+      error_summary: "TRACE catalog publication interrupted",
+    })
+    fixture.database.close()
+  })
+
   test("cancels a TRACE pointer write without moving the pointer or materializing its evaluation", async () => {
     const fixture = await publisherFixture()
     const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
@@ -264,7 +391,7 @@ describe("community publisher", () => {
     expect(await publisher.recover()).toBe(1)
     expect(
       fixture.database.connection
-        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'")
+        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'failed'")
         .get()!.count,
     ).toBe(1)
     fixture.database.close()
@@ -929,6 +1056,33 @@ function memoryStore(
       objects.delete(key)
     },
   }
+}
+
+function insertExpiredDeltaLease(
+  fixture: Awaited<ReturnType<typeof publisherFixture>>,
+  id: string,
+  targetRevision?: string,
+) {
+  fixture.database.connection.run(
+    `INSERT INTO publish_jobs
+      (id, kind, status, target_revision, lease_owner, lease_expires_at, attempts, error_code, error_summary, created_at, updated_at)
+     VALUES (?, 'catalog_rebuild', 'running', ?, 'crashed-worker', ?, 1, 'catalog-delta', 'TRACE catalog publication in progress', ?, ?)`,
+    [id, targetRevision ?? null, fixture.clock.value - 1, fixture.clock.value, fixture.clock.value],
+  )
+}
+
+function readJobState(fixture: Awaited<ReturnType<typeof publisherFixture>>, id: string) {
+  return fixture.database.connection
+    .query<{
+      readonly status: string
+      readonly lease_owner: string | null
+      readonly lease_expires_at: number | null
+      readonly error_code: string | null
+      readonly error_summary: string | null
+    }, [string]>(
+      "SELECT status, lease_owner, lease_expires_at, error_code, error_summary FROM publish_jobs WHERE id = ?",
+    )
+    .get(id)
 }
 
 function rejected<T>(promise: Promise<T>) {
