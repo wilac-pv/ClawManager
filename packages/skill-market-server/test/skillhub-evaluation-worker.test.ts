@@ -188,7 +188,7 @@ describe("SkillHub evaluation worker", () => {
     expect(queue.completed).toEqual(["good", "bad"])
   })
 
-  test("publishes durable completed evaluations at the configured batch boundary", async () => {
+  test("publishes at most one durable batch per worker run", async () => {
     const queue = createQueue({ value: 0 }, ["a", "b"])
     let published = 0
     await runSkillHubEvaluationWorker({
@@ -201,7 +201,7 @@ describe("SkillHub evaluation worker", () => {
         pending: () => ({ count: queue.unpublished, oldestCheckedAt: 0 }),
         publish: async () => {
           published += 1
-          queue.unpublished = 0
+          queue.unpublished = 2
         },
       },
       publicationBatch: 2,

@@ -71,6 +71,7 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
   let storageFailures = 0
   let published = 0
   let publicationFailures = 0
+  let publicationAttempted = false
   const schedule = async () => {
     const timestamp = now()
     if (timestamp >= deadline) return false
@@ -83,6 +84,7 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
   }
   const publish = async () => {
     if (!options.publication) return
+    if (publicationAttempted) return
     if (now() >= deadline) return
     const pending = options.publication.pending()
     const dueByCount = pending.count >= publicationBatch
@@ -90,6 +92,7 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
     if (!dueByCount && !dueByTime) return
     const remaining = deadline - now()
     if (remaining <= 0) return
+    publicationAttempted = true
     const controller = new AbortController()
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
