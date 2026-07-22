@@ -148,8 +148,9 @@ are writable; it never prints environment values or secrets.
 The `ruying-skill-market-evaluation.timer` starts one minute after boot and then
 runs once a minute. It uses a dedicated lock so a prior evaluation run causes a
 later invocation to exit cleanly, without blocking the independent SkillHub
-mirror. The service is constrained to `MemoryMax=1536M` and can write only the
-market data, backup, and lock directories.
+mirror. The service is constrained to `MemoryHigh=768M`, `MemoryMax=1024M`,
+`TimeoutStartSec=65s`, and `TimeoutStopSec=10s`; it can write only the market
+data, backup, and lock directories.
 
 Use these canonical environment settings:
 
@@ -163,6 +164,20 @@ SKILL_MARKET_EVALUATION_PUBLISH_BATCH=100
 The older `SKILL_MARKET_SKILLHUB_EVALUATION_*` names remain accepted while hosts
 roll forward, but the canonical value wins if both are present. Preflight emits
 only the resulting numeric values, never environment values or secrets.
+
+If a bounded evaluation run is killed or times out before it persists a catalog
+target revision, its completed evaluation rows remain retryable: the transient
+catalog job is retired and the next bounded run selects those rows again. If a
+target revision already exists, do not clear its lease manually: expiry recovery
+checks the catalog pointer and either finalizes the publication or safely
+retries it.
+
+After an abnormal memory or IO event, leave both
+`ruying-skill-market-evaluation.timer` and
+`ruying-skill-market-worker.timer` disabled. Run one evaluation service manually
+and require it to finish within its limit with memory below `1024M`, no sustained
+swap or IO-wait growth, and no pending or running target-less catalog job before
+enabling either timer.
 
 ## Bootstrap Admin
 
@@ -361,7 +376,8 @@ systemctl enable --now ruying-skill-market-skillhub.timer
 ```
 
 Enable the independent TRACE evaluation timer only after the API release has
-migrated successfully:
+migrated successfully and a manual bounded run has passed following any
+memory/IO incident:
 
 ```bash
 systemctl daemon-reload

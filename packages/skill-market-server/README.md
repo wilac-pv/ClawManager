@@ -145,6 +145,15 @@ lease job -> verify quarantine -> copy immutable package -> build and validate s
 
 Expired leases are reclaimable. If `current.json` moved before SQLite finalization, recovery recognizes the persisted target revision and completes SQLite exactly once without moving the pointer again.
 
+TRACE evaluation publication is a bounded delta update. If a service timeout or
+memory guard fires before a catalog target revision is persisted, completed
+evaluation rows remain retryable and the transient catalog job is retired. If a
+target revision was persisted, lease-expiry recovery compares `current.json` and
+either finalizes the pointer outcome or safely retries it. Following an abnormal
+memory or IO event, operators must keep the evaluation and general publication
+timers disabled until one manual bounded evaluation run passes its memory, swap,
+IO-wait, and target-less-job checks.
+
 Database migrations are contiguous and transactional. When an existing database needs a migration, startup first writes a timestamped mode-`0600` backup, removes WAL sidecars, and verifies `PRAGMA integrity_check`. A failed migration leaves the prior schema/data intact. Monitor backup metrics and copy the backup directory to the deployment backup system according to the service retention policy.
 
 Cleanup removes expired login attempts, sessions, and idempotency records. Run `worker --once` regularly even when the HTTP server is not continuously active.

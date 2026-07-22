@@ -40,6 +40,15 @@ describe("runtime release build", () => {
     const evaluationWorker = Bun.file(join(serverDirectory, "src/skillhub-evaluation-worker.js"))
     expect(await evaluationWorker.exists()).toBe(true)
     expect(await evaluationWorker.text()).toContain("runConfiguredSkillHubEvaluationWorker")
+    expect(await evaluationWorker.text()).toContain("publishCompletedSkillHubEvaluations")
+    const evaluationService = Bun.file(
+      join(serverDirectory, "deploy/systemd/ruying-skill-market-evaluation.service"),
+    )
+    expect(await evaluationService.exists()).toBe(true)
+    expect(await evaluationService.text()).toContain("MemoryHigh=768M")
+    expect(await evaluationService.text()).toContain("MemoryMax=1024M")
+    expect(await evaluationService.text()).toContain("TimeoutStartSec=65s")
+    expect(await evaluationService.text()).toContain("TimeoutStopSec=10s")
     await setPermissions(outputDirectory, 0o555, 0o444)
     await chmod(homeDirectory, 0o555)
 
