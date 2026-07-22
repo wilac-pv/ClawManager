@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDatabase } from "../src/database"
+import { mergeCatalog } from "../src/catalog"
 import { loadCatalogIndex, loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
 import { createPublisher } from "../src/publisher"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
@@ -17,18 +18,152 @@ afterEach(async () => {
 })
 
 describe("community publisher", () => {
-  test("releases a TRACE publication lease after an un-aborted pointer write fails", async () => {
+  test("patches completed TRACE evaluations without decoding the full SkillHub mirror", async () => {
+    const fixture = await publisherFixture()
+    const evaluatedA = sampleDetail({ id: "trace-a", aliases: ["trace-a"], score: 100_000 })
+    const evaluatedB = sampleDetail({ id: "trace-b", aliases: ["trace-b"], score: 100_000 })
+    const unrelatedSkillHub = sampleDetail({ id: "skillhub-unchanged", aliases: ["old-alias"], featured: true })
+    const community = sampleDetail({ id: "community-unchanged", source: "community", aliases: ["community-alias"], featured: true })
+    const enterprise = sampleDetail({ id: "enterprise-unchanged", source: "enterprise", aliases: ["enterprise-alias"], featured: true })
+    const snapshot = mergeCatalog(
+      [evaluatedA, evaluatedB, unrelatedSkillHub, community, enterprise],
+      { schemaVersion: 1, updatedAt: "2026-07-22T00:00:00.000Z", skills: [] },
+    )
+    await publishSnapshot(fixture.store, { prefix: "skill-market" }, snapshot)
+    const completed = [evaluatedA, evaluatedB].map((detail, index) => {
+      const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+      return {
+        slug: detail.id,
+        summary: snapshot.items.find((summary) => summary.id === detail.id)!,
+        detailKey: `details/${detailSha256}.json`,
+        detailSha256,
+        evaluation: {
+          trust: 5,
+          reliability: 4,
+          adaptability: 4.3,
+          convention: 4.325,
+          effectiveness: 4.625,
+          score: 4.45,
+          checkedAt: fixture.clock.value + index,
+        },
+      }
+    })
+    const base = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    const replaced: string[][] = []
+    const imports = {
+      ...base,
+      mirroredEntries() {
+        throw new Error("full mirror decode is forbidden for TRACE delta publication")
+      },
+      completedEvaluations() {
+        return completed
+      },
+      replaceCompletedEvaluationDetails(entries: Parameters<typeof base.replaceCompletedEvaluationDetails>[0]) {
+        replaced.push(entries.map((entry) => entry.slug))
+        return entries.map((entry) => entry.slug)
+      },
+    }
+
+    await createPublisher(publisherOptions(fixture)).publishCompletedSkillHubEvaluations(imports, "worker-trace", 100)
+
+    const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    for (const id of ["skillhub-unchanged", "community-unchanged", "enterprise-unchanged"]) {
+      expect(published.items.find((summary) => summary.id === id)).toEqual(snapshot.items.find((summary) => summary.id === id))
+      expect(published.details.get(`${id === "community-unchanged" ? "community" : id === "enterprise-unchanged" ? "enterprise" : "skillhub"}:${id}`)).toEqual(
+        snapshot.details.get(`${id === "community-unchanged" ? "community" : id === "enterprise-unchanged" ? "enterprise" : "skillhub"}:${id}`),
+      )
+    }
+    for (const id of ["trace-a", "trace-b"]) {
+      expect(published.items.find((summary) => summary.id === id)).toMatchObject({ score: 0, evaluationScore: 4.45, traceEvaluation: evaluationValues() })
+      expect(published.details.get(`skillhub:${id}`)).toMatchObject({ score: 0, evaluationScore: 4.45, traceEvaluation: evaluationValues() })
+    }
+    expect(replaced).toEqual([["trace-a", "trace-b"]])
+    fixture.database.close()
+  })
+
+  test("does not publish a TRACE result whose checked time changes while waiting for the catalog lease", async () => {
+    const fixture = await publisherFixture()
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const detail = { ...snapshot.details.get("skillhub:code-review")!, id: "stale-checked", aliases: ["stale-checked"] }
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+    fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(detail)))
+    const base = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    const first = {
+      slug: "stale-checked",
+      summary: { ...snapshot.items[0]!, id: "stale-checked", aliases: ["stale-checked"] },
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+      evaluation: { ...evaluationValues(), score: 4.45, checkedAt: fixture.clock.value },
+    }
+    let calls = 0
+    const replaced: string[][] = []
+    const imports = {
+      ...base,
+      completedEvaluations() {
+        calls += 1
+        return calls === 1 ? [first] : [{ ...first, evaluation: { ...first.evaluation, checkedAt: fixture.clock.value + 1 } }]
+      },
+      replaceCompletedEvaluationDetails(entries: Parameters<typeof base.replaceCompletedEvaluationDetails>[0]) {
+        replaced.push(entries.map((entry) => entry.slug))
+        return entries.map((entry) => entry.slug)
+      },
+    }
+
+    await createPublisher(publisherOptions(fixture)).publishCompletedSkillHubEvaluations(imports, "worker-trace", 100)
+
+    expect((await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).revision).toBe(snapshot.revision)
+    expect(replaced).toEqual([])
+    fixture.database.close()
+  })
+
+  test("does not publish a TRACE result whose previous detail hash changes while waiting for the catalog lease", async () => {
     const fixture = await publisherFixture()
     const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
     const summary = snapshot.items.find((item) => item.source === "skillhub")!
+    const detail = snapshot.details.get(`skillhub:${summary.id}`)!
+    const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
+    const base = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
+    const first = {
+      slug: summary.id,
+      summary,
+      detailKey: `details/${detailSha256}.json`,
+      detailSha256,
+      evaluation: { ...evaluationValues(), score: 4.45, checkedAt: fixture.clock.value },
+    }
+    let calls = 0
+    const replaced: string[][] = []
+    const imports = {
+      ...base,
+      completedEvaluations() {
+        calls += 1
+        return calls === 1 ? [first] : [{ ...first, detailSha256: "f".repeat(64) }]
+      },
+      replaceCompletedEvaluationDetails(entries: Parameters<typeof base.replaceCompletedEvaluationDetails>[0]) {
+        replaced.push(entries.map((entry) => entry.slug))
+        return entries.map((entry) => entry.slug)
+      },
+    }
+
+    await createPublisher(publisherOptions(fixture)).publishCompletedSkillHubEvaluations(imports, "worker-trace", 100)
+
+    expect((await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).revision).toBe(snapshot.revision)
+    expect(replaced).toEqual([])
+    fixture.database.close()
+  })
+
+  test("retires a TRACE lease when an immutable catalog write fails before a target exists", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run("DELETE FROM publish_jobs")
+    const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+    const summary = snapshot.items.find((item) => item.source === "skillhub")!
     const original = snapshot.details.get(`skillhub:${summary.id}`)!
-    const unscored = { ...original, id: "retry-score", aliases: ["retry-score"] }
+    const unscored = original
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(unscored)).digest("hex")
     fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(unscored)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
     imports.seedLegacy([{
-      slug: "retry-score",
-      summary: { ...summary, id: "retry-score", aliases: ["retry-score"] },
+      slug: summary.id,
+      summary,
       detailKey: `details/${detailSha256}.json`,
       detailSha256,
     }])
@@ -37,36 +172,41 @@ describe("community publisher", () => {
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
            evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
            evaluation_effectiveness = 4.625, evaluation_checked_at = ?
-       WHERE slug = 'retry-score'`,
-      [fixture.clock.value],
+       WHERE slug = ?`,
+      [fixture.clock.value, summary.id],
     )
-    fixture.failures.put = /current\.json$/
+    fixture.failures.put = /indexes\/.*\/catalog\.json$/
 
     const publisher = createPublisher(publisherOptions(fixture))
     const controller = new AbortController()
     expect(
-      await rejected(publisher.publishMirroredSkillHub(imports, "worker-trace", undefined, 100, controller.signal)),
+      await rejected(publisher.publishCompletedSkillHubEvaluations(imports, "worker-trace", 100, controller.signal)),
     ).toBeInstanceOf(Error)
     expect(controller.signal.aborted).toBe(false)
     expect(
       fixture.database.connection
-        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'running'")
+        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'")
         .get()!.count,
     ).toBe(0)
+    expect(
+      fixture.database.connection
+        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'failed'")
+        .get()!.count,
+    ).toBe(1)
     expect(await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).toEqual(snapshot)
     expect(
       fixture.database.connection
         .query<{ readonly detail_sha256: string; readonly record_json: string | null }, [string]>(
           "SELECT detail_sha256, record_json FROM skillhub_import_items WHERE slug = ?",
         )
-        .get("retry-score"),
+        .get(summary.id),
     ).toEqual({ detail_sha256: detailSha256, record_json: null })
-    expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual(["retry-score"])
+    expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual([summary.id])
 
     fixture.failures.put = undefined
-    await publisher.publishMirroredSkillHub(imports, "worker-trace", undefined, 100, controller.signal)
+    await publisher.publishCompletedSkillHubEvaluations(imports, "worker-trace", 100, controller.signal)
     const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
-    expect(published.details.get("skillhub:retry-score")?.evaluationScore).toBe(4.45)
+    expect(published.details.get(`skillhub:${summary.id}`)?.evaluationScore).toBe(4.45)
     expect(imports.completedEvaluations(1)).toEqual([])
     fixture.database.close()
   })
@@ -75,13 +215,13 @@ describe("community publisher", () => {
     const fixture = await publisherFixture()
     const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
     const summary = snapshot.items.find((item) => item.source === "skillhub")!
-    const detail = { ...snapshot.details.get(`skillhub:${summary.id}`)!, id: "cancel-score", aliases: ["cancel-score"] }
+    const detail = snapshot.details.get(`skillhub:${summary.id}`)!
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
     fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(detail)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
     imports.seedLegacy([{
-      slug: "cancel-score",
-      summary: { ...summary, id: "cancel-score", aliases: ["cancel-score"] },
+      slug: summary.id,
+      summary,
       detailKey: `details/${detailSha256}.json`,
       detailSha256,
     }])
@@ -90,8 +230,8 @@ describe("community publisher", () => {
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
            evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
            evaluation_effectiveness = 4.625, evaluation_checked_at = ?
-       WHERE slug = 'cancel-score'`,
-      [fixture.clock.value],
+       WHERE slug = ?`,
+      [fixture.clock.value, summary.id],
     )
     let pointerStarted = false
     const controller = new AbortController()
@@ -107,14 +247,14 @@ describe("community publisher", () => {
         },
       },
     })
-    const publication = publisher.publishMirroredSkillHub(imports, "worker-trace", undefined, 100, controller.signal)
+    const publication = publisher.publishCompletedSkillHubEvaluations(imports, "worker-trace", 100, controller.signal)
 
     await waitFor(() => pointerStarted)
     controller.abort()
 
     expect(await rejected(publication)).toBeInstanceOf(Error)
     expect(await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).toEqual(snapshot)
-    expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual(["cancel-score"])
+    expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual([summary.id])
     expect(
       fixture.database.connection
         .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'running'")
@@ -808,12 +948,18 @@ async function waitFor(condition: () => boolean) {
 
 function evaluationTrace(checkedAt: number) {
   return {
+    ...evaluationValues(),
+    evaluatedAt: new Date(checkedAt).toISOString(),
+  }
+}
+
+function evaluationValues() {
+  return {
     trust: 5,
     reliability: 4,
     adaptability: 4.3,
     convention: 4.325,
     effectiveness: 4.625,
-    evaluatedAt: new Date(checkedAt).toISOString(),
   }
 }
 

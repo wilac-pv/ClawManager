@@ -268,9 +268,9 @@ async function runWithDatabase(
   })
 }
 
-function evaluationPublication(
-  imports: SkillHubImportStore,
-  publisher: ReturnType<typeof createPublisher>,
+export function evaluationPublication(
+  imports: Pick<SkillHubImportStore, "completedEvaluations" | "progress" | "replaceCompletedEvaluationDetails">,
+  publisher: Pick<ReturnType<typeof createPublisher>, "publishCompletedSkillHubEvaluations">,
   workerID: string,
   batch: number,
 ): EvaluationPublication {
@@ -282,7 +282,7 @@ function evaluationPublication(
         ...(evaluations[0] ? { oldestCheckedAt: evaluations[0].evaluation.checkedAt } : {}),
       }
     },
-    publish: (request) => publisher.publishMirroredSkillHub(imports, workerID, undefined, batch, request.signal).then(() => undefined),
+    publish: (request) => publisher.publishCompletedSkillHubEvaluations(imports, workerID, batch, request.signal).then(() => undefined),
   }
 }
 

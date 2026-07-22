@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { loadConfig } from "../src/config"
-import { runSkillHubEvaluationWorker } from "../src/skillhub-evaluation-worker"
+import { evaluationPublication, runSkillHubEvaluationWorker } from "../src/skillhub-evaluation-worker"
 import type { SkillHubEvaluation } from "../src/skillhub-evaluation"
+import type { SkillHubImportStore } from "../src/skillhub-import-store"
 import { SkillHubRequestError } from "../src/skillhub"
 
 const evaluation = {
@@ -14,6 +15,33 @@ const evaluation = {
 } as const satisfies SkillHubEvaluation
 
 describe("SkillHub evaluation worker", () => {
+  test("routes completed evaluation publication through the delta publisher", async () => {
+    let calls = 0
+    const imports: Pick<SkillHubImportStore, "completedEvaluations" | "progress" | "replaceCompletedEvaluationDetails"> = {
+      completedEvaluations: () => [],
+      progress: () => ({ sourceStatus: "fresh" } as ReturnType<SkillHubImportStore["progress"]>),
+      replaceCompletedEvaluationDetails: () => [],
+    }
+    const publication = evaluationPublication(
+      imports,
+      {
+        async publishCompletedSkillHubEvaluations(_imports, workerID, batch, signal) {
+          calls += 1
+          expect(workerID).toBe("evaluation-test")
+          expect(batch).toBe(100)
+          expect(signal?.aborted).toBe(false)
+          return { revision: undefined, mirrored: 0 }
+        },
+      },
+      "evaluation-test",
+      100,
+    )
+
+    await publication.publish({ signal: new AbortController().signal, deadline: 1_000 })
+
+    expect(calls).toBe(1)
+  })
+
   test("uses one shared request schedule while two evaluations are active", async () => {
     const clock = { value: 0 }
     const queue = createQueue(clock, ["a", "b", "c"])

@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import {
   contentAddressDetail,
   createCatalogIndex,
+  patchCatalogIndex,
   type CatalogDetailRef,
   type CatalogIndex,
   key,
@@ -125,6 +126,7 @@ export class Publisher {
     operation: (publish: (publication: Publication) => Promise<void>) => Promise<T>,
     store = this.options.store,
     signal?: AbortSignal,
+    preTargetFailure: "release" | "fail" = "release",
   ) {
     requireWorkerID(workerID)
     throwIfAborted(signal)
@@ -165,7 +167,10 @@ export class Publisher {
       this.finalize({ ...job, target_revision: state.revision ?? null })
       return value
     } catch (error) {
-      if (!state.revision) this.release(job, workerID)
+      if (!state.revision) {
+        if (preTargetFailure === "fail") this.failCatalogLease(job, workerID)
+        else this.release(job, workerID)
+      }
       if (state.revision && !pointerPublished && !signal?.aborted && (await this.pointerRevision()) !== state.revision)
         this.release(job, workerID)
       throw error
@@ -241,6 +246,58 @@ export class Publisher {
       imports.replaceCompletedEvaluationDetails(evaluated)
     }, store, signal)
     return { revision, mirrored: progress.mirrored }
+  }
+
+  async publishCompletedSkillHubEvaluations(
+    imports: Pick<SkillHubImportStore, "progress" | "completedEvaluations" | "replaceCompletedEvaluationDetails">,
+    workerID: string,
+    evaluationLimit = 100,
+    signal?: AbortSignal,
+  ) {
+    const store = signal ? abortableStore(this.options.store, signal) : this.options.store
+    throwIfAborted(signal)
+    const materialized = await Promise.all(
+      imports.completedEvaluations(evaluationLimit).map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
+    )
+    let revision: string | undefined
+    await this.withCatalogLease(workerID, async (publish) => {
+      const completed = new Map(imports.completedEvaluations(evaluationLimit).map((evaluation) => [evaluation.slug, evaluation]))
+      const evaluated = materialized.filter((value) => {
+        const current = completed.get(value.slug)
+        return current?.evaluation.checkedAt === value.checkedAt && current.detailSha256 === value.previousDetailSha256
+      })
+      if (evaluated.length === 0) return
+      const latest = await this.latestIndex(
+        { skillhub: imports.progress().sourceStatus, enterprise: "unavailable", community: "fresh" },
+        store,
+      )
+      const replacements = new Map(
+        evaluated.map((value) => [
+          key(value.entry.summary.source, value.entry.summary.id),
+          {
+            summary: value.entry.summary,
+            ref: {
+              key: normalizeMirrorDetailKey(value.entry.detailKey, value.entry.detailSha256, this.options.ossPrefix),
+              sha256: value.entry.detailSha256,
+              version: value.entry.summary.version,
+            },
+          },
+        ] as const),
+      )
+      const index = patchCatalogIndex({
+        index: latest,
+        replacements,
+        sourceStatus: { ...latest.sourceStatus, skillhub: imports.progress().sourceStatus },
+      })
+      revision = index.revision
+      await publish({
+        index,
+        changedDetails: new Map(evaluated.map((value) => [key(value.entry.summary.source, value.entry.summary.id), value.detail])),
+      })
+      throwIfAborted(signal)
+      imports.replaceCompletedEvaluationDetails(evaluated)
+    }, store, signal, "fail")
+    return { revision, mirrored: imports.progress().mirrored }
   }
 
   async seedLegacySkillHub(imports: Pick<SkillHubImportStore, "progress" | "seedLegacy">, workerID: string) {
@@ -457,6 +514,19 @@ export class Publisher {
     this.options.database.transaction((connection) =>
       connection.run(
         "UPDATE publish_jobs SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_owner = ?",
+        [now, job.id, workerID],
+      ),
+    )
+  }
+
+  private failCatalogLease(job: JobRow, workerID: string) {
+    const now = this.now()
+    this.options.database.transaction((connection) =>
+      connection.run(
+        `UPDATE publish_jobs
+         SET status = 'failed', lease_owner = NULL, lease_expires_at = NULL,
+             error_code = 'catalog-delta', error_summary = 'TRACE catalog publication failed', updated_at = ?
+         WHERE id = ? AND status = 'running' AND lease_owner = ?`,
         [now, job.id, workerID],
       ),
     )
