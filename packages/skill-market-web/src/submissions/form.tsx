@@ -125,38 +125,65 @@ export function SubmissionForm(props: SubmissionFormProps) {
           </div>
         </Show>
 
-        <section class="submission-form__section">
+        <section class="submission-form__section submission-form__section--target">
           <div>
+            <span class="submission-targets__eyebrow">Publication scope</span>
             <h2>保存位置</h2>
-            <p>个人空间内容仅本人可见；全公司内容需要人工审核。</p>
+            <p>选择 Skill 扫描通过后的可见范围，后续版本会沿用这个位置。</p>
           </div>
-          <fieldset class="submission-form__fields">
-            <legend>上传到</legend>
-            <label class="submission-form__checkbox">
+          <fieldset class="submission-targets">
+            <legend>选择保存位置</legend>
+            <label
+              class="submission-target-card"
+              classList={{ "submission-target-card--selected": fields.target === "personal" }}
+            >
+              <span class="submission-target-card__icon submission-target-card__icon--personal" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M7 10V8a5 5 0 0 1 10 0v2" />
+                  <rect x="5" y="10" width="14" height="10" rx="3" />
+                  <path d="M12 14v2" />
+                </svg>
+              </span>
+              <span class="submission-target-card__body">
+                <span class="submission-target-card__title">
+                  <strong>个人空间</strong>
+                  <small class="submission-target-card__badge">立即可用</small>
+                </span>
+                <small>扫描通过后直接保存，仅你本人可以查看和下载。</small>
+              </span>
               <input
+                class="submission-target-card__input"
                 type="radio"
                 name="target"
                 value="personal"
                 checked={fields.target === "personal"}
                 onChange={() => setFields("target", "personal")}
               />
-              <span>
-                <strong>个人空间</strong>
-                <small>扫描通过立即可用，仅本人可以查看和下载。</small>
-              </span>
             </label>
-            <label class="submission-form__checkbox">
+            <label
+              class="submission-target-card"
+              classList={{ "submission-target-card--selected": fields.target === "company" }}
+            >
+              <span class="submission-target-card__icon submission-target-card__icon--company" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 20h16M6 20V8l6-4 6 4v12M9 11h1m4 0h1m-6 4h1m4 0h1" />
+                </svg>
+              </span>
+              <span class="submission-target-card__body">
+                <span class="submission-target-card__title">
+                  <strong>全公司</strong>
+                  <small class="submission-target-card__badge submission-target-card__badge--review">人工审核</small>
+                </span>
+                <small>扫描通过后进入审核，批准后发布到公司市场。</small>
+              </span>
               <input
+                class="submission-target-card__input"
                 type="radio"
                 name="target"
                 value="company"
                 checked={fields.target === "company"}
                 onChange={() => setFields("target", "company")}
               />
-              <span>
-                <strong>全公司</strong>
-                <small>扫描通过后进入人工审核，审核通过后发布到市场。</small>
-              </span>
             </label>
           </fieldset>
         </section>
