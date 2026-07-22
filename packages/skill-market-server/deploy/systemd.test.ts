@@ -66,8 +66,12 @@ describe("systemd deployment", () => {
       "ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun src/worker.ts --once",
     )
     expect(services[3]).toContain(
-      "ExecStart=/usr/bin/flock -w 30 /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun src/skillhub-worker.js",
+      "ExecStart=/usr/bin/flock -w 30 /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun --smol src/skillhub-worker.js",
     )
+    expect(services[3]).toContain("MemoryHigh=1536M")
+    expect(services[3]).toContain("MemoryMax=2048M")
+    expect(services[3]).toContain("TimeoutStartSec=2min")
+    expect(services[3]).toContain("TimeoutStopSec=10s")
     expect(services[3]).toContain("Type=oneshot")
     expect(services[4]).toContain(
       "ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-evaluation.lock /usr/local/bin/bun --smol src/skillhub-evaluation-worker.js",

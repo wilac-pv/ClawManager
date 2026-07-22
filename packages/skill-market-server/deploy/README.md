@@ -124,7 +124,9 @@ rejects that configuration even when the flag is set.
 The `ruying-skill-market-skillhub.timer` starts two minutes after boot and then
 runs once per minute. It shares `/run/lock/ruying-skill-market-ops.lock` with
 community publication, cleanup, and legacy synchronization so only one catalog
-writer can run at a time.
+writer can run at a time. The service runs Bun in small-heap mode and is bounded
+by `MemoryHigh=1536M`, `MemoryMax=2048M`, and a two-minute start timeout so a
+large catalog publication cannot exhaust the host.
 
 Use the six resource controls in the environment file at their design defaults
 unless a measured operational need requires adjustment:
