@@ -6,7 +6,7 @@ import { SkillMarketList } from "./list"
 import { SkillMarketProvider } from "./provider"
 import type { SkillMarketDataSource } from "./types"
 
-test("requests one server page and renders at most 30 rows for an 80000 item catalog", async () => {
+test("requests one server page and renders a bounded card grid for an 80000 item catalog", async () => {
   const calls: SkillMarket.PageQuery[] = []
   const source = {
     list: async (query) => {
@@ -44,7 +44,8 @@ test("requests one server page and renders at most 30 rows for an 80000 item cat
 
   await waitFor(() => expect(calls).toEqual([expect.objectContaining({ page: 1, limit: 30 })]))
   expect(await view.findByText(/80,000/)).toBeTruthy()
-  expect(view.container.querySelectorAll(".ruying-skill-market__virtual-row").length).toBeLessThanOrEqual(30)
+  expect(view.container.querySelector(".ruying-skill-market__results")?.getAttribute("data-view")).toBe("card")
+  expect(view.container.querySelectorAll(".ruying-skill-market__card")).toHaveLength(30)
 })
 
 function summary(index: number): SkillMarket.Summary {

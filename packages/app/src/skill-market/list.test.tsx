@@ -149,6 +149,7 @@ test("sorts and filters remotely while persisting the selected view", async () =
   await userEvent.click(view.getByRole("button", { name: "列表视图" }))
 
   expect(localStorage.getItem("ruying-skill-market-view")).toBe("list")
+  expect(view.container.querySelector(".ruying-skill-market__results")?.getAttribute("data-view")).toBe("list")
   expect(view.getByRole("status").textContent).toContain("部分来源")
   expect(view.queryByRole("button", { name: "已安装" })).toBeNull()
   expect(view.queryByText("收藏")).toBeNull()

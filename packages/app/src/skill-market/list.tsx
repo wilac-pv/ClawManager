@@ -1,6 +1,5 @@
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createQuery } from "@tanstack/solid-query"
-import { createVirtualizer } from "@tanstack/solid-virtual"
 import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DesktopInstalledActions } from "./desktop-actions"
@@ -341,48 +340,11 @@ function CatalogResults(props: {
   view: MarketView
   onOpen: (key: SkillKey) => void
 }) {
-  let scroller: HTMLDivElement | undefined
-  const rowHeight = () => (props.view === "card" ? 156 : 96)
-  const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
-    get count() {
-      return props.items.length
-    },
-    getScrollElement: () => scroller ?? null,
-    estimateSize: rowHeight,
-    overscan: 6,
-    initialRect: { width: 1100, height: 720 },
-  })
-  const rows = createMemo(() => {
-    const virtual = virtualizer.getVirtualItems()
-    if (virtual.length > 0) return virtual
-    return props.items.map((_, index) => ({
-      key: index,
-      index,
-      start: index * rowHeight(),
-      end: (index + 1) * rowHeight(),
-      size: rowHeight(),
-      lane: 0,
-    }))
-  })
-  const totalSize = createMemo(() => Math.max(virtualizer.getTotalSize(), props.items.length * rowHeight()))
-
   return (
-    <div ref={scroller} class="ruying-skill-market__results" data-view={props.view}>
-      <div class="ruying-skill-market__virtual" style={{ height: `${totalSize()}px` }}>
-        <For each={rows()}>
-          {(row) => (
-            <div
-              data-index={row.index}
-              class="ruying-skill-market__virtual-row"
-              style={{ transform: `translateY(${row.start}px)` }}
-            >
-              <Show when={props.items[row.index]} keyed>
-                {(item) => <SkillCard item={item} view={props.view} onOpen={props.onOpen} />}
-              </Show>
-            </div>
-          )}
-        </For>
-      </div>
+    <div class="ruying-skill-market__results" data-view={props.view}>
+      <For each={props.items}>
+        {(item) => <SkillCard item={item} view={props.view} onOpen={props.onOpen} />}
+      </For>
     </div>
   )
 }
