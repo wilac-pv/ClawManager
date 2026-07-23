@@ -221,6 +221,8 @@
 }
 
 .ruying-skill-market__results {
+  width: min(100%, 1280px);
+  min-width: 0;
   max-width: 1280px;
   margin: 0 auto;
 }
@@ -234,6 +236,7 @@
 
 .ruying-skill-market__results[data-view="list"] {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -242,6 +245,8 @@
   display: flex;
   align-items: center;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 140px;
   padding: 20px;
   border: 1px solid var(--market-border);
