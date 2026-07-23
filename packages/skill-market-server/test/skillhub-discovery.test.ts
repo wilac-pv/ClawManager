@@ -25,7 +25,7 @@ describe("SkillHub discovery", () => {
         const page = Number(new URL(String(input)).searchParams.get("page"))
         state.active += 1
         state.maximumActive = Math.max(state.maximumActive, state.active)
-        await Promise.resolve()
+        if (page % 4 === 2) await new Promise((resolve) => setTimeout(resolve, 5))
         state.active -= 1
         return pageResponse(records.slice((page - 1) * 100, page * 100), records.length)
       },
@@ -60,7 +60,7 @@ describe("SkillHub discovery", () => {
         pageConcurrency: 4,
       }),
     ).rejects.toThrow("400")
-    expect(first.activeGeneration()?.discoveryPage).toBe(2)
+    expect(first.activeGeneration()?.discoveryPage).toBe(1)
     fixture.database.close()
 
     const resumedDatabase = await reopenDatabase(fixture)

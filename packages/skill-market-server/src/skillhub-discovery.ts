@@ -66,12 +66,19 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
         { length: Math.min(options.pageConcurrency ?? 4, Math.ceil(upstreamTotal / 100) - page + 1) },
         (_, index) => page + index,
       )
-      await pool.map(batch, async (page) => {
-        const loaded = await loadSkillHubPage(options.fetcher, options.baseUrl, page)
-        upstreamTotal = Math.max(upstreamTotal, effectiveTotal(loaded.data.total, options.limit))
-        options.imports.recordPage(generation.id, page, loaded.data.skills.slice(0, upstreamTotal - (page - 1) * 100), upstreamTotal)
-        return loaded
-      })
+      const loaded = await pool.map(batch, (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
+      upstreamTotal = Math.max(
+        upstreamTotal,
+        ...loaded.map((page) => effectiveTotal(page.data.total, options.limit)),
+      )
+      loaded.forEach((value, index) =>
+        options.imports.recordPage(
+          generation.id,
+          batch[index]!,
+          value.data.skills.slice(0, upstreamTotal - (batch[index]! - 1) * 100),
+          upstreamTotal,
+        ),
+      )
       pageBatches += 1
       page += batch.length
     }
