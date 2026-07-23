@@ -202,11 +202,14 @@ describe("SSO authentication", () => {
       "/skills/community/my-skill",
       "/submissions",
       "/submissions/new",
+      "/submissions/new?target=personal",
+      "/submissions/new?from=sub_abcdefgh",
       "/submissions/sub_abcdefgh",
+      "/submissions/sub_abcdefgh?revise=1",
       "/admin",
       "/admin/submissions/sub_abcdefgh",
       "/admin/roles",
-      "/admin/audit",
+      "/admin/audit?page=2",
     ].forEach((returnTo) => expect(() => fixture.auth.begin(returnTo)).not.toThrow())
     ;[
       "https://evil.example/submissions",
@@ -214,6 +217,7 @@ describe("SSO authentication", () => {
       "/skills/unknown/my-skill",
       "/skills/community/my-skill?next=https://evil.example",
       "/skills/community/%2e%2e",
+      "/submissions/new#target=personal",
       "/admin/users",
       "/submissions/../../admin",
     ].forEach((returnTo) => expect(() => fixture.auth.begin(returnTo)).toThrow("returnTo is not allowed"))

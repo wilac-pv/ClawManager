@@ -191,7 +191,7 @@ describe("SkillHub import store", () => {
     database.close()
   })
 
-  test("requires a complete no-new sweep before discovery is stable", async () => {
+  test("completes after a full verification sweep covers the moving upstream total", async () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
@@ -199,18 +199,14 @@ describe("SkillHub import store", () => {
 
     store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
     expect(store.completeSweep(generation.id)).toEqual({ stable: false })
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")], 2)
-    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
-    expect(
-      database.connection
-        .query<{ state: string; upstream_version: string; last_seen_sweep: number }, [string]>(
-          "SELECT state, upstream_version, last_seen_sweep FROM skillhub_import_items WHERE slug = ?",
-        )
-        .get("beta"),
-    ).toEqual({ state: "pending", upstream_version: "1.0.0", last_seen_sweep: 0 })
-    expect(store.activeGeneration()).toMatchObject({ discoveryPage: 0, sweep: 2, newInSweep: 0, upstreamTotal: 2 })
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
+    store.recordPage(
+      generation.id,
+      1,
+      [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0"), listRecord("gamma", "1.0.0")],
+      3,
+    )
     expect(store.completeSweep(generation.id)).toEqual({ stable: true })
+    expect(store.progress()).toMatchObject({ discovered: 3, discoveryPage: 1, sweep: 1 })
 
     database.close()
   })

@@ -570,7 +570,7 @@ describe("SkillHub discovery", () => {
     database.close()
   })
 
-  test("returns stale after three unstable sweep completions without delisting records", async () => {
+  test("finishes after one moving verification sweep instead of rescanning forever", async () => {
     const database = await temporaryDatabase()
     const imports = createSkillHubImportStore({ database })
     let sweep = 0
@@ -583,9 +583,9 @@ describe("SkillHub discovery", () => {
       imports,
     })
 
-    expect(result).toMatchObject({ discovered: 3, completed: false, stale: true })
-    expect(imports.activeGeneration()).toMatchObject({ sweep: 3, discoveryPage: 0 })
-    expect(imports.progress().discovered).toBe(3)
+    expect(result).toMatchObject({ discovered: 2, completed: true, stale: false })
+    expect(imports.activeGeneration()).toBeUndefined()
+    expect(imports.progress()).toMatchObject({ discovered: 2, sweep: 1, discoveryPage: 1 })
     database.close()
   })
 })

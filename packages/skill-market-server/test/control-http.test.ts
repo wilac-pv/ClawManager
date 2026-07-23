@@ -517,7 +517,8 @@ describe("skill market control HTTP", () => {
 
   test("completes login, returns a private session, enforces CSRF, and logs out", async () => {
     await using fixture = await marketFixture()
-    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fsubmissions`, {
+    const returnTo = "/submissions/new?target=personal"
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=${encodeURIComponent(returnTo)}`, {
       headers: { origin: webOrigin },
       redirect: "manual",
     })
@@ -530,7 +531,7 @@ describe("skill market control HTTP", () => {
     expect(login.headers.get("cache-control")).toBe("no-store")
     expect(login.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
 
-    const session = await loginSession(fixture, login)
+    const session = await loginSession(fixture, login, returnTo)
     const current = await fetch(`${fixture.url}/v1/auth/session`, {
       headers: { cookie: session.cookie, origin: webOrigin },
     })

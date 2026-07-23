@@ -6,7 +6,7 @@ import { createSkillHubMirror, type SkillHubMirror } from "./skillhub-mirror"
 import { loadSkillHubRecommendations, loadSkillHubRecord, type Fetcher } from "./skillhub"
 import { emitMarketMetric, type MarketMetricEmitter } from "./metrics"
 import { makeS3ObjectStore, type PrivateObjectStore } from "./oss"
-import { createPublisher } from "./publisher"
+import { CatalogPublicationBusyError, createPublisher } from "./publisher"
 
 type MirrorBatch = Awaited<ReturnType<SkillHubMirror["runBatch"]>>
 
@@ -64,7 +64,7 @@ export async function runSkillHubWorker(options: {
     progress: { readonly mirrored: number },
     checkpoint: { readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string },
   ) => boolean
-  readonly publish?: () => Promise<void>
+  readonly publish?: () => Promise<boolean | void>
   readonly recordPublication?: (mirroredCount: number) => unknown
   readonly durationMilliseconds?: number
   readonly now?: () => number
@@ -85,10 +85,10 @@ export async function runSkillHubWorker(options: {
     if (batch.mirrored === 0 && batch.retryWait === 0 && batch.rejected === 0) break
   }
   const progress = options.progress()
-  const published = Boolean(options.publish && options.shouldPublish(progress, options.publicationCheckpoint()))
+  let published = Boolean(options.publish && options.shouldPublish(progress, options.publicationCheckpoint()))
   if (published) {
-    await options.publish!()
-    options.recordPublication?.(progress.mirrored)
+    published = (await options.publish!()) !== false
+    if (published) options.recordPublication?.(progress.mirrored)
   }
   ;(options.emit ?? emitMarketMetric)({
     skill_market_skillhub_mirror_result: {
@@ -105,7 +105,7 @@ export async function runConfiguredSkillHubWorker(
   options: {
     readonly config?: SkillMarketConfig
     readonly fetcher?: Fetcher
-    readonly publish?: () => Promise<void>
+    readonly publish?: () => Promise<boolean | void>
     readonly shouldPublish?: (progress: ReturnType<SkillHubImportStore["progress"]>) => boolean
     readonly workerID?: string
     readonly emit?: MarketMetricEmitter
@@ -135,7 +135,7 @@ async function runWithDatabase(
   config: SkillMarketConfig,
   options: {
     readonly fetcher?: Fetcher
-    readonly publish?: () => Promise<void>
+    readonly publish?: () => Promise<boolean | void>
     readonly shouldPublish?: (progress: ReturnType<SkillHubImportStore["progress"]>) => boolean
     readonly workerID?: string
     readonly emit?: MarketMetricEmitter
@@ -207,7 +207,13 @@ async function runWithDatabase(
           return undefined
         },
       )
-      await publisher.publishMirroredSkillHub(imports, workerID, recommendations)
+      return publisher.publishMirroredSkillHub(imports, workerID, recommendations).then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof CatalogPublicationBusyError) return false
+          throw error
+        },
+      )
     },
     recordPublication: imports.recordPublication,
     emit: options.emit,
@@ -221,7 +227,7 @@ export function shouldPublishSkillHub(
 ) {
   if (progress.mirrored < checkpoint.lastPublishedCount) return false
   if (progress.mirrored - checkpoint.lastPublishedCount >= options.batch) return true
-  const since = checkpoint.lastPublishedAt ?? checkpoint.startedAt
+  const since = checkpoint.lastPublishedCount === 0 ? checkpoint.lastPublishedAt ?? checkpoint.startedAt : undefined
   if (since !== undefined && options.now() - Date.parse(since) >= options.minutes * 60 * 1_000) return true
   return progress.sourceStatus === "fresh" && progress.pending === 0 && progress.running === 0 && progress.retryWait === 0
 }

@@ -197,7 +197,7 @@ export function createSkillHubImportStore(options: {
           )
           .get(generationID, generationID, generation.sweep)!.count
         const deferred = connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_deferred_import_items").get()!.count
-        const stable = deferred === 0 && generation.sweep >= 1 && generation.new_in_sweep === 0 && observed >= generation.upstream_total
+        const stable = deferred === 0 && generation.sweep >= 1 && observed >= generation.upstream_total
         if (stable) {
           connection.run(
             "UPDATE skillhub_generations SET discovery_completed_at = ?, updated_at = ? WHERE id = ?",

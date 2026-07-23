@@ -269,19 +269,52 @@ function provisioningFailure(
 }
 
 function allowedReturnTo(value: string) {
-  return (
-    value === "/skills" ||
-    /^\/skills\/(skillhub|enterprise|community)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(value) ||
-    value === "/submissions" ||
-    value === "/personal" ||
-    value === "/submissions/new" ||
-    /^\/submissions\/sub_[a-zA-Z0-9_-]{8,64}$/.test(value) ||
-    value === "/admin" ||
-    /^\/admin\/submissions\/sub_[a-zA-Z0-9_-]{8,64}$/.test(value) ||
-    value === "/admin/roles" ||
-    value === "/admin/audit" ||
-    value === "/admin/skillhub"
-  )
+  if (value.length > 2_048 || value !== value.trim() || value.startsWith("//")) return false
+  const base = "https://market.invalid"
+  if (!URL.canParse(value, base)) return false
+  const url = new URL(value, base)
+  if (url.origin !== base || url.hash) return false
+  const query = value.indexOf("?")
+  const pathname = value.slice(0, query < 0 ? value.length : query)
+  const allowed =
+    pathname === "/skills" ||
+    /^\/skills\/(skillhub|enterprise|community)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(pathname) ||
+    pathname === "/submissions" ||
+    pathname === "/personal" ||
+    pathname === "/submissions/new" ||
+    /^\/submissions\/sub_[a-zA-Z0-9_-]{8,64}$/.test(pathname) ||
+    pathname === "/admin" ||
+    /^\/admin\/submissions\/sub_[a-zA-Z0-9_-]{8,64}$/.test(pathname) ||
+    pathname === "/admin/roles" ||
+    pathname === "/admin/audit" ||
+    pathname === "/admin/skillhub"
+  if (!allowed) return false
+  return allowedReturnToQuery(pathname, url.searchParams)
+}
+
+function allowedReturnToQuery(pathname: string, search: URLSearchParams) {
+  const allowed =
+    pathname === "/submissions" || pathname === "/personal"
+      ? new Set(["status", "page"])
+      : pathname === "/submissions/new"
+        ? new Set(["target", "from"])
+        : /^\/submissions\/sub_/.test(pathname)
+          ? new Set(["revise", "tab"])
+          : pathname === "/admin"
+            ? new Set(["status", "risk", "submitter", "createdFrom", "createdTo", "page"])
+            : pathname === "/admin/audit"
+              ? new Set(["actor", "action", "objectType", "objectID", "createdFrom", "createdTo", "page"])
+              : new Set<string>()
+  const entries = Array.from(search)
+  if (new Set(entries.map(([key]) => key)).size !== entries.length) return false
+  return entries.every(([key, value]) => {
+    if (!allowed.has(key) || value.length > 128) return false
+    if (key === "page") return /^[1-9][0-9]{0,8}$/.test(value)
+    if (key === "target") return value === "personal" || value === "company"
+    if (key === "from") return /^sub_[a-zA-Z0-9_-]{8,64}$/.test(value)
+    if (key === "revise") return value === "1"
+    return value.length > 0
+  })
 }
 
 function cookie(name: string, value: string, httpOnly: boolean, secure: boolean, maxAge: number) {

@@ -32,6 +32,10 @@ import type {
   SkillHubImportStore,
 } from "./skillhub-import-store"
 
+export class CatalogPublicationBusyError extends Error {
+  override readonly name = "CatalogPublicationBusyError"
+}
+
 interface PublisherOptions {
   readonly database: MarketDatabase
   readonly store: PrivateObjectStore
@@ -163,7 +167,8 @@ export class Publisher {
           []
         >("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running'")
         .get()!.count
-      if (queued > 0) throw new Error("catalog publication queue must be drained before synchronization")
+      if (queued > 0)
+        throw new CatalogPublicationBusyError("catalog publication queue must be drained before synchronization")
       const jobID = `job_${randomSecret()}`
       connection.run(
         `INSERT INTO publish_jobs

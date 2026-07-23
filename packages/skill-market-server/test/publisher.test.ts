@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { openDatabase } from "../src/database"
 import { mergeCatalog } from "../src/catalog"
 import { loadCatalogIndex, loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
-import { createPublisher } from "../src/publisher"
+import { CatalogPublicationBusyError, createPublisher } from "../src/publisher"
 import { createSkillHubImportStore, type SkillHubImportStore } from "../src/skillhub-import-store"
 import { validateSubmissionArchive } from "../src/submission-archive"
 import { sampleDetail, sampleSnapshot } from "./fixture"
@@ -264,6 +264,19 @@ describe("community publisher", () => {
 
     release!()
     await operation
+    fixture.database.close()
+  })
+
+  test("identifies an active catalog publication as a retryable busy boundary", async () => {
+    const fixture = await publisherFixture()
+    fixture.database.connection.run(
+      "UPDATE publish_jobs SET status = 'running', lease_owner = 'other-worker', lease_expires_at = ?",
+      [Date.now() + 60_000],
+    )
+
+    await expect(
+      createPublisher(publisherOptions(fixture)).withCatalogLease("worker-trace", async () => undefined),
+    ).rejects.toBeInstanceOf(CatalogPublicationBusyError)
     fixture.database.close()
   })
 

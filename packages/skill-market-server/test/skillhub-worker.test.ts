@@ -89,6 +89,37 @@ test("publishes the initial 1-1,999 item canary after its generation has waited 
   ).toBe(true)
 })
 
+test("does not repeatedly republish a stale generation only because its checkpoint is old", () => {
+  expect(
+    shouldPublishSkillHub(
+      { mirrored: 80_513, sourceStatus: "stale", pending: 0, running: 0, retryWait: 4 },
+      {
+        lastPublishedCount: 80_226,
+        lastPublishedAt: "2026-07-23T07:23:10.000Z",
+      },
+      { batch: 2_000, minutes: 30, now: () => Date.parse("2026-07-23T14:10:00.000Z") },
+    ),
+  ).toBe(false)
+})
+
+test("does not record a checkpoint when an active catalog publication defers the publish", async () => {
+  const checkpoints: number[] = []
+  const result = await runSkillHubWorker({
+    workerID: "skillhub-test",
+    discover: async () => undefined,
+    mirror: { runBatch: async () => ({ mirrored: 0, retryWait: 0, rejected: 0 }) },
+    progress: () => ({ mirrored: 80_513 }),
+    publicationCheckpoint: () => ({ lastPublishedCount: 80_226 }),
+    shouldPublish: () => true,
+    publish: async () => false,
+    recordPublication: (count) => checkpoints.push(count),
+    emit: () => undefined,
+  })
+
+  expect(result.published).toBe(false)
+  expect(checkpoints).toEqual([])
+})
+
 test("does not publish fewer mirrored items than the durable publication checkpoint", () => {
   expect(
     shouldPublishSkillHub(
