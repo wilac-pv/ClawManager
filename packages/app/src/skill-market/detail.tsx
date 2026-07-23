@@ -281,9 +281,6 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
                     <dd>{formatBytes(record.package.size)}</dd>
                   </div>
                 </dl>
-                <a href={record.sourceUrl} target="_blank" rel="noopener noreferrer">
-                  查看原始来源
-                </a>
               </aside>
             </div>
           </div>

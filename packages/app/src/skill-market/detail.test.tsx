@@ -190,7 +190,7 @@ test("shows attribution and a delisted warning", async () => {
   expect(await view.findByText("此 Skill 已从来源下架")).toBeTruthy()
   expect(view.getByText("高风险")).toBeTruthy()
   expect(view.getByRole("link", { name: "SkillHub Author" }).getAttribute("href")).toBe(detail.author.url)
-  expect(view.getByRole("link", { name: "查看原始来源" }).getAttribute("href")).toBe(detail.sourceUrl)
+  expect(view.queryByRole("link", { name: "查看原始来源" })).toBeNull()
 })
 
 test("shows approved community attribution without private employee data", async () => {
