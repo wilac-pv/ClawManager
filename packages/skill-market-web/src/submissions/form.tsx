@@ -1,4 +1,5 @@
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { A } from "@solidjs/router"
 import { createStore } from "solid-js/store"
 import { For, Show, createSignal, type JSX } from "solid-js"
 import { MarketControlError, type SkillMarketControlDataSource } from "../control-data-source"
@@ -304,7 +305,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
         </section>
 
         <footer class="submission-form__actions">
-          <a href={fields.target === "personal" ? "/personal" : "/submissions"}>取消</a>
+          <A href={fields.target === "personal" ? "/personal" : "/submissions"}>取消</A>
           <button type="submit" class="market-primary-action" disabled={pending()}>
             {pending()
               ? "正在提交…"

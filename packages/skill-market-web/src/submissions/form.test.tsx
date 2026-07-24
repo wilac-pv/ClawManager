@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library"
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { MemoryRouter, Route, createMemoryHistory } from "@solidjs/router"
+import type { JSX } from "solid-js"
 import { MarketControlError } from "../control-data-source"
 import type { SubmissionWriter } from "./form"
 import { SubmissionForm } from "./form"
@@ -92,6 +94,23 @@ describe("submission form", () => {
     expect(calls[0]?.target).toBe("personal")
   })
 
+  test("keeps the personal-space cancel link under the configured base path", () => {
+    const basePath = "/ai-coding/ruying-code/skill-market/"
+    const view = renderInRouter(
+      () => (
+        <SubmissionForm
+          source={writer()}
+          mode={{ kind: "create", target: "personal" }}
+          onAccepted={() => undefined}
+        />
+      ),
+      `${basePath}submissions/new?target=personal`,
+      basePath,
+    )
+
+    expect(view.getByRole("link", { name: "取消" }).getAttribute("href")).toBe(`${basePath}personal`)
+  })
+
   test("submits when randomUUID is unavailable on private HTTP", async () => {
     const descriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID")
     Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined })
@@ -119,7 +138,7 @@ describe("submission form", () => {
   })
 
   test("prefills metadata but requires fresh change notes for a new version", () => {
-    const view = render(() => (
+    const view = renderInRouter(() => (
       <SubmissionForm source={writer()} mode={{ kind: "version", initial: metadata }} onAccepted={() => undefined} />
     ))
 
@@ -175,7 +194,7 @@ describe("submission form", () => {
       },
     }
     const packageFile = new File(["revision"], "safe-revision.zip", { type: "application/zip" })
-    const view = render(() => (
+    const view = renderInRouter(() => (
       <SubmissionForm
         source={source}
         mode={{ kind: "revision", submissionID: summary.id, expectedVersion: 3, initial: metadata }}
@@ -230,7 +249,17 @@ const metadata = {
 } satisfies SkillMarketControl.SubmissionMetadata
 
 function renderForm(source: SubmissionWriter, onAccepted: (id: string) => void = () => undefined) {
-  return { view: render(() => <SubmissionForm source={source} onAccepted={onAccepted} />) }
+  return { view: renderInRouter(() => <SubmissionForm source={source} onAccepted={onAccepted} />) }
+}
+
+function renderInRouter(component: () => JSX.Element, path = "/submissions/new", basePath?: string) {
+  const history = createMemoryHistory()
+  history.set({ value: path, replace: true })
+  return render(() => (
+    <MemoryRouter base={basePath?.replace(/\/$/, "")} history={history}>
+      <Route path="*" component={component} />
+    </MemoryRouter>
+  ))
 }
 
 function writer(create: SubmissionWriter["create"] = () => Promise.resolve({ submission: summary })): SubmissionWriter {
