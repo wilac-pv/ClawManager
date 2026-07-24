@@ -10,6 +10,7 @@
   --skillhub-brand: #1268e5;
   --skillhub-brand-hover: #0f5fcf;
   --skillhub-brand-soft: #eef4ff;
+  --skillhub-focus-ring: rgba(18, 104, 229, 0.18);
   --skillhub-content-width: 1120px;
   --skillhub-radius-sm: 8px;
   --skillhub-radius-md: 12px;
@@ -49,6 +50,17 @@ select {
 button,
 a {
   outline-offset: 3px;
+}
+
+.market-shell :where(button, a):focus-visible {
+  outline: 2px solid var(--skillhub-brand);
+  outline-offset: 2px;
+}
+
+.market-shell :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea):focus {
+  border-color: var(--skillhub-brand);
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--skillhub-focus-ring);
 }
 
 .market-shell {
@@ -367,7 +379,7 @@ a {
 
 .expert-packages__hero input:focus {
   border-color: var(--skillhub-brand);
-  box-shadow: 0 0 0 4px rgba(18, 104, 229, 0.12);
+  box-shadow: 0 0 0 3px var(--skillhub-focus-ring);
 }
 
 .expert-packages__scenes {
@@ -696,7 +708,8 @@ a {
 .submission-form input:focus,
 .submission-form textarea:focus {
   border-color: #1268e5;
-  outline: 2px solid rgba(18, 104, 229, 0.2);
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--skillhub-focus-ring);
 }
 
 .submission-state,
@@ -2564,7 +2577,7 @@ a {
 .announcement-admin__form input:focus,
 .announcement-admin__form textarea:focus {
   border-color: var(--skillhub-brand);
-  box-shadow: 0 0 0 3px rgba(18, 104, 229, 0.12);
+  box-shadow: 0 0 0 3px var(--skillhub-focus-ring);
 }
 
 .announcement-admin__form label > small {

@@ -2,6 +2,26 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test"
 
 const fixtureApi = "http://127.0.0.1:4210"
 
+test("aligns focus rings with composite and standalone controls", async ({ page }) => {
+  await page.goto("/skills")
+  const search = page.getByRole("searchbox")
+  const searchFrame = page.locator(".ruying-skill-market__search")
+  await search.focus()
+  await expect(search).toHaveCSS("outline-style", "none")
+  await expect(search).toHaveCSS("box-shadow", "none")
+  await expect(searchFrame).toHaveCSS("border-color", "rgb(18, 104, 229)")
+  await expect(searchFrame).toHaveCSS(
+    "box-shadow",
+    "rgba(18, 104, 229, 0.18) 0px 0px 0px 3px, rgba(17, 24, 39, 0.06) 0px 8px 28px 0px",
+  )
+
+  const source = page.getByLabel("来源")
+  await source.focus()
+  await expect(source).toHaveCSS("outline-style", "none")
+  await expect(source).toHaveCSS("border-color", "rgb(18, 104, 229)")
+  await expect(source).toHaveCSS("box-shadow", "rgba(18, 104, 229, 0.18) 0px 0px 0px 3px")
+})
+
 test("searches, filters, deep-links, copies a prompt and requests the verified download", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   await page.goto("/skills")
