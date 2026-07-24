@@ -55,18 +55,34 @@ a {
 .market-shell__brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-weight: 700;
+  gap: 9px;
 }
 
 .market-shell__brand-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: #1268e5;
-  color: white;
-  place-items: center;
+  display: block;
+  width: 38px;
+  height: 38px;
+  filter: drop-shadow(0 5px 10px rgba(18, 95, 195, 0.18));
+}
+
+.market-shell__wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  letter-spacing: -0.02em;
+}
+
+.market-shell__wordmark > span {
+  color: #202b38;
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.market-shell__wordmark strong {
+  color: #125fc3;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .market-shell__nav {

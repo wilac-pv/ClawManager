@@ -16,11 +16,17 @@ export function MarketShell(props: ParentProps) {
   return (
     <div class="market-shell">
       <header class="market-shell__header">
-        <A class="market-shell__brand" href="/skills" aria-label="如影 Code Skill 市场首页">
-          <span class="market-shell__brand-mark" aria-hidden="true">
-            如
+        <A class="market-shell__brand" href="/skills" aria-label="如影 SkillHub 首页">
+          <img
+            class="market-shell__brand-mark"
+            src={`${import.meta.env.BASE_URL ?? "/"}ruying-skillhub-mark.svg`}
+            alt=""
+            aria-hidden="true"
+          />
+          <span class="market-shell__wordmark">
+            <span>如影</span>
+            <strong>SkillHub</strong>
           </span>
-          <span>如影 Code</span>
         </A>
         <nav class="market-shell__nav" aria-label="Skill 市场主导航">
           <For each={links().filter((link) => link.visible)}>

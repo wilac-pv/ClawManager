@@ -18,9 +18,11 @@ describe("market shell", () => {
 
     expect(await fixture.view.findByRole("link", { name: "Skill 市场" })).toBeTruthy()
     expect(fixture.view.getByRole("link", { name: "公告" })).toBeTruthy()
-    expect(fixture.view.getByRole("link", { name: "如影 Code Skill 市场首页" }).getAttribute("href")).toBe(
+    const brand = fixture.view.getByRole("link", { name: "如影 SkillHub 首页" })
+    expect(brand.getAttribute("href")).toBe(
       `${basePath}skills`,
     )
+    expect(brand.querySelector("img")?.getAttribute("src")).toBe("/ruying-skillhub-mark.svg")
     expect(fixture.view.queryByRole("link", { name: "我的投稿" })).toBeNull()
     expect(fixture.view.queryByRole("link", { name: "管理后台" })).toBeNull()
     fireEvent.click(await fixture.view.findByRole("button", { name: "使用 GWM SSO 登录" }))
