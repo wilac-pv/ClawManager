@@ -102,6 +102,62 @@ export type Package = typeof Package.Type
 export const Download = Schema.Struct({ url: HttpsUrl, sha256: Sha256, size: NonNegative })
 export type Download = typeof Download.Type
 
+export const SkillKey = Schema.Struct({
+  source: Source,
+  id: Schema.String.check(Schema.isLengthBetween(1, 128)),
+})
+export type SkillKey = typeof SkillKey.Type
+
+export const Favorite = Schema.Struct({
+  ...SkillKey.fields,
+  createdAt: Timestamp,
+})
+export type Favorite = typeof Favorite.Type
+
+export const ExpertPackageScene = Schema.Literals([
+  "academic",
+  "content-creation",
+  "design",
+  "ecommerce",
+  "education",
+  "finance",
+  "healthcare",
+  "hr",
+  "legal",
+  "lifestyle",
+  "marketing",
+  "media",
+  "mysticism",
+  "tech",
+])
+export type ExpertPackageScene = typeof ExpertPackageScene.Type
+
+export const ExpertPackageSummary = Schema.Struct({
+  slug: Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,127}$/)),
+  displayName: Schema.String,
+  summary: Schema.String,
+  scene: ExpertPackageScene,
+  skillCount: NonNegative,
+  updatedAt: Timestamp,
+})
+export type ExpertPackageSummary = typeof ExpertPackageSummary.Type
+
+export const ExpertPackageDetail = Schema.Struct({
+  ...ExpertPackageSummary.fields,
+  content: Schema.String,
+  skillSlugs: Schema.Array(Schema.String),
+})
+export type ExpertPackageDetail = typeof ExpertPackageDetail.Type
+
+export const ExpertPackagePage = Schema.Struct({
+  total: NonNegative,
+  page: PageNumber,
+  limit: PageLimit,
+  items: Schema.Array(ExpertPackageSummary),
+  scenes: Schema.Array(Schema.Struct({ value: ExpertPackageScene, count: NonNegative })),
+})
+export type ExpertPackagePage = typeof ExpertPackagePage.Type
+
 export const Summary = Schema.Struct({
   id: Schema.String,
   source: Source,

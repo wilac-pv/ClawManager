@@ -36,7 +36,30 @@ export function createRemoteSkillMarketDataSource(
       ),
     download: (key, signal) =>
       get(`/v1/catalog/skills/${key.source}/${encodeURIComponent(key.id)}/download`, SkillMarket.Download, signal),
+    expertPackages: {
+      list: (query, signal) =>
+        get(
+          `/v1/catalog/expert-packages?${withQuery([
+            ["query", query.query],
+            ["scene", query.scene],
+            ["page", query.page],
+            ["limit", query.limit],
+          ])}`,
+          SkillMarket.ExpertPackagePage,
+          signal,
+        ),
+      detail: (slug, signal) =>
+        get(`/v1/catalog/expert-packages/${encodeURIComponent(slug)}`, SkillMarket.ExpertPackageDetail, signal),
+    },
   }
+}
+
+function withQuery(entries: ReadonlyArray<readonly [string, string | number | undefined]>) {
+  const query = new URLSearchParams()
+  entries.forEach(([key, value]) => {
+    if (value !== undefined) query.set(key, String(value))
+  })
+  return query.toString()
 }
 
 function requireSecureBaseUrl(value: string, allowInsecurePrivateHttp?: boolean) {

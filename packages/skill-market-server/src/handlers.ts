@@ -14,6 +14,8 @@ import { type CatalogSnapshot, key, queryCatalog } from "./catalog"
 import type { CatalogReader } from "./catalog-reader"
 import type { MarketMetricEmitter } from "./metrics"
 import type { Moderation } from "./moderation"
+import type { ExpertPackages } from "./expert-packages"
+import type { Favorites } from "./favorites"
 import type { PrivateObjectStore } from "./oss"
 import type { MarketSecurity } from "./security"
 import type { SkillHubImportAdmin } from "./skillhub-import-admin"
@@ -22,6 +24,8 @@ import type { Submissions } from "./submissions"
 import { createAdminHttp } from "./http/admin"
 import { createAuthHttp } from "./http/auth"
 import { createCatalogHttp, packageHeaders, packageNotFoundProblem, packageReadProblem } from "./http/catalog"
+import { createExpertPackagesHttp } from "./http/expert-packages"
+import { createFavoritesHttp } from "./http/favorites"
 import { createSecurityLayers } from "./http/middleware"
 import { createSubmissionsHttp } from "./http/submissions"
 import { createCatalogPackageReader, type CatalogPackageReader } from "./package-reader"
@@ -34,6 +38,8 @@ export interface MarketHttpOptions {
   readonly security: MarketSecurity
   readonly submissions: Submissions
   readonly moderation: Moderation
+  readonly expertPackages: ExpertPackages
+  readonly favorites: Favorites
   readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
@@ -52,6 +58,8 @@ export function createMarketRoutes(options: MarketHttpOptions) {
   const packages = createCatalogPackageReader(options.store, options.publicPrefix)
   const groups = [
     createCatalogHttp(options.catalog, packages, options.emit),
+    createExpertPackagesHttp(options.expertPackages),
+    createFavoritesHttp(options.favorites),
     createAuthHttp(options),
     createSubmissionsHttp(options),
     createAdminHttp(options),
@@ -128,6 +136,7 @@ function controlHeaders(webOrigin: string) {
         const catalog = url.pathname.startsWith("/v1/catalog/")
         const control =
           url.pathname.startsWith("/v1/auth/") ||
+          url.pathname.startsWith("/v1/favorites") ||
           url.pathname.startsWith("/v1/submissions") ||
           url.pathname.startsWith("/v1/admin/")
         const origin = request.headers.origin

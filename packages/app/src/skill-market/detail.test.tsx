@@ -5,7 +5,7 @@ import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { installPrompt, SkillMarketDetail } from "./detail"
 import { SkillMarketProvider } from "./provider"
-import type { SkillMarketActions, SkillMarketDataSource } from "./types"
+import type { SkillFavoriteActions, SkillMarketActions, SkillMarketDataSource } from "./types"
 
 const detail = {
   id: "code-review",
@@ -76,12 +76,16 @@ function source(value: SkillMarket.Detail = detail): SkillMarketDataSource {
   }
 }
 
-function renderDetail(data: SkillMarketDataSource, actions: SkillMarketActions) {
+function renderDetail(data: SkillMarketDataSource, actions: SkillMarketActions, favorite?: SkillFavoriteActions) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   return render(() => (
     <QueryClientProvider client={client}>
       <SkillMarketProvider source={data} actions={actions}>
-        <SkillMarketDetail skill={{ source: "skillhub", id: "code-review" }} onBack={() => undefined} />
+        <SkillMarketDetail
+          skill={{ source: "skillhub", id: "code-review" }}
+          onBack={() => undefined}
+          favorite={favorite}
+        />
       </SkillMarketProvider>
     </QueryClientProvider>
   ))
@@ -122,6 +126,28 @@ test("sanitizes markdown and exposes only web copy and download actions", async 
   expect(copied).toEqual([prompt])
   expect(downloaded).toEqual([detail.package.url])
   expect(view.queryByRole("button", { name: "安装" })).toBeNull()
+})
+
+test("toggles the authenticated favorite from the detail actions", async () => {
+  const toggled: SkillMarket.SkillKey[] = []
+  const view = renderDetail(
+    source(),
+    {
+      kind: "web",
+      prompt: () => prompt,
+      copyPrompt: async () => undefined,
+      download: async () => undefined,
+    },
+    {
+      active: () => false,
+      pending: () => false,
+      toggle: (key) => toggled.push(key),
+    },
+  )
+
+  await userEvent.click(await view.findByRole("button", { name: "☆ 收藏" }))
+
+  expect(toggled).toEqual([{ source: "skillhub", id: "code-review" }])
 })
 
 test("reports prompt copy progress and success", async () => {

@@ -5,7 +5,7 @@ import { createStore } from "solid-js/store"
 import { DesktopInstalledActions } from "./desktop-actions"
 import { useSkillMarket } from "./provider"
 import { scoreLabel } from "./score-label"
-import type { SkillKey } from "./types"
+import type { SkillFavoriteActions, SkillKey } from "./types"
 
 type MarketScope = "all" | "featured" | "enterprise" | "community" | "installed" | "updates"
 type MarketView = "card" | "list"
@@ -24,6 +24,7 @@ export function SkillMarketList(props: {
   onSubmit?: () => void
   submitHref?: string
   installedOnly?: boolean
+  favorite?: SkillFavoriteActions
 }) {
   const market = useSkillMarket()
   const initial = new URLSearchParams(window.location.search)
@@ -301,7 +302,12 @@ export function SkillMarketList(props: {
           </div>
         </Show>
         <Show when={result.data && result.data.items.length > 0}>
-          <CatalogResults items={result.data?.items ?? []} view={state.view} onOpen={props.onOpen} />
+          <CatalogResults
+            items={result.data?.items ?? []}
+            view={state.view}
+            onOpen={props.onOpen}
+            favorite={props.favorite}
+          />
           <div class="ruying-skill-market__pagination" aria-label="分页">
             <button type="button" disabled={state.page <= 1} onClick={() => setState("page", state.page - 1)}>
               上一页
@@ -339,28 +345,54 @@ function CatalogResults(props: {
   items: readonly SkillMarket.Summary[]
   view: MarketView
   onOpen: (key: SkillKey) => void
+  favorite?: SkillFavoriteActions
 }) {
   return (
     <div class="ruying-skill-market__results" data-view={props.view}>
       <For each={props.items}>
-        {(item) => <SkillCard item={item} view={props.view} onOpen={props.onOpen} />}
+        {(item) => <SkillCard item={item} view={props.view} onOpen={props.onOpen} favorite={props.favorite} />}
       </For>
     </div>
   )
 }
 
-function SkillCard(props: { item: SkillMarket.Summary; view: MarketView; onOpen: (key: SkillKey) => void }) {
+function SkillCard(props: {
+  item: SkillMarket.Summary
+  view: MarketView
+  onOpen: (key: SkillKey) => void
+  favorite?: SkillFavoriteActions
+}) {
   const [state, setState] = createStore({ iconFailed: false })
   const key = () => ({ source: props.item.source, id: props.item.id })
 
   return (
-    <button
-      type="button"
+    <article
       class="ruying-skill-market__card"
       data-view={props.view}
-      aria-label={`${props.item.name}，${props.item.description}`}
-      onClick={() => props.onOpen(key())}
     >
+      <button
+        type="button"
+        class="ruying-skill-market__card-hitbox"
+        aria-label={`${props.item.name}，${props.item.description}`}
+        onClick={() => props.onOpen(key())}
+      />
+      <Show when={props.favorite}>
+        {(favorite) => (
+          <button
+            type="button"
+            classList={{
+              "ruying-skill-market__favorite": true,
+              "ruying-skill-market__favorite--active": favorite().active(key()),
+            }}
+            aria-label={favorite().active(key()) ? `取消收藏 ${props.item.name}` : `收藏 ${props.item.name}`}
+            aria-pressed={favorite().active(key())}
+            disabled={favorite().pending(key())}
+            onClick={() => favorite().toggle(key())}
+          >
+            {favorite().active(key()) ? "★" : "☆"}
+          </button>
+        )}
+      </Show>
       <div class="ruying-skill-market__icon">
         <Show
           when={props.item.iconUrl && !state.iconFailed ? props.item.iconUrl : undefined}
@@ -401,7 +433,7 @@ function SkillCard(props: { item: SkillMarket.Summary; view: MarketView; onOpen:
       <span class="ruying-skill-market__card-arrow" aria-hidden="true">
         →
       </span>
-    </button>
+    </article>
   )
 }
 

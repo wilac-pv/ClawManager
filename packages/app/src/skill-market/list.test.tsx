@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { DesktopSkillMarketProvider } from "./desktop-provider"
 import { SkillMarketList } from "./list"
 import { SkillMarketProvider } from "./provider"
-import type { SkillKey, SkillMarketActions, SkillMarketDataSource } from "./types"
+import type { SkillFavoriteActions, SkillKey, SkillMarketActions, SkillMarketDataSource } from "./types"
 
 const codeReview = {
   id: "code-review",
@@ -83,6 +83,7 @@ function renderMarket(
   installedOnly = false,
   onSubmit?: () => void,
   submitHref?: string,
+  favorite?: SkillFavoriteActions,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -93,6 +94,7 @@ function renderMarket(
       installedOnly={installedOnly}
       onSubmit={onSubmit}
       submitHref={submitHref}
+      favorite={favorite}
     />
   )
   return render(() => (
@@ -158,6 +160,29 @@ test("sorts and filters remotely while persisting the selected view", async () =
   const image = view.getByRole("img", { name: "Code Review 图标" })
   fireEvent.error(image)
   expect(view.getByLabelText("Code Review 默认图标").textContent).toBe("C")
+})
+
+test("renders a separate persistent favorite control without opening the card", async () => {
+  const toggled: SkillKey[] = []
+  const opened: SkillKey[] = []
+  const view = renderMarket(
+    dataSource(async () => page([codeReview])),
+    (key) => opened.push(key),
+    undefined,
+    false,
+    undefined,
+    undefined,
+    {
+      active: () => true,
+      pending: () => false,
+      toggle: (key) => toggled.push(key),
+    },
+  )
+
+  await userEvent.click(await view.findByRole("button", { name: "取消收藏 Code Review" }))
+
+  expect(toggled).toEqual([{ source: "skillhub", id: "code-review" }])
+  expect(opened).toEqual([])
 })
 
 test("filters community skills and exposes the optional submission action", async () => {

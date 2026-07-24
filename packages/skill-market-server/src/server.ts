@@ -8,6 +8,8 @@ import { loadConfig } from "./config"
 import { openDatabase } from "./database"
 import { createMarketRoutes } from "./handlers"
 import { emitMarketMetric } from "./metrics"
+import { createExpertPackages } from "./expert-packages"
+import { createFavorites } from "./favorites"
 import { createModeration } from "./moderation"
 import { makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
@@ -69,6 +71,37 @@ const main = Effect.scoped(
       packageConcurrency: config.skillhubPackageConcurrency,
     })
     const evaluations = createSkillHubEvaluationStore({ database })
+    const expertPackages = createExpertPackages({ database, baseUrl: config.skillhubBaseUrl })
+    yield* Effect.promise(() =>
+      expertPackages.refresh().catch((error) =>
+        console.warn(
+          JSON.stringify({
+            skill_market_expert_packages_sync_error: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+        ),
+      ),
+    )
+    yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        setInterval(
+          () =>
+            void expertPackages.refresh().catch((error) =>
+              console.warn(
+                JSON.stringify({
+                  skill_market_expert_packages_sync_error: {
+                    message: error instanceof Error ? error.message : String(error),
+                  },
+                }),
+              ),
+            ),
+          6 * 60 * 60 * 1_000,
+        ),
+      ),
+      (timer) => Effect.sync(() => clearInterval(timer)),
+    )
+    const favorites = createFavorites({ database })
     const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports, evaluations })
     const worker = createWorker({
       database,
@@ -93,6 +126,8 @@ const main = Effect.scoped(
       security,
       submissions,
       moderation,
+      expertPackages,
+      favorites,
       skillhubImportAdmin,
       store,
       privatePrefix: config.privateOssPrefix,

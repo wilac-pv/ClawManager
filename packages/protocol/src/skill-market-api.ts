@@ -2,12 +2,18 @@ import { HttpApi } from "effect/unstable/httpapi"
 import { SkillMarketAdminGroup } from "./groups/skill-market-admin"
 import { SkillMarketAuthGroup } from "./groups/skill-market-auth"
 import { SkillMarketCatalogGroup } from "./groups/skill-market-catalog"
+import { SkillMarketExpertPackagesGroup } from "./groups/skill-market-expert-packages"
+import { SkillMarketFavoritesGroup } from "./groups/skill-market-favorites"
 import { SkillMarketSubmissionsGroup } from "./groups/skill-market-submissions"
 
-export const SkillMarketCatalogApi = HttpApi.make("skillMarketCatalog").add(SkillMarketCatalogGroup)
+export const SkillMarketCatalogApi = HttpApi.make("skillMarketCatalog")
+  .add(SkillMarketCatalogGroup)
+  .add(SkillMarketExpertPackagesGroup)
 
 export const SkillMarketApi = HttpApi.make("skillMarket")
   .add(SkillMarketCatalogGroup)
+  .add(SkillMarketExpertPackagesGroup)
+  .add(SkillMarketFavoritesGroup)
   .add(SkillMarketAuthGroup)
   .add(SkillMarketSubmissionsGroup)
   .add(SkillMarketAdminGroup)

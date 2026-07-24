@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { HttpApi, OpenApi } from "effect/unstable/httpapi"
 import { normalizeSkillMarketCatalogQuery } from "../src/groups/skill-market-catalog"
-import { SkillMarketCatalogApi } from "../src/skill-market-api"
+import { SkillMarketApi, SkillMarketCatalogApi } from "../src/skill-market-api"
 
 test("catalog api contains package GET and HEAD operations", () => {
   const endpoints: Array<{ name: string; method: string; path: string }> = []
@@ -19,6 +19,24 @@ test("catalog api contains package GET and HEAD operations", () => {
     { name: "skillMarket.catalog.package", method: "GET", path: "/v1/catalog/skills/:source/:id/package" },
     { name: "skillMarket.catalog.packageHead", method: "HEAD", path: "/v1/catalog/skills/:source/:id/package" },
     { name: "skillMarket.catalog.versions", method: "GET", path: "/v1/catalog/skills/:source/:id/versions" },
+    { name: "skillMarket.expertPackages.detail", method: "GET", path: "/v1/catalog/expert-packages/:slug" },
+    { name: "skillMarket.expertPackages.list", method: "GET", path: "/v1/catalog/expert-packages" },
+  ])
+})
+
+test("full market api exposes authenticated favorite operations", () => {
+  const endpoints: Array<{ name: string; method: string; path: string }> = []
+  HttpApi.reflect(SkillMarketApi, {
+    onGroup() {},
+    onEndpoint({ endpoint }) {
+      if (endpoint.name.startsWith("skillMarket.favorites."))
+        endpoints.push({ name: endpoint.name, method: endpoint.method, path: endpoint.path })
+    },
+  })
+  expect(endpoints).toEqual([
+    { name: "skillMarket.favorites.list", method: "GET", path: "/v1/favorites" },
+    { name: "skillMarket.favorites.add", method: "POST", path: "/v1/favorites/:source/:id" },
+    { name: "skillMarket.favorites.remove", method: "DELETE", path: "/v1/favorites/:source/:id" },
   ])
 })
 

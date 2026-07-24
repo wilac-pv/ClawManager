@@ -13,6 +13,19 @@ export type SkillMarketDataSource = {
   download?: (key: SkillKey, signal?: AbortSignal) => Promise<SkillMarket.Download>
   installed?: (signal?: AbortSignal) => Promise<readonly SkillMarket.Installed[]>
   updates?: (signal?: AbortSignal) => Promise<readonly SkillMarket.Installed[]>
+  expertPackages?: {
+    list: (
+      query: { query?: string; scene?: SkillMarket.ExpertPackageScene; page: number; limit: number },
+      signal?: AbortSignal,
+    ) => Promise<SkillMarket.ExpertPackagePage>
+    detail: (slug: string, signal?: AbortSignal) => Promise<SkillMarket.ExpertPackageDetail>
+  }
+}
+
+export type SkillFavoriteActions = {
+  active: (key: SkillKey) => boolean
+  pending: (key: SkillKey) => boolean
+  toggle: (key: SkillKey) => void
 }
 
 export type SkillMarketActions =

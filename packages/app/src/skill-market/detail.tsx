@@ -6,7 +6,7 @@ import { DesktopSkillActions } from "./desktop-actions"
 import { MarketMarkdown } from "./markdown"
 import { useSkillMarket } from "./provider"
 import { scoreLabel } from "./score-label"
-import type { SkillKey, SkillMarketActions } from "./types"
+import type { SkillFavoriteActions, SkillKey, SkillMarketActions } from "./types"
 
 type DetailTab = "overview" | "versions" | "security"
 
@@ -16,7 +16,7 @@ const tabs = [
   { id: "security", label: "安全报告" },
 ] as const
 
-export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }) {
+export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void; favorite?: SkillFavoriteActions }) {
   const market = useSkillMarket()
   const [state, setState] = createStore({ tab: "overview" as DetailTab, iconFailed: false })
   const tabRefs: HTMLButtonElement[] = []
@@ -104,7 +104,7 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
               </div>
               <Show
                 when={market.actions.kind === "desktop"}
-                fallback={<WebDetailActions detail={record} actions={market.actions} />}
+                fallback={<WebDetailActions detail={record} actions={market.actions} favorite={props.favorite} />}
               >
                 <DesktopSkillActions detail={record} />
               </Show>
@@ -290,9 +290,14 @@ export function SkillMarketDetail(props: { skill: SkillKey; onBack: () => void }
   )
 }
 
-function WebDetailActions(props: { detail: SkillMarket.Detail; actions: SkillMarketActions }) {
+function WebDetailActions(props: {
+  detail: SkillMarket.Detail
+  actions: SkillMarketActions
+  favorite?: SkillFavoriteActions
+}) {
   const [copyState, setCopyState] = createSignal<"idle" | "copying" | "copied" | "failed">("idle")
   const prompt = createMemo(() => (props.actions.kind === "web" ? props.actions.prompt(props.detail) : ""))
+  const key = () => ({ source: props.detail.source, id: props.detail.id })
   const copy = async () => {
     if (props.actions.kind !== "web" || copyState() === "copying") return
     setCopyState("copying")
@@ -315,6 +320,19 @@ function WebDetailActions(props: { detail: SkillMarket.Detail; actions: SkillMar
         >
           下载 ZIP
         </button>
+        <Show when={props.favorite}>
+          {(favorite) => (
+            <button
+              type="button"
+              classList={{ "ruying-skill-market__favorite-action--active": favorite().active(key()) }}
+              aria-pressed={favorite().active(key())}
+              disabled={favorite().pending(key())}
+              onClick={() => favorite().toggle(key())}
+            >
+              {favorite().active(key()) ? "★ 已收藏" : "☆ 收藏"}
+            </button>
+          )}
+        </Show>
         <Show when={copyState() === "copied"}>
           <p class="ruying-skill-market__copy-feedback ruying-skill-market__copy-feedback--success" role="status">
             安装 Prompt 已复制到剪贴板。

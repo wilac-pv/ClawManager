@@ -72,6 +72,34 @@ describe("skill market control data source", () => {
     expect(source.auth.loginUrl("/submissions/new")).toBe(`${server.url}/v1/auth/login?returnTo=%2Fsubmissions%2Fnew`)
   })
 
+  test("reads and mutates per-user favorites with CSRF protection", async () => {
+    const requests: Array<{ method: string; path: string; csrf: string | null }> = []
+    const favorite = {
+      source: "skillhub",
+      id: "code-review",
+      createdAt: "2026-07-24T00:00:00.000Z",
+    } as const
+    const server = serve((request) => {
+      requests.push({
+        method: request.method,
+        path: new URL(request.url).pathname,
+        csrf: request.headers.get("x-csrf-token"),
+      })
+      if (request.method === "DELETE") return new Response(null, { status: 204 })
+      return Response.json(request.method === "GET" ? [favorite] : favorite)
+    })
+    const source = createSkillMarketControlDataSource(server.url, { csrfToken: () => csrfToken })
+
+    await expect(source.favorites.list()).resolves.toEqual([favorite])
+    await expect(source.favorites.add("skillhub", "code/review")).resolves.toEqual(favorite)
+    await expect(source.favorites.remove("skillhub", "code/review")).resolves.toBeUndefined()
+    expect(requests).toEqual([
+      { method: "GET", path: "/v1/favorites", csrf: null },
+      { method: "POST", path: "/v1/favorites/skillhub/code%2Freview", csrf: csrfToken },
+      { method: "DELETE", path: "/v1/favorites/skillhub/code%2Freview", csrf: csrfToken },
+    ])
+  })
+
   test("sends files as multipart with CSRF and a retained idempotency key", async () => {
     const requests: RequestInit[] = []
     const fields: Array<Record<string, unknown>> = []

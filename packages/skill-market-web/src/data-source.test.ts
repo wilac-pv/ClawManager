@@ -98,6 +98,43 @@ test("escapes detail keys and decodes versions", async () => {
   await server.stop()
 })
 
+test("loads locally served expert package pages and encoded details", async () => {
+  const requests: string[] = []
+  const expert = {
+    slug: "tech-test-automation",
+    displayName: "自动化测试",
+    summary: "完整测试工作流",
+    scene: "tech",
+    skillCount: 2,
+    updatedAt: "2026-07-23T00:00:00.000Z",
+  } satisfies SkillMarket.ExpertPackageSummary
+  const server = serve((request) => {
+    requests.push(`${new URL(request.url).pathname}${new URL(request.url).search}`)
+    if (new URL(request.url).pathname.endsWith("/tech-test-automation"))
+      return Response.json({ ...expert, content: "# Workflow", skillSlugs: ["tdd", "e2e"] })
+    return Response.json({
+      total: 1,
+      page: 1,
+      limit: 30,
+      items: [expert],
+      scenes: [{ value: "tech", count: 1 }],
+    })
+  })
+  const source = createRemoteSkillMarketDataSource(server.url)
+
+  await expect(
+    source.expertPackages?.list({ query: "自动化", scene: "tech", page: 1, limit: 30 }),
+  ).resolves.toMatchObject({ total: 1 })
+  await expect(source.expertPackages?.detail("tech-test-automation")).resolves.toMatchObject({
+    skillSlugs: ["tdd", "e2e"],
+  })
+  expect(requests).toEqual([
+    "/v1/catalog/expert-packages?query=%E8%87%AA%E5%8A%A8%E5%8C%96&scene=tech&page=1&limit=30",
+    "/v1/catalog/expert-packages/tech-test-automation",
+  ])
+  await server.stop()
+})
+
 test("allows insecure HTTP only for loopback development", () => {
   expect(() => createRemoteSkillMarketDataSource("http://market.example.com")).toThrow("must use HTTPS")
   expect(() => createRemoteSkillMarketDataSource("http://10.246.13.226:4210")).toThrow("must use HTTPS")

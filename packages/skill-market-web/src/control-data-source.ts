@@ -1,4 +1,5 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
@@ -114,6 +115,25 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
           headers: { "x-csrf-token": requireCsrf(options.csrfToken) },
         })
         if (response.status !== 204) throw new Error("Skill market logout returned an invalid response")
+      },
+    },
+    favorites: {
+      list: (signal?: AbortSignal) => read("/v1/favorites", Schema.Array(SkillMarket.Favorite), signal),
+      async add(source: SkillMarket.Source, id: string, signal?: AbortSignal) {
+        const response = await send(`/v1/favorites/${source}/${encodeURIComponent(id)}`, {
+          method: "POST",
+          signal,
+          headers: { "x-csrf-token": requireCsrf(options.csrfToken) },
+        })
+        return Schema.decodeUnknownPromise(SkillMarket.Favorite)(await response.json())
+      },
+      async remove(source: SkillMarket.Source, id: string, signal?: AbortSignal) {
+        const response = await send(`/v1/favorites/${source}/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          signal,
+          headers: { "x-csrf-token": requireCsrf(options.csrfToken) },
+        })
+        if (response.status !== 204) throw new Error("Skill market favorite removal returned an invalid response")
       },
     },
     submissions: {

@@ -10,6 +10,11 @@ const expected = [
   ["skillMarket.auth.callback", "GET", "/v1/auth/callback/:attemptID"],
   ["skillMarket.auth.session", "GET", "/v1/auth/session"],
   ["skillMarket.auth.logout", "DELETE", "/v1/auth/session"],
+  ["skillMarket.expertPackages.list", "GET", "/v1/catalog/expert-packages"],
+  ["skillMarket.expertPackages.detail", "GET", "/v1/catalog/expert-packages/:slug"],
+  ["skillMarket.favorites.list", "GET", "/v1/favorites"],
+  ["skillMarket.favorites.add", "POST", "/v1/favorites/:source/:id"],
+  ["skillMarket.favorites.remove", "DELETE", "/v1/favorites/:source/:id"],
   ["skillMarket.submissions.list", "GET", "/v1/submissions"],
   ["skillMarket.submissions.create", "POST", "/v1/submissions"],
   ["skillMarket.submissions.detail", "GET", "/v1/submissions/:submissionID"],
@@ -31,7 +36,7 @@ const expected = [
   ["skillMarket.admin.community.restore", "POST", "/v1/admin/community-skills/:skillID/restore"],
 ] as const
 
-test("full market api declares every auth, submission, and admin operation", () => {
+test("full market api declares every expert package, favorite, auth, submission, and admin operation", () => {
   const endpoints: Array<readonly [string, string, string]> = []
   HttpApi.reflect(SkillMarketApi, {
     onGroup() {},

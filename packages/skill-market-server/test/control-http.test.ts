@@ -9,6 +9,8 @@ import { join } from "node:path"
 import { createAuth } from "../src/auth"
 import type { CatalogReader } from "../src/catalog-reader"
 import { openDatabase } from "../src/database"
+import { createExpertPackages } from "../src/expert-packages"
+import { createFavorites } from "../src/favorites"
 import { createMarketWebHandler } from "../src/handlers"
 import { createModeration } from "../src/moderation"
 import type { PrivateObjectStore } from "../src/oss"
@@ -1033,6 +1035,8 @@ async function marketFixture(
     security,
     submissions,
     moderation,
+    expertPackages: createExpertPackages({ database, baseUrl: "https://api.skillhub.cn" }),
+    favorites: createFavorites({ database, now: () => now }),
     skillhubImportAdmin,
     store,
     privatePrefix: "skill-market-private",

@@ -18,6 +18,9 @@ import { SkillHubImport } from "./admin/skillhub"
 import { copyText } from "./clipboard"
 import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
+import { ExpertPackageDetail } from "./expert-packages/detail"
+import { ExpertPackageList } from "./expert-packages/list"
+import { FavoritesPage, useFavoriteActions } from "./favorites"
 import {
   RequireAdmin,
   RequireReviewer,
@@ -74,8 +77,46 @@ export function App() {
 
   return (
     <Router base={import.meta.env.BASE_URL.replace(/\/$/, "")} root={Root}>
-      <Route path="/skills" component={SkillListRoute} />
-      <Route path="/skills/:source/:id" component={SkillDetailRoute} />
+      <Route path="/skills" component={() => <SkillListRoute source={control} />} />
+      <Route path="/skills/:source/:id" component={() => <SkillDetailRoute source={control} />} />
+      <Route
+        path="/expert-packages"
+        component={() =>
+          source.expertPackages ? (
+            <ExpertPackageList source={source.expertPackages} />
+          ) : (
+            <ProtectedPlaceholder title="专家包暂不可用" description="当前市场数据源不支持专家包。" />
+          )
+        }
+      />
+      <Route
+        path="/expert-packages/:slug"
+        component={() => {
+          const params = useParams<{ slug: string }>()
+          return source.expertPackages ? (
+            <ExpertPackageDetail
+              slug={params.slug}
+              source={source.expertPackages}
+              detailUrl={(slug) =>
+                new URL(
+                  `${import.meta.env.BASE_URL}expert-packages/${encodeURIComponent(slug)}`,
+                  window.location.origin,
+                ).href
+              }
+            />
+          ) : (
+            <ProtectedPlaceholder title="专家包暂不可用" description="当前市场数据源不支持专家包。" />
+          )
+        }}
+      />
+      <Route
+        path="/favorites"
+        component={() => (
+          <RequireSession>
+            <FavoritesPage source={control.favorites} catalog={source} />
+          </RequireSession>
+        )}
+      />
       <Route path="/submissions" component={() => <SubmissionListRoute source={control} />} />
       <Route path="/personal" component={() => <PersonalSpaceRoute source={control} />} />
       <Route path="/submissions/new" component={() => <SubmissionFormRoute source={control} />} />
@@ -237,19 +278,22 @@ function ProtectedPlaceholder(props: { title: string; description: string }) {
   )
 }
 
-function SkillListRoute() {
+function SkillListRoute(props: { source: SkillMarketControlDataSource }) {
   const navigate = useNavigate()
+  const favorite = useFavoriteActions(props.source.favorites)
   return (
     <SkillMarketList
       onOpen={(key) => navigate(`/skills/${key.source}/${encodeURIComponent(key.id)}`)}
       submitHref={`${import.meta.env.BASE_URL}submissions/new`}
+      favorite={favorite}
     />
   )
 }
 
-function SkillDetailRoute() {
+function SkillDetailRoute(props: { source: SkillMarketControlDataSource }) {
   const params = useParams<{ source: string; id: string }>()
   const navigate = useNavigate()
+  const favorite = useFavoriteActions(props.source.favorites)
   const key = parseSkillKey(params.source, params.id)
   if (!key) {
     return (
@@ -263,7 +307,7 @@ function SkillDetailRoute() {
       </main>
     )
   }
-  return <SkillMarketDetail skill={key} onBack={() => navigate("/skills")} />
+  return <SkillMarketDetail skill={key} onBack={() => navigate("/skills")} favorite={favorite} />
 }
 
 function parseSkillKey(source: string, id: string): SkillKey | undefined {

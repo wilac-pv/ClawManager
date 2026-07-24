@@ -127,6 +127,8 @@ export function safeReturnTo(value: string, basePath = "/") {
       : url.pathname
   const known = [
     /^\/skills(?:\/(?:skillhub|enterprise|community)\/[^/]+)?$/,
+    /^\/expert-packages(?:\/[a-z0-9][a-z0-9-]{0,127})?$/,
+    /^\/favorites$/,
     /^\/submissions(?:\/new|\/sub_[a-zA-Z0-9_-]{8,64})?$/,
     /^\/personal$/,
     /^\/admin(?:\/submissions\/sub_[a-zA-Z0-9_-]{8,64}|\/roles|\/audit|\/skillhub)?$/,
