@@ -18,6 +18,7 @@ describe("admin layout", () => {
     expect((await view.findByRole("link", { name: "投稿审核" })).classList.contains("is-active")).toBe(true)
     expect(view.queryByRole("link", { name: "角色管理" })).toBeNull()
     expect(view.getByText("审核员")).toBeTruthy()
+    expect(view.queryByRole("banner")).toBeNull()
   })
 
   test("shows all management sections to Admin and keeps review detail active", async () => {

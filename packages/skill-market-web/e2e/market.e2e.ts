@@ -7,10 +7,10 @@ test("searches, filters, deep-links, copies a prompt and requests the verified d
   await page.goto("/skills")
   await expect(page.getByRole("heading", { name: "Skill 市场" })).toBeVisible()
   await page.getByRole("searchbox").fill("review")
-  await expect(page.getByRole("button", { name: /Code Review/ })).toBeVisible()
+  await expect(page.getByRole("button", { name: /^Code Review，/ })).toBeVisible()
   await page.getByLabel("来源").selectOption("skillhub")
-  await expect(page.getByRole("button", { name: /Code Review/ })).toBeVisible()
-  await page.getByRole("button", { name: /Code Review/ }).click()
+  await expect(page.getByRole("button", { name: /^Code Review，/ })).toBeVisible()
+  await page.getByRole("button", { name: /^Code Review，/ }).click()
   await expect(page).toHaveURL(/\/skills\/skillhub\/code-review$/)
   await page.getByRole("button", { name: "复制安装 Prompt" }).click()
   await expect(page.getByRole("button", { name: "已复制" })).toBeVisible()
@@ -42,7 +42,7 @@ test("supports direct detail routes and keyboard-only tabs", async ({ page }) =>
 test("opens community details and keeps submission inside the Web app", async ({ page }) => {
   await page.goto("/skills")
   await page.getByRole("button", { name: "用户投稿", exact: true }).click()
-  await page.getByRole("button", { name: /Community Review/ }).click()
+  await page.getByRole("button", { name: /^Community Review，/ }).click()
   await expect(page).toHaveURL(/\/skills\/community\/safe-community-skill$/)
   await expect(page.getByText("如影用户", { exact: true }).first()).toBeVisible()
   await page.goto("/skills")
@@ -217,6 +217,26 @@ test("lets Admin retry publishing, moderate visibility, manage roles and filter 
   await page.getByLabel("操作类型").selectOption("community-restored")
   await expect(page.getByLabel("审计事件").getByText("Community Restored")).toBeVisible()
   await expect(page.locator(".audit-event pre")).not.toContainText(/csrf|secret|token/i)
+})
+
+test("keeps workspace pages and the upload form inside the mobile viewport", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-light", "Responsive layout check runs on the mobile project")
+  await resetFixture(page, "submitter")
+
+  for (const path of ["/personal", "/submissions", "/favorites", "/submissions/new?target=personal"]) {
+    await page.goto(path)
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+      .toBe(true)
+  }
+
+  await page.goto("/personal")
+  const personalWidth = await page.locator("main").evaluate((element) => Math.round(element.getBoundingClientRect().width))
+  await page.goto("/favorites")
+  await expect
+    .poll(() => page.locator("main").evaluate((element) => Math.round(element.getBoundingClientRect().width)))
+    .toBe(personalWidth)
+  await expect(page.getByRole("banner")).toHaveCount(1)
 })
 
 async function resetFixture(page: Page, persona: "anonymous" | "submitter" | "reviewer" | "admin") {

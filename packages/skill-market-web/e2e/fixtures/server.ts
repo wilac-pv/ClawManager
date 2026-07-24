@@ -273,11 +273,13 @@ function submissionList(
   const status = url.searchParams.get("status")
   const risk = url.searchParams.get("risk")
   const submitter = url.searchParams.get("submitter")
+  const target = url.searchParams.get("target")
   const page = Number(url.searchParams.get("page") ?? 1)
   const limit = Number(url.searchParams.get("limit") ?? 30)
   const items = [...state.submissions.values()]
     .filter((item) => admin || item.owner.employeeID === user.employeeID)
     .filter((item) => !status || item.status === status)
+    .filter((item) => !target || item.target === target)
     .filter((item) => !risk || item.risk === risk)
     .filter((item) => !submitter || item.owner.employeeID === submitter)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
@@ -303,6 +305,7 @@ async function createSubmission(request: Request, state: FixtureState, user: Ski
     id,
     skillID,
     owner: user,
+    target: input.target,
     metadata: input.metadata,
     status: invalid ? "validation_failed" : "pending_review",
     risk: "safe",
@@ -660,6 +663,7 @@ function makeSubmission(input: {
   id: string
   skillID: string
   owner: SkillMarketControl.User
+  target?: SkillMarketControl.PublicationTarget
   metadata: SkillMarketControl.SubmissionMetadata
   status: SkillMarketControl.SubmissionStatus
   risk?: SkillMarket.Risk
@@ -673,6 +677,7 @@ function makeSubmission(input: {
     id: input.id,
     skillID: input.skillID,
     owner: input.owner,
+    target: input.target ?? "company",
     targetVersion: input.metadata.version,
     status: input.status,
     currentRevision: 1,
@@ -813,9 +818,18 @@ async function uploadInput(request: Request) {
   const file = form?.get("package")
   if (typeof raw !== "string" || !(file instanceof File))
     return problem(request, 400, "invalid-request", "上传格式无效")
-  const metadata = parseJson(raw)
-  if (!submissionMetadata(metadata)) return problem(request, 400, "invalid-request", "投稿信息无效")
-  return { metadata, package: file }
+  const value = parseJson(raw)
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("target" in value) ||
+    !publicationTarget(value.target) ||
+    !("metadata" in value) ||
+    !submissionMetadata(value.metadata)
+  ) {
+    return problem(request, 400, "invalid-request", "投稿信息无效")
+  }
+  return { target: value.target, metadata: value.metadata, package: file }
 }
 
 async function revisionInput(request: Request) {
@@ -852,6 +866,10 @@ function submissionMetadata(value: unknown): value is SkillMarketControl.Submiss
     "changeNotes" in value &&
     typeof value.changeNotes === "string"
   )
+}
+
+function publicationTarget(value: unknown): value is SkillMarketControl.PublicationTarget {
+  return value === "company" || value === "personal"
 }
 
 function addAudit(

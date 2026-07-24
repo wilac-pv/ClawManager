@@ -23,13 +23,13 @@ export function MySpaceLayout(props: ParentProps) {
 
   return (
     <div class="my-space">
-      <header class="my-space__header">
+      <div class="my-space__header">
         <div>
           <p>Personal workspace</p>
           <strong>我的空间</strong>
         </div>
         <span>当前账号专属</span>
-      </header>
+      </div>
       <nav class="my-space__nav" aria-label="我的空间子菜单">
         <For each={links}>
           {(link) => (

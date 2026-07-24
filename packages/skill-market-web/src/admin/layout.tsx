@@ -15,13 +15,13 @@ export function AdminLayout(props: ParentProps) {
 
   return (
     <div class="admin-workspace">
-      <header class="admin-workspace__header">
+      <div class="admin-workspace__header">
         <div>
           <p>Ruying SkillHub administration</p>
           <strong>管理后台</strong>
         </div>
         <span>{current.admin() ? "管理员" : "审核员"}</span>
-      </header>
+      </div>
       <nav class="admin-workspace__nav" aria-label="管理后台子菜单">
         <For each={links().filter((link) => link.visible)}>
           {(link) => (

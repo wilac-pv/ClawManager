@@ -13,6 +13,7 @@ describe("my space layout", () => {
     expect(view.getByRole("link", { name: "个人 Skill" }).getAttribute("aria-current")).toBe("page")
     expect(view.getByRole("link", { name: "我的投稿" })).toBeTruthy()
     expect(view.getByRole("link", { name: "我的收藏" })).toBeTruthy()
+    expect(view.queryByRole("banner")).toBeNull()
   })
 
   test("marks company submissions and favorites active", () => {
