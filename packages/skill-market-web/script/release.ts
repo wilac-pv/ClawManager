@@ -5,6 +5,9 @@ import { dirname, join } from "node:path"
 const fallbackRoutes = [
   "/skills",
   "/skills/:source/:id",
+  "/expert-packages",
+  "/expert-packages/:slug",
+  "/favorites",
   "/submissions",
   "/personal",
   "/submissions/new",
