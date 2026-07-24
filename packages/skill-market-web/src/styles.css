@@ -1478,6 +1478,82 @@ a {
   font-weight: 700;
 }
 
+.admin-workspace {
+  min-height: calc(100vh - 64px);
+}
+
+.admin-workspace__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 76px;
+  padding: 0 max(24px, calc((100% - 1100px) / 2));
+  border-bottom: 1px solid #e4e8ee;
+  background: #fff;
+}
+
+.admin-workspace__header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-workspace__header p {
+  margin: 0;
+  color: #718096;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-workspace__header strong {
+  color: #202b38;
+  font-size: 20px;
+}
+
+.admin-workspace__header > span {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #125fc3;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-workspace__nav {
+  display: flex;
+  gap: 4px;
+  padding: 10px max(24px, calc((100% - 1100px) / 2));
+  overflow-x: auto;
+  border-bottom: 1px solid #e4e8ee;
+  background: #fff;
+}
+
+.admin-workspace__nav a {
+  padding: 9px 14px;
+  border-radius: 8px;
+  color: #626b78;
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-workspace__nav a:hover {
+  color: #125fc3;
+}
+
+.admin-workspace__nav a.is-active {
+  background: #1268e5;
+  color: #fff;
+}
+
+.admin-workspace__content > .submission-page,
+.admin-workspace__content > .announcement-page {
+  padding-top: 32px;
+}
+
 .skillhub-import-page {
   display: grid;
   gap: 18px;

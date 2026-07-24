@@ -13,10 +13,6 @@ export function MarketShell(props: ParentProps) {
     { href: "/personal", label: "个人空间", visible: Boolean(current.session()) },
     { href: "/submissions", label: "我的投稿", visible: Boolean(current.session()) },
     { href: "/admin", label: "管理后台", visible: current.reviewer() },
-    { href: "/admin/roles", label: "角色管理", visible: current.admin() },
-    { href: "/admin/audit", label: "审计日志", visible: current.admin() },
-    { href: "/admin/skillhub", label: "SkillHub 同步", visible: current.admin() },
-    { href: "/admin/announcements", label: "公告发布", visible: current.admin() },
   ]
 
   return (
@@ -31,7 +27,15 @@ export function MarketShell(props: ParentProps) {
         <nav class="market-shell__nav" aria-label="Skill 市场主导航">
           <For each={links().filter((link) => link.visible)}>
             {(link) => (
-              <A href={link.href} end activeClass="is-active">
+              <A
+                href={link.href}
+                end
+                activeClass="is-active"
+                classList={{
+                  "is-active": link.href === "/admin" && location.pathname.startsWith("/admin"),
+                }}
+                aria-current={link.href === "/admin" && location.pathname.startsWith("/admin") ? "page" : undefined}
+              >
                 {link.label}
               </A>
             )}

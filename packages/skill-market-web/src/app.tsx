@@ -12,6 +12,7 @@ import { createQuery } from "@tanstack/solid-query"
 import { Match, Show, Switch, createSignal, type ParentProps } from "solid-js"
 import { AnnouncementAdministration } from "./admin/announcements"
 import { AuditLog } from "./admin/audit"
+import { AdminLayout } from "./admin/layout"
 import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
 import { RoleAdministration } from "./admin/roles"
@@ -229,7 +230,9 @@ function SubmissionDetailRoute(props: { source: SkillMarketControlDataSource }) 
 function ReviewQueueRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireReviewer>
-      <ModerationQueue source={props.source.moderation} />
+      <AdminLayout>
+        <ModerationQueue source={props.source.moderation} />
+      </AdminLayout>
     </RequireReviewer>
   )
 }
@@ -238,7 +241,9 @@ function ReviewDetailRoute(props: { source: SkillMarketControlDataSource }) {
   const params = useParams<{ id: string }>()
   return (
     <RequireReviewer>
-      <ReviewDetailContent submissionID={params.id} source={props.source} />
+      <AdminLayout>
+        <ReviewDetailContent submissionID={params.id} source={props.source} />
+      </AdminLayout>
     </RequireReviewer>
   )
 }
@@ -261,7 +266,9 @@ function ReviewDetailContent(props: { submissionID: string; source: SkillMarketC
 function RoleAdministrationRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireAdmin>
-      <RoleAdministration source={props.source.roles} />
+      <AdminLayout>
+        <RoleAdministration source={props.source.roles} />
+      </AdminLayout>
     </RequireAdmin>
   )
 }
@@ -269,7 +276,9 @@ function RoleAdministrationRoute(props: { source: SkillMarketControlDataSource }
 function AuditRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireAdmin>
-      <AuditLog source={props.source.audit} />
+      <AdminLayout>
+        <AuditLog source={props.source.audit} />
+      </AdminLayout>
     </RequireAdmin>
   )
 }
@@ -277,7 +286,9 @@ function AuditRoute(props: { source: SkillMarketControlDataSource }) {
 function SkillHubImportRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireAdmin>
-      <SkillHubImport source={props.source.skillhub} />
+      <AdminLayout>
+        <SkillHubImport source={props.source.skillhub} />
+      </AdminLayout>
     </RequireAdmin>
   )
 }
@@ -285,7 +296,9 @@ function SkillHubImportRoute(props: { source: SkillMarketControlDataSource }) {
 function AnnouncementAdministrationRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireAdmin>
-      <AnnouncementAdministration source={props.source.announcements} />
+      <AdminLayout>
+        <AnnouncementAdministration source={props.source.announcements} />
+      </AdminLayout>
     </RequireAdmin>
   )
 }

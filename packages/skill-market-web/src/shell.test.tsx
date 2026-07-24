@@ -37,7 +37,7 @@ describe("market shell", () => {
     expect(fixture.view.getByRole("button", { name: "退出登录" })).toBeTruthy()
   })
 
-  test("shows review navigation to Reviewer and full controls only to Admin", async () => {
+  test("shows one management entry for Reviewer and Admin", async () => {
     const reviewer = renderShell(session(["reviewer"]), "/admin")
     expect((await reviewer.view.findByRole("link", { name: "管理后台" })).getAttribute("aria-current")).toBe("page")
     expect(reviewer.view.queryByRole("link", { name: "角色管理" })).toBeNull()
@@ -47,11 +47,11 @@ describe("market shell", () => {
     cleanup()
 
     const admin = renderShell(session(["admin"]), "/admin/roles")
-    expect(await admin.view.findByRole("link", { name: "管理后台" })).toBeTruthy()
-    expect(admin.view.getByRole("link", { name: "角色管理" }).getAttribute("aria-current")).toBe("page")
-    expect(admin.view.getByRole("link", { name: "审计日志" })).toBeTruthy()
-    expect(admin.view.getByRole("link", { name: "SkillHub 同步" })).toBeTruthy()
-    expect(admin.view.getByRole("link", { name: "公告发布" })).toBeTruthy()
+    expect((await admin.view.findByRole("link", { name: "管理后台" })).getAttribute("aria-current")).toBe("page")
+    expect(admin.view.queryByRole("link", { name: "角色管理" })).toBeNull()
+    expect(admin.view.queryByRole("link", { name: "审计日志" })).toBeNull()
+    expect(admin.view.queryByRole("link", { name: "SkillHub 同步" })).toBeNull()
+    expect(admin.view.queryByRole("link", { name: "公告发布" })).toBeNull()
   })
 })
 
