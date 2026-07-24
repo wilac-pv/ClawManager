@@ -60,6 +60,8 @@ test("publishes immutable files and advances the pointer only after verification
       [
         "/skills",
         "/skills/:source/:id",
+        "/announcements",
+        "/announcements/:id",
         "/expert-packages",
         "/expert-packages/:slug",
         "/favorites",
@@ -72,6 +74,7 @@ test("publishes immutable files and advances the pointer only after verification
         "/admin/roles",
         "/admin/audit",
         "/admin/skillhub",
+        "/admin/announcements",
       ].map((route) => [route, `${releaseRoot}/index.html`]),
     ),
   )

@@ -100,6 +100,40 @@ describe("skill market control data source", () => {
     ])
   })
 
+  test("publishes announcements through the admin CSRF boundary", async () => {
+    const input = {
+      title: "新功能上线",
+      summary: "公告摘要",
+      content: "# 公告正文",
+    } satisfies SkillMarketControl.AnnouncementCreateInput
+    const announcement = {
+      id: "ann_abcdefgh",
+      ...input,
+      publishedAt: "2026-07-24T00:00:00.000Z",
+    }
+    const requests: Array<{ path: string; method: string; csrf: string | null; body: string }> = []
+    const server = serve(async (request) => {
+      requests.push({
+        path: new URL(request.url).pathname,
+        method: request.method,
+        csrf: request.headers.get("x-csrf-token"),
+        body: await request.text(),
+      })
+      return Response.json(announcement)
+    })
+    const source = createSkillMarketControlDataSource(server.url, { csrfToken: () => csrfToken })
+
+    await expect(source.announcements.publish(input)).resolves.toEqual(announcement)
+    expect(requests).toEqual([
+      {
+        path: "/v1/admin/announcements",
+        method: "POST",
+        csrf: csrfToken,
+        body: JSON.stringify(input),
+      },
+    ])
+  })
+
   test("sends files as multipart with CSRF and a retained idempotency key", async () => {
     const requests: RequestInit[] = []
     const fields: Array<Record<string, unknown>> = []

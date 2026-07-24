@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createAnnouncements } from "../src/announcements"
 import { createAuth } from "../src/auth"
 import type { CatalogReader } from "../src/catalog-reader"
 import { openDatabase } from "../src/database"
@@ -33,6 +34,35 @@ afterEach(async () => {
 })
 
 describe("skill market control HTTP", () => {
+  test("serves announcement history publicly and protects announcement publishing", async () => {
+    await using fixture = await marketFixture()
+    fixture.database.connection.run(
+      `INSERT INTO announcements (id, title, summary, content, published_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      ["ann_abcdefgh", "市场公告", "公告摘要", "# 公告正文", now],
+    )
+
+    const history = await fetch(`${fixture.url}/v1/catalog/announcements?page=1&limit=5`)
+    expect(history.status).toBe(200)
+    expect(history.headers.get("access-control-allow-origin")).toBe("*")
+    expect(Schema.decodeUnknownSync(SkillMarket.AnnouncementPage)(await history.json())).toMatchObject({
+      total: 1,
+      items: [{ id: "ann_abcdefgh", title: "市场公告" }],
+    })
+
+    const detail = await fetch(`${fixture.url}/v1/catalog/announcements/ann_abcdefgh`)
+    expect(Schema.decodeUnknownSync(SkillMarket.AnnouncementDetail)(await detail.json())).toMatchObject({
+      content: "# 公告正文",
+    })
+
+    const publish = await fetch(`${fixture.url}/v1/admin/announcements`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: webOrigin },
+      body: JSON.stringify({ title: "Unauthorized", summary: "No session", content: "Blocked" }),
+    })
+    expect(publish.status).toBe(401)
+  })
+
   test("serves the public catalog with wildcard GET, HEAD, and OPTIONS behavior", async () => {
     await using fixture = await marketFixture()
     const page = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`)
@@ -577,6 +607,44 @@ describe("skill market control HTTP", () => {
     expect(await loggedOut.json()).toBeNull()
   })
 
+  test("lets an authenticated Admin publish an audited announcement", async () => {
+    await using fixture = await marketFixture()
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin%2Fannouncements`, {
+      redirect: "manual",
+    })
+    const session = await loginSession(fixture, login, "/admin/announcements")
+    fixture.database.connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'admin', ?, ?)",
+      ["E123456", "E123456", now],
+    )
+
+    const response = await fetch(`${fixture.url}/v1/admin/announcements`, {
+      method: "POST",
+      headers: {
+        cookie: session.cookie,
+        origin: webOrigin,
+        "content-type": "application/json",
+        "x-csrf-token": session.csrf,
+      },
+      body: JSON.stringify({
+        title: "新功能上线",
+        summary: "公告摘要",
+        content: "# 公告正文",
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const announcement = Schema.decodeUnknownSync(SkillMarket.AnnouncementDetail)(await response.json())
+    expect(announcement).toMatchObject({ title: "新功能上线", content: "# 公告正文" })
+    expect(
+      fixture.database.connection
+        .query<{ action: string; object_type: string }, [string]>(
+          "SELECT action, object_type FROM audit_events WHERE object_id = ?",
+        )
+        .get(announcement.id),
+    ).toEqual({ action: "announcement-published", object_type: "announcement" })
+  })
+
   test("streams a submission into quarantine and rejects access outside the user's role", async () => {
     await using fixture = await marketFixture()
     const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fsubmissions`, { redirect: "manual" })
@@ -1030,7 +1098,8 @@ async function marketFixture(
               throw new Error("snapshot unavailable with private dependency detail")
             }
           : undefined,
-      ),
+    ),
+    announcements: createAnnouncements({ database, now: () => now }),
     auth,
     security,
     submissions,

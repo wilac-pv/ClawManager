@@ -114,6 +114,33 @@ export const Favorite = Schema.Struct({
 })
 export type Favorite = typeof Favorite.Type
 
+export const AnnouncementID = Schema.String.check(
+  Schema.isPattern(/^ann_[a-zA-Z0-9_-]{8,64}$/),
+)
+export type AnnouncementID = typeof AnnouncementID.Type
+
+export const AnnouncementSummary = Schema.Struct({
+  id: AnnouncementID,
+  title: Schema.String.check(Schema.isLengthBetween(1, 120)),
+  summary: Schema.String.check(Schema.isLengthBetween(1, 300)),
+  publishedAt: Timestamp,
+})
+export type AnnouncementSummary = typeof AnnouncementSummary.Type
+
+export const AnnouncementDetail = Schema.Struct({
+  ...AnnouncementSummary.fields,
+  content: Schema.String.check(Schema.isLengthBetween(1, 20_000)),
+})
+export type AnnouncementDetail = typeof AnnouncementDetail.Type
+
+export const AnnouncementPage = Schema.Struct({
+  total: NonNegative,
+  page: PageNumber,
+  limit: PageLimit,
+  items: Schema.Array(AnnouncementSummary),
+})
+export type AnnouncementPage = typeof AnnouncementPage.Type
+
 export const ExpertPackageScene = Schema.Literals([
   "academic",
   "content-creation",

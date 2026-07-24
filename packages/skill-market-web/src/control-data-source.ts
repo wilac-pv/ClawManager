@@ -136,6 +136,10 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         if (response.status !== 204) throw new Error("Skill market favorite removal returned an invalid response")
       },
     },
+    announcements: {
+      publish: (input: SkillMarketControl.AnnouncementCreateInput, signal?: AbortSignal) =>
+        write("/v1/admin/announcements", SkillMarket.AnnouncementDetail, input, signal),
+    },
     submissions: {
       list: (query: SkillMarketControl.SubmissionListQuery, signal?: AbortSignal) =>
         read(

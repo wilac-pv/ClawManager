@@ -371,6 +371,13 @@ export const SkillHubEvaluationProgress = Schema.Struct({
 }).annotate({ identifier: "SkillMarketControl.SkillHubEvaluationProgress" })
 export type SkillHubEvaluationProgress = typeof SkillHubEvaluationProgress.Type
 
+export const AnnouncementCreateInput = Schema.Struct({
+  title: bounded(1, 120),
+  summary: bounded(1, 300),
+  content: bounded(1, 20_000),
+}).annotate({ identifier: "SkillMarketControl.AnnouncementCreateInput" })
+export type AnnouncementCreateInput = typeof AnnouncementCreateInput.Type
+
 export const AuditAction = Schema.Literals([
   "bootstrap-admin",
   "role-assigned",
@@ -393,6 +400,7 @@ export const AuditAction = Schema.Literals([
   "skillhub-import-paused",
   "skillhub-import-resumed",
   "skillhub-import-retried",
+  "announcement-published",
 ])
 export type AuditAction = typeof AuditAction.Type
 
@@ -404,6 +412,7 @@ export const AuditObjectType = Schema.Literals([
   "publish_job",
   "community_skill",
   "skillhub_import",
+  "announcement",
 ])
 export type AuditObjectType = typeof AuditObjectType.Type
 

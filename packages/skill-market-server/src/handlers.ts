@@ -9,6 +9,7 @@ import { HttpEffect, HttpRouter, HttpServer, HttpServerRequest, HttpServerRespon
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
+import type { Announcements } from "./announcements"
 import type { createAuth } from "./auth"
 import { type CatalogSnapshot, key, queryCatalog } from "./catalog"
 import type { CatalogReader } from "./catalog-reader"
@@ -22,6 +23,7 @@ import type { SkillHubImportAdmin } from "./skillhub-import-admin"
 import { randomSecret } from "./security"
 import type { Submissions } from "./submissions"
 import { createAdminHttp } from "./http/admin"
+import { createAnnouncementsHttp } from "./http/announcements"
 import { createAuthHttp } from "./http/auth"
 import { createCatalogHttp, packageHeaders, packageNotFoundProblem, packageReadProblem } from "./http/catalog"
 import { createExpertPackagesHttp } from "./http/expert-packages"
@@ -34,6 +36,7 @@ type SnapshotLoader = () => Promise<CatalogSnapshot>
 
 export interface MarketHttpOptions {
   readonly catalog: CatalogReader
+  readonly announcements: Announcements
   readonly auth: ReturnType<typeof createAuth>
   readonly security: MarketSecurity
   readonly submissions: Submissions
@@ -58,6 +61,7 @@ export function createMarketRoutes(options: MarketHttpOptions) {
   const packages = createCatalogPackageReader(options.store, options.publicPrefix)
   const groups = [
     createCatalogHttp(options.catalog, packages, options.emit),
+    createAnnouncementsHttp(options.announcements),
     createExpertPackagesHttp(options.expertPackages),
     createFavoritesHttp(options.favorites),
     createAuthHttp(options),

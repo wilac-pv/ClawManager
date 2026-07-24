@@ -135,6 +135,32 @@ test("loads locally served expert package pages and encoded details", async () =
   await server.stop()
 })
 
+test("loads announcement history and encoded announcement details", async () => {
+  const requests: string[] = []
+  const announcement = {
+    id: "ann_abcdefgh",
+    title: "市场公告",
+    summary: "公告摘要",
+    content: "# 公告正文",
+    publishedAt: "2026-07-24T00:00:00.000Z",
+  } satisfies SkillMarket.AnnouncementDetail
+  const server = serve((request) => {
+    const url = new URL(request.url)
+    requests.push(`${url.pathname}${url.search}`)
+    if (url.pathname.endsWith("/ann_abcdefgh")) return Response.json(announcement)
+    return Response.json({ total: 1, page: 2, limit: 20, items: [announcement] })
+  })
+  const source = createRemoteSkillMarketDataSource(server.url)
+
+  await expect(source.announcements.list({ page: 2, limit: 20 })).resolves.toMatchObject({ total: 1 })
+  await expect(source.announcements.detail("ann_abcdefgh")).resolves.toEqual(announcement)
+  expect(requests).toEqual([
+    "/v1/catalog/announcements?page=2&limit=20",
+    "/v1/catalog/announcements/ann_abcdefgh",
+  ])
+  await server.stop()
+})
+
 test("allows insecure HTTP only for loopback development", () => {
   expect(() => createRemoteSkillMarketDataSource("http://market.example.com")).toThrow("must use HTTPS")
   expect(() => createRemoteSkillMarketDataSource("http://10.246.13.226:4210")).toThrow("must use HTTPS")

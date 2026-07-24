@@ -17,6 +17,7 @@ describe("market shell", () => {
     const fixture = renderShell(null, `${basePath}skills`, basePath)
 
     expect(await fixture.view.findByRole("link", { name: "Skill 市场" })).toBeTruthy()
+    expect(fixture.view.getByRole("link", { name: "公告" })).toBeTruthy()
     expect(fixture.view.getByRole("link", { name: "如影 Code Skill 市场首页" }).getAttribute("href")).toBe(
       `${basePath}skills`,
     )
@@ -42,6 +43,7 @@ describe("market shell", () => {
     expect(reviewer.view.queryByRole("link", { name: "角色管理" })).toBeNull()
     expect(reviewer.view.queryByRole("link", { name: "审计日志" })).toBeNull()
     expect(reviewer.view.queryByRole("link", { name: "SkillHub 同步" })).toBeNull()
+    expect(reviewer.view.queryByRole("link", { name: "公告发布" })).toBeNull()
     cleanup()
 
     const admin = renderShell(session(["admin"]), "/admin/roles")
@@ -49,6 +51,7 @@ describe("market shell", () => {
     expect(admin.view.getByRole("link", { name: "角色管理" }).getAttribute("aria-current")).toBe("page")
     expect(admin.view.getByRole("link", { name: "审计日志" })).toBeTruthy()
     expect(admin.view.getByRole("link", { name: "SkillHub 同步" })).toBeTruthy()
+    expect(admin.view.getByRole("link", { name: "公告发布" })).toBeTruthy()
   })
 })
 

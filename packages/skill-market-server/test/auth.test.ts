@@ -200,6 +200,11 @@ describe("SSO authentication", () => {
     ;[
       "/skills",
       "/skills/community/my-skill",
+      "/announcements",
+      "/announcements/ann_abcdefgh",
+      "/expert-packages",
+      "/expert-packages/tech-test-automation",
+      "/favorites",
       "/submissions",
       "/submissions/new",
       "/submissions/new?target=personal",
@@ -210,6 +215,7 @@ describe("SSO authentication", () => {
       "/admin/submissions/sub_abcdefgh",
       "/admin/roles",
       "/admin/audit?page=2",
+      "/admin/announcements",
     ].forEach((returnTo) => expect(() => fixture.auth.begin(returnTo)).not.toThrow())
     ;[
       "https://evil.example/submissions",

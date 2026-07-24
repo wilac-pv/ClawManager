@@ -10,11 +10,15 @@ import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-contro
 import { Navigate, Route, Router, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { Match, Show, Switch, createSignal, type ParentProps } from "solid-js"
+import { AnnouncementAdministration } from "./admin/announcements"
 import { AuditLog } from "./admin/audit"
 import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
 import { RoleAdministration } from "./admin/roles"
 import { SkillHubImport } from "./admin/skillhub"
+import { AnnouncementCarousel } from "./announcements/carousel"
+import { AnnouncementDetail } from "./announcements/detail"
+import { AnnouncementHistory } from "./announcements/history"
 import { copyText } from "./clipboard"
 import { createSkillMarketControlDataSource, type SkillMarketControlDataSource } from "./control-data-source"
 import { createRemoteSkillMarketDataSource } from "./data-source"
@@ -77,8 +81,16 @@ export function App() {
 
   return (
     <Router base={import.meta.env.BASE_URL.replace(/\/$/, "")} root={Root}>
-      <Route path="/skills" component={() => <SkillListRoute source={control} />} />
+      <Route path="/skills" component={() => <SkillListRoute source={control} announcements={source.announcements} />} />
       <Route path="/skills/:source/:id" component={() => <SkillDetailRoute source={control} />} />
+      <Route path="/announcements" component={() => <AnnouncementHistory source={source.announcements} />} />
+      <Route
+        path="/announcements/:id"
+        component={() => {
+          const params = useParams<{ id: string }>()
+          return <AnnouncementDetail announcementID={params.id} source={source.announcements} />
+        }}
+      />
       <Route
         path="/expert-packages"
         component={() =>
@@ -126,6 +138,7 @@ export function App() {
       <Route path="/admin/roles" component={() => <RoleAdministrationRoute source={control} />} />
       <Route path="/admin/audit" component={() => <AuditRoute source={control} />} />
       <Route path="/admin/skillhub" component={() => <SkillHubImportRoute source={control} />} />
+      <Route path="/admin/announcements" component={() => <AnnouncementAdministrationRoute source={control} />} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
     </Router>
   )
@@ -269,6 +282,14 @@ function SkillHubImportRoute(props: { source: SkillMarketControlDataSource }) {
   )
 }
 
+function AnnouncementAdministrationRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireAdmin>
+      <AnnouncementAdministration source={props.source.announcements} />
+    </RequireAdmin>
+  )
+}
+
 function ProtectedPlaceholder(props: { title: string; description: string }) {
   return (
     <main class="market-placeholder">
@@ -278,15 +299,21 @@ function ProtectedPlaceholder(props: { title: string; description: string }) {
   )
 }
 
-function SkillListRoute(props: { source: SkillMarketControlDataSource }) {
+function SkillListRoute(props: {
+  source: SkillMarketControlDataSource
+  announcements: Parameters<typeof AnnouncementCarousel>[0]["source"]
+}) {
   const navigate = useNavigate()
   const favorite = useFavoriteActions(props.source.favorites)
   return (
-    <SkillMarketList
-      onOpen={(key) => navigate(`/skills/${key.source}/${encodeURIComponent(key.id)}`)}
-      submitHref={`${import.meta.env.BASE_URL}submissions/new`}
-      favorite={favorite}
-    />
+    <>
+      <AnnouncementCarousel source={props.announcements} />
+      <SkillMarketList
+        onOpen={(key) => navigate(`/skills/${key.source}/${encodeURIComponent(key.id)}`)}
+        submitHref={`${import.meta.env.BASE_URL}submissions/new`}
+        favorite={favorite}
+      />
+    </>
   )
 }
 

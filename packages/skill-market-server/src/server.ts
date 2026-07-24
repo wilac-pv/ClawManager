@@ -2,6 +2,7 @@ import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { createServer } from "node:http"
+import { createAnnouncements } from "./announcements"
 import { createAuth } from "./auth"
 import { createCatalogReader } from "./catalog-reader"
 import { loadConfig } from "./config"
@@ -65,6 +66,7 @@ const main = Effect.scoped(
     }
     const submissions = createSubmissions({ database, onValidationReady: wake })
     const moderation = createModeration({ database, security })
+    const announcements = createAnnouncements({ database })
     const imports = createSkillHubImportStore({
       database,
       metadataConcurrency: config.skillhubMetadataConcurrency,
@@ -122,6 +124,7 @@ const main = Effect.scoped(
     yield* Effect.promise(() => worker.drain("server-startup"))
     const routes = createMarketRoutes({
       catalog: createCatalogReader({ store, prefix: config.ossPrefix }),
+      announcements,
       auth,
       security,
       submissions,

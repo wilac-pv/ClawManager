@@ -12,6 +12,8 @@ test("catalog api contains package GET and HEAD operations", () => {
     },
   })
   expect(endpoints.toSorted((left, right) => left.name.localeCompare(right.name))).toEqual([
+    { name: "skillMarket.announcements.detail", method: "GET", path: "/v1/catalog/announcements/:announcementID" },
+    { name: "skillMarket.announcements.list", method: "GET", path: "/v1/catalog/announcements" },
     { name: "skillMarket.catalog.detail", method: "GET", path: "/v1/catalog/skills/:source/:id" },
     { name: "skillMarket.catalog.download", method: "GET", path: "/v1/catalog/skills/:source/:id/download" },
     { name: "skillMarket.catalog.facets", method: "GET", path: "/v1/catalog/facets" },

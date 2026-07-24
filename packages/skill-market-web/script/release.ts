@@ -5,6 +5,8 @@ import { dirname, join } from "node:path"
 const fallbackRoutes = [
   "/skills",
   "/skills/:source/:id",
+  "/announcements",
+  "/announcements/:id",
   "/expert-packages",
   "/expert-packages/:slug",
   "/favorites",
@@ -17,6 +19,7 @@ const fallbackRoutes = [
   "/admin/roles",
   "/admin/audit",
   "/admin/skillhub",
+  "/admin/announcements",
 ] as const
 
 export type WebReleaseStore = {

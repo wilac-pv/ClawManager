@@ -10,6 +10,8 @@ const expected = [
   ["skillMarket.auth.callback", "GET", "/v1/auth/callback/:attemptID"],
   ["skillMarket.auth.session", "GET", "/v1/auth/session"],
   ["skillMarket.auth.logout", "DELETE", "/v1/auth/session"],
+  ["skillMarket.announcements.list", "GET", "/v1/catalog/announcements"],
+  ["skillMarket.announcements.detail", "GET", "/v1/catalog/announcements/:announcementID"],
   ["skillMarket.expertPackages.list", "GET", "/v1/catalog/expert-packages"],
   ["skillMarket.expertPackages.detail", "GET", "/v1/catalog/expert-packages/:slug"],
   ["skillMarket.favorites.list", "GET", "/v1/favorites"],
@@ -28,6 +30,7 @@ const expected = [
   ["skillMarket.admin.skillhub.status", "GET", "/v1/admin/skillhub-import"],
   ["skillMarket.admin.skillhub.command", "POST", "/v1/admin/skillhub-import/command"],
   ["skillMarket.admin.skillhub.evaluation", "GET", "/v1/admin/skillhub-evaluation"],
+  ["skillMarket.admin.announcements.create", "POST", "/v1/admin/announcements"],
   ["skillMarket.admin.roles.list", "GET", "/v1/admin/roles"],
   ["skillMarket.admin.roles.create", "POST", "/v1/admin/roles"],
   ["skillMarket.admin.roles.delete", "DELETE", "/v1/admin/roles/:employeeID/:role"],
@@ -36,7 +39,7 @@ const expected = [
   ["skillMarket.admin.community.restore", "POST", "/v1/admin/community-skills/:skillID/restore"],
 ] as const
 
-test("full market api declares every expert package, favorite, auth, submission, and admin operation", () => {
+test("full market api declares every announcement, expert package, favorite, auth, submission, and admin operation", () => {
   const endpoints: Array<readonly [string, string, string]> = []
   HttpApi.reflect(SkillMarketApi, {
     onGroup() {},
@@ -69,6 +72,7 @@ test("submission writes are streaming multipart operations", () => {
 test("openapi marks cookie sessions and csrf writes without protecting the public catalog", () => {
   const document = OpenApi.fromApi(SkillMarketApi)
   expect(document.paths["/v1/catalog/skills"]?.get?.security).toEqual([])
+  expect(document.paths["/v1/catalog/announcements"]?.get?.security).toEqual([])
   expect(document.paths["/v1/submissions"]?.get?.security).toHaveLength(1)
   expect(document.paths["/v1/submissions"]?.post?.security).toHaveLength(2)
 })

@@ -117,6 +117,8 @@ describe("skill market session", () => {
     expect(safeReturnTo("/submissions/sub_abcdefgh?tab=history")).toBe("/submissions/sub_abcdefgh?tab=history")
     expect(safeReturnTo("/admin/audit?page=2")).toBe("/admin/audit?page=2")
     expect(safeReturnTo("/admin/skillhub")).toBe("/admin/skillhub")
+    expect(safeReturnTo("/announcements/ann_abcdefgh")).toBe("/announcements/ann_abcdefgh")
+    expect(safeReturnTo("/admin/announcements")).toBe("/admin/announcements")
     expect(
       safeReturnTo(
         "/ai-coding/ruying-code/skill-market/submissions/new?from=market",

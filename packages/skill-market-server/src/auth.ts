@@ -279,6 +279,11 @@ function allowedReturnTo(value: string) {
   const allowed =
     pathname === "/skills" ||
     /^\/skills\/(skillhub|enterprise|community)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(pathname) ||
+    pathname === "/announcements" ||
+    /^\/announcements\/ann_[a-zA-Z0-9_-]{8,64}$/.test(pathname) ||
+    pathname === "/expert-packages" ||
+    /^\/expert-packages\/[a-z0-9][a-z0-9-]{0,127}$/.test(pathname) ||
+    pathname === "/favorites" ||
     pathname === "/submissions" ||
     pathname === "/personal" ||
     pathname === "/submissions/new" ||
@@ -287,7 +292,8 @@ function allowedReturnTo(value: string) {
     /^\/admin\/submissions\/sub_[a-zA-Z0-9_-]{8,64}$/.test(pathname) ||
     pathname === "/admin/roles" ||
     pathname === "/admin/audit" ||
-    pathname === "/admin/skillhub"
+    pathname === "/admin/skillhub" ||
+    pathname === "/admin/announcements"
   if (!allowed) return false
   return allowedReturnToQuery(pathname, url.searchParams)
 }

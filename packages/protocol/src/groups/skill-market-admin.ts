@@ -1,4 +1,5 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import {
@@ -90,6 +91,15 @@ export const SkillMarketAdminGroup = ReviewerEndpoints.add(
       success: SkillMarketControl.SkillHubEvaluationProgress,
       error: [SkillMarketForbidden, SkillMarketDependencyUnavailable],
     }).middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.announcements.create", "/v1/admin/announcements", {
+      payload: SkillMarketControl.AnnouncementCreateInput,
+      success: SkillMarket.AnnouncementDetail,
+      error: [SkillMarketInvalidRequest, SkillMarketDependencyUnavailable],
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
   )
   .add(
     HttpApiEndpoint.get("skillMarket.admin.roles.list", "/v1/admin/roles", {

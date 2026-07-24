@@ -9,10 +9,15 @@ export class MarketHttpError extends Error {
   }
 }
 
+export type AnnouncementSource = {
+  list: (query: { page: number; limit: number }, signal?: AbortSignal) => Promise<SkillMarket.AnnouncementPage>
+  detail: (announcementID: string, signal?: AbortSignal) => Promise<SkillMarket.AnnouncementDetail>
+}
+
 export function createRemoteSkillMarketDataSource(
   baseUrl: string,
   options: { allowInsecurePrivateHttp?: boolean } = {},
-): SkillMarketDataSource {
+): SkillMarketDataSource & { announcements: AnnouncementSource } {
   const base = requireSecureBaseUrl(baseUrl, options.allowInsecurePrivateHttp)
   const get = async <S extends Schema.Decoder<unknown>>(path: string, schema: S, signal?: AbortSignal) => {
     const response = await fetch(new URL(path, base), {
@@ -36,6 +41,23 @@ export function createRemoteSkillMarketDataSource(
       ),
     download: (key, signal) =>
       get(`/v1/catalog/skills/${key.source}/${encodeURIComponent(key.id)}/download`, SkillMarket.Download, signal),
+    announcements: {
+      list: (query, signal) =>
+        get(
+          `/v1/catalog/announcements?${withQuery([
+            ["page", query.page],
+            ["limit", query.limit],
+          ])}`,
+          SkillMarket.AnnouncementPage,
+          signal,
+        ),
+      detail: (announcementID, signal) =>
+        get(
+          `/v1/catalog/announcements/${encodeURIComponent(announcementID)}`,
+          SkillMarket.AnnouncementDetail,
+          signal,
+        ),
+    },
     expertPackages: {
       list: (query, signal) =>
         get(

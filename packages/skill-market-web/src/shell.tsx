@@ -7,6 +7,7 @@ export function MarketShell(props: ParentProps) {
   const location = useLocation()
   const links = () => [
     { href: "/skills", label: "Skill 市场", visible: true },
+    { href: "/announcements", label: "公告", visible: true },
     { href: "/expert-packages", label: "专家包", visible: true },
     { href: "/favorites", label: "我的收藏", visible: Boolean(current.session()) },
     { href: "/personal", label: "个人空间", visible: Boolean(current.session()) },
@@ -15,6 +16,7 @@ export function MarketShell(props: ParentProps) {
     { href: "/admin/roles", label: "角色管理", visible: current.admin() },
     { href: "/admin/audit", label: "审计日志", visible: current.admin() },
     { href: "/admin/skillhub", label: "SkillHub 同步", visible: current.admin() },
+    { href: "/admin/announcements", label: "公告发布", visible: current.admin() },
   ]
 
   return (

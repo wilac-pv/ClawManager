@@ -10,6 +10,7 @@ import {
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
+import type { Announcements } from "../announcements"
 import type { MarketMetricEmitter } from "../metrics"
 import type { Moderation } from "../moderation"
 import { SkillMarketSecurityError } from "../security"
@@ -17,6 +18,7 @@ import type { SkillHubImportAdmin } from "../skillhub-import-admin"
 import { principalFromSession, requestID } from "./middleware"
 
 interface AdminHttpOptions {
+  readonly announcements: Announcements
   readonly moderation: Moderation
   readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly onWorkReady?: () => void
@@ -88,6 +90,15 @@ export function createAdminHttp(options: AdminHttpOptions) {
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
           return yield* Effect.try({ try: () => options.moderation.listRoles(principal), catch: dependencyProblem })
+        }),
+      )
+      .handle("skillMarket.admin.announcements.create", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () => options.announcements.publish(principal, context.payload),
+            catch: dependencyProblem,
+          })
         }),
       )
       .handle("skillMarket.admin.roles.create", (context) =>
