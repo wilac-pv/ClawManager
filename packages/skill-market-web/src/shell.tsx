@@ -9,9 +9,7 @@ export function MarketShell(props: ParentProps) {
     { href: "/skills", label: "Skill 市场", visible: true },
     { href: "/announcements", label: "公告", visible: true },
     { href: "/expert-packages", label: "专家包", visible: true },
-    { href: "/favorites", label: "我的收藏", visible: Boolean(current.session()) },
-    { href: "/personal", label: "个人空间", visible: Boolean(current.session()) },
-    { href: "/submissions", label: "我的投稿", visible: Boolean(current.session()) },
+    { href: "/personal", label: "我的空间", visible: Boolean(current.session()) },
     { href: "/admin", label: "管理后台", visible: current.reviewer() },
   ]
 
@@ -33,8 +31,21 @@ export function MarketShell(props: ParentProps) {
                 activeClass="is-active"
                 classList={{
                   "is-active": link.href === "/admin" && location.pathname.startsWith("/admin"),
+                  "is-space-active":
+                    link.href === "/personal" &&
+                    (location.pathname === "/personal" ||
+                      location.pathname === "/favorites" ||
+                      location.pathname.startsWith("/submissions")),
                 }}
-                aria-current={link.href === "/admin" && location.pathname.startsWith("/admin") ? "page" : undefined}
+                aria-current={
+                  (link.href === "/admin" && location.pathname.startsWith("/admin")) ||
+                  (link.href === "/personal" &&
+                    (location.pathname === "/personal" ||
+                      location.pathname === "/favorites" ||
+                      location.pathname.startsWith("/submissions")))
+                    ? "page"
+                    : undefined
+                }
               >
                 {link.label}
               </A>

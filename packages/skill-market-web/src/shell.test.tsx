@@ -30,9 +30,12 @@ describe("market shell", () => {
   test("shows a compact two-line identity and submission navigation for a contributor", async () => {
     const fixture = renderShell(session([]), "/submissions")
 
-    expect((await fixture.view.findByRole("link", { name: "我的投稿" })).getAttribute("aria-current")).toBe("page")
+    expect((await fixture.view.findByRole("link", { name: "我的空间" })).getAttribute("aria-current")).toBe("page")
     expect(fixture.view.getByText("Contributor User").getAttribute("data-identity-name")).not.toBeNull()
     expect(fixture.view.getByText("E000001").getAttribute("data-identity-id")).not.toBeNull()
+    expect(fixture.view.queryByRole("link", { name: "个人空间" })).toBeNull()
+    expect(fixture.view.queryByRole("link", { name: "我的投稿" })).toBeNull()
+    expect(fixture.view.queryByRole("link", { name: "我的收藏" })).toBeNull()
     expect(fixture.view.queryByRole("link", { name: "管理后台" })).toBeNull()
     expect(fixture.view.getByRole("button", { name: "退出登录" })).toBeTruthy()
   })

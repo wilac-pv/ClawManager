@@ -35,6 +35,7 @@ import {
 } from "./session"
 import { resolveSkillMarketRuntime, skillDetailUrl, skillPackageUrl } from "./runtime-config"
 import { MarketShell } from "./shell"
+import { MySpaceLayout } from "./space/layout"
 import { SubmissionDetail } from "./submissions/detail"
 import { SubmissionForm } from "./submissions/form"
 import { SubmissionList } from "./submissions/list"
@@ -126,7 +127,9 @@ export function App() {
         path="/favorites"
         component={() => (
           <RequireSession>
-            <FavoritesPage source={control.favorites} catalog={source} />
+            <MySpaceLayout>
+              <FavoritesPage source={control.favorites} catalog={source} />
+            </MySpaceLayout>
           </RequireSession>
         )}
       />
@@ -148,7 +151,9 @@ export function App() {
 function SubmissionListRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireSession>
-      <SubmissionList source={props.source.submissions} target="company" />
+      <MySpaceLayout>
+        <SubmissionList source={props.source.submissions} target="company" />
+      </MySpaceLayout>
     </RequireSession>
   )
 }
@@ -156,7 +161,9 @@ function SubmissionListRoute(props: { source: SkillMarketControlDataSource }) {
 function PersonalSpaceRoute(props: { source: SkillMarketControlDataSource }) {
   return (
     <RequireSession>
-      <SubmissionList source={props.source.submissions} target="personal" />
+      <MySpaceLayout>
+        <SubmissionList source={props.source.submissions} target="personal" />
+      </MySpaceLayout>
     </RequireSession>
   )
 }
@@ -182,38 +189,40 @@ function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
   const target = () => (params.target === "personal" ? "personal" : "company") as SkillMarketControl.PublicationTarget
   return (
     <RequireSession>
-      <Show
-        when={previousID()}
-        fallback={
-          <SubmissionForm
-            source={props.source.submissions}
-            mode={{ kind: "create", target: target() }}
-            onAccepted={accepted}
-          />
-        }
-      >
-        <Switch>
-          <Match when={previous.isPending}>
-            <ProtectedPlaceholder title="正在准备投稿" description="正在读取上一版本信息。" />
-          </Match>
-          <Match when={previous.error}>
-            <ProtectedPlaceholder title="无法读取上一版本" description="请返回我的投稿后重试。" />
-          </Match>
-          <Match when={previous.data}>
-            {(detail) => (
-              <SubmissionForm
-                source={props.source.submissions}
-                mode={
-                  detail().status === "published"
-                    ? { kind: "version", initial: detail().metadata, target: detail().target }
-                    : { kind: "create", initial: detail().metadata, target: detail().target }
-                }
-                onAccepted={accepted}
-              />
-            )}
-          </Match>
-        </Switch>
-      </Show>
+      <MySpaceLayout>
+        <Show
+          when={previousID()}
+          fallback={
+            <SubmissionForm
+              source={props.source.submissions}
+              mode={{ kind: "create", target: target() }}
+              onAccepted={accepted}
+            />
+          }
+        >
+          <Switch>
+            <Match when={previous.isPending}>
+              <ProtectedPlaceholder title="正在准备投稿" description="正在读取上一版本信息。" />
+            </Match>
+            <Match when={previous.error}>
+              <ProtectedPlaceholder title="无法读取上一版本" description="请返回我的投稿后重试。" />
+            </Match>
+            <Match when={previous.data}>
+              {(detail) => (
+                <SubmissionForm
+                  source={props.source.submissions}
+                  mode={
+                    detail().status === "published"
+                      ? { kind: "version", initial: detail().metadata, target: detail().target }
+                      : { kind: "create", initial: detail().metadata, target: detail().target }
+                  }
+                  onAccepted={accepted}
+                />
+              )}
+            </Match>
+          </Switch>
+        </Show>
+      </MySpaceLayout>
     </RequireSession>
   )
 }
@@ -222,7 +231,9 @@ function SubmissionDetailRoute(props: { source: SkillMarketControlDataSource }) 
   const params = useParams<{ id: string }>()
   return (
     <RequireSession>
-      <SubmissionDetail submissionID={params.id} source={props.source.submissions} />
+      <MySpaceLayout>
+        <SubmissionDetail submissionID={params.id} source={props.source.submissions} />
+      </MySpaceLayout>
     </RequireSession>
   )
 }
