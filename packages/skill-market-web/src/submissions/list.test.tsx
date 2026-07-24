@@ -12,6 +12,9 @@ describe("submission list", () => {
     const fixture = renderList(() => Promise.resolve(page([])))
 
     expect(await fixture.view.findByRole("heading", { name: "还没有投稿" })).toBeTruthy()
+    expect(fixture.view.getByRole("heading", { name: "我的投稿" }).closest("header")?.className).toBe(
+      "space-page__header",
+    )
     expect(fixture.view.getByRole("link", { name: "投稿 Skill" }).getAttribute("href")).toBe("/submissions/new")
   })
 

@@ -3,6 +3,7 @@ import { A, useSearchParams } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { For, Match, Show, Switch } from "solid-js"
 import type { SkillMarketControlDataSource } from "../control-data-source"
+import { SpacePageHeader } from "../space/page"
 
 export type SubmissionReader = Pick<SkillMarketControlDataSource["submissions"], "list">
 
@@ -37,24 +38,24 @@ export function SubmissionList(props: SubmissionListProps) {
   }))
 
   return (
-    <main class="submission-page">
-      <header class="submission-page__heading">
-        <div>
-          <p class="submission-page__eyebrow">{props.target === "personal" ? "Private workspace" : "Contributor workspace"}</p>
-          <h1>{props.target === "personal" ? "个人空间" : "我的投稿"}</h1>
-          <p>
-            {props.target === "personal"
-              ? "仅你本人可见；安全扫描通过后即可下载使用。"
-              : "查看校验、审核和发布进度，或提交新的 Skill 版本。"}
-          </p>
-        </div>
-        <A
-          class="market-primary-action submission-page__create"
-          href={props.target === "personal" ? "/submissions/new?target=personal" : "/submissions/new"}
-        >
-          {props.target === "personal" ? "上传 Skill" : "投稿 Skill"}
-        </A>
-      </header>
+    <main class="submission-page space-page">
+      <SpacePageHeader
+        eyebrow={props.target === "personal" ? "Private skills" : "Company publishing"}
+        title={props.target === "personal" ? "个人 Skill" : "我的投稿"}
+        description={
+          props.target === "personal"
+            ? "仅你本人可见；安全扫描通过后即可下载使用。"
+            : "查看校验、审核和发布进度，或提交新的 Skill 版本。"
+        }
+        action={
+          <A
+            class="market-primary-action"
+            href={props.target === "personal" ? "/submissions/new?target=personal" : "/submissions/new"}
+          >
+            {props.target === "personal" ? "上传 Skill" : "投稿 Skill"}
+          </A>
+        }
+      />
 
       <section class="submission-toolbar" aria-label="投稿筛选">
         <label>
@@ -76,12 +77,12 @@ export function SubmissionList(props: SubmissionListProps) {
 
       <Switch>
         <Match when={submissions.isPending}>
-          <section class="submission-state" role="status">
+          <section class="submission-state space-page__state" role="status">
             正在加载投稿…
           </section>
         </Match>
         <Match when={submissions.error}>
-          <section class="submission-state" role="alert">
+          <section class="submission-state space-page__state" role="alert">
             <h2>投稿加载失败</h2>
             <p>请检查网络后重试。</p>
             <button type="button" onClick={() => void submissions.refetch()}>
@@ -94,7 +95,7 @@ export function SubmissionList(props: SubmissionListProps) {
             <Show
               when={result().items.length > 0}
               fallback={
-                <section class="submission-state">
+                <section class="submission-state space-page__state">
                   <h2>{props.target === "personal" ? "个人空间还是空的" : "还没有投稿"}</h2>
                   <p>准备好 ZIP 包后即可提交第一个 Skill。</p>
                 </section>

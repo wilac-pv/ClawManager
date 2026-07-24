@@ -6,9 +6,10 @@ import type {
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { A, useLocation } from "@solidjs/router"
 import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-query"
-import { For, Show } from "solid-js"
+import { For, Match, Show, Switch } from "solid-js"
 import type { SkillMarketControlDataSource } from "./control-data-source"
 import { useSkillMarketSession } from "./session"
+import { SpacePageHeader } from "./space/page"
 
 const favoriteQueryKey = ["skill-market", "favorites"] as const
 
@@ -53,29 +54,52 @@ export function FavoritesPage(props: {
   }))
   const actions = useFavoriteActions(props.source)
   return (
-    <main class="favorite-page">
-      <header class="market-section-hero">
-        <span>MY COLLECTION</span>
-        <h1>我的收藏</h1>
-        <p>收藏的 Skill 会跟随当前 GWM SSO 账号，在不同设备上保持一致。</p>
-      </header>
-      <Show when={favorites.isPending}>
-        <div class="market-placeholder" role="status">
-          正在加载收藏…
-        </div>
-      </Show>
-      <Show when={!favorites.isPending && (favorites.data?.length ?? 0) === 0}>
-        <div class="market-placeholder">
-          <h2>还没有收藏 Skill</h2>
-          <p>在市场卡片或 Skill 详情页点击星标即可收藏。</p>
-          <A href="/skills">浏览 Skill 市场</A>
-        </div>
-      </Show>
-      <div class="favorite-page__grid">
-        <For each={favorites.data ?? []}>
-          {(favorite) => <FavoriteSkill favorite={favorite} catalog={props.catalog} actions={actions} />}
-        </For>
-      </div>
+    <main class="favorite-page space-page">
+      <SpacePageHeader
+        eyebrow="Saved skills"
+        title="我的收藏"
+        description="收藏的 Skill 会跟随当前 GWM SSO 账号，在不同设备上保持一致。"
+        action={
+          <A class="market-primary-action" href="/skills">
+            浏览 Skill 市场
+          </A>
+        }
+      />
+      <Switch>
+        <Match when={favorites.isPending}>
+          <section class="space-page__state" role="status">
+            正在加载收藏…
+          </section>
+        </Match>
+        <Match when={favorites.error}>
+          <section class="space-page__state" role="alert">
+            <h2>收藏加载失败</h2>
+            <p>请检查网络后重试。</p>
+            <button type="button" onClick={() => void favorites.refetch()}>
+              重新加载
+            </button>
+          </section>
+        </Match>
+        <Match when={favorites.data}>
+          {(items) => (
+            <Show
+              when={items().length > 0}
+              fallback={
+                <section class="space-page__state">
+                  <h2>还没有收藏 Skill</h2>
+                  <p>在市场卡片或 Skill 详情页点击星标即可收藏。</p>
+                </section>
+              }
+            >
+              <section class="favorite-page__grid" aria-label="我的收藏列表">
+                <For each={items()}>
+                  {(favorite) => <FavoriteSkill favorite={favorite} catalog={props.catalog} actions={actions} />}
+                </For>
+              </section>
+            </Show>
+          )}
+        </Match>
+      </Switch>
     </main>
   )
 }
@@ -96,7 +120,9 @@ function FavoriteSkill(props: {
         {(skill) => (
           <>
             <div>
-              <span>{skill().source === "skillhub" ? "SkillHub" : skill().source === "enterprise" ? "企业精选" : "用户投稿"}</span>
+              <span class="favorite-page__source">
+                {skill().source === "skillhub" ? "SkillHub" : skill().source === "enterprise" ? "企业精选" : "用户投稿"}
+              </span>
               <h2>{skill().name}</h2>
               <p>{skill().description}</p>
             </div>
