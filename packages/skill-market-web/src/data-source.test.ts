@@ -8,6 +8,7 @@ const summary = {
   sourceUrl: "https://skillhub.cn/skills/code-review",
   name: "Code Review",
   description: "审查代码并发现风险",
+  iconUrl: "https://oss.example.com/market/icons/" + "a".repeat(64) + ".png",
   categories: ["代码质量"],
   tags: ["review"],
   requiresApiKey: false,
@@ -57,9 +58,10 @@ test("encodes list filters and decodes the response schema", async () => {
   })
   const source = createRemoteSkillMarketDataSource(server.url)
 
-  await expect(
-    source.list({ query: "code review", requiresApiKey: false, sort: "score", page: 1, limit: 30 }),
-  ).resolves.toMatchObject({ total: 1, items: [{ id: "code-review" }] })
+  const result = await source.list({ query: "code review", requiresApiKey: false, sort: "score", page: 1, limit: 30 })
+  const iconUrl = new URL("/v1/catalog/icon", server.url)
+  iconUrl.searchParams.set("url", summary.iconUrl)
+  expect(result).toMatchObject({ total: 1, items: [{ id: "code-review", iconUrl: iconUrl.href }] })
   await server.stop()
 })
 

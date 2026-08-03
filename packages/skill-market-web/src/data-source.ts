@@ -29,10 +29,16 @@ export function createRemoteSkillMarketDataSource(
   }
 
   return {
-    list: (query, signal) => get(`/v1/catalog/skills?${encodePageQuery(query)}`, SkillMarket.Page, signal),
+    list: (query, signal) =>
+      get(`/v1/catalog/skills?${encodePageQuery(query)}`, SkillMarket.Page, signal).then((page) => ({
+        ...page,
+        items: page.items.map((item) => proxyIcon(item, base)),
+      })),
     facets: (signal) => get("/v1/catalog/facets", SkillMarket.Facets, signal),
     detail: (key, signal) =>
-      get(`/v1/catalog/skills/${key.source}/${encodeURIComponent(key.id)}`, SkillMarket.Detail, signal),
+      get(`/v1/catalog/skills/${key.source}/${encodeURIComponent(key.id)}`, SkillMarket.Detail, signal).then((detail) =>
+        proxyIcon(detail, base),
+      ),
     versions: (key, signal) =>
       get(
         `/v1/catalog/skills/${key.source}/${encodeURIComponent(key.id)}/versions`,
@@ -74,6 +80,13 @@ export function createRemoteSkillMarketDataSource(
         get(`/v1/catalog/expert-packages/${encodeURIComponent(slug)}`, SkillMarket.ExpertPackageDetail, signal),
     },
   }
+}
+
+function proxyIcon<T extends { readonly iconUrl?: string }>(value: T, base: URL): T {
+  if (!value.iconUrl) return value
+  const url = new URL("/v1/catalog/icon", base)
+  url.searchParams.set("url", value.iconUrl)
+  return { ...value, iconUrl: url.href }
 }
 
 function withQuery(entries: ReadonlyArray<readonly [string, string | number | undefined]>) {

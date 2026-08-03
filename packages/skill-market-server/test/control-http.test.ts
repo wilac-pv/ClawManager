@@ -87,10 +87,8 @@ describe("skill market control HTTP", () => {
     await using fixture = await marketFixture({ icon: true })
     const pageResponse = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`)
     const page = Schema.decodeUnknownSync(SkillMarket.Page)(await pageResponse.json())
-    const iconUrl = new URL(page.items[0]!.iconUrl!)
-
-    expect(iconUrl.origin).toBe("https://market.example.com")
-    expect(iconUrl.pathname).toBe("/v1/catalog/icon")
+    const iconUrl = new URL("/v1/catalog/icon", "https://market.example.com")
+    iconUrl.searchParams.set("url", page.items[0]!.iconUrl!)
     const icon = await fetch(new URL(`${iconUrl.pathname}${iconUrl.search}`, fixture.url))
     expect(icon.status).toBe(200)
     expect(icon.headers.get("content-type")).toBe("image/png")
@@ -1151,7 +1149,6 @@ async function marketFixture(
     privatePrefix: "skill-market-private",
     publicPrefix: "skill-market",
     publicBaseUrl: "https://oss.example.com/skill-market/",
-    apiPublicUrl: "https://market.example.com",
     webOrigin,
     webBaseUrl,
     sessionCookieName: "ruying_market_session",

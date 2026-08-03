@@ -27,7 +27,7 @@ const summary = {
   delisted: false,
 } satisfies SkillMarket.Summary
 
-test("rewrites mirrored icon URLs through the catalog API and verifies the immutable object", async () => {
+test("verifies and serves only mirrored immutable icon objects", async () => {
   const reads: string[] = []
   const proxy = createCatalogIconProxy({
     store: {
@@ -43,23 +43,9 @@ test("rewrites mirrored icon URLs through the catalog API and verifies the immut
     },
     publicPrefix: "skill-market",
     publicBaseUrl: "https://oss.example.com/market/",
-    apiPublicUrl: "https://market.example.com",
   })
 
-  const page = proxy.rewritePage({
-    revision: "revision-1",
-    sourceStatus: { skillhub: "fresh", enterprise: "fresh", community: "fresh" },
-    total: 1,
-    page: 1,
-    limit: 30,
-    items: [summary],
-  })
-  const url = new URL(page.items[0]!.iconUrl!)
-  expect(url.origin).toBe("https://market.example.com")
-  expect(url.pathname).toBe("/v1/catalog/icon")
-  expect(url.searchParams.get("url")).toBe(sourceUrl)
-
-  expect(await proxy.read(url.searchParams.get("url"))).toEqual({ body, contentType: "image/png", sha256 })
+  expect(await proxy.read(summary.iconUrl!)).toEqual({ body, contentType: "image/png", sha256 })
   expect(reads).toEqual([`skill-market/icons/${sha256}.png`, `skill-market/icons/${sha256}.png`])
   expect(await proxy.read("https://untrusted.example.com/icons/" + sha256 + ".png")).toBeUndefined()
 })

@@ -49,7 +49,6 @@ export interface MarketHttpOptions {
   readonly privatePrefix: string
   readonly publicPrefix: string
   readonly publicBaseUrl: string
-  readonly apiPublicUrl: string
   readonly webOrigin: string
   readonly webBaseUrl: string
   readonly sessionCookieName: string
@@ -66,10 +65,9 @@ export function createMarketRoutes(options: MarketHttpOptions) {
     store: options.store,
     publicPrefix: options.publicPrefix,
     publicBaseUrl: options.publicBaseUrl,
-    apiPublicUrl: options.apiPublicUrl,
   })
   const groups = [
-    createCatalogHttp(options.catalog, packages, icons, options.emit),
+    createCatalogHttp(options.catalog, packages, options.emit),
     createAnnouncementsHttp(options.announcements),
     createExpertPackagesHttp(options.expertPackages),
     createFavoritesHttp(options.favorites),

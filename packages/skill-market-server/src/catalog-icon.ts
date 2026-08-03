@@ -1,4 +1,3 @@
-import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import type { ObjectStore } from "./oss"
 
 const iconLimit = 2 * 1024 * 1024
@@ -13,10 +12,8 @@ export function createCatalogIconProxy(options: {
   readonly store: ObjectStore
   readonly publicPrefix: string
   readonly publicBaseUrl: string
-  readonly apiPublicUrl: string
 }) {
   const publicBaseUrl = new URL(options.publicBaseUrl.endsWith("/") ? options.publicBaseUrl : `${options.publicBaseUrl}/`)
-  const apiPublicUrl = new URL(options.apiPublicUrl)
   const publicPrefix = options.publicPrefix.replace(/^\/+|\/+$/g, "")
 
   const resolve = (input: string) => {
@@ -34,20 +31,7 @@ export function createCatalogIconProxy(options: {
     }
   }
 
-  const rewrite = <T extends { readonly iconUrl?: string }>(value: T): T => {
-    if (!value.iconUrl || !resolve(value.iconUrl)) return value
-    const url = new URL("/v1/catalog/icon", apiPublicUrl)
-    url.searchParams.set("url", value.iconUrl)
-    return { ...value, iconUrl: url.href }
-  }
-
   return {
-    rewritePage(page: SkillMarket.Page): SkillMarket.Page {
-      return { ...page, items: page.items.map(rewrite) }
-    },
-    rewriteDetail(detail: SkillMarket.Detail): SkillMarket.Detail {
-      return rewrite(detail)
-    },
     async read(input: string | null) {
       if (!input) return undefined
       const icon = resolve(input)
