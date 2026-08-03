@@ -106,6 +106,35 @@ describe("catalog synchronization", () => {
     expect(writes.has(`skill-market/packages/${detail.package.sha256}.zip`)).toBe(true)
   })
 
+  test("mirrors an approved SkillHub icon into immutable internal storage", async () => {
+    const skill = "---\nname: verified-review\ndescription: Verified review\n---\n# Verified Review\n"
+    const guide = "Review carefully."
+    const archive = makeStoredZip({
+      "SKILL.md": skill,
+      "references/guide.md": guide,
+      "_meta.json": JSON.stringify({ slug: "code-review", version: "1.0.0" }),
+    })
+    const icon = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    const writes = new Map<string, Uint8Array>()
+    const detail = await materializeSkillHubRecord(
+      { ...sampleRecord(skill, guide), iconUrl: "https://cloudcache.tencent-cloud.com/code-review.png" },
+      {
+        fetcher: async (input) =>
+          requestUrl(input).includes("cloudcache.tencent-cloud.com")
+            ? new Response(icon, { headers: { "content-type": "image/png" } })
+            : new Response(archive, { headers: { "content-type": "application/zip" } }),
+        store: memoryStore(writes),
+        allowedHosts: new Set(["api.skillhub.cn", "cloudcache.tencent-cloud.com"]),
+        ossPrefix: "skill-market",
+        publicBaseUrl: "https://oss.example.com/skill-market/",
+      },
+    )
+    const iconSha256 = sha256(icon)
+
+    expect(detail.iconUrl).toBe(`https://oss.example.com/skill-market/icons/${iconSha256}.png`)
+    expect(writes.get(`skill-market/icons/${iconSha256}.png`)).toEqual(icon)
+  })
+
   test("rejects traversal entries and manifest mismatches", async () => {
     expect(() => verifySkillArchive(makeStoredZip({ "../escape": "bad", "SKILL.md": "# bad" }))).toThrow(
       "unsafe ZIP path",
@@ -380,7 +409,7 @@ function sampleRecord(skill: string, guide: string): SkillHubRecord {
   }
 }
 
-function sha256(input: string) {
+function sha256(input: string | Uint8Array) {
   return new Bun.CryptoHasher("sha256").update(input).digest("hex")
 }
 

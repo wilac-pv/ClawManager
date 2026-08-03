@@ -171,7 +171,9 @@ async function loadRecord(
 ) {
   const cached = previous?.get(skill.slug)
   const updatedAt = new Date(skill.updated_at).toISOString()
-  if (cached?.version === skill.version && cached.updatedAt === updatedAt) return cached
+  const listIconUrl = skill.iconUrl && isHttps(skill.iconUrl) ? skill.iconUrl : undefined
+  if (cached?.version === skill.version && cached.updatedAt === updatedAt && (cached.iconUrl || !listIconUrl))
+    return cached
 
   const root = new URL(`/api/v1/skills/${encodeURIComponent(skill.slug)}`, baseUrl)
   const filesUrl = new URL(`${root.pathname}/files`, baseUrl)
@@ -199,7 +201,8 @@ async function loadRecord(
   downloadUrl.searchParams.set("slug", skill.slug)
   downloadUrl.searchParams.set("version", detail.latestVersion.version)
   const riskReason = reports.find((report) => report.verdict === risk)?.summary
-  const iconUrl = detail.skill.iconUrl && isHttps(detail.skill.iconUrl) ? detail.skill.iconUrl : undefined
+  const detailIconUrl = detail.skill.iconUrl && isHttps(detail.skill.iconUrl) ? detail.skill.iconUrl : undefined
+  const iconUrl = detailIconUrl ?? listIconUrl
   return {
     slug: skill.slug,
     name: detail.skill.displayName || skill.name,
