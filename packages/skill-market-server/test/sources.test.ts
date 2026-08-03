@@ -52,7 +52,10 @@ describe("catalog sources", () => {
     )
     expect(reused[0]).toBe(records[0])
 
-    const cached = sampleDetail({ updatedAt: "2026-07-14T21:21:41.275Z" })
+    const cached = sampleDetail({
+      updatedAt: "2026-07-14T21:21:41.275Z",
+      iconUrl: "https://oss.example.com/icons/code-review.png",
+    })
     const reusedDetail = await loadSkillHub(
       async (input) => {
         const url = requestUrl(input)
@@ -65,6 +68,33 @@ describe("catalog sources", () => {
       new Map([[cached.id, cached]]),
     )
     expect(reusedDetail[0]).toBe(cached)
+  })
+
+  test("refreshes an unchanged cached detail when SkillHub now provides an icon", async () => {
+    const cached = sampleDetail({ updatedAt: "2026-07-14T21:21:41.275Z" })
+    const calls: string[] = []
+    const records = await loadSkillHub(
+      async (input) => {
+        const url = requestUrl(input)
+        calls.push(url)
+        if (url.includes("/api/skills?"))
+          return new Response(Bun.file(new URL("skillhub-page.json", fixtures)), {
+            headers: { "content-type": "application/json" },
+          })
+        const file = url.includes("/files?")
+          ? "skillhub-files.json"
+          : url.endsWith("/versions")
+            ? "skillhub-versions.json"
+            : "skillhub-detail.json"
+        return new Response(Bun.file(new URL(file, fixtures)), { headers: { "content-type": "application/json" } })
+      },
+      "https://api.skillhub.cn",
+      new Map([[cached.id, cached]]),
+    )
+
+    expect(records[0]).not.toBe(cached)
+    expect(records[0]?.iconUrl).toBe("https://cloudcache.tencent-cloud.com/code-review.png")
+    expect(calls).toHaveLength(4)
   })
 
   test("bounds SkillHub list page concurrency", async () => {
@@ -163,7 +193,14 @@ describe("catalog sources", () => {
     expect(config.skillhubEvaluationPublishMinutes).toBe(30)
     expect(config.skillhubEvaluationDurationMilliseconds).toBe(75_000)
     expect(config.skillhubMemorySoftLimitMb).toBe(1_536)
-    expect(config.allowedHosts).toEqual(new Set(["api.skillhub.cn"]))
+    expect(config.allowedHosts).toEqual(
+      new Set([
+        "api.skillhub.cn",
+        "cloudcache.tencent-cloud.com",
+        "docs.cloudbase.net",
+        "skillhub-1388575217.cos.accelerate.myqcloud.com",
+      ]),
+    )
     expect(() =>
       loadConfig({
         SKILL_MARKET_SKILLHUB_LIMIT: "0",

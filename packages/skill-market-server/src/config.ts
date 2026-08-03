@@ -1,5 +1,12 @@
 type Environment = Record<string, string | undefined>
 
+const defaultAllowedHosts = [
+  "api.skillhub.cn",
+  "cloudcache.tencent-cloud.com",
+  "docs.cloudbase.net",
+  "skillhub-1388575217.cos.accelerate.myqcloud.com",
+].join(",")
+
 export function loadConfig(environment: Environment = process.env) {
   const port = positiveInteger("SKILL_MARKET_PORT", environment.SKILL_MARKET_PORT ?? "4210", 65_535)
   const allowInsecureOssHttp = booleanFlag(
@@ -186,7 +193,7 @@ export function loadConfig(environment: Environment = process.env) {
     ),
     bootstrapAdmins: uniqueEmployeeIDs(environment.SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS),
     allowedHosts: new Set(
-      (environment.SKILL_MARKET_ALLOWED_HOSTS ?? "api.skillhub.cn")
+      (environment.SKILL_MARKET_ALLOWED_HOSTS ?? defaultAllowedHosts)
         .split(",")
         .map((value) => value.trim().toLocaleLowerCase())
         .filter(Boolean),

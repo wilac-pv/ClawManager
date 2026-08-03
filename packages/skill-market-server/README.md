@@ -69,7 +69,7 @@ Leases make a later invocation safe after a crashed process. Avoid intentionally
 | `SKILL_MARKET_DAILY_UPLOAD_LIMIT`           | No                  | `20`                                          | Per-user successful upload allowance per rolling day.                                                      |
 | `SKILL_MARKET_ACTIVE_SUBMISSION_LIMIT`      | No                  | `5`                                           | Maximum active submissions owned by one user.                                                              |
 | `SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS` | Initial deployment  | empty                                         | Comma-separated employee IDs granted the admin role idempotently at startup.                               |
-| `SKILL_MARKET_ALLOWED_HOSTS`                | No                  | `api.skillhub.cn`                             | Comma-separated allowlist for every upstream API, redirect, package, enterprise index, and icon host.      |
+| `SKILL_MARKET_ALLOWED_HOSTS`                | No                  | SkillHub API and icon CDN hosts               | Comma-separated allowlist for every upstream API, redirect, package, enterprise index, and icon host.      |
 | `AWS_ACCESS_KEY_ID`                         | Deployment-specific | —                                             | S3-compatible access key.                                                                                  |
 | `AWS_SECRET_ACCESS_KEY`                     | Deployment-specific | —                                             | S3-compatible secret key.                                                                                  |
 | `AWS_SESSION_TOKEN`                         | No                  | —                                             | Temporary credential token when applicable.                                                                |
@@ -100,7 +100,7 @@ SKILL_MARKET_EVALUATION_REQUESTS_PER_MINUTE=60
 SKILL_MARKET_EVALUATION_REFRESH_DAYS=7
 SKILL_MARKET_EVALUATION_PUBLISH_BATCH=100
 SKILL_MARKET_BOOTSTRAP_ADMIN_EMPLOYEE_IDS=E000001
-SKILL_MARKET_ALLOWED_HOSTS=api.skillhub.cn,oss.example.internal,packages.example.internal
+SKILL_MARKET_ALLOWED_HOSTS=api.skillhub.cn,cloudcache.tencent-cloud.com,docs.cloudbase.net,skillhub-1388575217.cos.accelerate.myqcloud.com,oss.example.internal,packages.example.internal
 AWS_ACCESS_KEY_ID=REDACTED
 AWS_SECRET_ACCESS_KEY=REDACTED
 ```

@@ -157,7 +157,8 @@ export async function loadSkillHub(
         chunk.map(async (skill) => {
           const cached = previous?.get(skill.slug)
           const updatedAt = new Date(skill.updated_at).toISOString()
-          return cached?.version === skill.version && cached.updatedAt === updatedAt
+          const listIconUrl = skill.iconUrl && isHttps(skill.iconUrl) ? skill.iconUrl : undefined
+          return cached?.version === skill.version && cached.updatedAt === updatedAt && (cached.iconUrl || !listIconUrl)
             ? cached
             : loadSkillHubRecord(fetcher, baseUrl.href, skill)
         }),
@@ -183,6 +184,7 @@ export async function loadSkillHubRecord(
 ) {
   const baseUrl = requireBaseUrl(input)
   const updatedAt = new Date(skill.updated_at).toISOString()
+  const listIconUrl = skill.iconUrl && isHttps(skill.iconUrl) ? skill.iconUrl : undefined
 
   const root = new URL(`/api/v1/skills/${encodeURIComponent(skill.slug)}`, baseUrl)
   const filesUrl = new URL(`${root.pathname}/files`, baseUrl)
@@ -210,7 +212,8 @@ export async function loadSkillHubRecord(
   downloadUrl.searchParams.set("slug", skill.slug)
   downloadUrl.searchParams.set("version", detail.latestVersion.version)
   const riskReason = reports.find((report) => report.verdict === risk)?.summary
-  const iconUrl = detail.skill.iconUrl && isHttps(detail.skill.iconUrl) ? detail.skill.iconUrl : undefined
+  const detailIconUrl = detail.skill.iconUrl && isHttps(detail.skill.iconUrl) ? detail.skill.iconUrl : undefined
+  const iconUrl = detailIconUrl ?? listIconUrl
   return {
     slug: skill.slug,
     name: detail.skill.displayName || skill.name,
