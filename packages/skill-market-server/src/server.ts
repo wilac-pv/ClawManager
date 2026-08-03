@@ -135,6 +135,8 @@ const main = Effect.scoped(
       store,
       privatePrefix: config.privateOssPrefix,
       publicPrefix: config.ossPrefix,
+      publicBaseUrl: config.publicBaseUrl,
+      apiPublicUrl: config.apiPublicUrl,
       webOrigin: config.webOrigin,
       webBaseUrl: config.webBaseUrl,
       sessionCookieName: config.sessionCookieName,

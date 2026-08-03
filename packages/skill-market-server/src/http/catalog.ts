@@ -5,29 +5,37 @@ import { Effect } from "effect"
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { CatalogReader } from "../catalog-reader"
+import type { CatalogIconProxy } from "../catalog-icon"
 import type { MarketMetricEmitter } from "../metrics"
 import { CatalogPackageReadError, type CatalogPackageReader } from "../package-reader"
 import { requestID } from "./middleware"
 
-export function createCatalogHttp(catalog: CatalogReader, packages: CatalogPackageReader, emit?: MarketMetricEmitter) {
+export function createCatalogHttp(
+  catalog: CatalogReader,
+  packages: CatalogPackageReader,
+  icons: CatalogIconProxy,
+  emit?: MarketMetricEmitter,
+) {
   return HttpApiBuilder.group(SkillMarketApi, "skillMarket.catalog", (handlers) =>
     handlers
       .handle("skillMarket.catalog.list", (context) =>
-        withCatalog(catalog, (current) => catalog.list(normalizeSkillMarketCatalogQuery(context.query), current)),
+        withCatalog(catalog, (current) =>
+          catalog.list(normalizeSkillMarketCatalogQuery(context.query), current).then(icons.rewritePage),
+        ),
       )
       .handle("skillMarket.catalog.facets", () => withCatalog(catalog, (current) => catalog.facets(current)))
       .handle("skillMarket.catalog.detail", (context) =>
-        withCatalog(catalog, (current) => detail(catalog, current, context.params.source, context.params.id)),
+        withCatalog(catalog, (current) => detail(catalog, current, context.params.source, context.params.id, icons)),
       )
       .handle("skillMarket.catalog.versions", (context) =>
         withCatalog(catalog, async (current) => {
-          const value = await detail(catalog, current, context.params.source, context.params.id)
+          const value = await detail(catalog, current, context.params.source, context.params.id, icons)
           return HttpServerResponse.isHttpServerResponse(value) ? value : value.versions
         }),
       )
       .handle("skillMarket.catalog.download", (context) =>
         withCatalog(catalog, async (current) => {
-          const value = await detail(catalog, current, context.params.source, context.params.id)
+          const value = await detail(catalog, current, context.params.source, context.params.id, icons)
           if (HttpServerResponse.isHttpServerResponse(value)) return value
           return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
         }),
@@ -153,9 +161,10 @@ async function detail(
   current: Awaited<ReturnType<CatalogReader["index"]>>,
   source: Parameters<CatalogReader["detail"]>[0],
   id: string,
+  icons: CatalogIconProxy,
 ) {
   const value = await catalog.detail(source, id, current)
-  if (value && !value.delisted) return value
+  if (value && !value.delisted) return icons.rewriteDetail(value)
   return HttpServerResponse.jsonUnsafe({ source, id }, { status: 404 })
 }
 

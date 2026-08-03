@@ -83,6 +83,24 @@ describe("skill market control HTTP", () => {
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, OPTIONS")
   })
 
+  test("proxies immutable catalog icons without exposing the OSS certificate chain", async () => {
+    await using fixture = await marketFixture({ icon: true })
+    const pageResponse = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`)
+    const page = Schema.decodeUnknownSync(SkillMarket.Page)(await pageResponse.json())
+    const iconUrl = new URL(page.items[0]!.iconUrl!)
+
+    expect(iconUrl.origin).toBe("https://market.example.com")
+    expect(iconUrl.pathname).toBe("/v1/catalog/icon")
+    const icon = await fetch(new URL(`${iconUrl.pathname}${iconUrl.search}`, fixture.url))
+    expect(icon.status).toBe(200)
+    expect(icon.headers.get("content-type")).toBe("image/png")
+    expect(new Uint8Array(await icon.arrayBuffer())).toEqual(fixture.iconBody)
+
+    const head = await fetch(new URL(`${iconUrl.pathname}${iconUrl.search}`, fixture.url), { method: "HEAD" })
+    expect(head.status).toBe(200)
+    expect(await head.text()).toBe("")
+  })
+
   test("binds Effect catalog headers and body to one acquired revision", async () => {
     const first = sampleSnapshot("effect-a")
     const second = sampleSnapshot("effect-b")
@@ -981,6 +999,7 @@ async function marketFixture(
     packageUrl?: string
     packageID?: string
     packageVersion?: string
+    icon?: boolean
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-control-http-"))
@@ -1017,13 +1036,19 @@ async function marketFixture(
   const packageBody = new TextEncoder().encode("verified package from Effect HttpApi")
   const packageSha256 = new Bun.CryptoHasher("sha256").update(packageBody).digest("hex")
   const trustedKey = `skill-market/packages/${packageSha256}.zip`
+  const iconBody = new TextEncoder().encode("verified icon from Effect catalog")
+  const iconSha256 = new Bun.CryptoHasher("sha256").update(iconBody).digest("hex")
+  const iconKey = `skill-market/icons/${iconSha256}.png`
   const storedPackageBody =
     options.packageFailure === "body-size"
       ? new Uint8Array([...packageBody, 0])
       : options.packageFailure === "sha256"
         ? packageBody.map((value, index) => (index === 0 ? value ^ 1 : value))
         : packageBody
-  const objects = new Map<string, Uint8Array>([[trustedKey, storedPackageBody]])
+  const objects = new Map<string, Uint8Array>([
+    [trustedKey, storedPackageBody],
+    ...(options.icon ? ([[iconKey, iconBody]] as const) : []),
+  ])
   const metrics: Array<Readonly<Record<string, unknown>>> = []
   const state = { privateWrites: 0, packageHeads: 0, packageGets: 0, storageKeys: [] as string[] }
   const store: PrivateObjectStore = {
@@ -1071,9 +1096,9 @@ async function marketFixture(
     evaluations: createSkillHubEvaluationStore({ database, now: () => now }),
     now: () => now,
   })
-  const snapshot = sampleSnapshot()
-  snapshot.details.delete("skillhub:code-review")
-  snapshot.details.set(
+  const baseSnapshot = sampleSnapshot()
+  baseSnapshot.details.delete("skillhub:code-review")
+  baseSnapshot.details.set(
     `skillhub:${options.packageID ?? "code-review"}`,
     sampleDetail({
       id: options.packageID ?? "code-review",
@@ -1087,7 +1112,22 @@ async function marketFixture(
       },
     }),
   )
-  if (options.packageDetail === "absent") snapshot.details.delete(`skillhub:${options.packageID ?? "code-review"}`)
+  if (options.packageDetail === "absent") baseSnapshot.details.delete(`skillhub:${options.packageID ?? "code-review"}`)
+  const snapshot = options.icon
+    ? {
+        ...baseSnapshot,
+        items: baseSnapshot.items.map((item) => ({
+          ...item,
+          iconUrl: `https://oss.example.com/skill-market/icons/${iconSha256}.png`,
+        })),
+        details: new Map(
+          Array.from(baseSnapshot.details, ([entryKey, detail]) => [
+            entryKey,
+            { ...detail, iconUrl: `https://oss.example.com/skill-market/icons/${iconSha256}.png` },
+          ]),
+        ),
+      }
+    : baseSnapshot
   const web = createMarketWebHandler({
     catalog:
       options.catalog ??
@@ -1110,6 +1150,8 @@ async function marketFixture(
     store,
     privatePrefix: "skill-market-private",
     publicPrefix: "skill-market",
+    publicBaseUrl: "https://oss.example.com/skill-market/",
+    apiPublicUrl: "https://market.example.com",
     webOrigin,
     webBaseUrl,
     sessionCookieName: "ruying_market_session",
@@ -1125,6 +1167,7 @@ async function marketFixture(
     metrics,
     packageBody,
     packageSha256,
+    iconBody,
     trustedKey,
     storageKeys: state.storageKeys,
     get packageHeads() {

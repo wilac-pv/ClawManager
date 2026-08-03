@@ -11,6 +11,7 @@ import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import type { Announcements } from "./announcements"
 import type { createAuth } from "./auth"
+import { createCatalogIconProxy, type CatalogIconProxy } from "./catalog-icon"
 import { type CatalogSnapshot, key, queryCatalog } from "./catalog"
 import type { CatalogReader } from "./catalog-reader"
 import type { MarketMetricEmitter } from "./metrics"
@@ -47,6 +48,8 @@ export interface MarketHttpOptions {
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
   readonly publicPrefix: string
+  readonly publicBaseUrl: string
+  readonly apiPublicUrl: string
   readonly webOrigin: string
   readonly webBaseUrl: string
   readonly sessionCookieName: string
@@ -59,8 +62,14 @@ export interface MarketHttpOptions {
 
 export function createMarketRoutes(options: MarketHttpOptions) {
   const packages = createCatalogPackageReader(options.store, options.publicPrefix)
+  const icons = createCatalogIconProxy({
+    store: options.store,
+    publicPrefix: options.publicPrefix,
+    publicBaseUrl: options.publicBaseUrl,
+    apiPublicUrl: options.apiPublicUrl,
+  })
   const groups = [
-    createCatalogHttp(options.catalog, packages, options.emit),
+    createCatalogHttp(options.catalog, packages, icons, options.emit),
     createAnnouncementsHttp(options.announcements),
     createExpertPackagesHttp(options.expertPackages),
     createFavoritesHttp(options.favorites),
@@ -75,6 +84,7 @@ export function createMarketRoutes(options: MarketHttpOptions) {
   return Layer.mergeAll(
     api,
     HttpRouter.add("GET", "/health", HttpServerResponse.jsonUnsafe({ status: "ok", ready: true })),
+    HttpRouter.add("*", "/v1/catalog/icon", catalogIconResponse(icons)),
   ).pipe(
     Layer.provide(controlHeaders(options.webOrigin)),
     // HttpApi's inherited group middleware leaves the provided principal in the
@@ -91,6 +101,41 @@ export function createMarketRoutes(options: MarketHttpOptions) {
       }),
     ),
   )
+}
+
+function catalogIconResponse(icons: CatalogIconProxy) {
+  return Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    if (request.method !== "GET" && request.method !== "HEAD")
+      return HttpServerResponse.empty({ status: 405, headers: { allow: "GET, HEAD, OPTIONS" } })
+    const head = request.method === "HEAD"
+    const input = new URL(request.url, "http://localhost").searchParams.get("url")
+    return yield* Effect.tryPromise(() => icons.read(input)).pipe(
+      Effect.match({
+        onFailure: () =>
+          HttpServerResponse.jsonUnsafe(
+            { code: "skill-market-icon-unavailable", message: "Skill 图标暂不可用" },
+            { status: 502 },
+          ),
+        onSuccess: (icon) => {
+          if (!icon)
+            return HttpServerResponse.jsonUnsafe(
+              { code: "skill-market-icon-not-found", message: "Skill 图标不存在" },
+              { status: 404 },
+            )
+          const headers = {
+            "cache-control": "public, max-age=31536000, immutable",
+            "content-length": String(icon.body.byteLength),
+            "content-type": icon.contentType,
+            etag: `"${icon.sha256}"`,
+          }
+          return head
+            ? HttpServerResponse.empty({ status: 200, headers })
+            : HttpServerResponse.uint8Array(icon.body, { headers })
+        },
+      }),
+    )
+  })
 }
 
 export function createMarketWebHandler(options: MarketHttpOptions) {

@@ -335,6 +335,27 @@
   place-items: center;
 }
 
+.ruying-skill-market__card[data-view="list"] .ruying-skill-market__favorite {
+  position: relative;
+  top: auto;
+  right: auto;
+  flex: 0 0 34px;
+  order: 3;
+}
+
+.ruying-skill-market__card[data-view="list"] .ruying-skill-market__icon {
+  order: 1;
+}
+
+.ruying-skill-market__card[data-view="list"] .ruying-skill-market__card-body {
+  order: 2;
+}
+
+.ruying-skill-market__card[data-view="list"] .ruying-skill-market__card-arrow {
+  flex: none;
+  order: 4;
+}
+
 .ruying-skill-market__favorite:hover,
 .ruying-skill-market__favorite--active,
 .ruying-skill-market__favorite-action--active {
