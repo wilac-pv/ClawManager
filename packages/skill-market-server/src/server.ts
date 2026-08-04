@@ -11,6 +11,7 @@ import { createMarketRoutes } from "./handlers"
 import { emitMarketMetric } from "./metrics"
 import { createExpertPackages } from "./expert-packages"
 import { createFavorites } from "./favorites"
+import { createGroups } from "./groups"
 import { createModeration } from "./moderation"
 import { makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
@@ -104,6 +105,7 @@ const main = Effect.scoped(
       (timer) => Effect.sync(() => clearInterval(timer)),
     )
     const favorites = createFavorites({ database })
+    const groups = createGroups({ database })
     const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports, evaluations })
     const worker = createWorker({
       database,
@@ -131,6 +133,7 @@ const main = Effect.scoped(
       moderation,
       expertPackages,
       favorites,
+      groups,
       skillhubImportAdmin,
       store,
       privatePrefix: config.privateOssPrefix,

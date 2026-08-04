@@ -18,6 +18,15 @@ const expected = [
   ["skillMarket.favorites.list", "GET", "/v1/favorites"],
   ["skillMarket.favorites.add", "POST", "/v1/favorites/:source/:id"],
   ["skillMarket.favorites.remove", "DELETE", "/v1/favorites/:source/:id"],
+  ["skillMarket.groups.list", "GET", "/v1/groups"],
+  ["skillMarket.groups.create", "POST", "/v1/groups"],
+  ["skillMarket.groups.detail", "GET", "/v1/groups/:groupID"],
+  ["skillMarket.groups.update", "PATCH", "/v1/groups/:groupID"],
+  ["skillMarket.groups.transfer", "POST", "/v1/groups/:groupID/ownership"],
+  ["skillMarket.groups.setStatus", "POST", "/v1/groups/:groupID/status"],
+  ["skillMarket.groups.members", "GET", "/v1/groups/:groupID/members"],
+  ["skillMarket.groups.addMember", "POST", "/v1/groups/:groupID/members"],
+  ["skillMarket.groups.removeMember", "DELETE", "/v1/groups/:groupID/members/:employeeID"],
   ["skillMarket.submissions.list", "GET", "/v1/submissions"],
   ["skillMarket.submissions.create", "POST", "/v1/submissions"],
   ["skillMarket.submissions.detail", "GET", "/v1/submissions/:submissionID"],
@@ -40,7 +49,7 @@ const expected = [
   ["skillMarket.admin.community.restore", "POST", "/v1/admin/community-skills/:skillID/restore"],
 ] as const
 
-test("full market api declares every announcement, expert package, favorite, auth, submission, and admin operation", () => {
+test("full market api declares every server-backed operation", () => {
   const endpoints: Array<readonly [string, string, string]> = []
   HttpApi.reflect(SkillMarketApi, {
     onGroup() {},

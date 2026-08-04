@@ -570,6 +570,13 @@ export const AuditAction = Schema.Literals([
   "skillhub-import-resumed",
   "skillhub-import-retried",
   "announcement-published",
+  "group-created",
+  "group-updated",
+  "group-ownership-transferred",
+  "group-disabled",
+  "group-restored",
+  "group-member-added",
+  "group-member-removed",
 ])
 export type AuditAction = typeof AuditAction.Type
 
@@ -582,6 +589,7 @@ export const AuditObjectType = Schema.Literals([
   "community_skill",
   "skillhub_import",
   "announcement",
+  "group",
 ])
 export type AuditObjectType = typeof AuditObjectType.Type
 

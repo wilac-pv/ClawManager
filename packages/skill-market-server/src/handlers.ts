@@ -18,6 +18,7 @@ import type { MarketMetricEmitter } from "./metrics"
 import type { Moderation } from "./moderation"
 import type { ExpertPackages } from "./expert-packages"
 import type { Favorites } from "./favorites"
+import type { Groups } from "./groups"
 import type { PrivateObjectStore } from "./oss"
 import type { MarketSecurity } from "./security"
 import type { SkillHubImportAdmin } from "./skillhub-import-admin"
@@ -29,6 +30,7 @@ import { createAuthHttp } from "./http/auth"
 import { createCatalogHttp, packageHeaders, packageNotFoundProblem, packageReadProblem } from "./http/catalog"
 import { createExpertPackagesHttp } from "./http/expert-packages"
 import { createFavoritesHttp } from "./http/favorites"
+import { createGroupsHttp } from "./http/groups"
 import { createSecurityLayers } from "./http/middleware"
 import { createSubmissionsHttp } from "./http/submissions"
 import { createCatalogPackageReader, type CatalogPackageReader } from "./package-reader"
@@ -44,6 +46,7 @@ export interface MarketHttpOptions {
   readonly moderation: Moderation
   readonly expertPackages: ExpertPackages
   readonly favorites: Favorites
+  readonly groups: Groups
   readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
@@ -71,6 +74,7 @@ export function createMarketRoutes(options: MarketHttpOptions) {
     createAnnouncementsHttp(options.announcements),
     createExpertPackagesHttp(options.expertPackages),
     createFavoritesHttp(options.favorites),
+    createGroupsHttp(options.groups),
     createAuthHttp(options),
     createSubmissionsHttp(options),
     createAdminHttp(options),
@@ -184,6 +188,7 @@ function controlHeaders(webOrigin: string) {
         const control =
           url.pathname.startsWith("/v1/auth/") ||
           url.pathname.startsWith("/v1/favorites") ||
+          url.pathname.startsWith("/v1/groups") ||
           url.pathname.startsWith("/v1/submissions") ||
           url.pathname.startsWith("/v1/admin/")
         const origin = request.headers.origin
@@ -202,7 +207,7 @@ function controlHeaders(webOrigin: string) {
             ? {
                 ...(origin === webOrigin ? { "access-control-allow-origin": webOrigin } : {}),
                 "access-control-allow-credentials": "true",
-                "access-control-allow-methods": "GET, HEAD, POST, DELETE, OPTIONS",
+                "access-control-allow-methods": "GET, HEAD, POST, PATCH, DELETE, OPTIONS",
                 "access-control-allow-headers": "Accept, Content-Type, Idempotency-Key, X-CSRF-Token",
                 vary: "Origin",
                 "cache-control": "no-store",

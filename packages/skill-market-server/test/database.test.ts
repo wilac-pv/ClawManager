@@ -25,7 +25,7 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(10)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(11)
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
@@ -47,6 +47,8 @@ describe("control-plane database", () => {
         "expert_packages",
         "idempotency_keys",
         "login_attempts",
+        "market_group_members",
+        "market_groups",
         "publish_jobs",
         "reviews",
         "role_assignments",
@@ -80,6 +82,7 @@ describe("control-plane database", () => {
     expect(indexes).toContain("expert_packages_scene_updated")
     expect(indexes).toContain("skill_favorites_employee_created")
     expect(indexes).toContain("announcements_published")
+    expect(indexes).toContain("market_group_members_employee")
 
     database.connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
@@ -110,6 +113,43 @@ describe("control-plane database", () => {
         "owner",
         1,
       ]),
+    ).toThrow()
+
+    database.connection.run(
+      `INSERT INTO market_groups
+        (id, name, owner_employee_id, status, version, created_at, updated_at)
+       VALUES ('grp_abcdefgh', 'Project Aurora', 'E000001', 'active', 1, 1, 1)`,
+    )
+    database.connection.run(
+      `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
+       VALUES ('grp_abcdefgh', 'E000001', 'E000001', 1)`,
+    )
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO market_groups
+          (id, name, owner_employee_id, status, version, created_at, updated_at)
+         VALUES ('grp_bad_name', '', 'E000001', 'active', 1, 1, 1)`,
+      ),
+    ).toThrow()
+    expect(() =>
+      database.connection.run(
+        "UPDATE market_groups SET status = 'deleted' WHERE id = 'grp_abcdefgh'",
+      ),
+    ).toThrow()
+    expect(() =>
+      database.connection.run("UPDATE market_groups SET version = 0 WHERE id = 'grp_abcdefgh'"),
+    ).toThrow()
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
+         VALUES ('grp_abcdefgh', 'E000001', 'E000001', 1)`,
+      ),
+    ).toThrow()
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
+         VALUES ('grp_missing1', 'future-user', 'E000001', 1)`,
+      ),
     ).toThrow()
 
     database.connection.run(
@@ -199,7 +239,7 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([10, 10])
+    ).toEqual([11, 11])
     databases.forEach((database) => database.close())
   })
 
@@ -300,7 +340,7 @@ describe("control-plane database", () => {
     v3.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(10)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(11)
     expect(
       upgraded.connection
         .query<
@@ -454,7 +494,7 @@ describe("control-plane database", () => {
     v4.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(10)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(11)
     const row = upgraded.connection
       .query<{ evaluation_state: string; evaluation_score: number | null; summary_json: string }, [string]>(
         "SELECT evaluation_state, evaluation_score, summary_json FROM skillhub_import_items WHERE slug = ?",

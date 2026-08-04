@@ -12,6 +12,7 @@ import type { CatalogReader } from "../src/catalog-reader"
 import { openDatabase } from "../src/database"
 import { createExpertPackages } from "../src/expert-packages"
 import { createFavorites } from "../src/favorites"
+import { createGroups } from "../src/groups"
 import { createMarketWebHandler } from "../src/handlers"
 import { createModeration } from "../src/moderation"
 import type { PrivateObjectStore } from "../src/oss"
@@ -34,6 +35,146 @@ afterEach(async () => {
 })
 
 describe("skill market control HTTP", () => {
+  test("serves typed group management with session, CSRF, and optimistic conflict protection", async () => {
+    await using fixture = await marketFixture()
+
+    const anonymous = await fetch(`${fixture.url}/v1/groups`)
+    expect(anonymous.status).toBe(401)
+
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fsubmissions`, { redirect: "manual" })
+    const session = await loginSession(fixture, login)
+    const missingCsrf = await fetch(`${fixture.url}/v1/groups`, {
+      method: "POST",
+      headers: { cookie: session.cookie, origin: webOrigin, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Project Aurora" }),
+    })
+    expect(missingCsrf.status).toBe(403)
+
+    const createdResponse = await fetch(`${fixture.url}/v1/groups`, {
+      method: "POST",
+      headers: {
+        cookie: session.cookie,
+        origin: webOrigin,
+        "x-csrf-token": session.csrf,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ name: "Project Aurora", description: "跨部门专项组" }),
+    })
+    expect(createdResponse.status).toBe(200)
+    expect(createdResponse.headers.get("access-control-allow-origin")).toBe(webOrigin)
+    const created = Schema.decodeUnknownSync(SkillMarketControl.MarketGroup)(await createdResponse.json())
+
+    const addedResponse = await fetch(`${fixture.url}/v1/groups/${created.id}/members`, {
+      method: "POST",
+      headers: {
+        cookie: session.cookie,
+        origin: webOrigin,
+        "x-csrf-token": session.csrf,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ employeeID: "future-user", expectedVersion: created.version }),
+    })
+    expect(addedResponse.status).toBe(200)
+    expect(Schema.decodeUnknownSync(SkillMarketControl.MarketGroupMember)(await addedResponse.json())).toMatchObject({
+      groupID: created.id,
+      employeeID: "future-user",
+    })
+
+    const conflict = await fetch(`${fixture.url}/v1/groups/${created.id}`, {
+      method: "PATCH",
+      headers: {
+        cookie: session.cookie,
+        origin: webOrigin,
+        "x-csrf-token": session.csrf,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ expectedVersion: created.version, name: "Stale update" }),
+    })
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toMatchObject({ code: "submission-conflict", requestId: expect.any(String) })
+
+    fixture.database.connection.run(
+      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+      ["future-user", "Future User", now, now],
+    )
+    fixture.database.connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", [
+      "future-user",
+      "E123456",
+    ])
+    const update = (name: string) =>
+      fetch(`${fixture.url}/v1/groups/${created.id}`, {
+        method: "PATCH",
+        headers: {
+          cookie: session.cookie,
+          origin: webOrigin,
+          "x-csrf-token": session.csrf,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expectedVersion: 2, name }),
+      })
+    const memberUpdate = await update("Member cannot rename")
+    expect(memberUpdate.status).toBe(403)
+    expect(await memberUpdate.json()).toMatchObject({ code: "forbidden", requestId: expect.any(String) })
+
+    fixture.database.connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'admin', NULL, ?)",
+      ["future-user", now],
+    )
+    const adminUpdate = await update("Admin repaired name")
+    expect(adminUpdate.status).toBe(200)
+    expect(Schema.decodeUnknownSync(SkillMarketControl.MarketGroup)(await adminUpdate.json())).toMatchObject({
+      id: created.id,
+      name: "Admin repaired name",
+      version: 3,
+    })
+
+    const detailResponse = await fetch(`${fixture.url}/v1/groups/${created.id}`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(detailResponse.status).toBe(200)
+    const membersResponse = await fetch(`${fixture.url}/v1/groups/${created.id}/members`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(membersResponse.status).toBe(200)
+    expect(
+      Schema.decodeUnknownSync(Schema.Array(SkillMarketControl.MarketGroupMember))(await membersResponse.json()),
+    ).toHaveLength(2)
+
+    const pageResponse = await fetch(`${fixture.url}/v1/groups`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(pageResponse.status).toBe(200)
+    expect(Schema.decodeUnknownSync(SkillMarketControl.GroupPage)(await pageResponse.json())).toMatchObject({
+      managed: [{ id: created.id, version: 3 }],
+      joined: [],
+    })
+
+    fixture.database.connection.run(
+      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+      ["outsider", "Outsider", now, now],
+    )
+    fixture.database.connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", [
+      "outsider",
+      "future-user",
+    ])
+    const hiddenDetail = await fetch(`${fixture.url}/v1/groups/${created.id}`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(hiddenDetail.status).toBe(404)
+    expect(await hiddenDetail.json()).toMatchObject({ code: "not-found", requestId: expect.any(String) })
+    const hiddenMembers = await fetch(`${fixture.url}/v1/groups/${created.id}/members`, {
+      headers: { cookie: session.cookie, origin: webOrigin },
+    })
+    expect(hiddenMembers.status).toBe(404)
+
+    const preflight = await fetch(`${fixture.url}/v1/groups/${created.id}`, {
+      method: "OPTIONS",
+      headers: { origin: webOrigin, "access-control-request-method": "PATCH" },
+    })
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get("access-control-allow-methods")).toContain("PATCH")
+  })
+
   test("serves announcement history publicly and protects announcement publishing", async () => {
     await using fixture = await marketFixture()
     fixture.database.connection.run(
@@ -1086,6 +1227,7 @@ async function marketFixture(
     },
   }
   const submissions = createSubmissions({ database, now: () => now })
+  const groups = createGroups({ database, now: () => now })
   const moderation = createModeration({ database, security, now: () => now })
   const skillhubImportAdmin = createSkillHubImportAdmin({
     database,
@@ -1144,6 +1286,7 @@ async function marketFixture(
     moderation,
     expertPackages: createExpertPackages({ database, baseUrl: "https://api.skillhub.cn" }),
     favorites: createFavorites({ database, now: () => now }),
+    groups,
     skillhubImportAdmin,
     store,
     privatePrefix: "skill-market-private",
