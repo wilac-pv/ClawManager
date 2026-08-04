@@ -76,8 +76,86 @@ export type Role = typeof Role.Type
 export const PublicStatus = Schema.Literals(["published", "delisted"])
 export type PublicStatus = typeof PublicStatus.Type
 
-export const PublicationTarget = Schema.Literals(["company", "personal"])
+export const PublicationTarget = Schema.Literals(["personal", "groups", "department", "company"])
 export type PublicationTarget = typeof PublicationTarget.Type
+
+export const GroupID = Schema.String.check(Schema.isPattern(/^grp_[a-zA-Z0-9_-]{4,64}$/)).annotate({
+  identifier: "SkillMarketControl.GroupID",
+})
+export type GroupID = typeof GroupID.Type
+
+export const AudienceTarget = Schema.Union([
+  Schema.Struct({ scope: Schema.Literal("personal") }),
+  Schema.Struct({ scope: Schema.Literal("company") }),
+  Schema.Struct({ scope: Schema.Literal("department"), department: Department }),
+  Schema.Struct({
+    scope: Schema.Literal("groups"),
+    groupIDs: Schema.Array(GroupID).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+  }),
+]).annotate({ identifier: "SkillMarketControl.AudienceTarget" })
+export type AudienceTarget = typeof AudienceTarget.Type
+
+export interface MarketGroup extends Schema.Schema.Type<typeof MarketGroup> {}
+export const MarketGroup = Schema.Struct({
+  id: GroupID,
+  name: bounded(1, 100),
+  description: bounded(1, 500).pipe(optional),
+  ownerEmployeeID: EmployeeID,
+  status: Schema.Literals(["active", "disabled"]),
+  version: Positive,
+  createdAt: SkillMarket.Timestamp,
+  updatedAt: SkillMarket.Timestamp,
+}).annotate({ identifier: "SkillMarketControl.MarketGroup" })
+
+export interface MarketGroupMember extends Schema.Schema.Type<typeof MarketGroupMember> {}
+export const MarketGroupMember = Schema.Struct({
+  groupID: GroupID,
+  employeeID: EmployeeID,
+  createdByEmployeeID: EmployeeID,
+  createdAt: SkillMarket.Timestamp,
+}).annotate({ identifier: "SkillMarketControl.MarketGroupMember" })
+
+export interface GroupPage extends Schema.Schema.Type<typeof GroupPage> {}
+export const GroupPage = Schema.Struct({
+  managed: Schema.Array(MarketGroup),
+  joined: Schema.Array(MarketGroup),
+}).annotate({ identifier: "SkillMarketControl.GroupPage" })
+
+export const GroupCreateInput = Schema.Struct({
+  name: bounded(1, 100),
+  description: bounded(1, 500).pipe(optional),
+}).annotate({ identifier: "SkillMarketControl.GroupCreateInput" })
+export type GroupCreateInput = typeof GroupCreateInput.Type
+
+export const GroupUpdateInput = Schema.Struct({
+  expectedVersion: Positive,
+  name: bounded(1, 100),
+  description: bounded(1, 500).pipe(optional),
+}).annotate({ identifier: "SkillMarketControl.GroupUpdateInput" })
+export type GroupUpdateInput = typeof GroupUpdateInput.Type
+
+export const GroupOwnerInput = Schema.Struct({
+  expectedVersion: Positive,
+  ownerEmployeeID: EmployeeID,
+}).annotate({ identifier: "SkillMarketControl.GroupOwnerInput" })
+export type GroupOwnerInput = typeof GroupOwnerInput.Type
+
+export const GroupStatusInput = Schema.Struct({
+  expectedVersion: Positive,
+  status: MarketGroup.fields.status,
+}).annotate({ identifier: "SkillMarketControl.GroupStatusInput" })
+export type GroupStatusInput = typeof GroupStatusInput.Type
+
+export const GroupMemberInput = Schema.Struct({
+  expectedVersion: Positive,
+  employeeID: EmployeeID,
+}).annotate({ identifier: "SkillMarketControl.GroupMemberInput" })
+export type GroupMemberInput = typeof GroupMemberInput.Type
+
+export const GroupMemberRemoveInput = Schema.Struct({
+  expectedVersion: Positive,
+}).annotate({ identifier: "SkillMarketControl.GroupMemberRemoveInput" })
+export type GroupMemberRemoveInput = typeof GroupMemberRemoveInput.Type
 
 export interface User extends Schema.Schema.Type<typeof User> {}
 export const User = Schema.Struct({
@@ -198,7 +276,7 @@ export const SubmissionSummary = Schema.Struct({
   currentRevision: Positive,
   version: Positive,
   risk: SkillMarket.Risk,
-  target: PublicationTarget.pipe(optional),
+  target: AudienceTarget.pipe(optional),
   currentPublicVersion: SemVer.pipe(optional),
   createdAt: SkillMarket.Timestamp,
   updatedAt: SkillMarket.Timestamp,
@@ -254,9 +332,21 @@ export const RevisionInput = Schema.Struct({
 
 export interface SubmissionCreateInput extends Schema.Schema.Type<typeof SubmissionCreateInput> {}
 export const SubmissionCreateInput = Schema.Struct({
-  target: PublicationTarget,
+  target: AudienceTarget,
   metadata: SubmissionMetadata,
 }).annotate({ identifier: "SkillMarketControl.SubmissionCreateInput" })
+
+export const PromotionInput = Schema.Struct({
+  expectedVersion: Positive,
+  target: AudienceTarget,
+}).annotate({ identifier: "SkillMarketControl.PromotionInput" })
+export type PromotionInput = typeof PromotionInput.Type
+
+export const AudienceChangeInput = Schema.Struct({
+  expectedVersion: Positive,
+  target: AudienceTarget,
+}).annotate({ identifier: "SkillMarketControl.AudienceChangeInput" })
+export type AudienceChangeInput = typeof AudienceChangeInput.Type
 
 export interface DecisionInput extends Schema.Schema.Type<typeof DecisionInput> {}
 export const DecisionInput = Schema.Struct({

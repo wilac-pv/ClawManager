@@ -82,6 +82,22 @@ export const SkillMarketSubmissionsGroup = HttpApiGroup.make("skillMarket.submis
       error: [SkillMarketControlNotFound, ...WriteErrors],
     }).middleware(SkillMarketWriteMiddleware),
   )
+  .add(
+    HttpApiEndpoint.post("skillMarket.submissions.promote", "/v1/submissions/:submissionID/promotions", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      payload: SkillMarketControl.PromotionInput,
+      success: SkillMarketControl.AcceptedSubmission.pipe(HttpApiSchema.status(202)),
+      error: [SkillMarketControlNotFound, ...WriteErrors],
+    }).middleware(SkillMarketWriteMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.submissions.audienceChange", "/v1/submissions/:submissionID/audience-changes", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      payload: SkillMarketControl.AudienceChangeInput,
+      success: SkillMarketControl.AcceptedSubmission.pipe(HttpApiSchema.status(202)),
+      error: [SkillMarketControlNotFound, ...WriteErrors],
+    }).middleware(SkillMarketWriteMiddleware),
+  )
   .middleware(SkillMarketSessionMiddleware)
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Skill Submissions", description: "Authenticated user submissions." }),

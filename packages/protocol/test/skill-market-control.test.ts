@@ -23,6 +23,17 @@ const expected = [
   ["skillMarket.submissions.package", "GET", "/v1/submissions/:submissionID/package"],
   ["skillMarket.submissions.packageHead", "HEAD", "/v1/submissions/:submissionID/package"],
   ["skillMarket.submissions.revise", "POST", "/v1/submissions/:submissionID/revisions"],
+  ["skillMarket.submissions.promote", "POST", "/v1/submissions/:submissionID/promotions"],
+  ["skillMarket.submissions.audienceChange", "POST", "/v1/submissions/:submissionID/audience-changes"],
+  ["skillMarket.groups.list", "GET", "/v1/groups"],
+  ["skillMarket.groups.create", "POST", "/v1/groups"],
+  ["skillMarket.groups.detail", "GET", "/v1/groups/:groupID"],
+  ["skillMarket.groups.update", "PATCH", "/v1/groups/:groupID"],
+  ["skillMarket.groups.transfer", "POST", "/v1/groups/:groupID/ownership"],
+  ["skillMarket.groups.setStatus", "POST", "/v1/groups/:groupID/status"],
+  ["skillMarket.groups.members", "GET", "/v1/groups/:groupID/members"],
+  ["skillMarket.groups.addMember", "POST", "/v1/groups/:groupID/members"],
+  ["skillMarket.groups.removeMember", "DELETE", "/v1/groups/:groupID/members/:employeeID"],
   ["skillMarket.admin.submissions.list", "GET", "/v1/admin/submissions"],
   ["skillMarket.admin.submissions.detail", "GET", "/v1/admin/submissions/:submissionID"],
   ["skillMarket.admin.submissions.decision", "POST", "/v1/admin/submissions/:submissionID/decision"],
@@ -52,6 +63,19 @@ test("full market api declares every announcement, expert package, favorite, aut
   )
 })
 
+test("full market api declares scoped sharing operations", () => {
+  const endpoints: Array<string> = []
+  HttpApi.reflect(SkillMarketApi, {
+    onGroup() {},
+    onEndpoint({ endpoint }) {
+      endpoints.push(endpoint.name)
+    },
+  })
+  expect(endpoints).toContain("skillMarket.groups.create")
+  expect(endpoints).toContain("skillMarket.submissions.promote")
+  expect(endpoints).toContain("skillMarket.catalog.privateInstallGrant")
+})
+
 test("catalog-only api remains anonymous and isolated from control middleware", () => {
   HttpApi.reflect(SkillMarketCatalogApi, {
     onGroup() {},
@@ -75,6 +99,9 @@ test("openapi marks cookie sessions and csrf writes without protecting the publi
   expect(document.paths["/v1/catalog/announcements"]?.get?.security).toEqual([])
   expect(document.paths["/v1/submissions"]?.get?.security).toHaveLength(1)
   expect(document.paths["/v1/submissions"]?.post?.security).toHaveLength(2)
+  expect(document.paths["/v1/groups"]?.get?.security).toHaveLength(1)
+  expect(document.paths["/v1/groups"]?.post?.security).toHaveLength(2)
+  expect(document.paths["/v1/restricted-skills/{publicationID}/install-grants"]?.post?.security).toHaveLength(2)
 })
 
 test("openapi leaves opaque SkillHub slug validation to the authoritative protocol", () => {

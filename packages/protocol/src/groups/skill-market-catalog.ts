@@ -1,6 +1,13 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
+import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import {
+  SkillMarketControlNotFound,
+  SkillMarketDependencyUnavailable,
+  SkillMarketInvalidRequest,
+} from "../skill-market-errors"
+import { SkillMarketSessionMiddleware, SkillMarketWriteMiddleware } from "../skill-market-middleware"
 
 const Key = { source: SkillMarket.Source, id: Schema.String }
 
@@ -111,4 +118,18 @@ export const SkillMarketCatalogGroup = HttpApiGroup.make("skillMarket.catalog")
   )
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Skill Market Catalog", description: "Read-only public catalog API." }),
+  )
+
+export const SkillMarketCatalogPrivateGroup = HttpApiGroup.make("skillMarket.catalogPrivate")
+  .add(
+    HttpApiEndpoint.post("skillMarket.catalog.privateInstallGrant", "/v1/restricted-skills/:publicationID/install-grants", {
+      params: { publicationID: Schema.String },
+      success: SkillMarket.PrivateInstallGrant,
+      error: [SkillMarketControlNotFound, SkillMarketInvalidRequest, SkillMarketDependencyUnavailable],
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketSessionMiddleware),
+  )
+  .annotateMerge(
+    OpenApi.annotations({ title: "Ruying Restricted Skill Catalog", description: "Private installation grants." }),
   )

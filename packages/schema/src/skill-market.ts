@@ -14,6 +14,9 @@ declare module "effect" {
 export const Source = Schema.Literals(["skillhub", "enterprise", "community"])
 export type Source = typeof Source.Type
 
+export const RestrictedVisibility = Schema.Literals(["personal", "groups", "department"])
+export type RestrictedVisibility = typeof RestrictedVisibility.Type
+
 export const Risk = Schema.Literals(["unknown", "safe", "warning", "danger"])
 export type Risk = typeof Risk.Type
 
@@ -54,6 +57,12 @@ export const MarketPageUrl = Schema.String.check(
   ),
 )
 export const Timestamp = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/))
+
+export const PrivateInstallGrant = Schema.Struct({
+  url: HttpsUrl,
+  expiresAt: Timestamp,
+})
+export type PrivateInstallGrant = typeof PrivateInstallGrant.Type
 export const EvaluationScore = Schema.Number.check(
   Schema.isFinite(),
   Schema.isGreaterThanOrEqualTo(0),
@@ -206,6 +215,7 @@ export const Summary = Schema.Struct({
   traceEvaluation: TraceEvaluation.pipe(optional),
   featured: Schema.Boolean,
   enterprise: Schema.Boolean,
+  visibility: RestrictedVisibility.pipe(optional),
   delisted: Schema.Boolean,
   installedVersion: Schema.String.pipe(optional),
   updateAvailable: Schema.Boolean.pipe(optional),

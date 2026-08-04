@@ -2707,6 +2707,7 @@ export type SkillMarketListOutput = {
     }
     readonly featured: boolean
     readonly enterprise: boolean
+    readonly visibility?: "personal" | "groups" | "department"
     readonly delisted: boolean
     readonly installedVersion?: string
     readonly updateAvailable?: boolean
@@ -2761,6 +2762,7 @@ export type SkillMarketDetailOutput = {
   }
   readonly featured: boolean
   readonly enterprise: boolean
+  readonly visibility?: "personal" | "groups" | "department"
   readonly delisted: boolean
   readonly installedVersion?: string
   readonly updateAvailable?: boolean

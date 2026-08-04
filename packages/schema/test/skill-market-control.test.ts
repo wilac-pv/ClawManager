@@ -28,6 +28,21 @@ describe("SkillMarketControl", () => {
     expect(SkillMarketControl.TerminalSubmissionStatuses).toEqual(["rejected", "published"])
   })
 
+  test("decodes discriminated publication audiences", () => {
+    expect(
+      Schema.decodeUnknownSync(SkillMarketControl.AudienceTarget)({
+        scope: "groups",
+        groupIDs: ["grp_alpha", "grp_beta"],
+      }),
+    ).toEqual({ scope: "groups", groupIDs: ["grp_alpha", "grp_beta"] })
+    expect(() =>
+      Schema.decodeUnknownSync(SkillMarketControl.AudienceTarget)({
+        scope: "department",
+        groupIDs: ["grp_alpha"],
+      }),
+    ).toThrow()
+  })
+
   test("validates bounded submission metadata and canonical semver", () => {
     expect(Schema.decodeUnknownSync(SkillMarketControl.SubmissionMetadata)(metadata).version).toBe("1.2.0")
     expect(() =>
