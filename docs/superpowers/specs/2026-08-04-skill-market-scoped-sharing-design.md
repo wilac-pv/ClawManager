@@ -1,7 +1,7 @@
 # Skill Market Scoped Sharing, Lifecycle, and Typography Design
 
 **Date:** 2026-08-04
-**Status:** Pending written-spec review
+**Status:** Approved
 **Target:** Ruying SkillHub Web and `skill-market-server`
 
 ## Summary
