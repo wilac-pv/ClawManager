@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDatabase } from "../src/database"
+import { canReadRestricted } from "../src/audience"
 import type { Principal } from "../src/security"
 import { SkillMarketSecurityError } from "../src/security"
 import { assertSubmissionTransition, createSubmissions } from "../src/submissions"
@@ -400,6 +401,291 @@ describe("submission lifecycle", () => {
 
     fixture.database.close()
   })
+
+  test("captures trusted department and owned active group audiences", async () => {
+    const fixture = await submissionFixture()
+    seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice", "bob"])
+    seedGroup(fixture, "grp_atlas1234", "alice", "active", ["alice"])
+    seedGroup(fixture, "grp_disabled1", "alice", "disabled", ["alice"])
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+
+    const teamUpload = upload("team-helper", "1.0.0")
+    const team = await submissions.create(fixture.alice, {
+      ...teamUpload,
+      idempotencyKey: "team-audience",
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_atlas1234", "grp_aurora123", "grp_aurora123"] },
+    })
+    expect(team.submission).toMatchObject({
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_atlas1234", "grp_aurora123"] },
+    })
+    expect(submissions.completeValidation(validation(teamUpload, team.submission.id, 1)).submission.status).toBe(
+      "pending_review",
+    )
+
+    const departmentUpload = upload("department-helper", "1.0.0")
+    const department = await submissions.create(fixture.alice, {
+      ...departmentUpload,
+      idempotencyKey: "department-audience",
+      target: "department",
+      audience: { scope: "department" },
+    })
+    expect(department.submission).toMatchObject({
+      target: "department",
+      audience: { scope: "department", department: { id: "engineering", name: "Engineering" } },
+    })
+    expect(
+      submissions.completeValidation(validation(departmentUpload, department.submission.id, 1)).submission.status,
+    ).toBe("pending_review")
+
+    await expectCode(
+      () =>
+        submissions.create(fixture.bob, {
+          ...upload("member-blocked", "1.0.0"),
+          idempotencyKey: "member-blocked",
+          target: "groups",
+          audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+        }),
+      "forbidden",
+    )
+    await expectCode(
+      () =>
+        submissions.create(fixture.alice, {
+          ...upload("disabled-blocked", "1.0.0"),
+          idempotencyKey: "disabled-blocked",
+          target: "groups",
+          audience: { scope: "groups", groupIDs: ["grp_disabled1"] },
+        }),
+      "forbidden",
+    )
+    await expectCode(
+      () =>
+        submissions.create(fixture.noDepartment, {
+          ...upload("department-blocked", "1.0.0"),
+          idempotencyKey: "department-blocked",
+          target: "department",
+          audience: { scope: "department" },
+        }),
+      "forbidden",
+    )
+
+    fixture.database.close()
+  })
+
+  test("promotes a verified personal package through a distinct freshly scanned submission", async () => {
+    const fixture = await submissionFixture()
+    const queued: Array<{ submissionID: string; revision: number }> = []
+    const submissions = createSubmissions({
+      database: fixture.database,
+      now: () => fixture.clock.value,
+      onValidationReady: (work) => {
+        queued.push(work)
+      },
+    })
+    const uploaded = upload("personal-promotion", "1.0.0")
+    const personal = await submissions.create(fixture.alice, {
+      ...uploaded,
+      idempotencyKey: "personal-source",
+      target: "personal",
+    })
+    const ready = submissions.completeValidation(validation(uploaded, personal.submission.id, 1))
+    queued.splice(0)
+
+    const promoted = await submissions.promote(fixture.alice, personal.submission.id, {
+      idempotencyKey: "promote-personal",
+      expectedVersion: ready.submission.version,
+      target: "department",
+      audience: { scope: "department" },
+    })
+    expect(promoted.submission).toMatchObject({
+      skillID: "personal-promotion",
+      targetVersion: "1.0.0",
+      target: "department",
+      audience: { scope: "department", department: { id: "engineering", name: "Engineering" } },
+      status: "validating",
+      currentRevision: 1,
+    })
+    expect(promoted.submission.id).not.toBe(personal.submission.id)
+    expect(submissions.getOwn(fixture.alice, personal.submission.id)).toMatchObject({
+      id: personal.submission.id,
+      target: "personal",
+      status: "published",
+    })
+    expect(queued).toEqual([{ submissionID: promoted.submission.id, revision: 1 }])
+    expect(
+      fixture.database.connection
+        .query<
+          {
+            private_package_key: string
+            package_sha256: string
+            manifest_json: string | null
+            scan_json: string | null
+          },
+          [string]
+        >(
+          `SELECT private_package_key, package_sha256, manifest_json, scan_json
+           FROM submission_revisions WHERE submission_id = ? AND revision_number = 1`,
+        )
+        .get(promoted.submission.id),
+    ).toEqual({
+      private_package_key: uploaded.package.key,
+      package_sha256: uploaded.package.sha256,
+      manifest_json: null,
+      scan_json: null,
+    })
+
+    fixture.database.close()
+  })
+
+  test("versions audience changes without mutating the reviewed source snapshot", async () => {
+    const fixture = await submissionFixture()
+    seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice"])
+    seedGroup(fixture, "grp_atlas1234", "alice", "active", ["alice"])
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const uploaded = upload("audience-change", "1.0.0")
+    const source = await submissions.create(fixture.alice, {
+      ...uploaded,
+      idempotencyKey: "audience-source",
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+    })
+    submissions.completeValidation(validation(uploaded, source.submission.id, 1))
+    const publicationID = seedRestrictedPublication(fixture, source.submission.id)
+
+    const changed = await submissions.changeAudience(fixture.alice, source.submission.id, {
+      idempotencyKey: "audience-change",
+      expectedVersion: 3,
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_atlas1234"] },
+    })
+    expect(changed.submission).toMatchObject({
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_atlas1234"] },
+      status: "pending_review",
+    })
+    expect(changed.submission.id).not.toBe(source.submission.id)
+    expect(
+      fixture.database.connection
+        .query<
+          { group_id: string },
+          [string]
+        >("SELECT group_id FROM submission_group_targets WHERE submission_id = ? ORDER BY group_id")
+        .all(source.submission.id),
+    ).toEqual([{ group_id: "grp_aurora123" }])
+    expect(
+      fixture.database.connection
+        .query<
+          { group_id: string },
+          [string]
+        >("SELECT group_id FROM restricted_publication_groups WHERE publication_id = ? ORDER BY group_id")
+        .all(publicationID),
+    ).toEqual([{ group_id: "grp_aurora123" }])
+
+    const racedUpload = upload("audience-race", "1.0.0")
+    const racedSource = await submissions.create(fixture.alice, {
+      ...racedUpload,
+      idempotencyKey: "audience-race-source",
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+    })
+    submissions.completeValidation(validation(racedUpload, racedSource.submission.id, 1))
+    seedRestrictedPublication(fixture, racedSource.submission.id, "pub_audiencerace")
+    await submissions.changeAudience(fixture.alice, racedSource.submission.id, {
+      idempotencyKey: "audience-race-personal",
+      expectedVersion: 3,
+      target: "personal",
+    })
+    await expect(
+      submissions.changeAudience(fixture.alice, racedSource.submission.id, {
+        idempotencyKey: "audience-race-department",
+        expectedVersion: 3,
+        target: "department",
+        audience: { scope: "department" },
+      }),
+    ).rejects.toThrow("audience change is already active")
+
+    fixture.database.close()
+  })
+
+  test("authorizes restricted reads for owner, live department or group, and admin only", async () => {
+    const fixture = await submissionFixture()
+    seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice", "bob"])
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const groupUpload = upload("read-group", "1.0.0")
+    const group = await submissions.create(fixture.alice, {
+      ...groupUpload,
+      idempotencyKey: "read-group",
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+    })
+    submissions.completeValidation(validation(groupUpload, group.submission.id, 1))
+    const groupPublication = seedRestrictedPublication(fixture, group.submission.id, "pub_readgroup1")
+
+    expect(canReadRestricted(fixture.database.connection, fixture.alice, groupPublication)).toBe(true)
+    expect(canReadRestricted(fixture.database.connection, fixture.bob, groupPublication)).toBe(true)
+    expect(canReadRestricted(fixture.database.connection, fixture.noDepartment, groupPublication)).toBe(false)
+    expect(
+      canReadRestricted(
+        fixture.database.connection,
+        principal("no-department", undefined, ["admin"]),
+        groupPublication,
+      ),
+    ).toBe(true)
+    fixture.database.connection.run("UPDATE market_groups SET status = 'disabled' WHERE id = 'grp_aurora123'")
+    expect(canReadRestricted(fixture.database.connection, fixture.bob, groupPublication)).toBe(false)
+    expect(canReadRestricted(fixture.database.connection, fixture.alice, groupPublication)).toBe(true)
+
+    const departmentUpload = upload("read-department", "1.0.0")
+    const department = await submissions.create(fixture.alice, {
+      ...departmentUpload,
+      idempotencyKey: "read-department",
+      target: "department",
+      audience: { scope: "department" },
+    })
+    submissions.completeValidation(validation(departmentUpload, department.submission.id, 1))
+    const departmentPublication = seedRestrictedPublication(fixture, department.submission.id, "pub_readdepart1")
+    fixture.database.connection.run(
+      "UPDATE users SET department_id = 'engineering' WHERE employee_id = 'no-department'",
+    )
+    expect(canReadRestricted(fixture.database.connection, fixture.noDepartment, departmentPublication)).toBe(true)
+    fixture.database.connection.run("UPDATE users SET department_id = 'design' WHERE employee_id = 'no-department'")
+    expect(canReadRestricted(fixture.database.connection, fixture.noDepartment, departmentPublication)).toBe(false)
+
+    fixture.database.close()
+  })
+
+  test("reserves the existing public publisher for an approved company audience change", async () => {
+    const fixture = await submissionFixture()
+    seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice"])
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const uploaded = upload("company-change", "1.0.0")
+    const source = await submissions.create(fixture.alice, {
+      ...uploaded,
+      idempotencyKey: "company-change-source",
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+    })
+    submissions.completeValidation(validation(uploaded, source.submission.id, 1))
+    seedRestrictedPublication(fixture, source.submission.id, "pub_company1234")
+
+    const changed = await submissions.changeAudience(fixture.alice, source.submission.id, {
+      idempotencyKey: "company-change-request",
+      expectedVersion: 3,
+      target: "company",
+    })
+    expect(changed.submission).toMatchObject({ target: "company", status: "pending_review" })
+    expect(
+      fixture.database.connection
+        .query<
+          { owner_employee_id: string; current_version: string | null },
+          [string]
+        >("SELECT owner_employee_id, current_version FROM community_skills WHERE skill_id = ?")
+        .get("company-change"),
+    ).toEqual({ owner_employee_id: "alice", current_version: null })
+
+    fixture.database.close()
+  })
 })
 
 async function submissionFixture() {
@@ -410,22 +696,50 @@ async function submissionFixture() {
     migrationBackupDirectory: join(directory, "backups"),
   })
   const clock = { value: Date.parse("2026-07-15T00:00:00.000Z") }
-  database.transaction((connection) =>
-    ["alice", "bob"].forEach((employeeID) =>
+  database.transaction((connection) => {
+    connection.run(
+      `INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at)
+       VALUES ('engineering', 'Engineering', ?, ?), ('design', 'Design', ?, ?)`,
+      [clock.value, clock.value, clock.value, clock.value],
+    )
+    ;["alice", "bob", "no-department"].forEach((employeeID) =>
       connection.run(
-        "INSERT INTO users (employee_id, display_name, email, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)",
-        [employeeID, employeeID.toUpperCase(), `${employeeID}@example.com`, clock.value, clock.value],
+        `INSERT INTO users (employee_id, display_name, email, department_id, created_at, last_login_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          employeeID,
+          employeeID.toUpperCase(),
+          `${employeeID}@example.com`,
+          employeeID === "alice" ? "engineering" : employeeID === "bob" ? "design" : null,
+          clock.value,
+          clock.value,
+        ],
       ),
-    ),
-  )
-  return { database, clock, alice: principal("alice"), bob: principal("bob") }
+    )
+  })
+  return {
+    database,
+    clock,
+    alice: principal("alice", { id: "engineering", name: "Engineering" }),
+    bob: principal("bob", { id: "design", name: "Design" }),
+    noDepartment: principal("no-department"),
+  }
 }
 
-function principal(employeeID: string): Principal {
+function principal(
+  employeeID: string,
+  department?: SkillMarketControl.Department,
+  roles: ReadonlyArray<SkillMarketControl.Role> = [],
+): Principal {
   return {
     session: {
-      user: { employeeID, displayName: employeeID.toUpperCase(), email: `${employeeID}@example.com` },
-      roles: [],
+      user: {
+        employeeID,
+        displayName: employeeID.toUpperCase(),
+        email: `${employeeID}@example.com`,
+        ...(department ? { department } : {}),
+      },
+      roles,
       csrfToken: new Bun.CryptoHasher("sha256").update(`${employeeID}:csrf`).digest("base64url"),
       createdAt: "2026-07-15T00:00:00.000Z",
       absoluteExpiresAt: "2026-07-15T12:00:00.000Z",
@@ -433,6 +747,60 @@ function principal(employeeID: string): Principal {
     },
     csrfHash: new Bun.CryptoHasher("sha256").update(`${employeeID}:csrf-hash`).digest("hex"),
   }
+}
+
+function seedGroup(
+  fixture: Awaited<ReturnType<typeof submissionFixture>>,
+  groupID: SkillMarketControl.GroupID,
+  ownerEmployeeID: string,
+  status: "active" | "disabled",
+  members: ReadonlyArray<string>,
+) {
+  fixture.database.transaction((connection) => {
+    connection.run(
+      `INSERT INTO market_groups (id, name, owner_employee_id, status, version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?)`,
+      [groupID, groupID, ownerEmployeeID, status, fixture.clock.value, fixture.clock.value],
+    )
+    members.forEach((employeeID) =>
+      connection.run(
+        `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+        [groupID, employeeID, ownerEmployeeID, fixture.clock.value],
+      ),
+    )
+  })
+}
+
+function seedRestrictedPublication(
+  fixture: Awaited<ReturnType<typeof submissionFixture>>,
+  submissionID: string,
+  publicationID = "pub_audience123",
+) {
+  fixture.database.transaction((connection) => {
+    connection.run("UPDATE submissions SET status = 'published', version = 3 WHERE id = ?", [submissionID])
+    connection.run(
+      `INSERT INTO restricted_publications
+        (id, submission_id, skill_id, owner_employee_id, version, scope, department_id, package_key, package_sha256,
+         package_size, metadata_json, status, row_version, created_at, updated_at)
+       SELECT ?, submissions.id, submissions.skill_id, submissions.owner_employee_id, submissions.target_version,
+              submissions.target_scope, submissions.target_department_id, submission_revisions.private_package_key,
+              submission_revisions.package_sha256,
+              submission_revisions.package_size, submission_revisions.metadata_json, 'published', 1, ?, ?
+       FROM submissions
+       INNER JOIN submission_revisions
+         ON submission_revisions.submission_id = submissions.id
+        AND submission_revisions.revision_number = submissions.current_revision
+       WHERE submissions.id = ?`,
+      [publicationID, fixture.clock.value, fixture.clock.value, submissionID],
+    )
+    connection.run(
+      `INSERT INTO restricted_publication_groups (publication_id, group_id)
+       SELECT ?, group_id FROM submission_group_targets WHERE submission_id = ?`,
+      [publicationID, submissionID],
+    )
+  })
+  return publicationID
 }
 
 function upload(skillID: string, version: string, salt = "package", withIcon = false) {

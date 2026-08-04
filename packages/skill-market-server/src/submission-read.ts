@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
+import { submissionAudience } from "./audience"
 
 export interface SubmissionSummaryRow {
   readonly id: string
@@ -11,6 +12,9 @@ export interface SubmissionSummaryRow {
   readonly disabled_at: number | null
   readonly target_version: string
   readonly target_scope: SkillMarketControl.PublicationTarget
+  readonly target_department_id: string | null
+  readonly target_department_name: string | null
+  readonly target_group_ids_json: string
   readonly status: SkillMarketControl.SubmissionStatus
   readonly current_revision: number
   readonly version: number
@@ -65,6 +69,17 @@ export function submissionSummarySelect() {
     users.disabled_at,
     submissions.target_version,
     submissions.target_scope,
+    submissions.target_department_id,
+    departments.display_name AS target_department_name,
+    (
+      SELECT json_group_array(group_id)
+      FROM (
+        SELECT submission_group_targets.group_id AS group_id
+        FROM submission_group_targets
+        WHERE submission_group_targets.submission_id = submissions.id
+        ORDER BY submission_group_targets.group_id
+      )
+    ) AS target_group_ids_json,
     submissions.status,
     submissions.current_revision,
     submissions.version,
@@ -74,6 +89,7 @@ export function submissionSummarySelect() {
     submissions.updated_at
    FROM submissions
    INNER JOIN users ON users.employee_id = submissions.owner_employee_id
+   LEFT JOIN departments ON departments.department_id = submissions.target_department_id
    INNER JOIN submission_revisions
      ON submission_revisions.submission_id = submissions.id
     AND submission_revisions.revision_number = submissions.current_revision
@@ -90,12 +106,14 @@ export function readSubmissionSummary(connection: Database, submissionID: string
 
 export function toSubmissionSummary(row: SubmissionSummaryRow) {
   const scan = row.scan_json ? decodeJsonOption(SkillMarketControl.ScanReport, row.scan_json) : undefined
+  const audience = submissionAudience(row)
   return Schema.decodeUnknownSync(SkillMarketControl.SubmissionSummary)({
     id: row.id,
     skillID: row.skill_id,
     owner: user(row),
     targetVersion: row.target_version,
     target: row.target_scope,
+    ...(audience ? { audience } : {}),
     status: row.status,
     currentRevision: row.current_revision,
     version: row.version,

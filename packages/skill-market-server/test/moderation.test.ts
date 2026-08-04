@@ -411,6 +411,54 @@ describe("submission moderation", () => {
 
     fixture.database.close()
   })
+
+  test("reviews scoped audiences and preserves their immutable target snapshot", async () => {
+    const fixture = await moderationFixture()
+    const groups = seedSubmission(fixture, {
+      owner: "author",
+      risk: "safe",
+      salt: "scoped-groups",
+      target: "groups",
+      groupIDs: ["grp_aurora123", "grp_atlas1234"],
+    })
+    const department = seedSubmission(fixture, {
+      owner: "author",
+      risk: "safe",
+      salt: "scoped-department",
+      target: "department",
+      departmentID: "engineering",
+    })
+    const moderation = createModeration({
+      database: fixture.database,
+      security: fixture.security,
+      now: () => fixture.clock.value,
+    })
+
+    const queue = moderation.listQueue(fixture.reviewer, { status: "pending_review", page: 1, limit: 10 })
+    expect(queue.items.map((item) => item.id)).toEqual([department, groups])
+    expect(queue.items.find((item) => item.id === groups)).toMatchObject({
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_atlas1234", "grp_aurora123"] },
+    })
+    expect(queue.items.find((item) => item.id === department)).toMatchObject({
+      target: "department",
+      audience: { scope: "department", department: { id: "engineering", name: "Engineering" } },
+    })
+
+    const approved = moderation.decide(fixture.reviewer, groups, { expectedVersion: 2, decision: "approve" })
+    expect(approved).toMatchObject({ status: "publishing", version: 3 })
+    expect(
+      fixture.database.connection
+        .query<
+          { group_id: string },
+          [string]
+        >("SELECT group_id FROM submission_group_targets WHERE submission_id = ? ORDER BY group_id")
+        .all(groups),
+    ).toEqual([{ group_id: "grp_atlas1234" }, { group_id: "grp_aurora123" }])
+    expect(jobCount(fixture, "publish", "pending", groups)).toBe(1)
+
+    fixture.database.close()
+  })
 })
 
 async function moderationFixture() {
@@ -428,6 +476,11 @@ async function moderationFixture() {
     admin: ["admin"],
   } as const
   database.transaction((connection) => {
+    connection.run(
+      `INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at)
+       VALUES ('engineering', 'Engineering', ?, ?)`,
+      [clock.value, clock.value],
+    )
     Object.keys(roles).forEach((employeeID) =>
       connection.run(
         "INSERT INTO users (employee_id, display_name, email, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)",
@@ -442,6 +495,18 @@ async function moderationFixture() {
         ),
       ),
     )
+    ;["grp_aurora123", "grp_atlas1234"].forEach((groupID) => {
+      connection.run(
+        `INSERT INTO market_groups (id, name, owner_employee_id, status, version, created_at, updated_at)
+         VALUES (?, ?, 'author', 'active', 1, ?, ?)`,
+        [groupID, groupID, clock.value, clock.value],
+      )
+      connection.run(
+        `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
+         VALUES (?, 'author', 'author', ?)`,
+        [groupID, clock.value],
+      )
+    })
   })
   const security = createSecurity({
     database,
@@ -477,7 +542,15 @@ function principal(employeeID: string, roles: ReadonlyArray<SkillMarketControl.R
 
 function seedSubmission(
   fixture: Awaited<ReturnType<typeof moderationFixture>>,
-  options: { owner: string; risk: SkillMarketControl.ScanReport["risk"]; salt?: string; marker?: string },
+  options: {
+    owner: string
+    risk: SkillMarketControl.ScanReport["risk"]
+    salt?: string
+    marker?: string
+    target?: SkillMarketControl.PublicationTarget
+    departmentID?: string
+    groupIDs?: ReadonlyArray<SkillMarketControl.GroupID>
+  },
 ) {
   const salt = options.salt ?? options.risk
   const submissionID = `sub_${new Bun.CryptoHasher("sha256").update(`${options.owner}:${salt}`).digest("hex").slice(0, 16)}`
@@ -503,9 +576,24 @@ function seedSubmission(
   fixture.database.transaction((connection) => {
     connection.run(
       `INSERT INTO submissions
-        (id, skill_id, owner_employee_id, target_version, status, current_revision, version, created_at, updated_at)
-       VALUES (?, ?, ?, '1.0.0', 'pending_review', 1, 2, ?, ?)`,
-      [submissionID, skillID, options.owner, fixture.clock.value, fixture.clock.value],
+        (id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
+         status, current_revision, version, created_at, updated_at)
+       VALUES (?, ?, ?, '1.0.0', ?, ?, 'validating', 1, 2, ?, ?)`,
+      [
+        submissionID,
+        skillID,
+        options.owner,
+        options.target ?? "company",
+        options.departmentID ?? null,
+        fixture.clock.value,
+        fixture.clock.value,
+      ],
+    )
+    options.groupIDs?.forEach((groupID) =>
+      connection.run("INSERT INTO submission_group_targets (submission_id, group_id) VALUES (?, ?)", [
+        submissionID,
+        groupID,
+      ]),
     )
     connection.run(
       `INSERT INTO submission_revisions
@@ -527,12 +615,14 @@ function seedSubmission(
         fixture.clock.value,
       ],
     )
-    connection.run(
-      `INSERT INTO community_skills
-        (skill_id, owner_employee_id, version, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?)`,
-      [skillID, options.owner, fixture.clock.value, fixture.clock.value],
-    )
+    if (!options.target || options.target === "company")
+      connection.run(
+        `INSERT INTO community_skills
+          (skill_id, owner_employee_id, version, created_at, updated_at)
+         VALUES (?, ?, 1, ?, ?)`,
+        [skillID, options.owner, fixture.clock.value, fixture.clock.value],
+      )
+    connection.run("UPDATE submissions SET status = 'pending_review' WHERE id = ?", [submissionID])
   })
   return submissionID
 }

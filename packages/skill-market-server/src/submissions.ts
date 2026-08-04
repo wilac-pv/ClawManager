@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
+import { insertSubmissionGroupTargets, requireAudienceTarget, submissionAudience } from "./audience"
 import type { MarketDatabase } from "./database"
 import type { Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
@@ -32,11 +33,20 @@ export interface SubmissionIcon extends SubmissionPackage {
 export interface CreateSubmissionInput {
   readonly idempotencyKey: string
   readonly target?: SkillMarketControl.PublicationTarget
+  readonly audience?: SkillMarketControl.AudienceInput
   readonly submissionID: SkillMarketControl.SubmissionID
   readonly verifiedSkillID: string
   readonly metadata: SkillMarketControl.SubmissionMetadata
   readonly package: SubmissionPackage
   readonly icon?: SubmissionIcon
+}
+
+export interface PromotionRequestInput extends SkillMarketControl.PromotionInput {
+  readonly idempotencyKey: string
+}
+
+export interface AudienceChangeRequestInput extends SkillMarketControl.AudienceChangeInput {
+  readonly idempotencyKey: string
 }
 
 export interface AddRevisionInput {
@@ -64,6 +74,9 @@ interface SummaryRow {
   readonly disabled_at: number | null
   readonly target_version: string
   readonly target_scope: SkillMarketControl.PublicationTarget
+  readonly target_department_id: string | null
+  readonly target_department_name: string | null
+  readonly target_group_ids_json: string
   readonly status: SkillMarketControl.SubmissionStatus
   readonly current_revision: number
   readonly version: number
@@ -79,9 +92,23 @@ interface SubmissionRow {
   readonly owner_employee_id: string
   readonly target_version: string
   readonly target_scope: SkillMarketControl.PublicationTarget
+  readonly target_department_id: string | null
+  readonly source_publication_id: string | null
   readonly status: SkillMarketControl.SubmissionStatus
   readonly current_revision: number
   readonly version: number
+}
+
+interface SharingSourceRow extends SubmissionRow {
+  readonly private_package_key: string
+  readonly package_sha256: string
+  readonly package_size: number
+  readonly metadata_json: string
+  readonly private_icon_json: string | null
+  readonly manifest_json: string | null
+  readonly scan_json: string | null
+  readonly validation_errors_json: string | null
+  readonly publication_id: string | null
 }
 
 interface RevisionRow {
@@ -270,7 +297,11 @@ export class Submissions {
       row.target_scope === "company"
         ? this.options.database.connection
             .query<
-              { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null; row_version: number },
+              {
+                current_version: string | null
+                public_status: SkillMarketControl.PublicStatus | null
+                row_version: number
+              },
               [string]
             >("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?")
             .get(row.skill_id)
@@ -309,13 +340,20 @@ export class Submissions {
     const target = input.target ?? "company"
     const route = "submissions:create"
     const key = requireIdempotencyKey(input.idempotencyKey)
-    const requestHash = hashJson({ target, skillID, metadata, ...artifactIdentity(packageObject, icon) })
+    const requestHash = hashJson({
+      target,
+      audience: input.audience,
+      skillID,
+      metadata,
+      ...artifactIdentity(packageObject, icon),
+    })
     const state = this.options.database.transaction((connection) => {
       const replay = readIdempotency(connection, principal, route, key, requestHash, now)
       if (replay) return { response: replay, queued: undefined }
       requireActiveUser(connection, principal)
       requireUploadAllowance(connection, principal, now)
       requireActiveAllowance(connection, principal)
+      const audience = requireAudienceTarget(connection, principal, target, input.audience)
       requireOwnershipAndVersion(connection, principal, target, skillID, metadata.version)
 
       if (
@@ -326,16 +364,33 @@ export class Submissions {
         throw new SkillMarketSecurityError("submission-conflict", "submission ID has already been used")
       connection.run(
         `INSERT INTO submissions
-          (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'validating', 1, 1, ?, ?)`,
-        [submissionID, skillID, principal.session.user.employeeID, metadata.version, target, now, now],
+          (id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
+           status, current_revision, version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'validating', 1, 1, ?, ?)`,
+        [
+          submissionID,
+          skillID,
+          principal.session.user.employeeID,
+          metadata.version,
+          target,
+          audience.scope === "department" ? audience.department.id : null,
+          now,
+          now,
+        ],
       )
+      insertSubmissionGroupTargets(connection, submissionID, audience)
       insertRevision(connection, submissionID, 1, metadata, packageObject, icon, now)
       insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "submission-created",
         submissionID,
-        after: { status: "validating", revision: 1, target },
+        after: {
+          status: "validating",
+          revision: 1,
+          target,
+          ...(audience.scope === "groups" ? { groupIDs: audience.groupIDs } : {}),
+          ...(audience.scope === "department" ? { departmentID: audience.department.id } : {}),
+        },
         now,
       })
       const response = { submission: requireSummary(connection, submissionID) }
@@ -369,7 +424,8 @@ export class Submissions {
       requireUploadAllowance(connection, principal, now)
       const submission = connection
         .query<SubmissionRow, [string, string]>(
-          `SELECT id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version
+          `SELECT id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
+                  source_publication_id, status, current_revision, version
            FROM submissions WHERE id = ? AND owner_employee_id = ?`,
         )
         .get(submissionID, principal.session.user.employeeID)
@@ -427,6 +483,8 @@ export class Submissions {
             submissions.target_version,
             submissions.status,
             submissions.target_scope,
+            submissions.target_department_id,
+            submissions.source_publication_id,
             submissions.current_revision,
             submissions.version,
             submission_revisions.package_sha256,
@@ -462,7 +520,11 @@ export class Submissions {
           : []
       const issues = [...input.validationIssues, ...ownershipIssue]
       const status =
-        issues.length > 0 ? "validation_failed" : submission.target_scope === "personal" ? "published" : "pending_review"
+        issues.length > 0
+          ? "validation_failed"
+          : submission.target_scope === "personal"
+            ? "published"
+            : "pending_review"
       if (status === "published") {
         if (submission.status !== "validating")
           throw new SkillMarketSecurityError("submission-conflict", "personal submission is no longer validating")
@@ -511,10 +573,141 @@ export class Submissions {
     })
   }
 
+  async promote(principal: Principal, submissionID: string, input: PromotionRequestInput) {
+    const decoded = Schema.decodeUnknownOption(SkillMarketControl.PromotionInput)({
+      expectedVersion: input.expectedVersion,
+      target: input.target,
+      ...(input.audience ? { audience: input.audience } : {}),
+    })
+    if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "promotion request is invalid")
+    const now = this.options.now?.() ?? Date.now()
+    const route = `submissions:${submissionID}:promotions`
+    const key = requireIdempotencyKey(input.idempotencyKey)
+    const requestHash = hashJson({ source: submissionID, ...decoded.value })
+    const state = this.options.database.transaction((connection) => {
+      const replay = readIdempotency(connection, principal, route, key, requestHash, now)
+      if (replay) return { response: replay, queued: undefined }
+      requireActiveUser(connection, principal)
+      requireUploadAllowance(connection, principal, now)
+      requireActiveAllowance(connection, principal)
+      const source = requireSharingSource(connection, principal, submissionID)
+      if (source.target_scope !== "personal" || source.status !== "published" || source.publication_id)
+        throw new SkillMarketSecurityError("submission-conflict", "only a published personal Skill can be promoted")
+      if (decoded.value.expectedVersion !== source.version)
+        throw new SkillMarketSecurityError("submission-conflict", "submission version no longer matches")
+      requireVerifiedSharingSource(source)
+      const audience = requireAudienceTarget(connection, principal, decoded.value.target, decoded.value.audience)
+      requireOwnershipAndVersion(connection, principal, decoded.value.target, source.skill_id, source.target_version)
+
+      const promotedID = `sub_${randomSecret()}` as SkillMarketControl.SubmissionID
+      insertSharingSubmission(connection, {
+        id: promotedID,
+        source,
+        target: decoded.value.target,
+        audience,
+        now,
+      })
+      copySharingRevision(connection, source, promotedID, now, false)
+      insertAudit(connection, {
+        actorEmployeeID: principal.session.user.employeeID,
+        action: "submission-created",
+        submissionID: promotedID,
+        after: {
+          status: "validating",
+          revision: 1,
+          target: decoded.value.target,
+          sourceSubmissionID: source.id,
+        },
+        now,
+      })
+      const response = { submission: requireSummary(connection, promotedID) }
+      writeIdempotency(connection, principal, route, key, requestHash, response, now)
+      return { response, queued: { submissionID: promotedID, revision: 1 } }
+    })
+    if (state.queued && this.options.onValidationReady)
+      await Promise.resolve(this.options.onValidationReady(state.queued)).then(
+        () => undefined,
+        () => undefined,
+      )
+    return state.response
+  }
+
+  async changeAudience(principal: Principal, submissionID: string, input: AudienceChangeRequestInput) {
+    const decoded = Schema.decodeUnknownOption(SkillMarketControl.AudienceChangeInput)({
+      expectedVersion: input.expectedVersion,
+      target: input.target,
+      ...(input.audience ? { audience: input.audience } : {}),
+    })
+    if (Option.isNone(decoded))
+      throw new SkillMarketSecurityError("invalid-request", "audience change request is invalid")
+    const now = this.options.now?.() ?? Date.now()
+    const route = `submissions:${submissionID}:audience-changes`
+    const key = requireIdempotencyKey(input.idempotencyKey)
+    const requestHash = hashJson({ source: submissionID, ...decoded.value })
+    return this.options.database.transaction((connection) => {
+      const replay = readIdempotency(connection, principal, route, key, requestHash, now)
+      if (replay) return replay
+      requireActiveUser(connection, principal)
+      requireUploadAllowance(connection, principal, now)
+      requireActiveAllowance(connection, principal)
+      const source = requireSharingSource(connection, principal, submissionID)
+      if (source.status !== "published" || !source.publication_id)
+        throw new SkillMarketSecurityError(
+          "submission-conflict",
+          "only a published restricted Skill can change audience",
+        )
+      if (decoded.value.expectedVersion !== source.version)
+        throw new SkillMarketSecurityError("submission-conflict", "submission version no longer matches")
+      requireVerifiedSharingSource(source)
+      requireAudienceChangeAllowance(connection, source.publication_id)
+      const audience = requireAudienceTarget(connection, principal, decoded.value.target, decoded.value.audience)
+      requireOwnershipAndVersion(connection, principal, decoded.value.target, source.skill_id, source.target_version)
+      if (decoded.value.target === "company")
+        reserveCommunitySkill(connection, source.skill_id, source.owner_employee_id, now)
+
+      const changeID = `sub_${randomSecret()}` as SkillMarketControl.SubmissionID
+      insertSharingSubmission(connection, {
+        id: changeID,
+        source,
+        target: decoded.value.target,
+        audience,
+        sourcePublicationID: source.publication_id,
+        now,
+      })
+      copySharingRevision(connection, source, changeID, now, true)
+      connection.run(
+        "UPDATE submissions SET status = 'pending_review', version = version + 1, updated_at = ? WHERE id = ?",
+        [now, changeID],
+      )
+      insertAudit(connection, {
+        actorEmployeeID: principal.session.user.employeeID,
+        action: "submission-created",
+        submissionID: changeID,
+        after: {
+          status: "pending_review",
+          revision: 1,
+          target: decoded.value.target,
+          sourceSubmissionID: source.id,
+          sourcePublicationID: source.publication_id,
+        },
+        now,
+      })
+      const response = { submission: requireSummary(connection, changeID) }
+      writeIdempotency(connection, principal, route, key, requestHash, response, now)
+      return response
+    })
+  }
+
   personalPackage(principal: Principal, submissionID: string) {
     const row = this.options.database.connection
       .query<
-        { skill_id: string; target_version: string; private_package_key: string; package_sha256: string; package_size: number },
+        {
+          skill_id: string
+          target_version: string
+          private_package_key: string
+          package_sha256: string
+          package_size: number
+        },
         [string, string]
       >(
         `SELECT
@@ -557,6 +750,17 @@ function summarySql() {
     users.disabled_at,
     submissions.target_version,
     submissions.target_scope,
+    submissions.target_department_id,
+    departments.display_name AS target_department_name,
+    (
+      SELECT json_group_array(group_id)
+      FROM (
+        SELECT submission_group_targets.group_id AS group_id
+        FROM submission_group_targets
+        WHERE submission_group_targets.submission_id = submissions.id
+        ORDER BY submission_group_targets.group_id
+      )
+    ) AS target_group_ids_json,
     submissions.status,
     submissions.current_revision,
     submissions.version,
@@ -566,6 +770,7 @@ function summarySql() {
     submissions.updated_at
    FROM submissions
    INNER JOIN users ON users.employee_id = submissions.owner_employee_id
+   LEFT JOIN departments ON departments.department_id = submissions.target_department_id
    INNER JOIN submission_revisions
      ON submission_revisions.submission_id = submissions.id
     AND submission_revisions.revision_number = submissions.current_revision
@@ -582,12 +787,14 @@ function requireSummary(connection: Database, submissionID: string) {
 
 function summary(row: SummaryRow) {
   const scan = row.scan_json ? decodeJsonOption(SkillMarketControl.ScanReport, row.scan_json) : undefined
+  const audience = submissionAudience(row)
   return Schema.decodeUnknownSync(SkillMarketControl.SubmissionSummary)({
     id: row.id,
     skillID: row.skill_id,
     owner: user(row),
     targetVersion: row.target_version,
     target: row.target_scope,
+    ...(audience ? { audience } : {}),
     status: row.status,
     currentRevision: row.current_revision,
     version: row.version,
@@ -596,6 +803,110 @@ function summary(row: SummaryRow) {
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
   })
+}
+
+function requireSharingSource(connection: Database, principal: Principal, submissionID: string) {
+  const source = connection
+    .query<SharingSourceRow, [string, string]>(
+      `SELECT
+        submissions.id,
+        submissions.skill_id,
+        submissions.owner_employee_id,
+        submissions.target_version,
+        submissions.target_scope,
+        submissions.target_department_id,
+        submissions.source_publication_id,
+        submissions.status,
+        submissions.current_revision,
+        submissions.version,
+        submission_revisions.private_package_key,
+        submission_revisions.package_sha256,
+        submission_revisions.package_size,
+        submission_revisions.metadata_json,
+        submission_revisions.private_icon_json,
+        submission_revisions.manifest_json,
+        submission_revisions.scan_json,
+        submission_revisions.validation_errors_json,
+        restricted_publications.id AS publication_id
+       FROM submissions
+       INNER JOIN submission_revisions
+         ON submission_revisions.submission_id = submissions.id
+        AND submission_revisions.revision_number = submissions.current_revision
+       LEFT JOIN restricted_publications
+         ON restricted_publications.submission_id = submissions.id
+        AND restricted_publications.status = 'published'
+       WHERE submissions.id = ? AND submissions.owner_employee_id = ?`,
+    )
+    .get(submissionID, principal.session.user.employeeID)
+  if (source) return source
+  throw new SkillMarketSecurityError("not-found", "submission was not found")
+}
+
+function requireVerifiedSharingSource(source: SharingSourceRow) {
+  const issues = source.validation_errors_json
+    ? decodeJsonOption(Schema.Array(SkillMarketControl.ValidationIssue), source.validation_errors_json)
+    : undefined
+  if (source.manifest_json && source.scan_json && issues?.length === 0) return
+  throw new SkillMarketSecurityError("submission-conflict", "source submission is not verified")
+}
+
+function insertSharingSubmission(
+  connection: Database,
+  input: {
+    readonly id: SkillMarketControl.SubmissionID
+    readonly source: SharingSourceRow
+    readonly target: SkillMarketControl.PublicationTarget
+    readonly audience: SkillMarketControl.AudienceTarget
+    readonly sourcePublicationID?: string
+    readonly now: number
+  },
+) {
+  connection.run(
+    `INSERT INTO submissions
+      (id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
+       source_publication_id, status, current_revision, version, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'validating', 1, 1, ?, ?)`,
+    [
+      input.id,
+      input.source.skill_id,
+      input.source.owner_employee_id,
+      input.source.target_version,
+      input.target,
+      input.audience.scope === "department" ? input.audience.department.id : null,
+      input.sourcePublicationID ?? null,
+      input.now,
+      input.now,
+    ],
+  )
+  insertSubmissionGroupTargets(connection, input.id, input.audience)
+}
+
+function copySharingRevision(
+  connection: Database,
+  source: SharingSourceRow,
+  submissionID: string,
+  now: number,
+  verified: boolean,
+) {
+  connection.run(
+    `INSERT INTO submission_revisions
+      (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
+       private_icon_json, manifest_json, scan_json, validation_errors_json, validation_completed_at, created_at)
+     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      submissionID,
+      source.private_package_key,
+      source.package_sha256,
+      source.package_size,
+      source.metadata_json,
+      source.private_icon_json,
+      verified ? source.manifest_json : null,
+      verified ? source.scan_json : null,
+      verified ? source.validation_errors_json : null,
+      verified ? now : null,
+      now,
+    ],
+  )
 }
 
 function user(row: {
@@ -720,7 +1031,7 @@ function requireOwnershipAndVersion(
   const active = connection
     .query<{ count: number }, [string, string]>(
       `SELECT count(*) AS count FROM submissions
-       WHERE skill_id = ? AND target_version = ? AND target_scope = 'company'
+       WHERE skill_id = ? AND target_version = ? AND target_scope != 'personal'
          AND status IN (${ActiveStatusSql})`,
     )
     .get(skillID, targetVersion)!.count
@@ -730,7 +1041,7 @@ function requireOwnershipAndVersion(
   const versions = connection
     .query<{ target_version: string }, [string, string]>(
       `SELECT target_version FROM submissions
-       WHERE skill_id = ? AND owner_employee_id = ? AND target_scope = 'company'
+       WHERE skill_id = ? AND owner_employee_id = ? AND target_scope != 'personal'
          AND status IN (${ActiveStatusSql})`,
     )
     .all(skillID, principal.session.user.employeeID)
@@ -741,6 +1052,16 @@ function requireOwnershipAndVersion(
       "submission-conflict",
       "target version must be higher than the public and active versions",
     )
+}
+
+function requireAudienceChangeAllowance(connection: Database, publicationID: string) {
+  const active = connection
+    .query<{ count: number }, [string]>(
+      `SELECT count(*) AS count FROM submissions
+       WHERE source_publication_id = ? AND status IN (${ActiveStatusSql})`,
+    )
+    .get(publicationID)!.count
+  if (active > 0) throw new SkillMarketSecurityError("submission-conflict", "audience change is already active")
 }
 
 function compareSemVer(left: string, right: string) {
@@ -762,6 +1083,21 @@ function compareSemVer(left: string, right: string) {
     return x > y ? 1 : -1
   }
   return 0
+}
+
+function reserveCommunitySkill(connection: Database, skillID: string, ownerEmployeeID: string, now: number) {
+  const existing = connection
+    .query<{ owner_employee_id: string }, [string]>("SELECT owner_employee_id FROM community_skills WHERE skill_id = ?")
+    .get(skillID)
+  if (existing) {
+    if (existing.owner_employee_id === ownerEmployeeID) return
+    throw new SkillMarketSecurityError("skill-owned-by-another-user", "Skill ID belongs to another employee")
+  }
+  connection.run(
+    `INSERT INTO community_skills (skill_id, owner_employee_id, version, created_at, updated_at)
+     VALUES (?, ?, 1, ?, ?)`,
+    [skillID, ownerEmployeeID, now, now],
+  )
 }
 
 function parseSemVer(value: string) {

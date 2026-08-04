@@ -26,7 +26,7 @@ describe("community publisher", () => {
         reads += 1
         return []
       },
-      progress: () => ({ sourceStatus: "fresh", mirrored: 0 } as ReturnType<SkillHubImportStore["progress"]>),
+      progress: () => ({ sourceStatus: "fresh", mirrored: 0 }) as ReturnType<SkillHubImportStore["progress"]>,
       replaceCompletedEvaluationDetails: () => [],
     }
 
@@ -42,12 +42,23 @@ describe("community publisher", () => {
     const evaluatedA = sampleDetail({ id: "trace-a", aliases: ["trace-a"], score: 100_000 })
     const evaluatedB = sampleDetail({ id: "trace-b", aliases: ["trace-b"], score: 100_000 })
     const unrelatedSkillHub = sampleDetail({ id: "skillhub-unchanged", aliases: ["old-alias"], featured: true })
-    const community = sampleDetail({ id: "community-unchanged", source: "community", aliases: ["community-alias"], featured: true })
-    const enterprise = sampleDetail({ id: "enterprise-unchanged", source: "enterprise", aliases: ["enterprise-alias"], featured: true })
-    const snapshot = mergeCatalog(
-      [evaluatedA, evaluatedB, unrelatedSkillHub, community, enterprise],
-      { schemaVersion: 1, updatedAt: "2026-07-22T00:00:00.000Z", skills: [] },
-    )
+    const community = sampleDetail({
+      id: "community-unchanged",
+      source: "community",
+      aliases: ["community-alias"],
+      featured: true,
+    })
+    const enterprise = sampleDetail({
+      id: "enterprise-unchanged",
+      source: "enterprise",
+      aliases: ["enterprise-alias"],
+      featured: true,
+    })
+    const snapshot = mergeCatalog([evaluatedA, evaluatedB, unrelatedSkillHub, community, enterprise], {
+      schemaVersion: 1,
+      updatedAt: "2026-07-22T00:00:00.000Z",
+      skills: [],
+    })
     await publishSnapshot(fixture.store, { prefix: "skill-market" }, snapshot)
     const completed = [evaluatedA, evaluatedB].map((detail, index) => {
       const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
@@ -87,14 +98,30 @@ describe("community publisher", () => {
 
     const published = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
     for (const id of ["skillhub-unchanged", "community-unchanged", "enterprise-unchanged"]) {
-      expect(published.items.find((summary) => summary.id === id)).toEqual(snapshot.items.find((summary) => summary.id === id))
-      expect(published.details.get(`${id === "community-unchanged" ? "community" : id === "enterprise-unchanged" ? "enterprise" : "skillhub"}:${id}`)).toEqual(
-        snapshot.details.get(`${id === "community-unchanged" ? "community" : id === "enterprise-unchanged" ? "enterprise" : "skillhub"}:${id}`),
+      expect(published.items.find((summary) => summary.id === id)).toEqual(
+        snapshot.items.find((summary) => summary.id === id),
+      )
+      expect(
+        published.details.get(
+          `${id === "community-unchanged" ? "community" : id === "enterprise-unchanged" ? "enterprise" : "skillhub"}:${id}`,
+        ),
+      ).toEqual(
+        snapshot.details.get(
+          `${id === "community-unchanged" ? "community" : id === "enterprise-unchanged" ? "enterprise" : "skillhub"}:${id}`,
+        ),
       )
     }
     for (const id of ["trace-a", "trace-b"]) {
-      expect(published.items.find((summary) => summary.id === id)).toMatchObject({ score: 0, evaluationScore: 4.45, traceEvaluation: evaluationValues() })
-      expect(published.details.get(`skillhub:${id}`)).toMatchObject({ score: 0, evaluationScore: 4.45, traceEvaluation: evaluationValues() })
+      expect(published.items.find((summary) => summary.id === id)).toMatchObject({
+        score: 0,
+        evaluationScore: 4.45,
+        traceEvaluation: evaluationValues(),
+      })
+      expect(published.details.get(`skillhub:${id}`)).toMatchObject({
+        score: 0,
+        evaluationScore: 4.45,
+        traceEvaluation: evaluationValues(),
+      })
     }
     expect(replaced).toEqual([["trace-a", "trace-b"]])
     fixture.database.close()
@@ -120,7 +147,9 @@ describe("community publisher", () => {
       ...base,
       completedEvaluations() {
         calls += 1
-        return calls === 1 ? [first] : [{ ...first, evaluation: { ...first.evaluation, checkedAt: fixture.clock.value + 1 } }]
+        return calls === 1
+          ? [first]
+          : [{ ...first, evaluation: { ...first.evaluation, checkedAt: fixture.clock.value + 1 } }]
       },
       replaceCompletedEvaluationDetails(entries: Parameters<typeof base.replaceCompletedEvaluationDetails>[0]) {
         replaced.push(entries.map((entry) => entry.slug))
@@ -180,12 +209,14 @@ describe("community publisher", () => {
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(unscored)).digest("hex")
     fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(unscored)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{
-      slug: summary.id,
-      summary,
-      detailKey: `details/${detailSha256}.json`,
-      detailSha256,
-    }])
+    imports.seedLegacy([
+      {
+        slug: summary.id,
+        summary,
+        detailKey: `details/${detailSha256}.json`,
+        detailSha256,
+      },
+    ])
     fixture.database.connection.run(
       `UPDATE skillhub_import_items
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
@@ -204,20 +235,27 @@ describe("community publisher", () => {
     expect(controller.signal.aborted).toBe(false)
     expect(
       fixture.database.connection
-        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'")
+        .query<
+          { readonly count: number },
+          []
+        >("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'")
         .get()!.count,
     ).toBe(0)
     expect(
       fixture.database.connection
-        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'failed'")
+        .query<
+          { readonly count: number },
+          []
+        >("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'failed'")
         .get()!.count,
     ).toBe(1)
     expect(await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).toEqual(snapshot)
     expect(
       fixture.database.connection
-        .query<{ readonly detail_sha256: string; readonly record_json: string | null }, [string]>(
-          "SELECT detail_sha256, record_json FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { readonly detail_sha256: string; readonly record_json: string | null },
+          [string]
+        >("SELECT detail_sha256, record_json FROM skillhub_import_items WHERE slug = ?")
         .get(summary.id),
     ).toEqual({ detail_sha256: detailSha256, record_json: null })
     expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual([summary.id])
@@ -252,9 +290,10 @@ describe("community publisher", () => {
     await waitFor(() => started)
     expect(
       fixture.database.connection
-        .query<{ readonly status: string; readonly error_code: string | null; readonly error_summary: string | null }, []>(
-          "SELECT status, error_code, error_summary FROM publish_jobs",
-        )
+        .query<
+          { readonly status: string; readonly error_code: string | null; readonly error_summary: string | null },
+          []
+        >("SELECT status, error_code, error_summary FROM publish_jobs")
         .get(),
     ).toEqual({
       status: "running",
@@ -378,12 +417,14 @@ describe("community publisher", () => {
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
     fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(detail)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{
-      slug: summary.id,
-      summary,
-      detailKey: `details/${detailSha256}.json`,
-      detailSha256,
-    }])
+    imports.seedLegacy([
+      {
+        slug: summary.id,
+        summary,
+        detailKey: `details/${detailSha256}.json`,
+        detailSha256,
+      },
+    ])
     fixture.database.connection.run(
       `UPDATE skillhub_import_items
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
@@ -402,7 +443,9 @@ describe("community publisher", () => {
           if (!key.endsWith("/current.json"))
             return fixture.store.put(key, body, contentType, cacheControl, metadata, request)
           pointerStarted = true
-          await new Promise<void>((_, reject) => request?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))
+          await new Promise<void>((_, reject) =>
+            request?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+          )
         },
       },
     })
@@ -416,14 +459,20 @@ describe("community publisher", () => {
     expect(imports.completedEvaluations(1).map((evaluation) => evaluation.slug)).toEqual([summary.id])
     expect(
       fixture.database.connection
-        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'running'")
+        .query<
+          { readonly count: number },
+          []
+        >("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'running'")
         .get()!.count,
     ).toBe(1)
     fixture.clock.value += 30_001
     expect(await publisher.recover()).toBe(1)
     expect(
       fixture.database.connection
-        .query<{ readonly count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'failed'")
+        .query<
+          { readonly count: number },
+          []
+        >("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'failed'")
         .get()!.count,
     ).toBe(1)
     fixture.database.close()
@@ -433,16 +482,23 @@ describe("community publisher", () => {
     const fixture = await publisherFixture()
     const snapshot = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
     const summary = snapshot.items.find((item) => item.source === "skillhub")!
-    const raw = { ...snapshot.details.get(`skillhub:${summary.id}`)!, id: "legacy-score", aliases: ["legacy-score"], score: 100000 }
+    const raw = {
+      ...snapshot.details.get(`skillhub:${summary.id}`)!,
+      id: "legacy-score",
+      aliases: ["legacy-score"],
+      score: 100000,
+    }
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(raw)).digest("hex")
     fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(raw)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{
-      slug: "legacy-score",
-      summary: { ...summary, id: "legacy-score", aliases: ["legacy-score"], score: 100000 },
-      detailKey: `details/${detailSha256}.json`,
-      detailSha256,
-    }])
+    imports.seedLegacy([
+      {
+        slug: "legacy-score",
+        summary: { ...summary, id: "legacy-score", aliases: ["legacy-score"], score: 100000 },
+        detailKey: `details/${detailSha256}.json`,
+        detailSha256,
+      },
+    ])
     fixture.database.connection.run(
       `UPDATE skillhub_import_items
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
@@ -470,21 +526,37 @@ describe("community publisher", () => {
     const ref = { key: `details/${detailSha256}.json`, sha256: detailSha256 }
     fixture.objects.set(`skill-market/${ref.key}`, bytes(JSON.stringify(unscored)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{ slug: "trace-score", summary: { ...summary, id: "trace-score", aliases: ["trace-score"] }, detailKey: ref.key, detailSha256: ref.sha256 }])
+    imports.seedLegacy([
+      {
+        slug: "trace-score",
+        summary: { ...summary, id: "trace-score", aliases: ["trace-score"] },
+        detailKey: ref.key,
+        detailSha256: ref.sha256,
+      },
+    ])
     fixture.database.connection.run(
       `UPDATE skillhub_import_items
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
            evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
            evaluation_effectiveness = 4.625, evaluation_checked_at = ?, summary_json = ?
        WHERE slug = 'trace-score'`,
-      [fixture.clock.value, JSON.stringify({ ...summary, id: "trace-score", aliases: ["trace-score"], evaluationScore: 4.45, traceEvaluation: {
-        trust: 5,
-        reliability: 4,
-        adaptability: 4.3,
-        convention: 4.325,
-        effectiveness: 4.625,
-        evaluatedAt: new Date(fixture.clock.value).toISOString(),
-      } })],
+      [
+        fixture.clock.value,
+        JSON.stringify({
+          ...summary,
+          id: "trace-score",
+          aliases: ["trace-score"],
+          evaluationScore: 4.45,
+          traceEvaluation: {
+            trust: 5,
+            reliability: 4,
+            adaptability: 4.3,
+            convention: 4.325,
+            effectiveness: 4.625,
+            evaluatedAt: new Date(fixture.clock.value).toISOString(),
+          },
+        }),
+      ],
     )
 
     await createPublisher(publisherOptions(fixture)).publishMirroredSkillHub(imports, "worker-trace")
@@ -505,7 +577,10 @@ describe("community publisher", () => {
       source: "skillhub",
     })
     const updated = fixture.database.connection
-      .query<{ readonly detail_key: string; readonly detail_sha256: string }, [string]>("SELECT detail_key, detail_sha256 FROM skillhub_import_items WHERE slug = ?")
+      .query<
+        { readonly detail_key: string; readonly detail_sha256: string },
+        [string]
+      >("SELECT detail_key, detail_sha256 FROM skillhub_import_items WHERE slug = ?")
       .get("trace-score")!
     expect(updated).not.toEqual({ detail_key: ref.key, detail_sha256: ref.sha256 })
     fixture.database.close()
@@ -523,19 +598,30 @@ describe("community publisher", () => {
     fixture.objects.set(`skill-market/details/${staleSha256}.json`, bytes(JSON.stringify(staleDetail)))
     fixture.objects.set(`skill-market/details/${currentSha256}.json`, bytes(JSON.stringify(currentDetail)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{
-      slug: "fenced-score",
-      summary: { ...summary, id: "fenced-score", aliases: ["fenced-score"] },
-      detailKey: `details/${staleSha256}.json`,
-      detailSha256: staleSha256,
-    }])
+    imports.seedLegacy([
+      {
+        slug: "fenced-score",
+        summary: { ...summary, id: "fenced-score", aliases: ["fenced-score"] },
+        detailKey: `details/${staleSha256}.json`,
+        detailSha256: staleSha256,
+      },
+    ])
     fixture.database.connection.run(
       `UPDATE skillhub_import_items
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
            evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
            evaluation_effectiveness = 4.625, evaluation_checked_at = ?, summary_json = ?
        WHERE slug = 'fenced-score'`,
-      [fixture.clock.value, JSON.stringify({ ...summary, id: "fenced-score", aliases: ["fenced-score"], evaluationScore: 4.45, traceEvaluation: evaluationTrace(fixture.clock.value) })],
+      [
+        fixture.clock.value,
+        JSON.stringify({
+          ...summary,
+          id: "fenced-score",
+          aliases: ["fenced-score"],
+          evaluationScore: 4.45,
+          traceEvaluation: evaluationTrace(fixture.clock.value),
+        }),
+      ],
     )
     let changed = false
     const publisher = createPublisher({
@@ -554,7 +640,14 @@ describe("community publisher", () => {
                 `details/${currentSha256}.json`,
                 currentSha256,
                 fixture.clock.value + 1,
-                JSON.stringify({ ...summary, id: "fenced-score", aliases: ["fenced-score"], description: currentDetail.description, evaluationScore: 4.8, traceEvaluation: evaluationTrace(fixture.clock.value + 1) }),
+                JSON.stringify({
+                  ...summary,
+                  id: "fenced-score",
+                  aliases: ["fenced-score"],
+                  description: currentDetail.description,
+                  evaluationScore: 4.8,
+                  traceEvaluation: evaluationTrace(fixture.clock.value + 1),
+                }),
               ],
             )
           }
@@ -571,7 +664,10 @@ describe("community publisher", () => {
     expect(published.items.find((item) => item.id === "fenced-score")?.evaluationScore).toBeUndefined()
     expect(
       fixture.database.connection
-        .query<{ readonly detail_sha256: string; readonly evaluation_score: number }, [string]>("SELECT detail_sha256, evaluation_score FROM skillhub_import_items WHERE slug = ?")
+        .query<
+          { readonly detail_sha256: string; readonly evaluation_score: number },
+          [string]
+        >("SELECT detail_sha256, evaluation_score FROM skillhub_import_items WHERE slug = ?")
         .get("fenced-score"),
     ).toEqual({ detail_sha256: currentSha256, evaluation_score: 4.8 })
     fixture.database.close()
@@ -586,19 +682,30 @@ describe("community publisher", () => {
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
     fixture.objects.set(`skill-market/details/${detailSha256}.json`, bytes(JSON.stringify(detail)))
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{
-      slug: "pointer-fenced-score",
-      summary: { ...summary, id: "pointer-fenced-score", aliases: ["pointer-fenced-score"] },
-      detailKey: `details/${detailSha256}.json`,
-      detailSha256,
-    }])
+    imports.seedLegacy([
+      {
+        slug: "pointer-fenced-score",
+        summary: { ...summary, id: "pointer-fenced-score", aliases: ["pointer-fenced-score"] },
+        detailKey: `details/${detailSha256}.json`,
+        detailSha256,
+      },
+    ])
     fixture.database.connection.run(
       `UPDATE skillhub_import_items
        SET evaluation_state = 'completed', evaluation_score = 4.45, evaluation_trust = 5,
            evaluation_reliability = 4, evaluation_adaptability = 4.3, evaluation_convention = 4.325,
            evaluation_effectiveness = 4.625, evaluation_checked_at = ?, summary_json = ?
        WHERE slug = 'pointer-fenced-score'`,
-      [fixture.clock.value, JSON.stringify({ ...summary, id: "pointer-fenced-score", aliases: ["pointer-fenced-score"], evaluationScore: 4.45, traceEvaluation: evaluationTrace(fixture.clock.value) })],
+      [
+        fixture.clock.value,
+        JSON.stringify({
+          ...summary,
+          id: "pointer-fenced-score",
+          aliases: ["pointer-fenced-score"],
+          evaluationScore: 4.45,
+          traceEvaluation: evaluationTrace(fixture.clock.value),
+        }),
+      ],
     )
     const generation = imports.beginGeneration(1)
     let transitioned = false
@@ -612,9 +719,10 @@ describe("community publisher", () => {
             imports.recordPage(generation.id, 1, [updatedListRecord("pointer-fenced-score", fixture.clock.value + 1)])
             expect(
               fixture.database.connection
-                .query<{ readonly state: string; readonly detail_sha256: string; readonly evaluation_state: string }, [string]>(
-                  "SELECT state, detail_sha256, evaluation_state FROM skillhub_import_items WHERE slug = ?",
-                )
+                .query<
+                  { readonly state: string; readonly detail_sha256: string; readonly evaluation_state: string },
+                  [string]
+                >("SELECT state, detail_sha256, evaluation_state FROM skillhub_import_items WHERE slug = ?")
                 .get("pointer-fenced-score"),
             ).toEqual({ state: "mirrored", detail_sha256: detailSha256, evaluation_state: "completed" })
           }
@@ -631,9 +739,10 @@ describe("community publisher", () => {
     imports.recordPage(generation.id, 1, [updatedListRecord("pointer-fenced-score", fixture.clock.value + 1)])
     expect(
       fixture.database.connection
-        .query<{ readonly upstream_version: string; readonly state: string; readonly evaluation_state: string }, [string]>(
-          "SELECT upstream_version, state, evaluation_state FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { readonly upstream_version: string; readonly state: string; readonly evaluation_state: string },
+          [string]
+        >("SELECT upstream_version, state, evaluation_state FROM skillhub_import_items WHERE slug = ?")
         .get("pointer-fenced-score"),
     ).toEqual({ upstream_version: "1.0.1", state: "pending", evaluation_state: "waiting" })
     fixture.database.close()
@@ -649,14 +758,23 @@ describe("community publisher", () => {
     fixture.objects.set("skill-market/current.json", bytes(JSON.stringify({ revision: "legacy", createdAt })))
     fixture.objects.set(
       "skill-market/indexes/legacy/catalog.json",
-      bytes(JSON.stringify({ revision: "legacy", createdAt, items: details.map((detail) => ({ ...sampleSnapshot().items[0]!, id: detail.id, aliases: detail.aliases })) })),
+      bytes(
+        JSON.stringify({
+          revision: "legacy",
+          createdAt,
+          items: details.map((detail) => ({ ...sampleSnapshot().items[0]!, id: detail.id, aliases: detail.aliases })),
+        }),
+      ),
     )
     fixture.objects.set(
       "skill-market/indexes/legacy/facets.json",
       bytes(JSON.stringify({ ...sampleSnapshot().facets, revision: "legacy" })),
     )
     details.forEach((detail) =>
-      fixture.objects.set(`skill-market/indexes/legacy/details/skillhub/${encodeURIComponent(detail.id)}.json`, bytes(JSON.stringify(detail))),
+      fixture.objects.set(
+        `skill-market/indexes/legacy/details/skillhub/${encodeURIComponent(detail.id)}.json`,
+        bytes(JSON.stringify(detail)),
+      ),
     )
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
 
@@ -678,12 +796,14 @@ describe("community publisher", () => {
     const detail = sampleSnapshot("seeded").details.get("skillhub:code-review")!
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{
-      slug: detail.id,
-      summary: sampleSnapshot("seeded").items[0]!,
-      detailKey: `details/${detailSha256}.json`,
-      detailSha256,
-    }])
+    imports.seedLegacy([
+      {
+        slug: detail.id,
+        summary: sampleSnapshot("seeded").items[0]!,
+        detailKey: `details/${detailSha256}.json`,
+        detailSha256,
+      },
+    ])
     const reads = { total: 0 }
     const publisher = createPublisher({
       ...publisherOptions(fixture),
@@ -724,12 +844,14 @@ describe("community publisher", () => {
     const detail = snapshot.details.get("skillhub:code-review")!
     const detailSha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(detail)).digest("hex")
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => fixture.clock.value })
-    imports.seedLegacy([{
-      slug: detail.id,
-      summary: snapshot.items.find((item) => item.source === "skillhub")!,
-      detailKey: `details/${detailSha256}.json`,
-      detailSha256,
-    }])
+    imports.seedLegacy([
+      {
+        slug: detail.id,
+        summary: snapshot.items.find((item) => item.source === "skillhub")!,
+        detailKey: `details/${detailSha256}.json`,
+        detailSha256,
+      },
+    ])
     const reads = { skillhubDetails: 0 }
     const publisher = createPublisher({
       ...publisherOptions(fixture),
@@ -826,6 +948,233 @@ describe("community publisher", () => {
         .all()
         .map((event) => event.action),
     ).toEqual(["publish-started", "publish-succeeded"])
+
+    fixture.database.close()
+  })
+
+  test("publishes reviewed group artifacts in private storage and atomically replaces approved audiences", async () => {
+    const fixture = await publisherFixture("groups")
+    const publisher = createPublisher(publisherOptions(fixture))
+    const publicBefore = await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })
+
+    await publisher.runOne("worker-restricted")
+
+    const publication = fixture.database.connection
+      .query<
+        {
+          id: string
+          submission_id: string
+          scope: string
+          package_key: string
+          package_sha256: string
+          row_version: number
+        },
+        []
+      >(
+        `SELECT id, submission_id, scope, package_key, package_sha256, row_version
+         FROM restricted_publications`,
+      )
+      .get()!
+    expect(publication).toMatchObject({
+      submission_id: "sub_publish_12345678",
+      scope: "groups",
+      package_key: "private/sub_publish_12345678/package.zip",
+      package_sha256: fixture.validation.manifest.packageSha256,
+      row_version: 1,
+    })
+    expect(publication.id).toMatch(/^pub_[a-zA-Z0-9_-]{8,64}$/)
+    expect(fixture.copies).toEqual([])
+    expect(await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).toEqual(publicBefore)
+    expect(
+      fixture.database.connection
+        .query<
+          { group_id: string },
+          [string]
+        >("SELECT group_id FROM restricted_publication_groups WHERE publication_id = ? ORDER BY group_id")
+        .all(publication.id),
+    ).toEqual([{ group_id: "grp_aurora123" }])
+
+    seedAudienceChange(fixture, publication.id)
+    await publisher.runOne("worker-audience-change")
+
+    expect(
+      fixture.database.connection
+        .query<
+          { submission_id: string; scope: string; row_version: number },
+          [string]
+        >("SELECT submission_id, scope, row_version FROM restricted_publications WHERE id = ?")
+        .get(publication.id),
+    ).toEqual({ submission_id: "sub_change_12345678", scope: "groups", row_version: 2 })
+    expect(
+      fixture.database.connection
+        .query<
+          { group_id: string },
+          [string]
+        >("SELECT group_id FROM restricted_publication_groups WHERE publication_id = ? ORDER BY group_id")
+        .all(publication.id),
+    ).toEqual([{ group_id: "grp_atlas1234" }])
+    expect(
+      fixture.database.connection
+        .query<
+          { group_id: string },
+          []
+        >("SELECT group_id FROM submission_group_targets WHERE submission_id = 'sub_publish_12345678'")
+        .all(),
+    ).toEqual([{ group_id: "grp_aurora123" }])
+    expect(fixture.copies).toEqual([])
+
+    seedPersonalAudienceChange(fixture, publication.id)
+    await publisher.runOne("worker-personal-change")
+    expect(
+      fixture.database.connection
+        .query<{ status: string }, []>("SELECT status FROM submissions WHERE id = 'sub_personal_12345678'")
+        .get(),
+    ).toEqual({ status: "published" })
+    expect(
+      fixture.database.connection
+        .query<
+          { status: string; row_version: number },
+          [string]
+        >("SELECT status, row_version FROM restricted_publications WHERE id = ?")
+        .get(publication.id),
+    ).toEqual({ status: "delisted", row_version: 3 })
+    expect(fixture.copies).toEqual([])
+
+    fixture.database.close()
+  })
+
+  test("rejects an audience change that alters the reviewed artifact identity", async () => {
+    const fixture = await publisherFixture("groups")
+    const publisher = createPublisher(publisherOptions(fixture))
+    await publisher.runOne("worker-restricted-source")
+    const publication = fixture.database.connection
+      .query<{ id: string; package_sha256: string }, []>("SELECT id, package_sha256 FROM restricted_publications")
+      .get()!
+    seedAudienceChange(fixture, publication.id)
+    fixture.database.connection.run(
+      `UPDATE submission_revisions
+       SET package_sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+       WHERE submission_id = 'sub_change_12345678'`,
+    )
+
+    const failure = await rejected(publisher.runOne("worker-changed-artifact"))
+
+    expect(String(failure)).toContain("audience change cannot alter the reviewed artifact")
+    expect(
+      fixture.database.connection
+        .query<
+          { submission_id: string; package_sha256: string; row_version: number },
+          [string]
+        >("SELECT submission_id, package_sha256, row_version FROM restricted_publications WHERE id = ?")
+        .get(publication.id),
+    ).toEqual({
+      submission_id: "sub_publish_12345678",
+      package_sha256: publication.package_sha256,
+      row_version: 1,
+    })
+    expect(
+      fixture.database.connection
+        .query<
+          { group_id: string },
+          [string]
+        >("SELECT group_id FROM restricted_publication_groups WHERE publication_id = ?")
+        .all(publication.id),
+    ).toEqual([{ group_id: "grp_aurora123" }])
+
+    fixture.database.close()
+  })
+
+  test("refuses to publish a restricted submission without approval of its current revision", async () => {
+    const fixture = await publisherFixture("groups")
+    const publisher = createPublisher(publisherOptions(fixture))
+    fixture.database.connection.run("DELETE FROM reviews WHERE submission_id = 'sub_publish_12345678'")
+
+    const failure = await rejected(publisher.runOne("worker-unreviewed"))
+
+    expect(String(failure)).toContain("restricted submission is not approved")
+    expect(
+      fixture.database.connection
+        .query<{ count: number }, []>("SELECT count(*) AS count FROM restricted_publications")
+        .get()?.count,
+    ).toBe(0)
+    expect(fixture.copies).toEqual([])
+
+    fixture.database.close()
+  })
+
+  test("keeps the reviewed artifact immutable when changing to a personal audience", async () => {
+    const fixture = await publisherFixture("groups")
+    const publisher = createPublisher(publisherOptions(fixture))
+    await publisher.runOne("worker-personal-source")
+    const publicationID = fixture.database.connection
+      .query<{ id: string }, []>("SELECT id FROM restricted_publications")
+      .get()!.id
+    seedPersonalAudienceChange(fixture, publicationID)
+    fixture.database.connection.run(
+      `UPDATE submission_revisions
+       SET package_sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+       WHERE submission_id = 'sub_personal_12345678'`,
+    )
+
+    const failure = await rejected(publisher.runOne("worker-personal-changed-artifact"))
+
+    expect(String(failure)).toContain("audience change cannot alter the reviewed artifact")
+    expect(
+      fixture.database.connection
+        .query<{ status: string }, [string]>("SELECT status FROM restricted_publications WHERE id = ?")
+        .get(publicationID),
+    ).toEqual({ status: "published" })
+
+    fixture.database.close()
+  })
+
+  test("checks the reviewed artifact before a company audience change writes public objects", async () => {
+    const fixture = await publisherFixture("groups")
+    const publisher = createPublisher(publisherOptions(fixture))
+    await publisher.runOne("worker-company-source")
+    const publicationID = fixture.database.connection
+      .query<{ id: string }, []>("SELECT id FROM restricted_publications")
+      .get()!.id
+    seedCompanyAudienceChange(fixture, publicationID)
+    fixture.database.connection.run(
+      `UPDATE submission_revisions
+       SET package_sha256 = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+       WHERE submission_id = 'sub_company_12345678'`,
+    )
+
+    const failure = await rejected(publisher.runOne("worker-company-changed-artifact"))
+
+    expect(String(failure)).toContain("audience change cannot alter the reviewed artifact")
+    expect(fixture.copies).toEqual([])
+
+    fixture.database.close()
+  })
+
+  test("keeps the existing public publisher path for a company audience change", async () => {
+    const fixture = await publisherFixture("groups")
+    const publisher = createPublisher(publisherOptions(fixture))
+    await publisher.runOne("worker-restricted-source")
+    const publicationID = fixture.database.connection
+      .query<{ id: string }, []>("SELECT id FROM restricted_publications")
+      .get()!.id
+    seedCompanyAudienceChange(fixture, publicationID)
+
+    await publisher.runOne("worker-company-change")
+
+    expect(
+      (await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).details.has("community:community-publish"),
+    ).toBe(true)
+    expect(fixture.copies.filter((copy) => copy.includes("packages/community"))).toHaveLength(1)
+    expect(
+      fixture.database.connection
+        .query<{ status: string }, [string]>("SELECT status FROM restricted_publications WHERE id = ?")
+        .get(publicationID),
+    ).toEqual({ status: "delisted" })
+    expect(
+      fixture.database.connection
+        .query<{ status: string }, []>("SELECT status FROM submissions WHERE id = 'sub_company_12345678'")
+        .get(),
+    ).toEqual({ status: "published" })
 
     fixture.database.close()
   })
@@ -958,7 +1307,7 @@ describe("community publisher", () => {
   })
 })
 
-async function publisherFixture() {
+async function publisherFixture(target: "company" | "groups" = "company") {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-publisher-"))
   directories.push(directory)
   const database = await openDatabase({
@@ -991,12 +1340,30 @@ async function publisherFixture() {
       "INSERT INTO users (employee_id, display_name, email, created_at, last_login_at) VALUES ('E123456', 'CONTRIBUTOR', 'contributor@example.com', ?, ?)",
       [clock.value, clock.value],
     )
+    if (target === "groups") {
+      ;["grp_aurora123", "grp_atlas1234"].forEach((groupID) => {
+        connection.run(
+          `INSERT INTO market_groups (id, name, owner_employee_id, status, version, created_at, updated_at)
+           VALUES (?, ?, 'E123456', 'active', 1, ?, ?)`,
+          [groupID, groupID, clock.value, clock.value],
+        )
+        connection.run(
+          `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
+           VALUES (?, 'E123456', 'E123456', ?)`,
+          [groupID, clock.value],
+        )
+      })
+    }
     connection.run(
       `INSERT INTO submissions
-        (id, skill_id, owner_employee_id, target_version, status, current_revision, version, created_at, updated_at)
-       VALUES ('sub_publish_12345678', 'community-publish', 'E123456', '1.0.0', 'publishing', 1, 3, ?, ?)`,
-      [clock.value, clock.value],
+        (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_publish_12345678', 'community-publish', 'E123456', '1.0.0', ?, ?, 1, 3, ?, ?)`,
+      [target, target === "groups" ? "validating" : "publishing", clock.value, clock.value],
     )
+    if (target === "groups")
+      connection.run(
+        "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_publish_12345678', 'grp_aurora123')",
+      )
     connection.run(
       `INSERT INTO submission_revisions
         (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
@@ -1018,12 +1385,15 @@ async function publisherFixture() {
        VALUES ('review_publish_12345678', 'sub_publish_12345678', 1, 'E123456', 'approve', ?)`,
       [clock.value],
     )
-    connection.run(
-      `INSERT INTO community_skills
-        (skill_id, owner_employee_id, version, created_at, updated_at)
-       VALUES ('community-publish', 'E123456', 1, ?, ?)`,
-      [clock.value, clock.value],
-    )
+    if (target === "company")
+      connection.run(
+        `INSERT INTO community_skills
+          (skill_id, owner_employee_id, version, created_at, updated_at)
+         VALUES ('community-publish', 'E123456', 1, ?, ?)`,
+        [clock.value, clock.value],
+      )
+    if (target === "groups")
+      connection.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_publish_12345678'")
     connection.run(
       `INSERT INTO publish_jobs
         (id, submission_id, kind, status, attempts, created_at, updated_at)
@@ -1032,6 +1402,119 @@ async function publisherFixture() {
     )
   })
   return { database, store, objects, metadataByKey, copies, failures, clock, validation }
+}
+
+function seedAudienceChange(fixture: Awaited<ReturnType<typeof publisherFixture>>, publicationID: string) {
+  fixture.database.transaction((connection) => {
+    connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
+         status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_change_12345678', 'community-publish', 'E123456', '1.0.0', 'groups', ?,
+               'validating', 1, 3, ?, ?)`,
+      [publicationID, fixture.clock.value, fixture.clock.value],
+    )
+    connection.run(
+      "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_change_12345678', 'grp_atlas1234')",
+    )
+    connection.run(
+      `INSERT INTO submission_revisions
+        (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
+         manifest_json, scan_json, validation_errors_json, validation_completed_at, created_at)
+       SELECT 'sub_change_12345678', 1, private_package_key, package_sha256, package_size, metadata_json,
+              manifest_json, scan_json, validation_errors_json, validation_completed_at, ?
+       FROM submission_revisions
+       WHERE submission_id = 'sub_publish_12345678' AND revision_number = 1`,
+      [fixture.clock.value],
+    )
+    connection.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_change_12345678'")
+    connection.run(
+      `INSERT INTO reviews
+        (id, submission_id, revision_number, reviewer_employee_id, decision, created_at)
+       VALUES ('review_change_12345678', 'sub_change_12345678', 1, 'E123456', 'approve', ?)`,
+      [fixture.clock.value],
+    )
+    connection.run(
+      `INSERT INTO publish_jobs (id, submission_id, kind, status, attempts, created_at, updated_at)
+       VALUES ('job_change_12345678', 'sub_change_12345678', 'publish', 'pending', 0, ?, ?)`,
+      [fixture.clock.value, fixture.clock.value],
+    )
+  })
+}
+
+function seedPersonalAudienceChange(fixture: Awaited<ReturnType<typeof publisherFixture>>, publicationID: string) {
+  fixture.database.transaction((connection) => {
+    connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
+         status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_personal_12345678', 'community-publish', 'E123456', '1.0.0', 'personal', ?,
+               'validating', 1, 3, ?, ?)`,
+      [publicationID, fixture.clock.value, fixture.clock.value],
+    )
+    connection.run(
+      `INSERT INTO submission_revisions
+        (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
+         manifest_json, scan_json, validation_errors_json, validation_completed_at, created_at)
+       SELECT 'sub_personal_12345678', 1, private_package_key, package_sha256, package_size, metadata_json,
+              manifest_json, scan_json, validation_errors_json, validation_completed_at, ?
+       FROM submission_revisions
+       WHERE submission_id = 'sub_publish_12345678' AND revision_number = 1`,
+      [fixture.clock.value],
+    )
+    connection.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_personal_12345678'")
+    connection.run(
+      `INSERT INTO reviews
+        (id, submission_id, revision_number, reviewer_employee_id, decision, created_at)
+       VALUES ('review_personal_12345678', 'sub_personal_12345678', 1, 'E123456', 'approve', ?)`,
+      [fixture.clock.value],
+    )
+    connection.run(
+      `INSERT INTO publish_jobs (id, submission_id, kind, status, attempts, created_at, updated_at)
+       VALUES ('job_personal_12345678', 'sub_personal_12345678', 'publish', 'pending', 0, ?, ?)`,
+      [fixture.clock.value, fixture.clock.value],
+    )
+  })
+}
+
+function seedCompanyAudienceChange(fixture: Awaited<ReturnType<typeof publisherFixture>>, publicationID: string) {
+  fixture.database.transaction((connection) => {
+    connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
+         status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_company_12345678', 'community-publish', 'E123456', '1.0.0', 'company', ?,
+               'validating', 1, 3, ?, ?)`,
+      [publicationID, fixture.clock.value, fixture.clock.value],
+    )
+    connection.run(
+      `INSERT INTO submission_revisions
+        (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
+         manifest_json, scan_json, validation_errors_json, validation_completed_at, created_at)
+       SELECT 'sub_company_12345678', 1, private_package_key, package_sha256, package_size, metadata_json,
+              manifest_json, scan_json, validation_errors_json, validation_completed_at, ?
+       FROM submission_revisions
+       WHERE submission_id = 'sub_publish_12345678' AND revision_number = 1`,
+      [fixture.clock.value],
+    )
+    connection.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_company_12345678'")
+    connection.run(
+      `INSERT INTO reviews
+        (id, submission_id, revision_number, reviewer_employee_id, decision, created_at)
+       VALUES ('review_company_12345678', 'sub_company_12345678', 1, 'E123456', 'approve', ?)`,
+      [fixture.clock.value],
+    )
+    connection.run(
+      `INSERT INTO community_skills (skill_id, owner_employee_id, version, created_at, updated_at)
+       VALUES ('community-publish', 'E123456', 1, ?, ?)`,
+      [fixture.clock.value, fixture.clock.value],
+    )
+    connection.run(
+      `INSERT INTO publish_jobs (id, submission_id, kind, status, attempts, created_at, updated_at)
+       VALUES ('job_company_12345678', 'sub_company_12345678', 'publish', 'pending', 0, ?, ?)`,
+      [fixture.clock.value, fixture.clock.value],
+    )
+  })
 }
 
 function publisherOptions(fixture: Awaited<ReturnType<typeof publisherFixture>>) {
@@ -1116,15 +1599,16 @@ function insertExpiredDeltaLease(
 
 function readJobState(fixture: Awaited<ReturnType<typeof publisherFixture>>, id: string) {
   return fixture.database.connection
-    .query<{
-      readonly status: string
-      readonly lease_owner: string | null
-      readonly lease_expires_at: number | null
-      readonly error_code: string | null
-      readonly error_summary: string | null
-    }, [string]>(
-      "SELECT status, lease_owner, lease_expires_at, error_code, error_summary FROM publish_jobs WHERE id = ?",
-    )
+    .query<
+      {
+        readonly status: string
+        readonly lease_owner: string | null
+        readonly lease_expires_at: number | null
+        readonly error_code: string | null
+        readonly error_summary: string | null
+      },
+      [string]
+    >("SELECT status, lease_owner, lease_expires_at, error_code, error_summary FROM publish_jobs WHERE id = ?")
     .get(id)
 }
 

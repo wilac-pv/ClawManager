@@ -795,9 +795,10 @@ describe("skill market control HTTP", () => {
     expect(announcement).toMatchObject({ title: "新功能上线", content: "# 公告正文" })
     expect(
       fixture.database.connection
-        .query<{ action: string; object_type: string }, [string]>(
-          "SELECT action, object_type FROM audit_events WHERE object_id = ?",
-        )
+        .query<
+          { action: string; object_type: string },
+          [string]
+        >("SELECT action, object_type FROM audit_events WHERE object_id = ?")
         .get(announcement.id),
     ).toEqual({ action: "announcement-published", object_type: "announcement" })
   })
@@ -913,9 +914,7 @@ describe("skill market control HTTP", () => {
     expect(downloaded.status).toBe(200)
     expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(packageBody)
     expect(downloaded.headers.get("cache-control")).toContain("no-store")
-    expect(downloaded.headers.get("content-disposition")).toBe(
-      'attachment; filename="personal-helper-1.0.0.zip"',
-    )
+    expect(downloaded.headers.get("content-disposition")).toBe('attachment; filename="personal-helper-1.0.0.zip"')
 
     const head = await fetch(`${fixture.url}/v1/submissions/${accepted.submission.id}/package`, {
       method: "HEAD",
@@ -926,14 +925,18 @@ describe("skill market control HTTP", () => {
     expect(head.headers.get("x-content-sha256")).toHaveLength(64)
 
     fixture.database.transaction((connection) => {
-      connection.run(
-        "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
-        ["E999999", "REVIEWER", now, now],
-      )
-      connection.run(
-        "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
-        ["E999999", "reviewer", null, now],
-      )
+      connection.run("INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)", [
+        "E999999",
+        "REVIEWER",
+        now,
+        now,
+      ])
+      connection.run("INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)", [
+        "E999999",
+        "reviewer",
+        null,
+        now,
+      ])
       connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", ["E999999", "E123456"])
     })
     const hiddenPackage = await fetch(`${fixture.url}/v1/submissions/${accepted.submission.id}/package`, {
@@ -947,6 +950,99 @@ describe("skill market control HTTP", () => {
     })
     expect(hiddenReview.status).toBe(404)
     expect(await hiddenReview.json()).toMatchObject({ code: "not-found" })
+  })
+
+  test("handles personal promotion and reviewed audience-change requests", async () => {
+    await using fixture = await marketFixture()
+    const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fpersonal`, { redirect: "manual" })
+    const session = await loginSession(fixture, login, "/personal")
+    const headers = {
+      cookie: session.cookie,
+      origin: webOrigin,
+      "x-csrf-token": session.csrf,
+      "content-type": "application/json",
+    }
+    const createGroup = async (name: string) => {
+      const response = await fetch(`${fixture.url}/v1/groups`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name }),
+      })
+      expect(response.status).toBe(200)
+      return Schema.decodeUnknownSync(SkillMarketControl.MarketGroup)(await response.json())
+    }
+    const firstGroup = await createGroup("Promotion Group")
+    const secondGroup = await createGroup("Audience Change Group")
+
+    const body = makeStoredZip({
+      "SKILL.md": "---\nname: shared-personal\ndescription: A promoted helper\n---\n# Shared Personal\n",
+    })
+    const form = new FormData()
+    form.set(
+      "metadata",
+      JSON.stringify({
+        target: "personal",
+        metadata: {
+          version: "1.0.0",
+          displayName: "Shared Personal",
+          description: "A promoted helper",
+          category: "Developer Tools",
+          tags: ["private"],
+          requiresApiKey: false,
+          changeNotes: "Initial personal upload",
+        },
+      }),
+    )
+    form.set("package", new Blob([body], { type: "application/zip" }), "shared-personal.zip")
+    const createdResponse = await fetch(`${fixture.url}/v1/submissions`, {
+      method: "POST",
+      headers: {
+        cookie: session.cookie,
+        origin: webOrigin,
+        "x-csrf-token": session.csrf,
+        "idempotency-key": "sharing-source-http",
+      },
+      body: form,
+    })
+    const source = Schema.decodeUnknownSync(SkillMarketControl.AcceptedSubmission)(await createdResponse.json())
+    completeStoredValidation(fixture, source.submission.id)
+
+    const promotionResponse = await fetch(`${fixture.url}/v1/submissions/${source.submission.id}/promotions`, {
+      method: "POST",
+      headers: { ...headers, "idempotency-key": "sharing-promotion-http" },
+      body: JSON.stringify({
+        expectedVersion: 2,
+        target: "groups",
+        audience: { scope: "groups", groupIDs: [firstGroup.id] },
+      }),
+    })
+    expect(promotionResponse.status).toBe(202)
+    const promotion = Schema.decodeUnknownSync(SkillMarketControl.AcceptedSubmission)(await promotionResponse.json())
+    expect(promotion.submission).toMatchObject({
+      target: "groups",
+      audience: { scope: "groups", groupIDs: [firstGroup.id] },
+      status: "validating",
+    })
+    completeStoredValidation(fixture, promotion.submission.id)
+    seedHttpRestrictedPublication(fixture, promotion.submission.id)
+
+    const changeResponse = await fetch(`${fixture.url}/v1/submissions/${promotion.submission.id}/audience-changes`, {
+      method: "POST",
+      headers: { ...headers, "idempotency-key": "sharing-audience-http" },
+      body: JSON.stringify({
+        expectedVersion: 3,
+        target: "groups",
+        audience: { scope: "groups", groupIDs: [secondGroup.id] },
+      }),
+    })
+    expect(changeResponse.status).toBe(202)
+    expect(
+      Schema.decodeUnknownSync(SkillMarketControl.AcceptedSubmission)(await changeResponse.json()).submission,
+    ).toMatchObject({
+      target: "groups",
+      audience: { scope: "groups", groupIDs: [secondGroup.id] },
+      status: "pending_review",
+    })
   })
 
   test("preassigns roles over HTTP and reports duplicate assignments clearly", async () => {
@@ -1278,7 +1374,7 @@ async function marketFixture(
               throw new Error("snapshot unavailable with private dependency detail")
             }
           : undefined,
-    ),
+      ),
     announcements: createAnnouncements({ database, now: () => now }),
     auth,
     security,
@@ -1303,6 +1399,7 @@ async function marketFixture(
   return {
     url: server.url.origin,
     database,
+    submissions,
     objects,
     metrics,
     packageBody,
@@ -1325,4 +1422,46 @@ async function marketFixture(
       database.close()
     },
   }
+}
+
+function completeStoredValidation(fixture: Awaited<ReturnType<typeof marketFixture>>, submissionID: string) {
+  const revision = fixture.database.connection
+    .query<
+      { package_sha256: string; package_size: number },
+      [string]
+    >("SELECT package_sha256, package_size FROM submission_revisions WHERE submission_id = ? AND revision_number = 1")
+    .get(submissionID)!
+  return fixture.submissions.completeValidation({
+    submissionID,
+    revision: 1,
+    manifest: { packageSha256: revision.package_sha256, packageSize: revision.package_size, files: [] },
+    scan: { risk: "safe", reasons: [], evidence: [], scannedAt: new Date(now).toISOString() },
+    validationIssues: [],
+  })
+}
+
+function seedHttpRestrictedPublication(fixture: Awaited<ReturnType<typeof marketFixture>>, submissionID: string) {
+  fixture.database.transaction((connection) => {
+    connection.run("UPDATE submissions SET status = 'published', version = 3 WHERE id = ?", [submissionID])
+    connection.run(
+      `INSERT INTO restricted_publications
+        (id, submission_id, skill_id, owner_employee_id, version, scope, package_key, package_sha256,
+         package_size, metadata_json, status, row_version, created_at, updated_at)
+       SELECT 'pub_http12345678', submissions.id, submissions.skill_id, submissions.owner_employee_id,
+              submissions.target_version, submissions.target_scope, submission_revisions.private_package_key,
+              submission_revisions.package_sha256, submission_revisions.package_size,
+              submission_revisions.metadata_json, 'published', 1, ?, ?
+       FROM submissions
+       INNER JOIN submission_revisions
+         ON submission_revisions.submission_id = submissions.id
+        AND submission_revisions.revision_number = submissions.current_revision
+       WHERE submissions.id = ?`,
+      [now, now, submissionID],
+    )
+    connection.run(
+      `INSERT INTO restricted_publication_groups (publication_id, group_id)
+       SELECT 'pub_http12345678', group_id FROM submission_group_targets WHERE submission_id = ?`,
+      [submissionID],
+    )
+  })
 }

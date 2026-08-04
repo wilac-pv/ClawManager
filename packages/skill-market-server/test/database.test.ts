@@ -50,6 +50,8 @@ describe("control-plane database", () => {
         "market_group_members",
         "market_groups",
         "publish_jobs",
+        "restricted_publication_groups",
+        "restricted_publications",
         "reviews",
         "role_assignments",
         "sessions",
@@ -58,6 +60,7 @@ describe("control-plane database", () => {
         "skillhub_deferred_import_items",
         "skillhub_import_items",
         "submission_revisions",
+        "submission_group_targets",
         "submissions",
         "users",
       ].sort(),
@@ -83,6 +86,10 @@ describe("control-plane database", () => {
     expect(indexes).toContain("skill_favorites_employee_created")
     expect(indexes).toContain("announcements_published")
     expect(indexes).toContain("market_group_members_employee")
+    expect(indexes).toContain("restricted_publications_owner")
+    expect(indexes).toContain("restricted_publications_department")
+    expect(indexes).toContain("restricted_publication_groups_group")
+    expect(indexes).toContain("submissions_active_audience_change_source")
 
     database.connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
@@ -132,17 +139,74 @@ describe("control-plane database", () => {
       ),
     ).toThrow()
     expect(() =>
-      database.connection.run(
-        "UPDATE market_groups SET status = 'deleted' WHERE id = 'grp_abcdefgh'",
-      ),
+      database.connection.run("UPDATE market_groups SET status = 'deleted' WHERE id = 'grp_abcdefgh'"),
     ).toThrow()
-    expect(() =>
-      database.connection.run("UPDATE market_groups SET version = 0 WHERE id = 'grp_abcdefgh'"),
-    ).toThrow()
+    expect(() => database.connection.run("UPDATE market_groups SET version = 0 WHERE id = 'grp_abcdefgh'")).toThrow()
     expect(() =>
       database.connection.run(
         `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
          VALUES ('grp_abcdefgh', 'E000001', 'E000001', 1)`,
+      ),
+    ).toThrow()
+
+    database.connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_scoped1234', 'scoped-skill', 'E000001', '1.0.0', 'groups', 'validating', 1, 1, 1, 1)`,
+    )
+    database.connection.run(
+      "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_scoped1234', 'grp_abcdefgh')",
+    )
+    expect(() =>
+      database.connection.run(
+        "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_scoped1234', 'grp_abcdefgh')",
+      ),
+    ).toThrow()
+    database.connection.run("UPDATE submissions SET status = 'pending_review' WHERE id = 'sub_scoped1234'")
+    expect(() =>
+      database.connection.run(
+        "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_scoped1234', 'grp_missing1')",
+      ),
+    ).toThrow()
+    expect(() =>
+      database.connection.run("UPDATE submissions SET target_scope = 'company' WHERE id = 'sub_scoped1234'"),
+    ).toThrow("submission audience is immutable")
+
+    database.connection.run(
+      `INSERT INTO restricted_publications
+        (id, submission_id, skill_id, owner_employee_id, version, scope, package_key, package_sha256,
+         package_size, metadata_json, status, row_version, created_at, updated_at)
+       VALUES ('pub_abcdefgh', 'sub_scoped1234', 'scoped-skill', 'E000001', '1.0.0', 'groups',
+               'private/sub_scoped1234/package.zip', ?, 100, '{}', 'published', 1, 1, 1)`,
+      ["a".repeat(64)],
+    )
+    database.connection.run(
+      "INSERT INTO restricted_publication_groups (publication_id, group_id) VALUES ('pub_abcdefgh', 'grp_abcdefgh')",
+    )
+    database.connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
+         status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_changeone1', 'scoped-skill', 'E000001', '1.0.0', 'personal', 'pub_abcdefgh',
+               'validating', 1, 1, 1, 1)`,
+    )
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO submissions
+          (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
+           status, current_revision, version, created_at, updated_at)
+         VALUES ('sub_changetwo2', 'scoped-skill', 'E000001', '1.0.0', 'groups', 'pub_abcdefgh',
+                 'validating', 1, 1, 1, 1)`,
+      ),
+    ).toThrow()
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO restricted_publications
+          (id, submission_id, skill_id, owner_employee_id, version, scope, department_id, package_key,
+           package_sha256, package_size, metadata_json, status, row_version, created_at, updated_at)
+         VALUES ('pub_badscope1', 'sub_scoped1234', 'scoped-skill', 'E000001', '1.0.0', 'groups', 'engineering',
+                 'private/package.zip', ?, 100, '{}', 'published', 1, 1, 1)`,
+        ["b".repeat(64)],
       ),
     ).toThrow()
     expect(() =>
@@ -254,7 +318,11 @@ describe("control-plane database", () => {
         Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file))),
       ),
     )
-    const v3 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+    const v3 = await openDatabase({
+      databasePath: path,
+      migrationBackupDirectory: backups,
+      migrationDirectory: migrations,
+    })
     v3.connection.run("PRAGMA ignore_check_constraints = ON")
     v3.connection.run(
       "INSERT INTO skillhub_generations (id, state, upstream_total, discovery_page, sweep, new_in_sweep, last_published_count, last_published_at, uploaded_bytes, started_at, updated_at, completed_at) VALUES ('draining', 'running', 4, 5, 1, 0, 2, 8, 20, 1, 10, 5), ('other-active', 'paused', 1, 1, 0, 1, 3, 9, 5, 2, 9, NULL), ('complete', 'completed', 1, 1, 1, 0, 9, 19, 10, 3, 20, 20)",
@@ -358,37 +426,42 @@ describe("control-plane database", () => {
     ).toEqual({ state: "running", discovery_completed_at: null, completed_at: null, last_published_count: 9 })
     expect(
       upgraded.connection
-        .query<{ discovery_completed_at: number; completed_at: number }, [string]>(
-          "SELECT discovery_completed_at, completed_at FROM skillhub_generations WHERE id = ?",
-        )
+        .query<
+          { discovery_completed_at: number; completed_at: number },
+          [string]
+        >("SELECT discovery_completed_at, completed_at FROM skillhub_generations WHERE id = ?")
         .get("complete"),
     ).toEqual({ discovery_completed_at: 20, completed_at: 20 })
     expect(
       upgraded.connection
-        .query<{ state: string; mirrored_at: number }, [string]>(
-          "SELECT state, mirrored_at FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { state: string; mirrored_at: number },
+          [string]
+        >("SELECT state, mirrored_at FROM skillhub_import_items WHERE slug = ?")
         .get("mirror"),
     ).toEqual({ state: "mirrored", mirrored_at: 20 })
     expect(
       upgraded.connection
-        .query<{ next_attempt_at: number; error_code: string; error_summary: string }, [string]>(
-          "SELECT next_attempt_at, error_code, error_summary FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { next_attempt_at: number; error_code: string; error_summary: string },
+          [string]
+        >("SELECT next_attempt_at, error_code, error_summary FROM skillhub_import_items WHERE slug = ?")
         .get("retry"),
     ).toEqual({ next_attempt_at: 11, error_code: "upstream", error_summary: "Migrated SkillHub import error" })
     expect(
       upgraded.connection
-        .query<{ error_code: string; error_summary: string }, [string]>(
-          "SELECT error_code, error_summary FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { error_code: string; error_summary: string },
+          [string]
+        >("SELECT error_code, error_summary FROM skillhub_import_items WHERE slug = ?")
         .get("reject"),
     ).toEqual({ error_code: "upstream", error_summary: "Migrated SkillHub import error" })
     expect(
       upgraded.connection
-        .query<{ lease_owner: string; lease_expires_at: number }, [string]>(
-          "SELECT lease_owner, lease_expires_at FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { lease_owner: string; lease_expires_at: number },
+          [string]
+        >("SELECT lease_owner, lease_expires_at FROM skillhub_import_items WHERE slug = ?")
         .get("leased"),
     ).toEqual({ lease_owner: "worker", lease_expires_at: 100 })
     expect(
@@ -398,9 +471,10 @@ describe("control-plane database", () => {
     ).toEqual({ state: "failed" })
     expect(
       upgraded.connection
-        .query<{ generation_id: string; state: string }, [string]>(
-          "SELECT generation_id, state FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { generation_id: string; state: string },
+          [string]
+        >("SELECT generation_id, state FROM skillhub_import_items WHERE slug = ?")
         .get("other-pending"),
     ).toEqual({ generation_id: "other-active", state: "pending" })
     const store = createSkillHubImportStore({ database: upgraded, now: () => 30 })
@@ -420,9 +494,10 @@ describe("control-plane database", () => {
     expect(store.recordPublication(10)).toBe(true)
     expect(
       upgraded.connection
-        .query<{ id: string; last_published_count: number }, []>(
-          "SELECT id, last_published_count FROM skillhub_generations WHERE last_published_count = 10",
-        )
+        .query<
+          { id: string; last_published_count: number },
+          []
+        >("SELECT id, last_published_count FROM skillhub_generations WHERE last_published_count = 10")
         .get(),
     ).toEqual({ id: "other-active", last_published_count: 10 })
     expect(
@@ -455,20 +530,21 @@ describe("control-plane database", () => {
     ).toBe(1)
     expect(
       upgraded.connection
-        .query<{ generation_id: string }, [string]>(
-          "SELECT generation_id FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<{ generation_id: string }, [string]>("SELECT generation_id FROM skillhub_import_items WHERE slug = ?")
         .get("legacy-after-upgrade"),
     ).toEqual({ generation_id: "other-active" })
     expect(
       upgraded.connection
-        .query<{ last_published_count: number }, [string]>(
-          "SELECT last_published_count FROM skillhub_generations WHERE id = ?",
-        )
+        .query<
+          { last_published_count: number },
+          [string]
+        >("SELECT last_published_count FROM skillhub_generations WHERE id = ?")
         .get("draining"),
     ).toEqual({ last_published_count: 2 })
     expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
-    expect(upgraded.connection.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check).toBe("ok")
+    expect(
+      upgraded.connection.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check,
+    ).toBe("ok")
     upgraded.close()
   })
 
@@ -479,11 +555,18 @@ describe("control-plane database", () => {
     const backups = join(directory, "backups")
     await mkdir(migrations)
     await Promise.all(
-      ["001_control_plane.sql", "002_submission_icons.sql", "003_skillhub_import.sql", "004_skillhub_import_invariants.sql"].map(
-        async (file) => Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file))),
-      ),
+      [
+        "001_control_plane.sql",
+        "002_submission_icons.sql",
+        "003_skillhub_import.sql",
+        "004_skillhub_import_invariants.sql",
+      ].map(async (file) => Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file)))),
     )
-    const v4 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+    const v4 = await openDatabase({
+      databasePath: path,
+      migrationBackupDirectory: backups,
+      migrationDirectory: migrations,
+    })
     v4.connection.run(
       "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('complete', 'completed', 1, 1, 1, 1, 1)",
     )
@@ -496,18 +579,20 @@ describe("control-plane database", () => {
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
     expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(11)
     const row = upgraded.connection
-      .query<{ evaluation_state: string; evaluation_score: number | null; summary_json: string }, [string]>(
-        "SELECT evaluation_state, evaluation_score, summary_json FROM skillhub_import_items WHERE slug = ?",
-      )
+      .query<
+        { evaluation_state: string; evaluation_score: number | null; summary_json: string },
+        [string]
+      >("SELECT evaluation_state, evaluation_score, summary_json FROM skillhub_import_items WHERE slug = ?")
       .get("mirrored")
     expect(row?.evaluation_state).toBe("pending")
     expect(row?.evaluation_score).toBeNull()
     expect(JSON.parse(row?.summary_json ?? "{}").evaluationScore).toBeUndefined()
     expect(
       upgraded.connection
-        .query<{ evaluation_state: string }, [string]>(
-          "SELECT evaluation_state FROM skillhub_import_items WHERE slug = ?",
-        )
+        .query<
+          { evaluation_state: string },
+          [string]
+        >("SELECT evaluation_state FROM skillhub_import_items WHERE slug = ?")
         .get("pending"),
     ).toEqual({ evaluation_state: "waiting" })
     upgraded.connection.run(
@@ -516,9 +601,10 @@ describe("control-plane database", () => {
     )
     expect(
       upgraded.connection
-        .query<{ upstream_version: string }, [string]>(
-          "SELECT upstream_version FROM skillhub_deferred_import_items WHERE slug = ?",
-        )
+        .query<
+          { upstream_version: string },
+          [string]
+        >("SELECT upstream_version FROM skillhub_deferred_import_items WHERE slug = ?")
         .get("mirrored"),
     ).toEqual({ upstream_version: "1.0.1" })
     upgraded.close()

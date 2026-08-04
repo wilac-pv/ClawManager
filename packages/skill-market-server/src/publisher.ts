@@ -26,11 +26,12 @@ import {
   publishCatalogIndexPointer,
 } from "./oss"
 import { randomSecret } from "./security"
-import type {
-  CompletedSkillHubEvaluation,
-  EvaluatedSkillHubEntry,
-  SkillHubImportStore,
-} from "./skillhub-import-store"
+import {
+  publishPersonalAudienceChange,
+  publishRestrictedSubmission,
+  requireAudienceChangeArtifact,
+} from "./restricted-publications"
+import type { CompletedSkillHubEvaluation, EvaluatedSkillHubEntry, SkillHubImportStore } from "./skillhub-import-store"
 
 export class CatalogPublicationBusyError extends Error {
   override readonly name = "CatalogPublicationBusyError"
@@ -58,6 +59,7 @@ interface JobRow {
   readonly error_summary: string | null
   readonly skill_id: string | null
   readonly target_version: string | null
+  readonly target_scope: "personal" | "groups" | "department" | "company" | null
 }
 
 interface SubmissionState {
@@ -70,13 +72,18 @@ type Publication = {
   readonly changedDetails: ReadonlyMap<string, SkillMarket.Detail>
 }
 
-type CatalogLeasePublication = Publication | {
-  readonly delta: CatalogDelta
-  readonly changedDetails: ReadonlyMap<string, SkillMarket.Detail>
-}
+type CatalogLeasePublication =
+  | Publication
+  | {
+      readonly delta: CatalogDelta
+      readonly changedDetails: ReadonlyMap<string, SkillMarket.Detail>
+    }
 
 export class Publisher {
-  private readonly preparations = new Map<string, Promise<{ readonly jobID: string; readonly candidate: SkillMarket.Detail }>>()
+  private readonly preparations = new Map<
+    string,
+    Promise<{ readonly jobID: string; readonly candidate: SkillMarket.Detail }>
+  >()
 
   constructor(private readonly options: PublisherOptions) {}
 
@@ -84,17 +91,26 @@ export class Publisher {
     requireWorkerID(workerID)
     await this.recover()
     const pending = this.pending()
-    const prepared = pending?.kind === "publish" ? await this.preparePublication(pending) : undefined
+    const prepared =
+      pending?.kind === "publish" && pending.target_scope === "company"
+        ? await this.preparePublication(pending)
+        : undefined
     const job = this.claim(workerID, pending?.id)
     if (!job) return undefined
     if (prepared && prepared.jobID !== job.id) return undefined
+    if (job.kind === "publish" && job.target_scope !== "company") return this.publishPrivate(job, workerID)
     if (job.target_revision && (await this.pointerRevision()) === job.target_revision) {
       this.finalize(job)
       return { jobID: job.id, kind: job.kind, revision: job.target_revision }
     }
 
     const publication = job.kind === "publish" ? await this.buildPublication(job, prepared) : await this.buildRebuild()
-    await publishCatalogIndexObjects(this.options.store, { prefix: this.options.ossPrefix }, publication.index, publication.changedDetails)
+    await publishCatalogIndexObjects(
+      this.options.store,
+      { prefix: this.options.ossPrefix },
+      publication.index,
+      publication.changedDetails,
+    )
     this.persistTarget(job, workerID, publication.index.revision)
     await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
     this.finalize({ ...job, target_revision: publication.index.revision })
@@ -116,6 +132,19 @@ export class Publisher {
     return jobs.reduce(
       (pending, job) =>
         pending.then((count) => {
+          if (job.kind === "publish" && job.target_scope !== "company") {
+            const reset = this.options.database.transaction(
+              (connection) =>
+                connection.run(
+                  `UPDATE publish_jobs
+                   SET status = 'pending', target_revision = NULL, lease_owner = NULL,
+                       lease_expires_at = NULL, updated_at = ?
+                   WHERE id = ? AND status = 'running' AND lease_expires_at <= ?`,
+                  [now, job.id, now],
+                ).changes,
+            )
+            return count + Number(reset > 0)
+          }
           if (job.target_revision && job.target_revision === pointer) {
             this.finalize(job, true)
             return count + 1
@@ -162,10 +191,7 @@ export class Publisher {
     const now = this.now()
     const job = this.options.database.transaction((connection) => {
       const queued = connection
-        .query<
-          { count: number },
-          []
-        >("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running'")
+        .query<{ count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running'")
         .get()!.count
       if (queued > 0)
         throw new CatalogPublicationBusyError("catalog publication queue must be drained before synchronization")
@@ -240,7 +266,9 @@ export class Publisher {
     const store = signal ? abortableStore(this.options.store, signal) : this.options.store
     throwIfAborted(signal)
     const evaluations = await Promise.all(
-      imports.completedEvaluations(evaluationLimit).map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
+      imports
+        .completedEvaluations(evaluationLimit)
+        .map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
     )
     const base = await this.basePublication({ skipLegacySkillHub: true }, store)
     const progress = imports.progress()
@@ -250,51 +278,65 @@ export class Publisher {
         .flatMap((summary) => [summary.id, ...(summary.aliases ?? [])].map((id) => [id, summary] as const)),
     )
     let revision = base.index.revision
-    await this.withCatalogLease(workerID, async (publish) => {
-      const latest = await this.latestIndex(base.index.sourceStatus, store)
-      const publication =
-        latest.revision === base.index.revision ? base : await this.basePublication({ skipLegacySkillHub: true }, store)
-      const latestEntries = this.entries(publication.index, (summary) => summary.source !== "skillhub")
-      const mirrored = imports.mirroredEntries()
-      const evaluated = evaluations.filter((evaluation) =>
-        mirrored.some(
-          (entry) =>
-            entry.summary.id === evaluation.entry.summary.id && entry.detailSha256 === evaluation.previousDetailSha256,
-        ),
-      )
-      const evaluationsByDetail = new Map(evaluated.map((evaluation) => [evaluation.previousDetailSha256, evaluation]))
-      mirrored.forEach((entry) => {
-        const evaluation = evaluationsByDetail.get(entry.detailSha256)
-        const mirroredEntry = evaluation?.entry ?? entry
-        const ids = [mirroredEntry.summary.id, ...(mirroredEntry.summary.aliases ?? [])]
-        const featured = recommendations
-          ? ids.some((id) => recommendations.has(id))
-          : ids.map((id) => current.get(id)).find(Boolean)?.featured ?? mirroredEntry.summary.featured
-        latestEntries.set(key(mirroredEntry.summary.source, mirroredEntry.summary.id), {
-          summary:
-            mirroredEntry.summary.featured === featured
-              ? mirroredEntry.summary
-              : { ...mirroredEntry.summary, featured },
-          ref: {
-            key: normalizeMirrorDetailKey(mirroredEntry.detailKey, mirroredEntry.detailSha256, this.options.ossPrefix),
-            sha256: mirroredEntry.detailSha256,
-            version: mirroredEntry.summary.version,
-          },
+    await this.withCatalogLease(
+      workerID,
+      async (publish) => {
+        const latest = await this.latestIndex(base.index.sourceStatus, store)
+        const publication =
+          latest.revision === base.index.revision
+            ? base
+            : await this.basePublication({ skipLegacySkillHub: true }, store)
+        const latestEntries = this.entries(publication.index, (summary) => summary.source !== "skillhub")
+        const mirrored = imports.mirroredEntries()
+        const evaluated = evaluations.filter((evaluation) =>
+          mirrored.some(
+            (entry) =>
+              entry.summary.id === evaluation.entry.summary.id &&
+              entry.detailSha256 === evaluation.previousDetailSha256,
+          ),
+        )
+        const evaluationsByDetail = new Map(
+          evaluated.map((evaluation) => [evaluation.previousDetailSha256, evaluation]),
+        )
+        mirrored.forEach((entry) => {
+          const evaluation = evaluationsByDetail.get(entry.detailSha256)
+          const mirroredEntry = evaluation?.entry ?? entry
+          const ids = [mirroredEntry.summary.id, ...(mirroredEntry.summary.aliases ?? [])]
+          const featured = recommendations
+            ? ids.some((id) => recommendations.has(id))
+            : (ids.map((id) => current.get(id)).find(Boolean)?.featured ?? mirroredEntry.summary.featured)
+          latestEntries.set(key(mirroredEntry.summary.source, mirroredEntry.summary.id), {
+            summary:
+              mirroredEntry.summary.featured === featured
+                ? mirroredEntry.summary
+                : { ...mirroredEntry.summary, featured },
+            ref: {
+              key: normalizeMirrorDetailKey(
+                mirroredEntry.detailKey,
+                mirroredEntry.detailSha256,
+                this.options.ossPrefix,
+              ),
+              sha256: mirroredEntry.detailSha256,
+              version: mirroredEntry.summary.version,
+            },
+          })
         })
-      })
-      const index = createCatalogIndex({
-        entries: latestEntries,
-        sourceStatus: { ...publication.index.sourceStatus, skillhub: progress.sourceStatus },
-      })
-      revision = index.revision
-      const changedDetails = new Map(publication.changedDetails)
-      evaluated.forEach((evaluation) =>
-        changedDetails.set(key(evaluation.entry.summary.source, evaluation.entry.summary.id), evaluation.detail),
-      )
-      await publish({ index, changedDetails })
-      throwIfAborted(signal)
-      imports.replaceCompletedEvaluationDetails(evaluated)
-    }, store, signal)
+        const index = createCatalogIndex({
+          entries: latestEntries,
+          sourceStatus: { ...publication.index.sourceStatus, skillhub: progress.sourceStatus },
+        })
+        revision = index.revision
+        const changedDetails = new Map(publication.changedDetails)
+        evaluated.forEach((evaluation) =>
+          changedDetails.set(key(evaluation.entry.summary.source, evaluation.entry.summary.id), evaluation.detail),
+        )
+        await publish({ index, changedDetails })
+        throwIfAborted(signal)
+        imports.replaceCompletedEvaluationDetails(evaluated)
+      },
+      store,
+      signal,
+    )
     return { revision, mirrored: progress.mirrored }
   }
 
@@ -309,46 +351,67 @@ export class Publisher {
     const store = signal ? abortableStore(this.options.store, signal) : this.options.store
     throwIfAborted(signal)
     const materialized = await Promise.all(
-      imports.completedEvaluations(evaluationLimit).map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
+      imports
+        .completedEvaluations(evaluationLimit)
+        .map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
     )
     let revision: string | undefined
-    await this.withCatalogLease(workerID, async (publish) => {
-      const completed = new Map(imports.completedEvaluations(evaluationLimit).map((evaluation) => [evaluation.slug, evaluation]))
-      const evaluated = materialized.filter((value) => {
-        const current = completed.get(value.slug)
-        return current?.evaluation.checkedAt === value.checkedAt && current.detailSha256 === value.previousDetailSha256
-      })
-      if (evaluated.length === 0) return
-      const replacements = new Map(
-        evaluated.map((value) => [
-          key(value.entry.summary.source, value.entry.summary.id),
-          {
-            summary: value.entry.summary,
-            ref: {
-              key: normalizeMirrorDetailKey(value.entry.detailKey, value.entry.detailSha256, this.options.ossPrefix),
-              sha256: value.entry.detailSha256,
-              version: value.entry.summary.version,
-            },
-            expectedSha256: value.previousDetailSha256,
-          },
-        ] as const),
-      )
-      const delta = await prepareCatalogDelta(
-        store,
-        { prefix: this.options.ossPrefix },
-        replacements,
-        { skillhub: imports.progress().sourceStatus },
-        undefined,
-        signal,
-      )
-      revision = delta.revision
-      await publish({
-        delta,
-        changedDetails: new Map(evaluated.map((value) => [key(value.entry.summary.source, value.entry.summary.id), value.detail])),
-      })
-      throwIfAborted(signal)
-      imports.replaceCompletedEvaluationDetails(evaluated)
-    }, store, signal, "fail")
+    await this.withCatalogLease(
+      workerID,
+      async (publish) => {
+        const completed = new Map(
+          imports.completedEvaluations(evaluationLimit).map((evaluation) => [evaluation.slug, evaluation]),
+        )
+        const evaluated = materialized.filter((value) => {
+          const current = completed.get(value.slug)
+          return (
+            current?.evaluation.checkedAt === value.checkedAt && current.detailSha256 === value.previousDetailSha256
+          )
+        })
+        if (evaluated.length === 0) return
+        const replacements = new Map(
+          evaluated.map(
+            (value) =>
+              [
+                key(value.entry.summary.source, value.entry.summary.id),
+                {
+                  summary: value.entry.summary,
+                  ref: {
+                    key: normalizeMirrorDetailKey(
+                      value.entry.detailKey,
+                      value.entry.detailSha256,
+                      this.options.ossPrefix,
+                    ),
+                    sha256: value.entry.detailSha256,
+                    version: value.entry.summary.version,
+                  },
+                  expectedSha256: value.previousDetailSha256,
+                },
+              ] as const,
+          ),
+        )
+        const delta = await prepareCatalogDelta(
+          store,
+          { prefix: this.options.ossPrefix },
+          replacements,
+          { skillhub: imports.progress().sourceStatus },
+          undefined,
+          signal,
+        )
+        revision = delta.revision
+        await publish({
+          delta,
+          changedDetails: new Map(
+            evaluated.map((value) => [key(value.entry.summary.source, value.entry.summary.id), value.detail]),
+          ),
+        })
+        throwIfAborted(signal)
+        imports.replaceCompletedEvaluationDetails(evaluated)
+      },
+      store,
+      signal,
+      "fail",
+    )
     return { revision, mirrored: imports.progress().mirrored }
   }
 
@@ -358,7 +421,9 @@ export class Publisher {
     const legacy = Array.from(base.changedDetails.values())
       .filter((detail) => detail.source === "skillhub")
       .map((detail) => ({ slug: detail.aliases?.[0] ?? detail.id, ...contentAddressDetail(detail) }))
-    const seeded = imports.seedLegacy(legacy.map(({ slug, summary, ref }) => ({ slug, summary, detailKey: ref.key, detailSha256: ref.sha256 })))
+    const seeded = imports.seedLegacy(
+      legacy.map(({ slug, summary, ref }) => ({ slug, summary, detailKey: ref.key, detailSha256: ref.sha256 })),
+    )
     if (base.changedDetails.size === 0) return seeded
     await this.withCatalogLease(workerID, async (publish) => {
       const latest = await this.latestIndex(base.index.sourceStatus)
@@ -379,8 +444,15 @@ export class Publisher {
         .get(now)!.count
       if (active > 0) return undefined
       const candidate = preparedJobID
-        ? connection.query<{ id: string }, [string]>("SELECT id FROM publish_jobs WHERE id = ? AND status = 'pending'").get(preparedJobID)
-        : connection.query<{ id: string }, []>("SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1").get()
+        ? connection
+            .query<{ id: string }, [string]>("SELECT id FROM publish_jobs WHERE id = ? AND status = 'pending'")
+            .get(preparedJobID)
+        : connection
+            .query<
+              { id: string },
+              []
+            >("SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1")
+            .get()
       if (!candidate) return undefined
       const claimed = connection.run(
         `UPDATE publish_jobs
@@ -397,7 +469,12 @@ export class Publisher {
 
   private pending() {
     return this.options.database.read((connection) =>
-      connection.query<JobRow, []>(`${jobSelect()} WHERE publish_jobs.status = 'pending' ORDER BY publish_jobs.created_at, publish_jobs.id LIMIT 1`).get(),
+      connection
+        .query<
+          JobRow,
+          []
+        >(`${jobSelect()} WHERE publish_jobs.status = 'pending' ORDER BY publish_jobs.created_at, publish_jobs.id LIMIT 1`)
+        .get(),
     )
   }
 
@@ -411,16 +488,47 @@ export class Publisher {
 
   private async preparePublicationObjects(job: JobRow) {
     if (!job.submission_id) throw new Error("publish job has no submission")
+    this.options.database.read((connection) => requireAudienceChangeArtifact(connection, job.submission_id!))
     await publishCommunityObjects(
       this.options.database,
       { store: this.options.store, publicPrefix: this.options.ossPrefix },
       job.submission_id,
     )
-    const candidate = await materializeCommunitySubmission(this.options.database, this.communityOptions(), job.submission_id)
+    const candidate = await materializeCommunitySubmission(
+      this.options.database,
+      this.communityOptions(),
+      job.submission_id,
+    )
     return { jobID: job.id, candidate }
   }
 
-  private async buildPublication(job: JobRow, prepared?: { readonly jobID: string; readonly candidate: SkillMarket.Detail }) {
+  private publishPrivate(job: JobRow, workerID: string) {
+    if (!job.submission_id) throw new Error("publish job has no submission")
+    const now = this.now()
+    return this.options.database.transaction((connection) => {
+      const current = readJob(connection, job.id)
+      if (!current || current.status !== "running" || current.lease_owner !== workerID)
+        throw new Error("restricted publish job lease was lost")
+      const publication =
+        job.target_scope === "personal"
+          ? publishPersonalAudienceChange(connection, job.submission_id!, now)
+          : publishRestrictedSubmission(connection, job.submission_id!, now)
+      const revision = `restricted:${publication.publicationID}:${publication.publicationVersion}`
+      connection.run(
+        `UPDATE publish_jobs
+         SET status = 'completed', target_revision = ?, lease_owner = NULL, lease_expires_at = NULL,
+             error_code = NULL, error_summary = NULL, updated_at = ?
+         WHERE id = ?`,
+        [revision, now, job.id],
+      )
+      return { jobID: job.id, kind: job.kind, revision }
+    })
+  }
+
+  private async buildPublication(
+    job: JobRow,
+    prepared?: { readonly jobID: string; readonly candidate: SkillMarket.Detail },
+  ) {
     if (!job.submission_id) throw new Error("publish job has no submission")
     const [base, candidate] = await Promise.all([
       this.baseSnapshot(),
@@ -497,7 +605,10 @@ export class Publisher {
     } satisfies EvaluatedSkillHubEntry & { readonly detail: SkillMarket.Detail }
   }
 
-  private async basePublication(options: { readonly skipLegacySkillHub?: boolean } = {}, store = this.options.store): Promise<Publication> {
+  private async basePublication(
+    options: { readonly skipLegacySkillHub?: boolean } = {},
+    store = this.options.store,
+  ): Promise<Publication> {
     const index = await loadCatalogIndexOrMissingPointer(store, { prefix: this.options.ossPrefix })
     if (!index) {
       const sourceStatus = { skillhub: "unavailable", enterprise: "unavailable", community: "fresh" } as const
@@ -541,10 +652,16 @@ export class Publisher {
 
   private entries(index: CatalogIndex, keep: (summary: SkillMarket.Summary) => boolean) {
     return new Map(
-      index.items.filter(keep).map((summary) => [key(summary.source, summary.id), {
-        summary,
-        ref: index.details.get(key(summary.source, summary.id))!,
-      }] as const),
+      index.items.filter(keep).map(
+        (summary) =>
+          [
+            key(summary.source, summary.id),
+            {
+              summary,
+              ref: index.details.get(key(summary.source, summary.id))!,
+            },
+          ] as const,
+      ),
     )
   }
 
@@ -643,7 +760,8 @@ function jobSelect() {
     publish_jobs.error_code,
     publish_jobs.error_summary,
     submissions.skill_id,
-    submissions.target_version
+    submissions.target_version,
+    submissions.target_scope
    FROM publish_jobs
    LEFT JOIN submissions ON submissions.id = publish_jobs.submission_id`
 }
@@ -671,6 +789,19 @@ function finalizeSubmission(connection: Database, job: JobRow, now: number) {
     [job.target_version, job.submission_id, now, job.skill_id],
   ).changes
   if (updated !== 1) throw new Error("community skill reservation is missing")
+  const source = connection
+    .query<
+      { source_publication_id: string | null },
+      [string]
+    >("SELECT source_publication_id FROM submissions WHERE id = ?")
+    .get(job.submission_id)
+  if (source?.source_publication_id)
+    connection.run(
+      `UPDATE restricted_publications
+       SET status = 'delisted', row_version = row_version + 1, updated_at = ?
+       WHERE id = ? AND status = 'published'`,
+      [now, source.source_publication_id],
+    )
   connection.run(
     `INSERT INTO audit_events
       (id, action, object_type, object_id, before_json, after_json, request_id, created_at)

@@ -33,6 +33,8 @@ const expected = [
   ["skillMarket.submissions.package", "GET", "/v1/submissions/:submissionID/package"],
   ["skillMarket.submissions.packageHead", "HEAD", "/v1/submissions/:submissionID/package"],
   ["skillMarket.submissions.revise", "POST", "/v1/submissions/:submissionID/revisions"],
+  ["skillMarket.submissions.promote", "POST", "/v1/submissions/:submissionID/promotions"],
+  ["skillMarket.submissions.audienceChange", "POST", "/v1/submissions/:submissionID/audience-changes"],
   ["skillMarket.admin.submissions.list", "GET", "/v1/admin/submissions"],
   ["skillMarket.admin.submissions.detail", "GET", "/v1/admin/submissions/:submissionID"],
   ["skillMarket.admin.submissions.decision", "POST", "/v1/admin/submissions/:submissionID/decision"],
@@ -199,11 +201,7 @@ test("scoped sharing routes expose their exact payload, success, and security co
 })
 
 test("every scoped sharing endpoint carries its runtime middleware policy", () => {
-  const reads = new Set([
-    "skillMarket.groups.list",
-    "skillMarket.groups.detail",
-    "skillMarket.groups.members",
-  ])
+  const reads = new Set(["skillMarket.groups.list", "skillMarket.groups.detail", "skillMarket.groups.members"])
   const mutations = new Set([
     "skillMarket.groups.create",
     "skillMarket.groups.update",
@@ -257,7 +255,9 @@ test("openapi marks cookie sessions and csrf writes without protecting the publi
   expect(document.paths["/v1/submissions"]?.post?.security).toHaveLength(2)
   expect(scopedSharingDocument.paths["/v1/groups"]?.get?.security).toHaveLength(1)
   expect(scopedSharingDocument.paths["/v1/groups"]?.post?.security).toHaveLength(1)
-  expect(scopedSharingDocument.paths["/v1/restricted-skills/{publicationID}/install-grants"]?.post?.security).toHaveLength(1)
+  expect(
+    scopedSharingDocument.paths["/v1/restricted-skills/{publicationID}/install-grants"]?.post?.security,
+  ).toHaveLength(1)
 })
 
 test("openapi leaves opaque SkillHub slug validation to the authoritative protocol", () => {

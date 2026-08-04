@@ -12,7 +12,7 @@ import {
 } from "@opencode-ai/protocol/skill-market-errors"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import { Effect, Option, Schema, Stream } from "effect"
+import { Effect, Layer, Option, Schema, Stream } from "effect"
 import { HttpServerRequest, HttpServerResponse, Multipart } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { MarketMetricEmitter } from "../metrics"
@@ -35,7 +35,7 @@ interface SubmissionsHttpOptions {
 }
 
 export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
-  return HttpApiBuilder.group(SkillMarketApi, "skillMarket.submissions", (handlers) =>
+  const submissions = HttpApiBuilder.group(SkillMarketApi, "skillMarket.submissions", (handlers) =>
     handlers
       .handle("skillMarket.submissions.list", (context) =>
         Effect.gen(function* () {
@@ -58,7 +58,10 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
           const idempotencyKey = yield* readIdempotencyKey(request.headers["idempotency-key"])
           const submissionID = `sub_${randomSecret()}`
-          const state: { target?: SkillMarketControl.PublicationTarget } = {}
+          const state: {
+            target?: SkillMarketControl.PublicationTarget
+            audience?: SkillMarketControl.AudienceInput
+          } = {}
           const received = yield* receive(
             context.payload,
             options,
@@ -77,6 +80,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
               options.submissions.create(principal, {
                 idempotencyKey,
                 target: state.target ?? "company",
+                audience: state.audience,
                 submissionID,
                 verifiedSkillID: validated.skillID,
                 metadata: received.metadata,
@@ -99,7 +103,9 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
           })
         }),
       )
-      .handleRaw("skillMarket.submissions.package", (context) => personalPackage(options, context.params.submissionID, false))
+      .handleRaw("skillMarket.submissions.package", (context) =>
+        personalPackage(options, context.params.submissionID, false),
+      )
       .handleRaw("skillMarket.submissions.packageHead", (context) =>
         personalPackage(options, context.params.submissionID, true),
       )
@@ -112,7 +118,11 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             try: () => options.submissions.getOwn(principal, context.params.submissionID),
             catch: reviseProblem,
           })
-          const state: { expectedVersion?: number; target?: SkillMarketControl.PublicationTarget } = {}
+          const state: {
+            expectedVersion?: number
+            target?: SkillMarketControl.PublicationTarget
+            audience?: SkillMarketControl.AudienceInput
+          } = {}
           const received = yield* receive(
             context.payload,
             options,
@@ -146,6 +156,40 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
         }),
       ),
   )
+  const sharing = HttpApiBuilder.group(SkillMarketApi, "skillMarket.submissionSharing", (handlers) =>
+    handlers
+      .handle("skillMarket.submissions.promote", (context) =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const idempotencyKey = yield* readIdempotencyKey(request.headers["idempotency-key"])
+          return yield* Effect.tryPromise({
+            try: () =>
+              options.submissions.promote(principal, context.params.submissionID, {
+                ...context.payload,
+                idempotencyKey,
+              }),
+            catch: reviseProblem,
+          })
+        }),
+      )
+      .handle("skillMarket.submissions.audienceChange", (context) =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const idempotencyKey = yield* readIdempotencyKey(request.headers["idempotency-key"])
+          return yield* Effect.tryPromise({
+            try: () =>
+              options.submissions.changeAudience(principal, context.params.submissionID, {
+                ...context.payload,
+                idempotencyKey,
+              }),
+            catch: reviseProblem,
+          })
+        }),
+      ),
+  )
+  return Layer.merge(submissions, sharing)
 }
 
 function receive(
@@ -155,7 +199,11 @@ function receive(
   submissionID: SkillMarketControl.SubmissionID,
   revision: number,
   mode: "create" | "revise",
-  state: { expectedVersion?: number; target?: SkillMarketControl.PublicationTarget } = {},
+  state: {
+    expectedVersion?: number
+    target?: SkillMarketControl.PublicationTarget
+    audience?: SkillMarketControl.AudienceInput
+  } = {},
 ) {
   return Effect.tryPromise({
     try: () =>
@@ -173,7 +221,11 @@ function receive(
 async function* parts(
   stream: Stream.Stream<Multipart.Part, Multipart.MultipartError>,
   mode: "create" | "revise",
-  state: { expectedVersion?: number; target?: SkillMarketControl.PublicationTarget },
+  state: {
+    expectedVersion?: number
+    target?: SkillMarketControl.PublicationTarget
+    audience?: SkillMarketControl.AudienceInput
+  },
 ): AsyncIterable<SubmissionPart> {
   for await (const part of Stream.toAsyncIterable(stream)) {
     if (Multipart.isField(part)) {
@@ -183,6 +235,7 @@ async function* parts(
         const input = Schema.decodeUnknownOption(SkillMarketControl.SubmissionCreateInput)(json)
         if (Option.isSome(input)) {
           state.target = input.value.target
+          state.audience = input.value.audience
           yield { type: "field", name: "metadata", value: JSON.stringify(input.value.metadata) }
           continue
         }
