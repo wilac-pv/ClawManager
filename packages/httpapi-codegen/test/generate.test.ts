@@ -230,7 +230,9 @@ describe("HttpApiCodegen.generate", () => {
     class CheckedError extends Schema.ErrorClass<CheckedError>("CheckedError")(
       {
         name: Schema.Literal("CheckedError"),
-        requestID: Schema.String.check(Schema.isPattern(/^req_[a-zA-Z0-9_-]{6,64}$/)),
+        requestID: Schema.String.check(
+          Schema.makeFilter((value) => value.startsWith("req_"), { expected: "a request identifier" }),
+        ),
       },
       { httpApiStatus: 400 },
     ) {}
@@ -238,9 +240,15 @@ describe("HttpApiCodegen.generate", () => {
       api(HttpApiEndpoint.get("get", "/session", { success: Schema.String, error: CheckedError })),
       { effectSchemaMode: "imported" },
     )
-    const output = emitPromise(contract)
+    const promise = emitPromise(contract)
+    const effect = emitEffectImported(contract, { module: "@example/api", api: "Api" })
 
-    expect(output.files.find((file) => file.path === "types.ts")?.content).toContain('readonly "requestID": string')
+    expect(promise.files.find((file) => file.path === "types.ts")?.content).toContain('readonly "requestID": string')
+    expect(effect.operations).toEqual(promise.operations)
+    expect(effect.files.find((file) => file.path === "client.ts")?.content).toContain(
+      'import { Api } from "@example/api"',
+    )
+    expect(effect.files.find((file) => file.path === "client.ts")?.content).toContain('raw["get"]')
   })
 
   test("supports name-discriminated Promise errors", () => {

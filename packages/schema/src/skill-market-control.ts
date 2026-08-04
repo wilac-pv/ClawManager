@@ -109,6 +109,16 @@ const GroupAudienceTarget = Schema.Struct({
   department: Schema.Never.pipe(optional),
   groupIDs: Schema.Array(GroupID).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
 })
+const DepartmentAudienceInput = Schema.Struct({
+  scope: Schema.Literal("department"),
+  department: Schema.Never.pipe(optional),
+  groupIDs: Schema.Never.pipe(optional),
+})
+const GroupAudienceInput = Schema.Struct({
+  scope: Schema.Literal("groups"),
+  department: Schema.Never.pipe(optional),
+  groupIDs: Schema.Array(GroupID).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+})
 export const AudienceTarget = Schema.Union([
   PersonalAudienceTarget,
   CompanyAudienceTarget,
@@ -116,6 +126,32 @@ export const AudienceTarget = Schema.Union([
   GroupAudienceTarget,
 ]).annotate({ identifier: "SkillMarketControl.AudienceTarget" })
 export type AudienceTarget = typeof AudienceTarget.Type
+
+export const AudienceInput = Schema.Union([DepartmentAudienceInput, GroupAudienceInput]).annotate({
+  identifier: "SkillMarketControl.AudienceInput",
+})
+export type AudienceInput = typeof AudienceInput.Type
+
+const matchesInputAudience = Schema.makeFilter<{
+  readonly target: PublicationTarget
+  readonly audience?: AudienceInput
+}>(
+  (value) =>
+    value.target === "groups" || value.target === "department"
+      ? value.audience?.scope === value.target
+      : value.audience === undefined,
+  { expected: "a scoped audience matching its publication target" },
+)
+const matchesResolvedAudience = Schema.makeFilter<{
+  readonly target?: PublicationTarget
+  readonly audience?: AudienceTarget
+}>(
+  (value) =>
+    value.target === "groups" || value.target === "department"
+      ? value.audience?.scope === value.target
+      : value.audience === undefined,
+  { expected: "a resolved audience matching its publication target" },
+)
 
 export interface MarketGroup extends Schema.Schema.Type<typeof MarketGroup> {}
 export const MarketGroup = Schema.Struct({
@@ -153,7 +189,14 @@ export const GroupUpdateInput = Schema.Struct({
   expectedVersion: Positive,
   name: bounded(1, 100).pipe(optional),
   description: Schema.NullOr(bounded(1, 500)).pipe(optional),
-}).annotate({ identifier: "SkillMarketControl.GroupUpdateInput" })
+})
+  .check(
+    Schema.makeFilter(
+      (value) => value.name !== undefined || value.description !== undefined,
+      { expected: "a group update containing name or description" },
+    ),
+  )
+  .annotate({ identifier: "SkillMarketControl.GroupUpdateInput" })
 export type GroupUpdateInput = typeof GroupUpdateInput.Type
 
 export const GroupOwnerInput = Schema.Struct({
@@ -298,11 +341,14 @@ export const SubmissionSummary = Schema.Struct({
   currentRevision: Positive,
   version: Positive,
   risk: SkillMarket.Risk,
-  target: AudienceTarget.pipe(optional),
+  target: PublicationTarget.pipe(optional),
+  audience: AudienceTarget.pipe(optional),
   currentPublicVersion: SemVer.pipe(optional),
   createdAt: SkillMarket.Timestamp,
   updatedAt: SkillMarket.Timestamp,
-}).annotate({ identifier: "SkillMarketControl.SubmissionSummary" })
+})
+  .check(matchesResolvedAudience)
+  .annotate({ identifier: "SkillMarketControl.SubmissionSummary" })
 
 export interface SubmissionDetail extends Schema.Schema.Type<typeof SubmissionDetail> {}
 export const SubmissionDetail = Schema.Struct({
@@ -312,7 +358,9 @@ export const SubmissionDetail = Schema.Struct({
   reviews: Schema.Array(Review),
   timeline: Schema.Array(StatusEvent),
   publicSkill: PublicSkill.pipe(optional),
-}).annotate({ identifier: "SkillMarketControl.SubmissionDetail" })
+})
+  .check(matchesResolvedAudience)
+  .annotate({ identifier: "SkillMarketControl.SubmissionDetail" })
 
 export interface SubmissionListQuery extends Schema.Schema.Type<typeof SubmissionListQuery> {}
 export const SubmissionListQuery = Schema.Struct({
@@ -354,20 +402,29 @@ export const RevisionInput = Schema.Struct({
 
 export interface SubmissionCreateInput extends Schema.Schema.Type<typeof SubmissionCreateInput> {}
 export const SubmissionCreateInput = Schema.Struct({
-  target: AudienceTarget,
+  target: PublicationTarget,
+  audience: AudienceInput.pipe(optional),
   metadata: SubmissionMetadata,
-}).annotate({ identifier: "SkillMarketControl.SubmissionCreateInput" })
+})
+  .check(matchesInputAudience)
+  .annotate({ identifier: "SkillMarketControl.SubmissionCreateInput" })
 
 export const PromotionInput = Schema.Struct({
   expectedVersion: Positive,
-  target: Schema.Union([GroupAudienceTarget, DepartmentAudienceTarget, CompanyAudienceTarget]),
-}).annotate({ identifier: "SkillMarketControl.PromotionInput" })
+  target: Schema.Literals(["groups", "department", "company"]),
+  audience: AudienceInput.pipe(optional),
+})
+  .check(matchesInputAudience)
+  .annotate({ identifier: "SkillMarketControl.PromotionInput" })
 export type PromotionInput = typeof PromotionInput.Type
 
 export const AudienceChangeInput = Schema.Struct({
   expectedVersion: Positive,
-  target: AudienceTarget,
-}).annotate({ identifier: "SkillMarketControl.AudienceChangeInput" })
+  target: PublicationTarget,
+  audience: AudienceInput.pipe(optional),
+})
+  .check(matchesInputAudience)
+  .annotate({ identifier: "SkillMarketControl.AudienceChangeInput" })
 export type AudienceChangeInput = typeof AudienceChangeInput.Type
 
 export interface DecisionInput extends Schema.Schema.Type<typeof DecisionInput> {}

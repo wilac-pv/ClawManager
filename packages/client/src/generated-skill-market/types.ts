@@ -250,26 +250,25 @@ export type SkillMarketSharingPromoteInput = {
   readonly submissionID: { readonly submissionID: string }["submissionID"]
   readonly expectedVersion: {
     readonly expectedVersion: number
-    readonly target:
+    readonly target: "groups" | "department" | "company"
+    readonly audience?:
+      | { readonly scope: "department"; readonly department?: never; readonly groupIDs?: never }
       | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
-      | {
-          readonly scope: "department"
-          readonly department: { readonly id: string; readonly name: string }
-          readonly groupIDs?: never
-        }
-      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
   }["expectedVersion"]
   readonly target: {
     readonly expectedVersion: number
-    readonly target:
+    readonly target: "groups" | "department" | "company"
+    readonly audience?:
+      | { readonly scope: "department"; readonly department?: never; readonly groupIDs?: never }
       | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
-      | {
-          readonly scope: "department"
-          readonly department: { readonly id: string; readonly name: string }
-          readonly groupIDs?: never
-        }
-      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
   }["target"]
+  readonly audience?: {
+    readonly expectedVersion: number
+    readonly target: "groups" | "department" | "company"
+    readonly audience?:
+      | { readonly scope: "department"; readonly department?: never; readonly groupIDs?: never }
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  }["audience"]
 }
 
 export type SkillMarketSharingPromoteOutput = {
@@ -296,7 +295,8 @@ export type SkillMarketSharingPromoteOutput = {
     readonly currentRevision: number
     readonly version: number
     readonly risk: "unknown" | "safe" | "warning" | "danger"
-    readonly target?:
+    readonly target?: "personal" | "groups" | "department" | "company"
+    readonly audience?:
       | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
       | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
       | {
@@ -315,28 +315,25 @@ export type SkillMarketSharingAudienceChangeInput = {
   readonly submissionID: { readonly submissionID: string }["submissionID"]
   readonly expectedVersion: {
     readonly expectedVersion: number
-    readonly target:
-      | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
-      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
-      | {
-          readonly scope: "department"
-          readonly department: { readonly id: string; readonly name: string }
-          readonly groupIDs?: never
-        }
+    readonly target: "personal" | "groups" | "department" | "company"
+    readonly audience?:
+      | { readonly scope: "department"; readonly department?: never; readonly groupIDs?: never }
       | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
   }["expectedVersion"]
   readonly target: {
     readonly expectedVersion: number
-    readonly target:
-      | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
-      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
-      | {
-          readonly scope: "department"
-          readonly department: { readonly id: string; readonly name: string }
-          readonly groupIDs?: never
-        }
+    readonly target: "personal" | "groups" | "department" | "company"
+    readonly audience?:
+      | { readonly scope: "department"; readonly department?: never; readonly groupIDs?: never }
       | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
   }["target"]
+  readonly audience?: {
+    readonly expectedVersion: number
+    readonly target: "personal" | "groups" | "department" | "company"
+    readonly audience?:
+      | { readonly scope: "department"; readonly department?: never; readonly groupIDs?: never }
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  }["audience"]
 }
 
 export type SkillMarketSharingAudienceChangeOutput = {
@@ -363,7 +360,8 @@ export type SkillMarketSharingAudienceChangeOutput = {
     readonly currentRevision: number
     readonly version: number
     readonly risk: "unknown" | "safe" | "warning" | "danger"
-    readonly target?:
+    readonly target?: "personal" | "groups" | "department" | "company"
+    readonly audience?:
       | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
       | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
       | {

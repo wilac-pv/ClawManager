@@ -48,16 +48,17 @@ test("generated clients expose callable scoped sharing operations", async () => 
   expect(Object.keys(client.skillMarketSharing).toSorted()).toEqual(["audienceChange", "promote"])
   expect(Object.keys(client.skillMarketRestricted)).toEqual(["privateInstallGrant"])
 
-  await client.skillMarketGroups.create({ name: "Reviewers" })
+  await client.skillMarketGroups.create({ name: "Reviewers", description: "Reviews scoped skills" })
   await client.skillMarketSharing.promote({
     submissionID: "sub_abcdefgh",
     expectedVersion: 1,
-    target: { scope: "company" },
+    target: "company",
   })
   await client.skillMarketSharing.audienceChange({
     submissionID: "sub_abcdefgh",
     expectedVersion: 2,
-    target: { scope: "groups", groupIDs: ["grp_abcdefgh"] },
+    target: "groups",
+    audience: { scope: "groups", groupIDs: ["grp_abcdefgh"] },
   })
   await client.skillMarketRestricted.privateInstallGrant({ publicationID: "pub_abcdefgh" })
 
@@ -65,17 +66,21 @@ test("generated clients expose callable scoped sharing operations", async () => 
     {
       url: "https://skill-market.example/v1/groups",
       method: "POST",
-      body: { name: "Reviewers" },
+      body: { name: "Reviewers", description: "Reviews scoped skills" },
     },
     {
       url: "https://skill-market.example/v1/submissions/sub_abcdefgh/promotions",
       method: "POST",
-      body: { expectedVersion: 1, target: { scope: "company" } },
+      body: { expectedVersion: 1, target: "company" },
     },
     {
       url: "https://skill-market.example/v1/submissions/sub_abcdefgh/audience-changes",
       method: "POST",
-      body: { expectedVersion: 2, target: { scope: "groups", groupIDs: ["grp_abcdefgh"] } },
+      body: {
+        expectedVersion: 2,
+        target: "groups",
+        audience: { scope: "groups", groupIDs: ["grp_abcdefgh"] },
+      },
     },
     {
       url: "https://skill-market.example/v1/restricted-skills/pub_abcdefgh/install-grants",
@@ -84,9 +89,16 @@ test("generated clients expose callable scoped sharing operations", async () => 
     },
   ])
 
-  const effectRequests: Array<{ readonly url: string; readonly method: string }> = []
+  const effectRequests: Array<{ readonly url: string; readonly method: string; readonly body: unknown }> = []
   const effectHttpClient = HttpClient.make((request) => {
-    effectRequests.push({ url: request.url, method: request.method })
+    effectRequests.push({
+      url: request.url,
+      method: request.method,
+      body:
+        request.body._tag === "Uint8Array"
+          ? JSON.parse(new TextDecoder().decode(request.body.body))
+          : undefined,
+    })
     if (request.url.includes("/install-grants")) {
       return Effect.succeed(
         HttpClientResponse.fromWeb(
@@ -103,21 +115,22 @@ test("generated clients expose callable scoped sharing operations", async () => 
 
   await Effect.gen(function* () {
     const effectClient = yield* SkillMarketControlEffect.make({ baseUrl: "https://skill-market.example" })
-    yield* effectClient.skillMarketGroups.create({ name: "Reviewers" })
+    yield* effectClient.skillMarketGroups.create({ name: "Reviewers", description: "Reviews scoped skills" })
     yield* effectClient.skillMarketSharing.promote({
       submissionID: "sub_abcdefgh",
       expectedVersion: 1,
-      target: { scope: "company" },
+      target: "company",
     })
     yield* effectClient.skillMarketSharing.audienceChange({
       submissionID: "sub_abcdefgh",
       expectedVersion: 2,
-      target: { scope: "groups", groupIDs: ["grp_abcdefgh"] },
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_abcdefgh"] },
     })
     yield* effectClient.skillMarketRestricted.privateInstallGrant({ publicationID: "pub_abcdefgh" })
   }).pipe(Effect.provideService(HttpClient.HttpClient, effectHttpClient), Effect.runPromise)
 
-  expect(effectRequests).toEqual(requests.map((request) => ({ url: request.url, method: request.method })))
+  expect(effectRequests).toEqual(requests)
 })
 
 const marketGroup = {

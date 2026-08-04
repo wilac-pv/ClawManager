@@ -4,6 +4,7 @@ import { Database } from "bun:sqlite"
 import { Schema } from "effect"
 import { HttpApi, OpenApi } from "effect/unstable/httpapi"
 import { SkillMarketApi, SkillMarketCatalogApi } from "../src/skill-market-api"
+import { SkillMarketSessionMiddleware, SkillMarketWriteMiddleware } from "../src/skill-market-middleware"
 
 const expected = [
   ["skillMarket.auth.login", "GET", "/v1/auth/login"],
@@ -197,6 +198,39 @@ test("scoped sharing routes expose their exact payload, success, and security co
     schema: { $ref: "#/components/schemas/SkillMarketControl.PublicationID" },
     required: true,
   })
+})
+
+test("every scoped sharing endpoint carries its runtime middleware policy", () => {
+  const reads = new Set([
+    "skillMarket.groups.list",
+    "skillMarket.groups.detail",
+    "skillMarket.groups.members",
+  ])
+  const mutations = new Set([
+    "skillMarket.groups.create",
+    "skillMarket.groups.update",
+    "skillMarket.groups.transfer",
+    "skillMarket.groups.setStatus",
+    "skillMarket.groups.addMember",
+    "skillMarket.groups.removeMember",
+    "skillMarket.submissions.promote",
+    "skillMarket.submissions.audienceChange",
+    "skillMarket.catalog.privateInstallGrant",
+  ])
+  const inspected = new Set<string>()
+
+  HttpApi.reflect(SkillMarketApi, {
+    onGroup() {},
+    onEndpoint({ endpoint }) {
+      if (!reads.has(endpoint.name) && !mutations.has(endpoint.name)) return
+      inspected.add(endpoint.name)
+      const middleware = new Set(Array.from(endpoint.middlewares, (item) => item.key))
+      expect(middleware.has(SkillMarketSessionMiddleware.key), endpoint.name).toBeTrue()
+      expect(middleware.has(SkillMarketWriteMiddleware.key), endpoint.name).toBe(mutations.has(endpoint.name))
+    },
+  })
+
+  expect(inspected).toEqual(new Set([...reads, ...mutations]))
 })
 
 test("catalog-only api remains anonymous and isolated from control middleware", () => {

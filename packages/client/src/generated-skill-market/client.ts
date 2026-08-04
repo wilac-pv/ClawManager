@@ -277,7 +277,7 @@ export function make(options: ClientOptions) {
           {
             method: "POST",
             path: `/v1/submissions/${encodeURIComponent(input.submissionID)}/promotions`,
-            body: { expectedVersion: input["expectedVersion"], target: input["target"] },
+            body: { expectedVersion: input["expectedVersion"], target: input["target"], audience: input["audience"] },
             successStatus: 202,
             declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
             empty: false,
@@ -289,7 +289,7 @@ export function make(options: ClientOptions) {
           {
             method: "POST",
             path: `/v1/submissions/${encodeURIComponent(input.submissionID)}/audience-changes`,
-            body: { expectedVersion: input["expectedVersion"], target: input["target"] },
+            body: { expectedVersion: input["expectedVersion"], target: input["target"], audience: input["audience"] },
             successStatus: 202,
             declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
             empty: false,

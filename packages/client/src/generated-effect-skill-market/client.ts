@@ -125,11 +125,12 @@ type Endpoint2_0Input = {
   readonly submissionID: Endpoint2_0Request["params"]["submissionID"]
   readonly expectedVersion: Endpoint2_0Request["payload"]["expectedVersion"]
   readonly target: Endpoint2_0Request["payload"]["target"]
+  readonly audience?: Endpoint2_0Request["payload"]["audience"]
 }
 const Endpoint2_0 = (raw: RawClient["skillMarket.submissionSharing"]) => (input: Endpoint2_0Input) =>
   raw["skillMarket.submissions.promote"]({
     params: { submissionID: input["submissionID"] },
-    payload: { expectedVersion: input["expectedVersion"], target: input["target"] },
+    payload: { expectedVersion: input["expectedVersion"], target: input["target"], audience: input["audience"] },
   }).pipe(Effect.mapError(mapClientError))
 
 type Endpoint2_1Request = Parameters<
@@ -139,11 +140,12 @@ type Endpoint2_1Input = {
   readonly submissionID: Endpoint2_1Request["params"]["submissionID"]
   readonly expectedVersion: Endpoint2_1Request["payload"]["expectedVersion"]
   readonly target: Endpoint2_1Request["payload"]["target"]
+  readonly audience?: Endpoint2_1Request["payload"]["audience"]
 }
 const Endpoint2_1 = (raw: RawClient["skillMarket.submissionSharing"]) => (input: Endpoint2_1Input) =>
   raw["skillMarket.submissions.audienceChange"]({
     params: { submissionID: input["submissionID"] },
-    payload: { expectedVersion: input["expectedVersion"], target: input["target"] },
+    payload: { expectedVersion: input["expectedVersion"], target: input["target"], audience: input["audience"] },
   }).pipe(Effect.mapError(mapClientError))
 
 const adaptGroup2 = (raw: RawClient["skillMarket.submissionSharing"]) => ({

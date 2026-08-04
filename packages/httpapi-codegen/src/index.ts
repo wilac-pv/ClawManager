@@ -100,17 +100,22 @@ export function compile<Id extends string, Groups extends HttpApiGroup.Any>(
       if (successSchemas.length === 0) successSchemas.push(HttpApiSchema.NoContent)
       if (successSchemas.length > 1) throw new GenerationError({ reason: `Multiple success schemas: ${name}` })
 
-      const params = normalizeTransport(endpoint.params, "params", endpoint, name)
-      const query = normalizeTransport(endpoint.query, "query", endpoint, name)
-      const headers = normalizeTransport(endpoint.headers, "headers", endpoint, name)
+      const params = normalizeTransport(endpoint.params, "params", endpoint, name, options?.effectSchemaMode)
+      const query = normalizeTransport(endpoint.query, "query", endpoint, name, options?.effectSchemaMode)
+      const headers = normalizeTransport(endpoint.headers, "headers", endpoint, name, options?.effectSchemaMode)
       const sourcePayloads = Array.from(endpoint.payload.values()).flatMap(({ schemas }) => schemas)
       if (sourcePayloads.length > 1) {
         throw new GenerationError({ reason: `Multiple payload schemas: ${name}` })
       }
-      const payloads = sourcePayloads.map((schema) => normalizeTransport(schema, "payload", endpoint, name)!)
-      const success = normalizeTransport(successSchemas[0], "success", endpoint, name)!
+      const payloads = sourcePayloads.map((schema) =>
+        normalizeTransport(schema, "payload", endpoint, name, options?.effectSchemaMode)!,
+      )
+      const success = normalizeTransport(successSchemas[0], "success", endpoint, name, options?.effectSchemaMode)!
       const errorSchemas = Array.from(errors).flatMap(([status, schemas]) =>
-        schemas.map((schema) => ({ status, ...normalizeTransport(schema, "error", endpoint, name)! })),
+        schemas.map((schema) => ({
+          status,
+          ...normalizeTransport(schema, "error", endpoint, name, options?.effectSchemaMode)!,
+        })),
       )
       const inputs = [
         ...inputFields(params?.schema, "params", name),
@@ -614,10 +619,11 @@ function normalizeTransport(
   source: InputField["source"] | "success" | "error",
   endpoint: HttpApiEndpoint.AnyWithProps,
   operation: string,
+  effectSchemaMode?: "generated" | "imported",
 ) {
   if (schema === undefined) return undefined
   if (isStreamSchema(schema)) return { schema, effectPortable: true } as const
-  if (!metadataPortable(schema.ast, new Set())) {
+  if (!metadataPortable(schema.ast, new Set(), effectSchemaMode === "imported")) {
     throw new GenerationError({ reason: `Unportable schema: ${operation}.${source}` })
   }
   const decoded = Schema.toType(schema)
@@ -871,26 +877,30 @@ function checksPortable(checks: SchemaAST.Checks | undefined): boolean {
   )
 }
 
-function metadataPortable(ast: SchemaAST.AST, seen: Set<SchemaAST.AST>): boolean {
+function metadataPortable(ast: SchemaAST.AST, seen: Set<SchemaAST.AST>, allowAuthoritativeChecks = false): boolean {
   if (seen.has(ast)) return true
   seen.add(ast)
-  if (!annotationsPortable(ast.annotations) || !checksPortable(ast.checks)) return false
-  if ("encodingChecks" in ast && !checksPortable(ast.encodingChecks)) return false
-  if (ast.encoding?.some((link) => !metadataPortable(link.to, seen))) return false
-  if (SchemaAST.isDeclaration(ast)) return ast.typeParameters.every((item) => metadataPortable(item, seen))
-  if (SchemaAST.isSuspend(ast)) return metadataPortable(ast.thunk(), seen)
-  if (SchemaAST.isUnion(ast)) return ast.types.every((item) => metadataPortable(item, seen))
+  if (!annotationsPortable(ast.annotations) || (!allowAuthoritativeChecks && !checksPortable(ast.checks))) return false
+  if ("encodingChecks" in ast && !allowAuthoritativeChecks && !checksPortable(ast.encodingChecks)) return false
+  if (ast.encoding?.some((link) => !metadataPortable(link.to, seen, allowAuthoritativeChecks))) return false
+  if (SchemaAST.isDeclaration(ast))
+    return ast.typeParameters.every((item) => metadataPortable(item, seen, allowAuthoritativeChecks))
+  if (SchemaAST.isSuspend(ast)) return metadataPortable(ast.thunk(), seen, allowAuthoritativeChecks)
+  if (SchemaAST.isUnion(ast))
+    return ast.types.every((item) => metadataPortable(item, seen, allowAuthoritativeChecks))
   if (SchemaAST.isArrays(ast)) {
     return (
-      ast.elements.every((item) => metadataPortable(item, seen)) &&
-      ast.rest.every((item) => metadataPortable(item, seen))
+      ast.elements.every((item) => metadataPortable(item, seen, allowAuthoritativeChecks)) &&
+      ast.rest.every((item) => metadataPortable(item, seen, allowAuthoritativeChecks))
     )
   }
   if (SchemaAST.isObjects(ast)) {
     return (
-      ast.propertySignatures.every((field) => metadataPortable(field.type, seen)) &&
+      ast.propertySignatures.every((field) => metadataPortable(field.type, seen, allowAuthoritativeChecks)) &&
       ast.indexSignatures.every(
-        (field) => metadataPortable(field.parameter, seen) && metadataPortable(field.type, seen),
+        (field) =>
+          metadataPortable(field.parameter, seen, allowAuthoritativeChecks) &&
+          metadataPortable(field.type, seen, allowAuthoritativeChecks),
       )
     )
   }
