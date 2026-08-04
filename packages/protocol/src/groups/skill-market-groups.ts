@@ -7,7 +7,11 @@ import {
   SkillMarketInvalidRequest,
   SkillMarketSubmissionConflict,
 } from "../skill-market-errors"
-import { SkillMarketSessionMiddleware, SkillMarketWriteMiddleware } from "../skill-market-middleware"
+import {
+  SkillMarketSessionMiddleware,
+  SkillMarketWriteMiddleware,
+  SkillMarketWriteOpenApi,
+} from "../skill-market-middleware"
 
 const GroupParams = { groupID: SkillMarketControl.GroupID }
 const GroupMemberParams = { ...GroupParams, employeeID: SkillMarketControl.EmployeeID }
@@ -29,7 +33,7 @@ export const SkillMarketGroupsGroup = HttpApiGroup.make("skillMarket.groups")
       payload: SkillMarketControl.GroupCreateInput,
       success: SkillMarketControl.MarketGroup,
       error: WriteErrors,
-    }).middleware(SkillMarketWriteMiddleware),
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
   )
   .add(
     HttpApiEndpoint.get("skillMarket.groups.detail", "/v1/groups/:groupID", {
@@ -44,7 +48,7 @@ export const SkillMarketGroupsGroup = HttpApiGroup.make("skillMarket.groups")
       payload: SkillMarketControl.GroupUpdateInput,
       success: SkillMarketControl.MarketGroup,
       error: [SkillMarketControlNotFound, ...WriteErrors],
-    }).middleware(SkillMarketWriteMiddleware),
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
   )
   .add(
     HttpApiEndpoint.post("skillMarket.groups.transfer", "/v1/groups/:groupID/ownership", {
@@ -52,7 +56,7 @@ export const SkillMarketGroupsGroup = HttpApiGroup.make("skillMarket.groups")
       payload: SkillMarketControl.GroupOwnerInput,
       success: SkillMarketControl.MarketGroup,
       error: [SkillMarketControlNotFound, ...WriteErrors],
-    }).middleware(SkillMarketWriteMiddleware),
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
   )
   .add(
     HttpApiEndpoint.post("skillMarket.groups.setStatus", "/v1/groups/:groupID/status", {
@@ -60,7 +64,7 @@ export const SkillMarketGroupsGroup = HttpApiGroup.make("skillMarket.groups")
       payload: SkillMarketControl.GroupStatusInput,
       success: SkillMarketControl.MarketGroup,
       error: [SkillMarketControlNotFound, ...WriteErrors],
-    }).middleware(SkillMarketWriteMiddleware),
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
   )
   .add(
     HttpApiEndpoint.get("skillMarket.groups.members", "/v1/groups/:groupID/members", {
@@ -75,7 +79,7 @@ export const SkillMarketGroupsGroup = HttpApiGroup.make("skillMarket.groups")
       payload: SkillMarketControl.GroupMemberInput,
       success: SkillMarketControl.MarketGroupMember,
       error: [SkillMarketControlNotFound, ...WriteErrors],
-    }).middleware(SkillMarketWriteMiddleware),
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
   )
   .add(
     HttpApiEndpoint.delete("skillMarket.groups.removeMember", "/v1/groups/:groupID/members/:employeeID", {
@@ -83,7 +87,7 @@ export const SkillMarketGroupsGroup = HttpApiGroup.make("skillMarket.groups")
       payload: SkillMarketControl.GroupMemberRemoveInput,
       success: SkillMarketControl.MarketGroup,
       error: [SkillMarketControlNotFound, ...WriteErrors],
-    }).middleware(SkillMarketWriteMiddleware),
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
   )
   .middleware(SkillMarketSessionMiddleware)
   .annotateMerge(OpenApi.annotations({ title: "Ruying Skill Groups", description: "Authenticated custom groups." }))

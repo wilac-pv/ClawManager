@@ -38,6 +38,12 @@ export const groupNames = {
   "server.projectCopy": "projectCopies",
 } as const
 
+export const skillMarketGroupNames = {
+  "skillMarket.catalogPrivate": "skillMarketRestricted",
+  "skillMarket.groups": "skillMarketGroups",
+  "skillMarket.submissionSharing": "skillMarketSharing",
+} as const
+
 export const endpointNames = {
   "session.messages": "list",
   "integration.connect.key": "connectKey",

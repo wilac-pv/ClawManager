@@ -6,11 +6,13 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./effect": "./src/effect.ts"
+    "./effect": "./src/effect.ts",
+    "./skill-market-control": "./src/skill-market-control.ts",
+    "./skill-market-control/effect": "./src/skill-market-control-effect.ts"
   },
   "scripts": {
     "generate": "bun run script/build.ts",
-    "check:generated": "bun run generate && git diff --exit-code -- src/generated src/generated-effect",
+    "check:generated": "bun run generate && git diff --exit-code -- src/generated src/generated-effect src/generated-skill-market src/generated-effect-skill-market",
     "test": "bun test --timeout 5000",
     "typecheck": "tsgo --noEmit"
   },

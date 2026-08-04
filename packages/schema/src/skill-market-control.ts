@@ -32,6 +32,11 @@ export const SubmissionID = Schema.String.check(
 ).annotate({ identifier: "SkillMarketControl.SubmissionID" })
 export type SubmissionID = typeof SubmissionID.Type
 
+export const PublicationID = Schema.String.check(
+  Schema.isPattern(/^pub_[a-zA-Z0-9_-]{8,64}$/),
+).annotate({ identifier: "SkillMarketControl.PublicationID" })
+export type PublicationID = typeof PublicationID.Type
+
 export const RequestID = Schema.String.check(
   Schema.isPattern(/^req_[a-zA-Z0-9_-]{6,64}$/),
 ).annotate({ identifier: "SkillMarketControl.RequestID" })
@@ -79,19 +84,36 @@ export type PublicStatus = typeof PublicStatus.Type
 export const PublicationTarget = Schema.Literals(["personal", "groups", "department", "company"])
 export type PublicationTarget = typeof PublicationTarget.Type
 
-export const GroupID = Schema.String.check(Schema.isPattern(/^grp_[a-zA-Z0-9_-]{4,64}$/)).annotate({
+export const GroupID = Schema.String.check(Schema.isPattern(/^grp_[a-zA-Z0-9_-]{8,64}$/)).annotate({
   identifier: "SkillMarketControl.GroupID",
 })
 export type GroupID = typeof GroupID.Type
 
+const PersonalAudienceTarget = Schema.Struct({
+  scope: Schema.Literal("personal"),
+  department: Schema.Never.pipe(optional),
+  groupIDs: Schema.Never.pipe(optional),
+})
+const CompanyAudienceTarget = Schema.Struct({
+  scope: Schema.Literal("company"),
+  department: Schema.Never.pipe(optional),
+  groupIDs: Schema.Never.pipe(optional),
+})
+const DepartmentAudienceTarget = Schema.Struct({
+  scope: Schema.Literal("department"),
+  department: Department,
+  groupIDs: Schema.Never.pipe(optional),
+})
+const GroupAudienceTarget = Schema.Struct({
+  scope: Schema.Literal("groups"),
+  department: Schema.Never.pipe(optional),
+  groupIDs: Schema.Array(GroupID).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+})
 export const AudienceTarget = Schema.Union([
-  Schema.Struct({ scope: Schema.Literal("personal") }),
-  Schema.Struct({ scope: Schema.Literal("company") }),
-  Schema.Struct({ scope: Schema.Literal("department"), department: Department }),
-  Schema.Struct({
-    scope: Schema.Literal("groups"),
-    groupIDs: Schema.Array(GroupID).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
-  }),
+  PersonalAudienceTarget,
+  CompanyAudienceTarget,
+  DepartmentAudienceTarget,
+  GroupAudienceTarget,
 ]).annotate({ identifier: "SkillMarketControl.AudienceTarget" })
 export type AudienceTarget = typeof AudienceTarget.Type
 
@@ -129,8 +151,8 @@ export type GroupCreateInput = typeof GroupCreateInput.Type
 
 export const GroupUpdateInput = Schema.Struct({
   expectedVersion: Positive,
-  name: bounded(1, 100),
-  description: bounded(1, 500).pipe(optional),
+  name: bounded(1, 100).pipe(optional),
+  description: Schema.NullOr(bounded(1, 500)).pipe(optional),
 }).annotate({ identifier: "SkillMarketControl.GroupUpdateInput" })
 export type GroupUpdateInput = typeof GroupUpdateInput.Type
 
@@ -338,7 +360,7 @@ export const SubmissionCreateInput = Schema.Struct({
 
 export const PromotionInput = Schema.Struct({
   expectedVersion: Positive,
-  target: AudienceTarget,
+  target: Schema.Union([GroupAudienceTarget, DepartmentAudienceTarget, CompanyAudienceTarget]),
 }).annotate({ identifier: "SkillMarketControl.PromotionInput" })
 export type PromotionInput = typeof PromotionInput.Type
 

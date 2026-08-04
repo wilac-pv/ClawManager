@@ -6,7 +6,12 @@ import { SkillMarketCatalogGroup, SkillMarketCatalogPrivateGroup } from "./group
 import { SkillMarketExpertPackagesGroup } from "./groups/skill-market-expert-packages"
 import { SkillMarketFavoritesGroup } from "./groups/skill-market-favorites"
 import { SkillMarketGroupsGroup } from "./groups/skill-market-groups"
-import { SkillMarketSubmissionsGroup } from "./groups/skill-market-submissions"
+import { SkillMarketSubmissionSharingGroup, SkillMarketSubmissionsGroup } from "./groups/skill-market-submissions"
+
+export const SkillMarketScopedSharingApi = HttpApi.make("skillMarketScopedSharing")
+  .add(SkillMarketCatalogPrivateGroup)
+  .add(SkillMarketGroupsGroup)
+  .add(SkillMarketSubmissionSharingGroup)
 
 export const SkillMarketCatalogApi = HttpApi.make("skillMarketCatalog")
   .add(SkillMarketCatalogGroup)
@@ -15,11 +20,10 @@ export const SkillMarketCatalogApi = HttpApi.make("skillMarketCatalog")
 
 export const SkillMarketApi = HttpApi.make("skillMarket")
   .add(SkillMarketCatalogGroup)
-  .add(SkillMarketCatalogPrivateGroup)
   .add(SkillMarketAnnouncementsGroup)
   .add(SkillMarketExpertPackagesGroup)
   .add(SkillMarketFavoritesGroup)
   .add(SkillMarketAuthGroup)
   .add(SkillMarketSubmissionsGroup)
-  .add(SkillMarketGroupsGroup)
   .add(SkillMarketAdminGroup)
+  .addHttpApi(SkillMarketScopedSharingApi)

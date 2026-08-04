@@ -76,6 +76,129 @@ test("full market api declares scoped sharing operations", () => {
   expect(endpoints).toContain("skillMarket.catalog.privateInstallGrant")
 })
 
+test("scoped sharing routes expose their exact payload, success, and security contracts", () => {
+  const document = OpenApi.fromApi(SkillMarketApi)
+  const reference = (name: string) => ({
+    content: { "application/json": { schema: { $ref: `#/components/schemas/${name}` } } },
+  })
+  const routes = [
+    {
+      operation: document.paths["/v1/groups"]?.get,
+      successStatus: "200",
+      success: reference("SkillMarketControl.GroupPage"),
+      write: false,
+    },
+    {
+      operation: document.paths["/v1/groups"]?.post,
+      payload: "SkillMarketControl.GroupCreateInput",
+      successStatus: "200",
+      success: reference("SkillMarketControl.MarketGroup"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/groups/{groupID}"]?.get,
+      successStatus: "200",
+      success: reference("SkillMarketControl.MarketGroup"),
+      write: false,
+    },
+    {
+      operation: document.paths["/v1/groups/{groupID}"]?.patch,
+      payload: "SkillMarketControl.GroupUpdateInput",
+      successStatus: "200",
+      success: reference("SkillMarketControl.MarketGroup"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/groups/{groupID}/ownership"]?.post,
+      payload: "SkillMarketControl.GroupOwnerInput",
+      successStatus: "200",
+      success: reference("SkillMarketControl.MarketGroup"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/groups/{groupID}/status"]?.post,
+      payload: "SkillMarketControl.GroupStatusInput",
+      successStatus: "200",
+      success: reference("SkillMarketControl.MarketGroup"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/groups/{groupID}/members"]?.get,
+      successStatus: "200",
+      success: {
+        content: {
+          "application/json": {
+            schema: {
+              type: "array",
+              items: { $ref: "#/components/schemas/SkillMarketControl.MarketGroupMember" },
+            },
+          },
+        },
+      },
+      write: false,
+    },
+    {
+      operation: document.paths["/v1/groups/{groupID}/members"]?.post,
+      payload: "SkillMarketControl.GroupMemberInput",
+      successStatus: "200",
+      success: reference("SkillMarketControl.MarketGroupMember"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/groups/{groupID}/members/{employeeID}"]?.delete,
+      payload: "SkillMarketControl.GroupMemberRemoveInput",
+      successStatus: "200",
+      success: reference("SkillMarketControl.MarketGroup"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/submissions/{submissionID}/promotions"]?.post,
+      payload: "SkillMarketControl.PromotionInput",
+      successStatus: "202",
+      success: reference("SkillMarketControl.AcceptedSubmission"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/submissions/{submissionID}/audience-changes"]?.post,
+      payload: "SkillMarketControl.AudienceChangeInput",
+      successStatus: "202",
+      success: reference("SkillMarketControl.AcceptedSubmission"),
+      write: true,
+    },
+    {
+      operation: document.paths["/v1/restricted-skills/{publicationID}/install-grants"]?.post,
+      successStatus: "200",
+      success: reference("SkillMarket.PrivateInstallGrant"),
+      write: true,
+    },
+  ] as const
+
+  for (const route of routes) {
+    expect(route.operation).toBeDefined()
+    expect(route.operation?.security).toEqual(route.write ? [{ session: [], csrf: [] }] : [{ session: [] }])
+    expect(route.operation?.responses).toMatchObject({
+      [route.successStatus]: route.success,
+      "401": reference("SkillMarketUnauthenticated"),
+      ...(route.write ? { "403": { content: { "application/json": {} } } } : {}),
+    })
+    if ("payload" in route) {
+      expect(route.operation?.requestBody).toMatchObject({
+        content: {
+          "application/json": { schema: { $ref: `#/components/schemas/${route.payload}` } },
+        },
+        required: true,
+      })
+    }
+  }
+
+  expect(document.paths["/v1/restricted-skills/{publicationID}/install-grants"]?.post?.parameters).toContainEqual({
+    name: "publicationID",
+    in: "path",
+    schema: { $ref: "#/components/schemas/SkillMarketControl.PublicationID" },
+    required: true,
+  })
+})
+
 test("catalog-only api remains anonymous and isolated from control middleware", () => {
   HttpApi.reflect(SkillMarketCatalogApi, {
     onGroup() {},
@@ -100,8 +223,8 @@ test("openapi marks cookie sessions and csrf writes without protecting the publi
   expect(document.paths["/v1/submissions"]?.get?.security).toHaveLength(1)
   expect(document.paths["/v1/submissions"]?.post?.security).toHaveLength(2)
   expect(document.paths["/v1/groups"]?.get?.security).toHaveLength(1)
-  expect(document.paths["/v1/groups"]?.post?.security).toHaveLength(2)
-  expect(document.paths["/v1/restricted-skills/{publicationID}/install-grants"]?.post?.security).toHaveLength(2)
+  expect(document.paths["/v1/groups"]?.post?.security).toHaveLength(1)
+  expect(document.paths["/v1/restricted-skills/{publicationID}/install-grants"]?.post?.security).toHaveLength(1)
 })
 
 test("openapi leaves opaque SkillHub slug validation to the authoritative protocol", () => {

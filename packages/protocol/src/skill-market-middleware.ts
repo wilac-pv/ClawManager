@@ -1,6 +1,6 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Context } from "effect"
-import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi"
+import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi"
 import { SkillMarketCsrfInvalid, SkillMarketForbidden, SkillMarketUnauthenticated } from "./skill-market-errors"
 
 export class SkillMarketPrincipal extends Context.Service<SkillMarketPrincipal, SkillMarketControl.Session>()(
@@ -24,6 +24,11 @@ export class SkillMarketWriteMiddleware extends HttpApiMiddleware.Service<
   error: [SkillMarketCsrfInvalid, SkillMarketForbidden],
   security: { csrf: HttpApiSecurity.apiKey({ key: "X-CSRF-Token", in: "header" }) },
 }) {}
+
+// Runtime composes session and CSRF middleware; override Effect's alternative-scheme output to document that AND.
+export const SkillMarketWriteOpenApi = OpenApi.annotations({
+  override: { security: [{ session: [], csrf: [] }] },
+})
 
 export class SkillMarketReviewerMiddleware extends HttpApiMiddleware.Service<
   SkillMarketReviewerMiddleware,

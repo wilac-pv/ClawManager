@@ -226,6 +226,23 @@ describe("HttpApiCodegen.generate", () => {
     )
   })
 
+  test("allows authoritative Effect imports to bypass schema reconstruction", () => {
+    class CheckedError extends Schema.ErrorClass<CheckedError>("CheckedError")(
+      {
+        name: Schema.Literal("CheckedError"),
+        requestID: Schema.String.check(Schema.isPattern(/^req_[a-zA-Z0-9_-]{6,64}$/)),
+      },
+      { httpApiStatus: 400 },
+    ) {}
+    const contract = compileContract(
+      api(HttpApiEndpoint.get("get", "/session", { success: Schema.String, error: CheckedError })),
+      { effectSchemaMode: "imported" },
+    )
+    const output = emitPromise(contract)
+
+    expect(output.files.find((file) => file.path === "types.ts")?.content).toContain('readonly "requestID": string')
+  })
+
   test("supports name-discriminated Promise errors", () => {
     class NamedError extends Schema.ErrorClass<NamedError>("NamedError")(
       { name: Schema.Literal("NamedError"), message: Schema.String },
@@ -240,6 +257,23 @@ describe("HttpApiCodegen.generate", () => {
 
     expect(types).toContain('readonly "name": "NamedError"')
     expect(types).toContain('"name" in value && value["name"] === "NamedError"')
+  })
+
+  test("supports code-discriminated Promise errors", () => {
+    class CodedError extends Schema.ErrorClass<CodedError>("CodedError")(
+      { code: Schema.Literal("not-found"), message: Schema.String },
+      { httpApiStatus: 404 },
+    ) {}
+    const output = emitPromise(
+      compileContract(
+        api(HttpApiEndpoint.get("get", "/session", { success: Schema.NumberFromString, error: CodedError })),
+        { effectSchemaMode: "imported" },
+      ),
+    )
+    const types = output.files.find((file) => file.path === "types.ts")?.content
+
+    expect(types).toContain('readonly "code": "not-found"')
+    expect(types).toContain('"code" in value && value["code"] === "not-found"')
   })
 
   test("preserves reflected default error statuses", () => {

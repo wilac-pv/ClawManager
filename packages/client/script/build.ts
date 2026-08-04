@@ -1,10 +1,15 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { compile, emitEffectImported, emitPromise, write } from "@opencode-ai/httpapi-codegen"
-import { ClientApi, endpointNames, groupNames, omitEndpoints } from "../src/contract"
+import { SkillMarketScopedSharingApi } from "@opencode-ai/protocol/skill-market-api"
+import { ClientApi, endpointNames, groupNames, omitEndpoints, skillMarketGroupNames } from "../src/contract"
 import { Effect } from "effect"
 import { fileURLToPath } from "url"
 
 const contract = compile(ClientApi, { groupNames, endpointNames, omitEndpoints })
+const skillMarketContract = compile(SkillMarketScopedSharingApi, {
+  groupNames: skillMarketGroupNames,
+  effectSchemaMode: "imported",
+})
 
 await Effect.runPromise(
   Effect.all(
@@ -23,6 +28,17 @@ await Effect.runPromise(
       write(
         emitEffectImported(contract, { module: "../contract", api: "ClientApi" }),
         fileURLToPath(new URL("../src/generated-effect", import.meta.url)),
+      ),
+      write(
+        emitPromise(skillMarketContract),
+        fileURLToPath(new URL("../src/generated-skill-market", import.meta.url)),
+      ),
+      write(
+        emitEffectImported(skillMarketContract, {
+          module: "@opencode-ai/protocol/skill-market-api",
+          api: "SkillMarketScopedSharingApi",
+        }),
+        fileURLToPath(new URL("../src/generated-effect-skill-market", import.meta.url)),
       ),
     ],
     { concurrency: 2, discard: true },

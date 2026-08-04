@@ -28,19 +28,85 @@ describe("SkillMarketControl", () => {
     expect(SkillMarketControl.TerminalSubmissionStatuses).toEqual(["rejected", "published"])
   })
 
-  test("decodes discriminated publication audiences", () => {
-    expect(
-      Schema.decodeUnknownSync(SkillMarketControl.AudienceTarget)({
-        scope: "groups",
-        groupIDs: ["grp_alpha", "grp_beta"],
-      }),
-    ).toEqual({ scope: "groups", groupIDs: ["grp_alpha", "grp_beta"] })
-    expect(() =>
-      Schema.decodeUnknownSync(SkillMarketControl.AudienceTarget)({
-        scope: "department",
-        groupIDs: ["grp_alpha"],
-      }),
-    ).toThrow()
+  test("decodes every publication audience with only its matching target details", () => {
+    const decode = Schema.decodeUnknownSync(SkillMarketControl.AudienceTarget)
+    const department = { id: "engineering", name: "Engineering" }
+    const groupIDs = ["grp_alphaaaa", "grp_betabbbb"]
+
+    expect(decode({ scope: "personal" })).toEqual({ scope: "personal" })
+    expect(decode({ scope: "company" })).toEqual({ scope: "company" })
+    expect(decode({ scope: "department", department })).toEqual({ scope: "department", department })
+    expect(decode({ scope: "groups", groupIDs })).toEqual({ scope: "groups", groupIDs })
+
+    for (const invalid of [
+      { scope: "personal", department },
+      { scope: "company", groupIDs },
+      { scope: "department" },
+      { scope: "department", groupIDs },
+      { scope: "groups", department, groupIDs },
+      { scope: "groups", groupIDs: [] },
+      { scope: "groups", groupIDs: Array.from({ length: 51 }, (_, index) => `grp_${String(index).padStart(8, "0")}`) },
+    ]) {
+      expect(() => decode(invalid)).toThrow()
+    }
+  })
+
+  test("enforces group identifiers and metadata bounds", () => {
+    const decodeID = Schema.decodeUnknownSync(SkillMarketControl.GroupID)
+    const decodeCreate = Schema.decodeUnknownSync(SkillMarketControl.GroupCreateInput)
+
+    expect(decodeID(`grp_${"a".repeat(8)}`)).toBe(`grp_${"a".repeat(8)}`)
+    expect(decodeID(`grp_${"a".repeat(64)}`)).toBe(`grp_${"a".repeat(64)}`)
+    for (const invalid of [`grp_${"a".repeat(7)}`, `grp_${"a".repeat(65)}`, "grp_invalid!"]) {
+      expect(() => decodeID(invalid)).toThrow()
+    }
+
+    expect(decodeCreate({ name: "a".repeat(100), description: "b".repeat(500) })).toEqual({
+      name: "a".repeat(100),
+      description: "b".repeat(500),
+    })
+    for (const invalid of [
+      { name: " " },
+      { name: "a".repeat(101) },
+      { name: "group", description: " " },
+      { name: "group", description: "b".repeat(501) },
+    ]) {
+      expect(() => decodeCreate(invalid)).toThrow()
+    }
+  })
+
+  test("supports partial group metadata patches and explicit description clearing", () => {
+    const decode = Schema.decodeUnknownSync(SkillMarketControl.GroupUpdateInput)
+
+    expect(decode({ expectedVersion: 1, name: "Renamed" })).toEqual({ expectedVersion: 1, name: "Renamed" })
+    expect(decode({ expectedVersion: 2, description: null })).toEqual({ expectedVersion: 2, description: null })
+    expect(decode({ expectedVersion: 3, description: "Updated" })).toEqual({
+      expectedVersion: 3,
+      description: "Updated",
+    })
+    expect(() => decode({ expectedVersion: 4, description: " " })).toThrow()
+  })
+
+  test("restricts promotion targets to reviewed non-personal audiences", () => {
+    const decode = Schema.decodeUnknownSync(SkillMarketControl.PromotionInput)
+
+    for (const target of [
+      { scope: "groups", groupIDs: ["grp_alphaaaa"] },
+      { scope: "department", department: { id: "engineering", name: "Engineering" } },
+      { scope: "company" },
+    ] as const) {
+      expect(decode({ expectedVersion: 1, target }).target).toEqual(target)
+    }
+    expect(() => decode({ expectedVersion: 1, target: { scope: "personal" } })).toThrow()
+  })
+
+  test("bounds restricted publication identifiers", () => {
+    const decode = Schema.decodeUnknownSync(SkillMarketControl.PublicationID)
+
+    expect(decode(`pub_${"a".repeat(8)}`)).toBe(`pub_${"a".repeat(8)}`)
+    expect(decode(`pub_${"a".repeat(64)}`)).toBe(`pub_${"a".repeat(64)}`)
+    expect(() => decode(`pub_${"a".repeat(7)}`)).toThrow()
+    expect(() => decode(`pub_${"a".repeat(65)}`)).toThrow()
   })
 
   test("validates bounded submission metadata and canonical semver", () => {

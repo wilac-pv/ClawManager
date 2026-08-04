@@ -79,6 +79,7 @@ export function compile<Id extends string, Groups extends HttpApiGroup.Any>(
     readonly groupNames?: Readonly<Record<string, string>>
     readonly endpointNames?: Readonly<Record<string, string>>
     readonly omitEndpoints?: ReadonlySet<string>
+    readonly effectSchemaMode?: "generated" | "imported"
   },
 ): Contract {
   const endpoints: Array<Endpoint> = []
@@ -132,9 +133,11 @@ export function compile<Id extends string, Groups extends HttpApiGroup.Any>(
         ...errorSchemas.map((item) => [`${name}.error.${item.status}`, item.schema] as const),
       ]
       const effectPortable =
+        options?.effectSchemaMode !== "imported" &&
         [params, query, headers, ...payloads, success, ...errorSchemas].every(
           (item) => item?.effectPortable !== false,
-        ) && streamEffectPortable(success.schema)
+        ) &&
+        streamEffectPortable(success.schema)
       if (effectPortable) {
         for (const [path, schema] of schemaPaths) assertPortable(schema, path, portable)
       }
@@ -948,16 +951,20 @@ function declaredErrorFields(schema: Schema.Top) {
   }
   const fields = schema.ast.typeParameters[0]
   if (!SchemaAST.isObjects(fields) || fields.indexSignatures.length > 0) return undefined
-  const key = fields.propertySignatures.find((field) => field.name === "_tag" || field.name === "name")?.name
-  if (key !== "_tag" && key !== "name") return undefined
-  const tag = fields.propertySignatures.find((field) => field.name === key)?.type
-  if (tag === undefined || !SchemaAST.isLiteral(tag) || typeof tag.literal !== "string") return undefined
+  const discriminator = ["_tag", "name", "code"].flatMap((key) =>
+    fields.propertySignatures.flatMap((field) =>
+      field.name === key && SchemaAST.isLiteral(field.type) && typeof field.type.literal === "string"
+        ? [{ key, tag: field.type.literal }]
+        : [],
+    ),
+  )[0]
+  if (discriminator === undefined) return undefined
   return {
-    key,
-    tag: tag.literal,
-    identifier: SchemaAST.resolveIdentifier(schema.ast) ?? tag.literal,
+    key: discriminator.key,
+    tag: discriminator.tag,
+    identifier: SchemaAST.resolveIdentifier(schema.ast) ?? discriminator.tag,
     fields: fields.propertySignatures.flatMap((field) =>
-      field.name === key || typeof field.name !== "string"
+      field.name === discriminator.key || typeof field.name !== "string"
         ? []
         : [[field.name, Schema.make(field.type), SchemaAST.isOptional(field.type)] as const],
     ),

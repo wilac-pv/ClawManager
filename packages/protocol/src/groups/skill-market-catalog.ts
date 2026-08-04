@@ -7,7 +7,11 @@ import {
   SkillMarketDependencyUnavailable,
   SkillMarketInvalidRequest,
 } from "../skill-market-errors"
-import { SkillMarketSessionMiddleware, SkillMarketWriteMiddleware } from "../skill-market-middleware"
+import {
+  SkillMarketSessionMiddleware,
+  SkillMarketWriteMiddleware,
+  SkillMarketWriteOpenApi,
+} from "../skill-market-middleware"
 
 const Key = { source: SkillMarket.Source, id: Schema.String }
 
@@ -123,12 +127,13 @@ export const SkillMarketCatalogGroup = HttpApiGroup.make("skillMarket.catalog")
 export const SkillMarketCatalogPrivateGroup = HttpApiGroup.make("skillMarket.catalogPrivate")
   .add(
     HttpApiEndpoint.post("skillMarket.catalog.privateInstallGrant", "/v1/restricted-skills/:publicationID/install-grants", {
-      params: { publicationID: Schema.String },
+      params: { publicationID: SkillMarketControl.PublicationID },
       success: SkillMarket.PrivateInstallGrant,
       error: [SkillMarketControlNotFound, SkillMarketInvalidRequest, SkillMarketDependencyUnavailable],
     })
       .middleware(SkillMarketWriteMiddleware)
-      .middleware(SkillMarketSessionMiddleware),
+      .middleware(SkillMarketSessionMiddleware)
+      .annotateMerge(SkillMarketWriteOpenApi),
   )
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Restricted Skill Catalog", description: "Private installation grants." }),

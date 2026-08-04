@@ -61,7 +61,7 @@ export const Timestamp = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2
 export const PrivateInstallGrant = Schema.Struct({
   url: HttpsUrl,
   expiresAt: Timestamp,
-})
+}).annotate({ identifier: "SkillMarket.PrivateInstallGrant" })
 export type PrivateInstallGrant = typeof PrivateInstallGrant.Type
 export const EvaluationScore = Schema.Number.check(
   Schema.isFinite(),

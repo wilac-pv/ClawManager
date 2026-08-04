@@ -1,0 +1,379 @@
+export type SkillMarketControlNotFound = {
+  readonly code: "not-found"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketControlNotFound = (value: unknown): value is SkillMarketControlNotFound =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "not-found"
+
+export type SkillMarketInvalidRequest = {
+  readonly code: "invalid-request"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketInvalidRequest = (value: unknown): value is SkillMarketInvalidRequest =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "invalid-request"
+
+export type SkillMarketDependencyUnavailable = {
+  readonly code: "dependency-unavailable"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketDependencyUnavailable = (value: unknown): value is SkillMarketDependencyUnavailable =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "dependency-unavailable"
+
+export type SkillMarketCsrfInvalid = {
+  readonly code: "csrf-invalid"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketCsrfInvalid = (value: unknown): value is SkillMarketCsrfInvalid =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "csrf-invalid"
+
+export type SkillMarketForbidden = { readonly code: "forbidden"; readonly message: string; readonly requestId: string }
+export const isSkillMarketForbidden = (value: unknown): value is SkillMarketForbidden =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "forbidden"
+
+export type SkillMarketUnauthenticated = {
+  readonly code: "unauthenticated"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketUnauthenticated = (value: unknown): value is SkillMarketUnauthenticated =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "unauthenticated"
+
+export type SkillMarketSubmissionConflict = {
+  readonly code: "submission-conflict"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketSubmissionConflict = (value: unknown): value is SkillMarketSubmissionConflict =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "submission-conflict"
+
+export type SkillMarketOwnershipConflict = {
+  readonly code: "skill-owned-by-another-user"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketOwnershipConflict = (value: unknown): value is SkillMarketOwnershipConflict =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "skill-owned-by-another-user"
+
+export type SkillMarketUploadTooLarge = {
+  readonly code: "upload-too-large"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketUploadTooLarge = (value: unknown): value is SkillMarketUploadTooLarge =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "upload-too-large"
+
+export type SkillMarketValidationFailed = {
+  readonly code: "validation-failed"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketValidationFailed = (value: unknown): value is SkillMarketValidationFailed =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "validation-failed"
+
+export type SkillMarketUploadRateLimited = {
+  readonly code: "upload-rate-limited"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketUploadRateLimited = (value: unknown): value is SkillMarketUploadRateLimited =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "upload-rate-limited"
+
+export type SkillMarketRestrictedPrivateInstallGrantInput = {
+  readonly publicationID: { readonly publicationID: string }["publicationID"]
+}
+
+export type SkillMarketRestrictedPrivateInstallGrantOutput = { readonly url: string; readonly expiresAt: string }
+
+export type SkillMarketGroupsListOutput = {
+  readonly managed: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly description?: string
+    readonly ownerEmployeeID: string
+    readonly status: "active" | "disabled"
+    readonly version: number
+    readonly createdAt: string
+    readonly updatedAt: string
+  }>
+  readonly joined: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly description?: string
+    readonly ownerEmployeeID: string
+    readonly status: "active" | "disabled"
+    readonly version: number
+    readonly createdAt: string
+    readonly updatedAt: string
+  }>
+}
+
+export type SkillMarketGroupsCreateInput = {
+  readonly name: { readonly name: string; readonly description?: string }["name"]
+  readonly description?: { readonly name: string; readonly description?: string }["description"]
+}
+
+export type SkillMarketGroupsCreateOutput = {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly ownerEmployeeID: string
+  readonly status: "active" | "disabled"
+  readonly version: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type SkillMarketGroupsDetailInput = { readonly groupID: { readonly groupID: string }["groupID"] }
+
+export type SkillMarketGroupsDetailOutput = {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly ownerEmployeeID: string
+  readonly status: "active" | "disabled"
+  readonly version: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type SkillMarketGroupsUpdateInput = {
+  readonly groupID: { readonly groupID: string }["groupID"]
+  readonly expectedVersion: {
+    readonly expectedVersion: number
+    readonly name?: string
+    readonly description?: string | null
+  }["expectedVersion"]
+  readonly name?: {
+    readonly expectedVersion: number
+    readonly name?: string
+    readonly description?: string | null
+  }["name"]
+  readonly description?: {
+    readonly expectedVersion: number
+    readonly name?: string
+    readonly description?: string | null
+  }["description"]
+}
+
+export type SkillMarketGroupsUpdateOutput = {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly ownerEmployeeID: string
+  readonly status: "active" | "disabled"
+  readonly version: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type SkillMarketGroupsTransferInput = {
+  readonly groupID: { readonly groupID: string }["groupID"]
+  readonly expectedVersion: { readonly expectedVersion: number; readonly ownerEmployeeID: string }["expectedVersion"]
+  readonly ownerEmployeeID: { readonly expectedVersion: number; readonly ownerEmployeeID: string }["ownerEmployeeID"]
+}
+
+export type SkillMarketGroupsTransferOutput = {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly ownerEmployeeID: string
+  readonly status: "active" | "disabled"
+  readonly version: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type SkillMarketGroupsSetStatusInput = {
+  readonly groupID: { readonly groupID: string }["groupID"]
+  readonly expectedVersion: {
+    readonly expectedVersion: number
+    readonly status: "active" | "disabled"
+  }["expectedVersion"]
+  readonly status: { readonly expectedVersion: number; readonly status: "active" | "disabled" }["status"]
+}
+
+export type SkillMarketGroupsSetStatusOutput = {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly ownerEmployeeID: string
+  readonly status: "active" | "disabled"
+  readonly version: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type SkillMarketGroupsMembersInput = { readonly groupID: { readonly groupID: string }["groupID"] }
+
+export type SkillMarketGroupsMembersOutput = ReadonlyArray<{
+  readonly groupID: string
+  readonly employeeID: string
+  readonly createdByEmployeeID: string
+  readonly createdAt: string
+}>
+
+export type SkillMarketGroupsAddMemberInput = {
+  readonly groupID: { readonly groupID: string }["groupID"]
+  readonly expectedVersion: { readonly expectedVersion: number; readonly employeeID: string }["expectedVersion"]
+  readonly employeeID: { readonly expectedVersion: number; readonly employeeID: string }["employeeID"]
+}
+
+export type SkillMarketGroupsAddMemberOutput = {
+  readonly groupID: string
+  readonly employeeID: string
+  readonly createdByEmployeeID: string
+  readonly createdAt: string
+}
+
+export type SkillMarketGroupsRemoveMemberInput = {
+  readonly groupID: { readonly groupID: string; readonly employeeID: string }["groupID"]
+  readonly employeeID: { readonly groupID: string; readonly employeeID: string }["employeeID"]
+  readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
+}
+
+export type SkillMarketGroupsRemoveMemberOutput = {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly ownerEmployeeID: string
+  readonly status: "active" | "disabled"
+  readonly version: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type SkillMarketSharingPromoteInput = {
+  readonly submissionID: { readonly submissionID: string }["submissionID"]
+  readonly expectedVersion: {
+    readonly expectedVersion: number
+    readonly target:
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+      | {
+          readonly scope: "department"
+          readonly department: { readonly id: string; readonly name: string }
+          readonly groupIDs?: never
+        }
+      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+  }["expectedVersion"]
+  readonly target: {
+    readonly expectedVersion: number
+    readonly target:
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+      | {
+          readonly scope: "department"
+          readonly department: { readonly id: string; readonly name: string }
+          readonly groupIDs?: never
+        }
+      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+  }["target"]
+}
+
+export type SkillMarketSharingPromoteOutput = {
+  readonly submission: {
+    readonly id: string
+    readonly skillID: string
+    readonly owner: {
+      readonly employeeID: string
+      readonly displayName: string
+      readonly email?: string
+      readonly department?: { readonly id: string; readonly name: string }
+      readonly disabledAt?: string
+    }
+    readonly targetVersion: string
+    readonly status:
+      | "validating"
+      | "validation_failed"
+      | "pending_review"
+      | "changes_requested"
+      | "rejected"
+      | "publishing"
+      | "publish_failed"
+      | "published"
+    readonly currentRevision: number
+    readonly version: number
+    readonly risk: "unknown" | "safe" | "warning" | "danger"
+    readonly target?:
+      | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+      | {
+          readonly scope: "department"
+          readonly department: { readonly id: string; readonly name: string }
+          readonly groupIDs?: never
+        }
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+    readonly currentPublicVersion?: string
+    readonly createdAt: string
+    readonly updatedAt: string
+  }
+}
+
+export type SkillMarketSharingAudienceChangeInput = {
+  readonly submissionID: { readonly submissionID: string }["submissionID"]
+  readonly expectedVersion: {
+    readonly expectedVersion: number
+    readonly target:
+      | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+      | {
+          readonly scope: "department"
+          readonly department: { readonly id: string; readonly name: string }
+          readonly groupIDs?: never
+        }
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  }["expectedVersion"]
+  readonly target: {
+    readonly expectedVersion: number
+    readonly target:
+      | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+      | {
+          readonly scope: "department"
+          readonly department: { readonly id: string; readonly name: string }
+          readonly groupIDs?: never
+        }
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  }["target"]
+}
+
+export type SkillMarketSharingAudienceChangeOutput = {
+  readonly submission: {
+    readonly id: string
+    readonly skillID: string
+    readonly owner: {
+      readonly employeeID: string
+      readonly displayName: string
+      readonly email?: string
+      readonly department?: { readonly id: string; readonly name: string }
+      readonly disabledAt?: string
+    }
+    readonly targetVersion: string
+    readonly status:
+      | "validating"
+      | "validation_failed"
+      | "pending_review"
+      | "changes_requested"
+      | "rejected"
+      | "publishing"
+      | "publish_failed"
+      | "published"
+    readonly currentRevision: number
+    readonly version: number
+    readonly risk: "unknown" | "safe" | "warning" | "danger"
+    readonly target?:
+      | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+      | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+      | {
+          readonly scope: "department"
+          readonly department: { readonly id: string; readonly name: string }
+          readonly groupIDs?: never
+        }
+      | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+    readonly currentPublicVersion?: string
+    readonly createdAt: string
+    readonly updatedAt: string
+  }
+}
