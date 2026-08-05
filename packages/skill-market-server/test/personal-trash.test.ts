@@ -100,8 +100,12 @@ describe("personal Skill trash", () => {
     seedRestrictedReference(fixture, "sub_restrictedref2", published.packageKey)
     const partial = seedPersonal(fixture, "sub_personalpartial1", "private/partial/package.zip")
     const publicCopy = "skill-market/community/public-copy/package.zip"
+    const sharedManifest = "private/shared/manifest.json"
+    const sharedScan = "private/shared/scan.json"
     const store = memoryStore([
       shared.packageKey,
+      sharedManifest,
+      sharedScan,
       published.packageKey,
       partial.packageKey,
       "private/partial/manifest.json",
@@ -115,6 +119,8 @@ describe("personal Skill trash", () => {
 
     await expect(trash.purgeExpiredPersonal()).rejects.toThrow("delete failed")
     expect(store.deleted).not.toContain(shared.packageKey)
+    expect(store.deleted).not.toContain(sharedManifest)
+    expect(store.deleted).not.toContain(sharedScan)
     expect(store.deleted).not.toContain(published.packageKey)
     expect(
       fixture.database.connection
@@ -128,6 +134,8 @@ describe("personal Skill trash", () => {
     expect(store.deleted).not.toContain(shared.packageKey)
     expect(store.deleted).not.toContain(published.packageKey)
     expect(store.objects.has(shared.packageKey)).toBe(true)
+    expect(store.objects.has(sharedManifest)).toBe(true)
+    expect(store.objects.has(sharedScan)).toBe(true)
     expect(store.objects.has(published.packageKey)).toBe(true)
     expect(store.objects.has(publicCopy)).toBe(true)
     fixture.database.close()

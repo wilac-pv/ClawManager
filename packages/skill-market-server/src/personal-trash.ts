@@ -177,7 +177,7 @@ export class PersonalTrash {
            FROM submission_revisions WHERE submission_id = ? ORDER BY revision_number`,
         )
         .all(candidate.id)
-      const keys = artifacts.flatMap((artifact) => {
+      const families = artifacts.flatMap((artifact) => {
         const directory = artifact.private_package_key.replace(/[^/]+$/, "")
         const icon = artifact.private_icon_json
           ? Schema.decodeUnknownOption(PrivateIcon)(
@@ -185,19 +185,22 @@ export class PersonalTrash {
             )
           : Option.none()
         return [
-          { key: artifact.private_package_key, kind: "package" as const },
-          ...(Option.isSome(icon) ? [{ key: icon.value.key, kind: "icon" as const }] : []),
-          { key: `${directory}manifest.json`, kind: "derived" as const },
-          { key: `${directory}scan.json`, kind: "derived" as const },
+          {
+            referenceKey: artifact.private_package_key,
+            keys: [artifact.private_package_key, `${directory}manifest.json`, `${directory}scan.json`],
+          },
+          ...(Option.isSome(icon) ? [{ referenceKey: icon.value.key, keys: [icon.value.key] }] : []),
         ]
       })
-      const unique = [...new Map(keys.map((artifact) => [artifact.key, artifact])).values()]
+      const unique = [
+        ...new Set(
+          families.flatMap((family) =>
+            referenced(this.options.database.connection, candidate.id, family.referenceKey) ? [] : family.keys,
+          ),
+        ),
+      ]
       await Promise.all(
-        unique.map(async (artifact) => {
-          if (artifact.kind !== "derived" && referenced(this.options.database.connection, candidate.id, artifact.key))
-            return
-          await store.delete(artifact.key)
-        }),
+        unique.map((key) => store.delete(key)),
       ).then(undefined, (error) => {
         this.options.database.connection.run(
           `UPDATE submissions SET artifacts_purge_token = NULL, artifacts_purge_claimed_at = NULL
