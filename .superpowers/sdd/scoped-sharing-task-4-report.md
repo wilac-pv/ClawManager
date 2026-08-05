@@ -57,3 +57,9 @@ Complete. Authorized restricted publications now merge into optional-session cat
 - RED evidence: `bun test test/control-http.test.ts --test-name-pattern 'merges only current restricted access'` failed with expected `["community", "restricted"]` but received two `"community"` identities for the colliding raw ID.
 - GREEN commands/results: focused server catalog/restricted/HTTP tests passed (41); server, Schema, Protocol, and Client typechecks passed; Schema tests passed (9); Protocol tests passed (18); Client tests passed (2); `bun run generate` regenerated clients successfully.
 - Self-review: restricted entries now have `source: "restricted"`; public catalog routes accept only `PublicSource`, so restricted detail, version, and grant resolution remains exclusively on typed `/v1/restricted-skills/:publicationID` routes. Auth, cache, and grant behavior remains covered by the existing focused HTTP regression.
+
+## Local Route Follow-up
+
+- Commit: `fix(protocol): restrict local market sources`.
+- The local generic detail, uninstall, and refresh route key now uses `PublicSource`; generated default-client inputs exclude `restricted` while restricted reads remain on the dedicated restricted client.
+- Verification: Protocol catalog tests (5) and Client tests (3) passed; Protocol, Client, and affected server typechecks passed; clients were regenerated with `bun run generate`.

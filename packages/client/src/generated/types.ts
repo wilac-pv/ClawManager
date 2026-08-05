@@ -2733,11 +2733,8 @@ export type SkillMarketFacetsOutput = {
 }
 
 export type SkillMarketDetailInput = {
-  readonly source: {
-    readonly source: "skillhub" | "enterprise" | "community" | "restricted"
-    readonly id: string
-  }["source"]
-  readonly id: { readonly source: "skillhub" | "enterprise" | "community" | "restricted"; readonly id: string }["id"]
+  readonly source: { readonly source: "skillhub" | "enterprise" | "community"; readonly id: string }["source"]
+  readonly id: { readonly source: "skillhub" | "enterprise" | "community"; readonly id: string }["id"]
 }
 
 export type SkillMarketDetailOutput = {
@@ -2927,21 +2924,15 @@ export type SkillMarketUpdateOutput = {
 }
 
 export type SkillMarketUninstallInput = {
-  readonly source: {
-    readonly source: "skillhub" | "enterprise" | "community" | "restricted"
-    readonly id: string
-  }["source"]
-  readonly id: { readonly source: "skillhub" | "enterprise" | "community" | "restricted"; readonly id: string }["id"]
+  readonly source: { readonly source: "skillhub" | "enterprise" | "community"; readonly id: string }["source"]
+  readonly id: { readonly source: "skillhub" | "enterprise" | "community"; readonly id: string }["id"]
 }
 
 export type SkillMarketUninstallOutput = void
 
 export type SkillMarketRefreshInput = {
-  readonly source: {
-    readonly source: "skillhub" | "enterprise" | "community" | "restricted"
-    readonly id: string
-  }["source"]
-  readonly id: { readonly source: "skillhub" | "enterprise" | "community" | "restricted"; readonly id: string }["id"]
+  readonly source: { readonly source: "skillhub" | "enterprise" | "community"; readonly id: string }["source"]
+  readonly id: { readonly source: "skillhub" | "enterprise" | "community"; readonly id: string }["id"]
 }
 
 export type SkillMarketRefreshOutput = void

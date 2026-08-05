@@ -3,7 +3,7 @@ import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { SkillMarketCatalogQuery } from "./skill-market-catalog"
 
-const Key = { source: SkillMarket.Source, id: Schema.String }
+const Key = { source: SkillMarket.PublicSource, id: Schema.String }
 
 export class SkillMarketUnavailableError extends Schema.ErrorClass<SkillMarketUnavailableError>(
   "SkillMarketUnavailableError",

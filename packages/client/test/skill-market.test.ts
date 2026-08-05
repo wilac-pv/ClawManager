@@ -21,6 +21,16 @@ test("generated client exposes every local Skill market operation", () => {
   ])
 })
 
+test("generated local skill routes accept only public sources", async () => {
+  const generated = await Bun.file(new URL("../src/generated/types.ts", import.meta.url)).text()
+  const detailInput = generated.slice(
+    generated.indexOf("export type SkillMarketDetailInput"),
+    generated.indexOf("export type SkillMarketDetailOutput"),
+  )
+  expect(detailInput).toContain('readonly source: "skillhub" | "enterprise" | "community"')
+  expect(detailInput).not.toContain('"restricted"')
+})
+
 test("generated clients expose callable scoped sharing operations", async () => {
   const requests: Array<{ readonly url: string; readonly method: string; readonly body: unknown }> = []
   const requestFetch = async (input: RequestInfo | URL, init?: RequestInit) => {

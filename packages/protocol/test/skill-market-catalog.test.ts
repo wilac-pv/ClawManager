@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { HttpApi, OpenApi } from "effect/unstable/httpapi"
 import { normalizeSkillMarketCatalogQuery } from "../src/groups/skill-market-catalog"
+import { SkillMarketLocalGroup } from "../src/groups/skill-market-local"
 import { SkillMarketApi, SkillMarketCatalogApi } from "../src/skill-market-api"
 
 test("catalog api contains package GET and HEAD operations", () => {
@@ -65,5 +66,14 @@ test("normalizes portable query strings into domain values", () => {
     sort: "score",
     page: 2,
     limit: 30,
+  })
+})
+
+test("local generic skill routes accept only public sources", () => {
+  const document = OpenApi.fromApi(HttpApi.make("localSkillMarket").add(SkillMarketLocalGroup))
+  const parameters = document.paths["/api/skill/market/skills/{source}/{id}"]?.get?.parameters
+  expect(parameters?.find((parameter) => parameter.in === "path" && parameter.name === "source")?.schema).toEqual({
+    type: "string",
+    enum: ["skillhub", "enterprise", "community"],
   })
 })
