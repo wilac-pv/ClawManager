@@ -22,10 +22,11 @@ describe("personal trash", () => {
       </QueryClientProvider>
     ))
 
-    expect(await view.findByText("代码审查助手")).toBeTruthy()
+    expect(await view.findAllByText("code-review")).toHaveLength(2)
+    expect(view.getAllByText("1.2.0")).toHaveLength(2)
     expect(view.getAllByText(/永久删除时间/)).toHaveLength(2)
     expect(view.getByRole("button", { name: "恢复个人 Skill" })).toBeTruthy()
-    expect(view.getByText("已超过恢复期限")).toBeTruthy()
+    expect(view.getByText(/已超过恢复期限/)).toBeTruthy()
     fireEvent.click(view.getByRole("button", { name: "恢复个人 Skill" }))
     await waitFor(() => expect(restores).toHaveLength(1))
     expect(restores[0]?.slice(0, 2)).toEqual(["sub_abcdefgh", { expectedVersion: 4 }])

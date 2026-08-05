@@ -72,8 +72,8 @@ describe("submission list", () => {
     })
 
     fireEvent.click(await fixture.view.findByRole("button", { name: "删除个人 Skill" }))
-    expect(fixture.view.getByRole("dialog")).toHaveTextContent("safe-skill-0 1.0.0")
-    expect(fixture.view.getByRole("button", { name: "取消" })).toBe(document.activeElement)
+    expect(fixture.view.getByRole("dialog").textContent).toContain("safe-skill-0 1.0.0")
+    expect(fixture.view.getByRole("button", { name: "取消" }) as HTMLElement).toBe(document.activeElement as HTMLElement)
     fireEvent.click(fixture.view.getByRole("button", { name: "确认删除" }))
     await waitFor(() => expect(deletePersonal).toHaveBeenCalledWith("sub_abcdefgh0", { expectedVersion: 1 }, expect.any(String)))
   })
@@ -84,7 +84,11 @@ function renderList(
   path = "/submissions",
   lifecycle: Partial<SubmissionReader> = {},
 ) {
-  const source: SubmissionReader = { list: (query: SkillMarketControl.SubmissionListQuery) => list(query), ...lifecycle }
+  const source: SubmissionReader = {
+    list: (query: SkillMarketControl.SubmissionListQuery) => list(query),
+    deletePersonal: () => Promise.resolve({} as never),
+    ...lifecycle,
+  }
   const history = createMemoryHistory()
   history.set({ value: path, replace: true })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })

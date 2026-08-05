@@ -5,7 +5,7 @@ import { For, Match, Show, Switch, createSignal } from "solid-js"
 import { MarketControlError, type SkillMarketControlDataSource } from "../control-data-source"
 import { SubmissionStatusTimeline } from "../submissions/status"
 
-export type ModerationReviewSource = Pick<SkillMarketControlDataSource["moderation"], "detail" | "decide">
+export type ModerationReviewSource = Pick<SkillMarketControlDataSource["moderation"], "detail" | "decide" | "pendingDelist">
 export type ModerationOperationsSource = Pick<
   SkillMarketControlDataSource["moderation"],
   "retryPublish" | "delist" | "restore" | "approveDelist" | "rejectDelist"
@@ -32,6 +32,11 @@ export function ModerationReview(props: ModerationReviewProps) {
   const submission = createQuery(() => ({
     queryKey: ["skill-market", "moderation", "detail", props.submissionID] as const,
     queryFn: ({ signal }) => props.source.detail(props.submissionID, signal),
+  }))
+  const pendingDelist = createQuery(() => ({
+    queryKey: ["skill-market", "moderation", "delist-request", props.submissionID] as const,
+    enabled: props.admin,
+    queryFn: ({ signal }) => props.source.pendingDelist(props.submissionID, signal),
   }))
   const blockedSelfReview = (detail: SkillMarketControl.SubmissionDetail) =>
     detail.owner.employeeID === props.actor && !props.admin
@@ -143,8 +148,8 @@ export function ModerationReview(props: ModerationReviewProps) {
                 )}
               </Show>
 
-              <Show when={props.admin && props.operations && props.delistRequest}>
-                <AdminDelistDecision request={props.delistRequest!} source={props.operations!} />
+              <Show when={props.admin && props.operations && (pendingDelist.data?.[0] ?? props.delistRequest)}>
+                <AdminDelistDecision request={pendingDelist.data?.[0] ?? props.delistRequest!} source={props.operations!} />
               </Show>
 
               <section class="submission-detail__section moderation-review__overview">
@@ -595,4 +600,9 @@ function decisionLabel(decision: SkillMarketControl.ReviewDecision) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID()
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }

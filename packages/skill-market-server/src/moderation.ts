@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
 import type { MarketDatabase } from "./database"
-import { decideDelist } from "./lifecycle"
+import { decideDelist, pendingDelist } from "./lifecycle"
 import type { MarketSecurity, Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
 import {
@@ -536,6 +536,13 @@ export class Moderation {
         this.options.now?.() ?? Date.now(),
       ),
     )
+  }
+
+  pendingDelist(principal: Principal, submissionID: string) {
+    this.options.security.requireAdmin(principal)
+    if (!Schema.is(SkillMarketControl.SubmissionID)(submissionID))
+      throw new SkillMarketSecurityError("invalid-request", "submission ID is invalid")
+    return this.options.database.transaction((connection) => pendingDelist(connection, submissionID))
   }
 
   restore(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {

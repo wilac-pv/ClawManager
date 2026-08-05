@@ -170,6 +170,30 @@ export function requestDelist(
   })
 }
 
+export function pendingDelist(connection: Database, submissionID: string) {
+  const request = connection
+    .query<
+      { id: string; submission_id: string; requested_by_employee_id: string; reason: string; version: number; created_at: number },
+      [string]
+    >(
+      `SELECT id, submission_id, requested_by_employee_id, reason, version, created_at
+       FROM delist_requests WHERE submission_id = ? AND status = 'pending'`,
+    )
+    .get(submissionID)
+  if (!request) return []
+  return [
+    Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({
+      id: request.id,
+      submissionID: request.submission_id,
+      requestedByEmployeeID: request.requested_by_employee_id,
+      reason: request.reason,
+      status: "pending",
+      version: request.version,
+      createdAt: new Date(request.created_at).toISOString(),
+    }),
+  ]
+}
+
 export function decideDelist(
   connection: Database,
   principal: Principal,

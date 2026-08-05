@@ -360,6 +360,12 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         ),
       detail: (submissionID: string, signal?: AbortSignal) =>
         read(`/v1/admin/submissions/${encodeURIComponent(submissionID)}`, SkillMarketControl.SubmissionDetail, signal),
+      pendingDelist: (submissionID: string, signal?: AbortSignal) =>
+        read(
+          `/v1/admin/submissions/${encodeURIComponent(submissionID)}/delist-requests`,
+          Schema.Array(SkillMarketControl.DelistRequest),
+          signal,
+        ),
       decide: (submissionID: string, input: SkillMarketControl.DecisionInput, signal?: AbortSignal) =>
         write(
           `/v1/admin/submissions/${encodeURIComponent(submissionID)}/decision`,

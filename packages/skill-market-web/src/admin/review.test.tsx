@@ -117,6 +117,7 @@ describe("moderation review", () => {
         return Promise.resolve({ ...fixture, version: details.value === 1 ? 3 : 4 })
       },
       decide: () => Promise.reject(new MarketControlError(409, "submission-conflict", "投稿已更新", "req_abcdef")),
+      pendingDelist: () => Promise.resolve([]),
     }
     const view = renderReview(reviewSource)
     await view.findByRole("heading", { name: "审核 Safe Skill" })
@@ -156,6 +157,8 @@ describe("moderation review", () => {
           status: "published",
         })
       },
+      approveDelist: () => Promise.reject(new Error("not configured")),
+      rejectDelist: () => Promise.reject(new Error("not configured")),
     }
     const failed = { ...detail(), status: "publish_failed" as const, risk: "safe" as const }
     const retry = renderReview(source(failed), "E000009", { admin: true, operations })
@@ -215,7 +218,7 @@ describe("moderation review", () => {
     const admin = renderReview(source(detail()), "E000009", { admin: true, operations, delistRequest: delistRequest() })
     await admin.findByRole("heading", { name: "审核 Safe Skill" })
     fireEvent.click(admin.getByRole("button", { name: "批准下架" }))
-    expect(admin.getByRole("dialog")).toHaveTextContent("safe-skill")
+    expect(admin.getByRole("dialog").textContent).toContain("sub_abcdefgh")
     fireEvent.click(admin.getByRole("button", { name: "确认批准下架" }))
     await waitFor(() => expect(calls[0]?.slice(0, 2)).toEqual(["dlr_abcdefgh", { expectedVersion: 2 }]))
   })
@@ -266,7 +269,7 @@ function source(
   value: SkillMarketControl.SubmissionDetail,
   decide: ModerationReviewSource["decide"] = () => Promise.resolve(value),
 ): ModerationReviewSource {
-  return { detail: () => Promise.resolve(value), decide }
+  return { detail: () => Promise.resolve(value), decide, pendingDelist: () => Promise.resolve([]) }
 }
 
 function detail(): SkillMarketControl.SubmissionDetail {

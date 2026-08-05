@@ -32,6 +32,10 @@ Result: not run; shell reports `bun: command not found` before the unit suite st
 
 ## Commit and concerns
 
+Follow-up adds Admin pending-delist discovery at `GET /v1/admin/submissions/:submissionID/delist-requests`, backed by the lifecycle service and Admin handler. The normal Admin review query loads it; Reviewer does not query or render the decision controls.
+
+Verification: Web unit 33/33; Web browser 71/71; Web typecheck pass; Web build pass; focused server moderation 10/10; server and Protocol typechecks pass; client generation pass.
+
 Commit pending.
 
-The existing Protocol exposes delist request/decision mutations but has no query that supplies pending delist requests to an Admin submission detail. The Admin decision component therefore accepts an optional request value, but the normal route cannot surface a pre-existing request without a follow-up read/list contract.
+No remaining known concerns.

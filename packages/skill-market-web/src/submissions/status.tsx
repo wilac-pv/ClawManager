@@ -10,6 +10,7 @@ const presentations: Record<SkillMarketControl.SubmissionStatus, { label: string
   publishing: { label: "发布中", message: "审核已通过，正在发布" },
   publish_failed: { label: "发布失败", message: "自动发布失败" },
   published: { label: "已发布", message: "已发布到用户投稿市场" },
+  withdrawn: { label: "已撤回", message: "投稿已撤回，不会继续处理" },
 }
 
 export function SubmissionStatusTimeline(props: {

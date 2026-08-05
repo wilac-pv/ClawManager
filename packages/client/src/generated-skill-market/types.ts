@@ -754,6 +754,35 @@ export type SkillMarketSubmissionLifecycleRequestDelistOutput =
       readonly decidedAt: string
     }
 
+export type SkillMarketAdminLifecyclePendingDelistInput = {
+  readonly submissionID: { readonly submissionID: string }["submissionID"]
+}
+
+export type SkillMarketAdminLifecyclePendingDelistOutput = ReadonlyArray<
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "pending"
+      readonly decidedByEmployeeID?: never
+      readonly decidedAt?: never
+    }
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "approved" | "rejected"
+      readonly decidedByEmployeeID: string
+      readonly decidedAt: string
+    }
+>
+
 export type SkillMarketAdminLifecycleApproveDelistInput = {
   readonly requestID: { readonly requestID: string }["requestID"]
   readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]

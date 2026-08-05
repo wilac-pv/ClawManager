@@ -110,10 +110,10 @@ describe("submission detail", () => {
     })
 
     fireEvent.click(await fixture.findByRole("button", { name: "撤回投稿" }))
-    expect(fixture.getByRole("dialog")).toHaveTextContent("Safe Skill 1.2.0")
+    expect(fixture.getByRole("dialog").textContent).toContain("Safe Skill 1.2.0")
     fireEvent.click(fixture.getByRole("button", { name: "确认撤回" }))
     await waitFor(() => expect(calls[0]?.slice(0, 2)).toEqual(["sub_abcdefgh", { expectedVersion: 3 }]))
-    expect(fixture.queryByRole("button", { name: "撤回投稿" })).toBeNull()
+    await waitFor(() => expect(fixture.queryByRole("button", { name: "撤回投稿" })).toBeNull())
   })
 
   test("requests delisting for a published public submission", async () => {

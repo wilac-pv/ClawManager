@@ -168,6 +168,13 @@ export const SkillMarketAdminGroup = ReviewerEndpoints.add(
 
 export const SkillMarketAdminLifecycleGroup = HttpApiGroup.make("skillMarket.adminLifecycle")
   .add(
+    HttpApiEndpoint.get("skillMarket.admin.pendingDelist", "/v1/admin/submissions/:submissionID/delist-requests", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      success: Schema.Array(SkillMarketControl.DelistRequest),
+      error: ReviewErrors,
+    }).middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
     HttpApiEndpoint.post("skillMarket.admin.approveDelist", "/v1/admin/delist-requests/:requestID/approve", {
       params: { requestID: SkillMarketControl.DelistRequestID },
       payload: SkillMarketControl.ExpectedVersionInput,

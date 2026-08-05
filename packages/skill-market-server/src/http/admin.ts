@@ -187,6 +187,15 @@ export function createAdminHttp(options: AdminHttpOptions) {
   )
   const lifecycle = HttpApiBuilder.group(SkillMarketApi, "skillMarket.adminLifecycle", (handlers) =>
     handlers
+      .handle("skillMarket.admin.pendingDelist", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () => options.moderation.pendingDelist(principal, context.params.submissionID),
+            catch: reviewProblem,
+          })
+        }),
+      )
       .handle("skillMarket.admin.approveDelist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)

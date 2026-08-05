@@ -237,31 +237,39 @@ const adaptGroup3 = (raw: RawClient["skillMarket.submissionLifecycle"]) => ({
   requestDelist: Endpoint3_4(raw),
 })
 
-type Endpoint4_0Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.approveDelist"]>[0]
-type Endpoint4_0Input = {
-  readonly requestID: Endpoint4_0Request["params"]["requestID"]
-  readonly expectedVersion: Endpoint4_0Request["payload"]["expectedVersion"]
-}
+type Endpoint4_0Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.pendingDelist"]>[0]
+type Endpoint4_0Input = { readonly submissionID: Endpoint4_0Request["params"]["submissionID"] }
 const Endpoint4_0 = (raw: RawClient["skillMarket.adminLifecycle"]) => (input: Endpoint4_0Input) =>
-  raw["skillMarket.admin.approveDelist"]({
-    params: { requestID: input["requestID"] },
-    payload: { expectedVersion: input["expectedVersion"] },
-  }).pipe(Effect.mapError(mapClientError))
+  raw["skillMarket.admin.pendingDelist"]({ params: { submissionID: input["submissionID"] } }).pipe(
+    Effect.mapError(mapClientError),
+  )
 
-type Endpoint4_1Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.rejectDelist"]>[0]
+type Endpoint4_1Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.approveDelist"]>[0]
 type Endpoint4_1Input = {
   readonly requestID: Endpoint4_1Request["params"]["requestID"]
   readonly expectedVersion: Endpoint4_1Request["payload"]["expectedVersion"]
 }
 const Endpoint4_1 = (raw: RawClient["skillMarket.adminLifecycle"]) => (input: Endpoint4_1Input) =>
+  raw["skillMarket.admin.approveDelist"]({
+    params: { requestID: input["requestID"] },
+    payload: { expectedVersion: input["expectedVersion"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint4_2Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.rejectDelist"]>[0]
+type Endpoint4_2Input = {
+  readonly requestID: Endpoint4_2Request["params"]["requestID"]
+  readonly expectedVersion: Endpoint4_2Request["payload"]["expectedVersion"]
+}
+const Endpoint4_2 = (raw: RawClient["skillMarket.adminLifecycle"]) => (input: Endpoint4_2Input) =>
   raw["skillMarket.admin.rejectDelist"]({
     params: { requestID: input["requestID"] },
     payload: { expectedVersion: input["expectedVersion"] },
   }).pipe(Effect.mapError(mapClientError))
 
 const adaptGroup4 = (raw: RawClient["skillMarket.adminLifecycle"]) => ({
-  approveDelist: Endpoint4_0(raw),
-  rejectDelist: Endpoint4_1(raw),
+  pendingDelist: Endpoint4_0(raw),
+  approveDelist: Endpoint4_1(raw),
+  rejectDelist: Endpoint4_2(raw),
 })
 
 const adaptClient = (raw: RawClient) => ({

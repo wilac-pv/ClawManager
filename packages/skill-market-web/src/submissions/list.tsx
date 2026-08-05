@@ -1,7 +1,7 @@
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { A, useSearchParams } from "@solidjs/router"
 import { createQuery, useQueryClient } from "@tanstack/solid-query"
-import { For, Match, Show, Switch, createSignal } from "solid-js"
+import { For, Match, Show, Switch, createSignal, onMount } from "solid-js"
 import { MarketControlError, type SkillMarketControlDataSource } from "../control-data-source"
 import { SpacePageHeader } from "../space/page"
 
@@ -195,34 +195,31 @@ export function SubmissionList(props: SubmissionListProps) {
         </Match>
       </Switch>
       <Show when={deleting()}>
-        {(item) => (
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="personal-delete-title"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") closeDelete()
-            }}
-          >
-            <h2 id="personal-delete-title">删除个人 Skill</h2>
-            <p>
-              确认删除 {item().skillID} {item().targetVersion}？删除后可在回收站恢复。
-            </p>
-            <Show when={deleteError()}>
-              {(message) => <div class="submission-form__errors" role="alert">{message()}</div>}
-            </Show>
-            <div>
-              <button type="button" disabled={deletePending()} ref={(element) => queueMicrotask(() => element.focus())} onClick={closeDelete}>
-                取消
-              </button>
-              <button type="button" class="admin-danger-action" disabled={deletePending()} onClick={confirmDelete}>
-                {deletePending() ? "正在删除…" : "确认删除"}
-              </button>
-            </div>
-          </div>
-        )}
+        {(item) => <PersonalDeleteConfirmation item={item()} pending={deletePending()} error={deleteError()} onCancel={closeDelete} onConfirm={confirmDelete} />}
       </Show>
     </main>
+  )
+}
+
+function PersonalDeleteConfirmation(props: {
+  item: SkillMarketControl.SubmissionSummary
+  pending: boolean
+  error?: string
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  let cancel: HTMLButtonElement | undefined
+  onMount(() => cancel?.focus())
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="personal-delete-title" onKeyDown={(event) => { if (event.key === "Escape") props.onCancel() }}>
+      <h2 id="personal-delete-title">删除个人 Skill</h2>
+      <p>确认删除 {props.item.skillID} {props.item.targetVersion}？删除后可在回收站恢复。</p>
+      <Show when={props.error}>{(message) => <div class="submission-form__errors" role="alert">{message()}</div>}</Show>
+      <div>
+        <button type="button" disabled={props.pending} ref={(element) => { cancel = element }} onClick={props.onCancel}>取消</button>
+        <button type="button" class="admin-danger-action" disabled={props.pending} onClick={props.onConfirm}>{props.pending ? "正在删除…" : "确认删除"}</button>
+      </div>
+    </div>
   )
 }
 
