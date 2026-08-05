@@ -5,9 +5,9 @@
   --market-border: var(--skillhub-border, #e1e5eb);
   --market-text: var(--skillhub-text, #20242c);
   --market-muted: var(--skillhub-muted, #626b78);
-  --market-accent: var(--skillhub-brand, #1268e5);
-  --market-accent-soft: var(--skillhub-brand-soft, #eef4ff);
-  --market-focus-ring: var(--skillhub-focus-ring, rgba(18, 104, 229, 0.18));
+  --market-accent: var(--skillhub-brand, #6d5dfc);
+  --market-accent-soft: var(--skillhub-brand-soft, #efedff);
+  --market-focus-ring: var(--skillhub-focus-ring, rgba(109, 93, 252, 0.18));
   --market-content-width: var(--skillhub-content-width, 1120px);
   box-sizing: border-box;
   min-height: 100%;
