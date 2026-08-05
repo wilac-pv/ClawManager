@@ -140,6 +140,7 @@ function verifyLifecycleSchema(database: Database) {
     ]) &&
     schema("submissions").includes("target_scope = 'personal' and deleted_at is not null and purge_after is not null and purge_after > deleted_at") &&
     schema("submissions").includes("artifacts_purged_at is null or artifacts_purged_at >= purge_after") &&
+    schema("submissions").includes("artifacts_purge_token is null and artifacts_purge_claimed_at is null) or (artifacts_purged_at is null and artifacts_purge_token is not null and artifacts_purge_claimed_at is not null") &&
     schema("delist_requests").includes("check (status in ('pending', 'approved', 'rejected'))") &&
     schema("delist_requests").includes("status = 'pending' and decided_by_employee_id is null and decided_at is null") &&
     schema("delist_requests").includes("status in ('approved', 'rejected') and decided_by_employee_id is not null and decided_at is not null") &&

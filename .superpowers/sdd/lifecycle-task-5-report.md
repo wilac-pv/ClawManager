@@ -56,3 +56,16 @@
 
 - Follow-up focused gates: lifecycle E2E 1 pass / 2 skipped;
   backup/systemd 15 pass / 0 fail.
+
+## Scanner and purge-pair follow-up
+
+- The scanner-race journey now verifies the normal submission detail retains
+  only its validating and withdrawn timeline states after a stale worker run.
+  A read-only fixture diagnostic reads the actual simulated object map and
+  confirms no manifest, scan, or package object was written.
+- The v12 verifier requires the migration-012 purge-token/claim pairing branch:
+  both fields are absent together, or (before deletion) both are present. A
+  migration fixture that weakens only that branch is rejected.
+
+- Focused gates: lifecycle E2E 1 pass / 2 skipped; backup/systemd 16 pass / 0
+  fail.

@@ -33,6 +33,7 @@ type FixtureState = {
   clock: number
   trash: Map<string, { purgeAfter: number; purged: boolean }>
   scanner: { leaseHeld: boolean; artifactWrites: number; statusEvents: number }
+  objects: Map<string, Uint8Array>
   delist: {
     requests: Map<string, SkillMarketControl.DelistRequest>
     cleanup: "pending" | "completed"
@@ -73,6 +74,7 @@ const server = Bun.serve({
     if (url.pathname.startsWith("/__fixture/bump/") && request.method === "POST") return bump(request, url)
     if (url.pathname === "/__fixture/clock" && request.method === "POST") return fixtureClock(request)
     if (url.pathname.startsWith("/__fixture/worker/")) return fixtureWorker(request, url)
+    if (url.pathname === "/__fixture/diagnostics/objects" && request.method === "GET") return fixtureObjects(request, url)
     if (url.pathname === "/v1/auth/login" && request.method === "GET") return login(request, url)
     if (url.pathname === "/v1/auth/session" && request.method === "GET") return session(request)
     if (url.pathname === "/v1/auth/session" && request.method === "DELETE") return logout(request)
@@ -204,6 +206,9 @@ async function fixtureWorker(request: Request, url: URL) {
     if (context.state.scanner.leaseHeld && submission?.status === "validating") {
       context.state.scanner.artifactWrites += 1
       context.state.scanner.statusEvents += 1
+      ;["manifest.json", "scan.json", "package.zip"].forEach((name) =>
+        context.state!.objects.set(`submissions/sub_scanner01/1/${name}`, new Uint8Array()),
+      )
     }
     return json(request, { ok: true })
   }
@@ -214,6 +219,13 @@ async function fixtureWorker(request: Request, url: URL) {
     return json(request, { deleted: context.state.delist.sharedReferences === 0 ? ["artifact"] : [] })
   }
   return problem(request, 400, "invalid-request", "worker 操作无效")
+}
+
+function fixtureObjects(request: Request, url: URL) {
+  const context = fixtureContext(request)
+  if (!context.state || url.searchParams.get("submissionID") !== "sub_scanner01")
+    return problem(request, 404, "not-found", "投稿不存在")
+  return json(request, [...context.state.objects.keys()].filter((key) => key.includes("/sub_scanner01/")))
 }
 
 async function lifecycleFixture(request: Request, url: URL) {
@@ -493,7 +505,12 @@ async function ownSubmission(request: Request, url: URL, state: FixtureState, us
   }
   if (operation === "withdraw" && request.method === "POST") {
     if (!input || typeof input !== "object" || input.expectedVersion !== current.version) return conflict(request)
-    const withdrawn = { ...current, status: "withdrawn" as const, version: current.version + 1 }
+    const withdrawn = {
+      ...current,
+      status: "withdrawn" as const,
+      version: current.version + 1,
+      timeline: [...current.timeline, { status: "withdrawn" as const, at: new Date(state.clock).toISOString(), actor: user }],
+    }
     state.submissions.set(id, withdrawn)
     return json(request, withdrawn)
   }
@@ -896,6 +913,7 @@ function initialState(): FixtureState {
     clock: Date.parse(now),
     trash: new Map(),
     scanner: { leaseHeld: false, artifactWrites: 0, statusEvents: 0 },
+    objects: new Map(),
     delist: { requests: new Map(), cleanup: "pending", sharedReferences: 1, artifactsDeleted: 0 },
   }
 }

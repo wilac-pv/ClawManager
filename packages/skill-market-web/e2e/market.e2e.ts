@@ -303,7 +303,11 @@ test("keeps lifecycle visibility ahead of purge and artifact cleanup", async ({ 
   await request.post(`${fixtureApi}/__fixture/worker/scanner-lease`, { data: { submissionID: "sub_scanner01" } })
   expect((await write("post", "/v1/submissions/sub_scanner01/withdraw", { expectedVersion: 1 })).ok()).toBe(true)
   await request.post(`${fixtureApi}/__fixture/worker/scanner-complete`, { data: { submissionID: "sub_scanner01" } })
-  expect(await (await request.get(`${fixtureApi}/v1/submissions/sub_scanner01`)).json()).toMatchObject({ status: "withdrawn" })
+  expect(await (await request.get(`${fixtureApi}/v1/submissions/sub_scanner01`)).json()).toMatchObject({
+    status: "withdrawn",
+    timeline: [{ status: "validating" }, { status: "withdrawn" }],
+  })
+  expect(await (await request.get(`${fixtureApi}/__fixture/diagnostics/objects?submissionID=sub_scanner01`)).json()).toEqual([])
 
   const delist = await write("post", "/v1/submissions/sub_published01/delist-requests", {
     expectedVersion: 1,

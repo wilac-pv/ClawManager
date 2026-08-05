@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdtemp, readdir, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { backupDatabase } from "./backup"
@@ -191,6 +191,48 @@ describe("database backup", () => {
         }),
       ).rejects.toThrow("lifecycle backup schema is incomplete")
     }
+  })
+
+  test("rejects a v12 snapshot that weakens the purge-token pairing while retaining other lifecycle invariants", async () => {
+    const directory = await temporaryDirectory()
+    const migrations = join(directory, "migrations")
+    await mkdir(migrations)
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) => `${String(index + 1).padStart(3, "0")}_${[
+        "control_plane",
+        "submission_icons",
+        "skillhub_import",
+        "skillhub_import_invariants",
+        "skillhub_evaluations",
+        "skillhub_publication_fence",
+        "departments",
+        "personal_space",
+        "expert_packages_favorites",
+        "announcements",
+        "scoped_sharing",
+        "lifecycle_actions",
+      ][index]}.sql`).map(async (file) =>
+        Bun.write(
+          join(migrations, file),
+          file === "012_lifecycle_actions.sql"
+            ? (await Bun.file(new URL(`../migrations/${file}`, import.meta.url)).text()).replace(
+                "(artifacts_purge_token IS NULL AND artifacts_purge_claimed_at IS NULL)\n        OR (artifacts_purged_at IS NULL AND artifacts_purge_token IS NOT NULL AND artifacts_purge_claimed_at IS NOT NULL)",
+                "(artifacts_purge_token IS NULL OR artifacts_purge_claimed_at IS NULL)",
+              )
+            : Bun.file(new URL(`../migrations/${file}`, import.meta.url)),
+        ),
+      ),
+    )
+    const databasePath = join(directory, "weak-pairing.db")
+    await migrateDatabase({ databasePath, migrationBackupDirectory: join(directory, "migration-backups"), migrationDirectory: migrations })
+    await expect(
+      backupDatabase({
+        databasePath,
+        backupDirectory: join(directory, "backups"),
+        privatePrefix: "private-test",
+        store: memoryStore().client,
+      }),
+    ).rejects.toThrow("lifecycle backup schema is incomplete")
   })
 })
 
