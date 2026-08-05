@@ -342,16 +342,22 @@ export class Submissions {
   requestDelist(principal: Principal, submissionID: string, input: SkillMarketControl.ReasonInput) {
     if (!Schema.is(SkillMarketControl.ReasonInput)(input))
       throw new SkillMarketSecurityError("invalid-request", "delist request is invalid")
-    return this.options.database.transaction((connection) =>
-      requestDelist(
-        connection,
-        principal,
-        submissionID,
-        input.expectedVersion,
-        input.reason,
-        this.options.now?.() ?? Date.now(),
-      ),
-    )
+    try {
+      return this.options.database.transaction((connection) =>
+        requestDelist(
+          connection,
+          principal,
+          submissionID,
+          input.expectedVersion,
+          input.reason,
+          this.options.now?.() ?? Date.now(),
+        ),
+      )
+    } catch (error) {
+      if (isDelistWriteConflict(error))
+        throw new SkillMarketSecurityError("submission-conflict", "a delist request is already pending")
+      throw error
+    }
   }
 
   async create(principal: Principal, input: CreateSubmissionInput) {
@@ -1147,6 +1153,11 @@ function compareSemVer(left: string, right: string) {
     return x > y ? 1 : -1
   }
   return 0
+}
+
+function isDelistWriteConflict(error: unknown) {
+  if (!(error instanceof Error) || !("code" in error)) return false
+  return error.code === "SQLITE_BUSY" || error.code === "SQLITE_CONSTRAINT_UNIQUE"
 }
 
 function reserveCommunitySkill(connection: Database, skillID: string, ownerEmployeeID: string, now: number) {

@@ -137,12 +137,15 @@ export function requestDelist(
     throw new SkillMarketSecurityError("submission-conflict", "a delist request is already pending")
 
   const id = `dlr_${randomSecret()}`
-  connection.run(
+  const inserted = connection.run(
     `INSERT INTO delist_requests
       (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
-     VALUES (?, ?, ?, ?, 'pending', 1, ?)`,
+     VALUES (?, ?, ?, ?, 'pending', 1, ?)
+     ON CONFLICT(submission_id) WHERE status = 'pending' DO NOTHING`,
     [id, submissionID, principal.session.user.employeeID, reason, now],
-  )
+  ).changes
+  if (inserted !== 1)
+    throw new SkillMarketSecurityError("submission-conflict", "a delist request is already pending")
   connection.run(
     `INSERT INTO audit_events
       (id, actor_employee_id, action, object_type, object_id, before_json, after_json, request_id, created_at)
@@ -231,6 +234,12 @@ export function decideDelist(
     if (hidden !== 1)
       throw new SkillMarketSecurityError("submission-conflict", "publication is no longer visible")
     if (request.target_scope === "company") enqueueCatalogRebuild(connection, now)
+    connection.run(
+      `INSERT INTO artifact_cleanup_jobs
+        (id, delist_request_id, submission_id, status, attempts, created_at, updated_at)
+       VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
+      [`clean_${randomSecret()}`, requestID, request.submission_id, now, now],
+    )
   }
 
   const decided = connection.run(

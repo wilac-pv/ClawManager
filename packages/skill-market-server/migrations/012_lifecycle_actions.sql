@@ -212,3 +212,25 @@ CREATE TABLE delist_requests (
 CREATE UNIQUE INDEX delist_requests_pending_submission
   ON delist_requests(submission_id)
   WHERE status = 'pending';
+
+CREATE TABLE artifact_cleanup_jobs (
+  id TEXT PRIMARY KEY,
+  delist_request_id TEXT NOT NULL UNIQUE REFERENCES delist_requests(id),
+  submission_id TEXT NOT NULL REFERENCES submissions(id),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed')),
+  lease_token TEXT,
+  lease_expires_at INTEGER,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  CHECK (updated_at >= created_at),
+  CHECK (
+    (status = 'pending' AND lease_token IS NULL AND lease_expires_at IS NULL AND completed_at IS NULL) OR
+    (status = 'running' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL AND completed_at IS NULL) OR
+    (status = 'completed' AND lease_token IS NULL AND lease_expires_at IS NULL AND completed_at IS NOT NULL)
+  )
+) STRICT;
+
+CREATE INDEX artifact_cleanup_jobs_queue
+  ON artifact_cleanup_jobs(status, lease_expires_at, created_at, id);

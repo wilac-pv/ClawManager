@@ -39,7 +39,7 @@ Successful withdrawal changes the status to `withdrawn`, increments the submissi
 - Native personal publication delivery rejects an approved delist request while retaining submission history.
 - Rejection only versions and records the request; community/restricted/personal publication state remains unchanged.
 - Admin middleware and the service-level Admin check both protect decisions. Stale request versions and retries return `submission-conflict`; owner-scoped misses remain `not-found`.
-- No package object is directly deleted by delisting, so artifacts referenced by personal, restricted, or other submission versions remain available to their live references.
+- Approval durably queues artifact cleanup after publication invisibility changes in the same transaction. The existing cleanup run leases queued work, rechecks approval and invisibility, protects artifacts referenced by personal, restricted, or other revisions, and completes idempotently. Rejection queues no cleanup.
 
 ## Commands and results
 
@@ -53,3 +53,13 @@ Successful withdrawal changes the status to `withdrawn`, increments the submissi
 - Commit: `feat(skill-market): add withdrawal and delisting` (this commit).
 - Environment note: Bun is installed at `/Users/gwm/.bun/bin/bun` but was not present on the shell `PATH`; verification used the explicit binary and generator runs prepended its directory.
 - Functional concerns: none found in the focused lifecycle scope.
+
+## Review follow-up
+
+- Kept migration 012's partial unique index on pending delist requests and made the insert use that index as the final concurrency authority. SQLite busy and unique races now map to the stable `submission-conflict` domain error.
+- Added a two-connection regression test: a competing writer sees `submission-conflict`, a raw concurrent insert is rejected by the durable partial index, and exactly one pending request survives.
+- Added a durable, leased cleanup queue in migration 012. Approved decisions enqueue only after publication visibility is removed; rejected decisions do not enqueue.
+- Extended the existing cleanup command to claim retryable jobs, recheck approval and publication invisibility, protect shared private artifacts, delete unreferenced private/public objects, and record completion. A second run performs no work.
+- Focused verification: `/Users/gwm/.bun/bin/bun test test/submissions.test.ts test/moderation.test.ts test/publisher.test.ts script/cleanup.test.ts` from `packages/skill-market-server` — 70 pass, 0 fail.
+- Type verification: `/Users/gwm/.bun/bin/bun typecheck` from `packages/skill-market-server` — exit 0.
+- Follow-up commit: `fix(skill-market): harden delist cleanup` (this commit).

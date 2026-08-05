@@ -158,6 +158,61 @@ describe("submission lifecycle", () => {
     fixture.database.close()
   })
 
+  test("keeps one pending delist request across database connections with stable conflicts", async () => {
+    const fixture = await submissionFixture()
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const input = upload("concurrent-delist", "1.0.0")
+    const created = await submissions.create(fixture.alice, { idempotencyKey: "concurrent-delist", ...input })
+    submissions.completeValidation(validation(input, created.submission.id, 1))
+    fixture.database.transaction((connection) => {
+      connection.run("UPDATE submissions SET status = 'published', version = 3 WHERE id = ?", [created.submission.id])
+      connection.run(
+        `UPDATE community_skills
+         SET current_submission_id = ?, current_version = '1.0.0', public_status = 'published'
+         WHERE skill_id = 'concurrent-delist'`,
+        [created.submission.id],
+      )
+    })
+    const competing = await openDatabase({
+      databasePath: fixture.databasePath,
+      migrationBackupDirectory: join(fixture.directory, "competing-backups"),
+    })
+    fixture.database.connection.run("PRAGMA busy_timeout = 1")
+    competing.connection.run("BEGIN IMMEDIATE")
+
+    await expectCode(
+      () =>
+        submissions.requestDelist(fixture.alice, created.submission.id, {
+          expectedVersion: 3,
+          reason: "Concurrent request",
+        }),
+      "submission-conflict",
+    )
+    competing.connection.run("ROLLBACK")
+    submissions.requestDelist(fixture.alice, created.submission.id, {
+      expectedVersion: 3,
+      reason: "Winning request",
+    })
+    expect(() =>
+      competing.connection.run(
+        `INSERT INTO delist_requests
+          (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
+         VALUES ('dlr_competing1', ?, 'alice', 'Second pending request', 'pending', 1, ?)`,
+        [created.submission.id, fixture.clock.value],
+      ),
+    ).toThrow()
+    expect(
+      fixture.database.connection
+        .query<{ count: number }, [string]>(
+          "SELECT count(*) AS count FROM delist_requests WHERE submission_id = ? AND status = 'pending'",
+        )
+        .get(created.submission.id)?.count,
+    ).toBe(1)
+
+    competing.close()
+    fixture.database.close()
+  })
+
   test("persists validation and corrected revisions as monotonic atomic transitions", async () => {
     const fixture = await submissionFixture()
     const queued: Array<{ submissionID: string; revision: number }> = []

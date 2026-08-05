@@ -444,6 +444,13 @@ describe("submission moderation", () => {
         .get(approvedSkill),
     ).toEqual({ public_status: "delisted" })
     expect(jobCount(fixture, "catalog_rebuild", "pending")).toBe(1)
+    expect(
+      fixture.database.connection
+        .query<{ submission_id: string; status: string }, []>(
+          "SELECT submission_id, status FROM artifact_cleanup_jobs",
+        )
+        .all(),
+    ).toEqual([{ submission_id: approvedSubmission, status: "pending" }])
     await expectCode(
       () => moderation.decideDelist(fixture.admin, "dlr_approved123", { expectedVersion: 1 }, "approved"),
       "submission-conflict",
@@ -457,6 +464,10 @@ describe("submission moderation", () => {
         .query<{ public_status: string }, [string]>("SELECT public_status FROM community_skills WHERE skill_id = ?")
         .get(rejectedSkill),
     ).toEqual({ public_status: "published" })
+    expect(
+      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM artifact_cleanup_jobs")
+        .get()?.count,
+    ).toBe(1)
 
     fixture.database.close()
   })
