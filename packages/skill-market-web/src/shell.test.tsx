@@ -34,7 +34,9 @@ describe("market shell", () => {
 
     expect((await fixture.view.findByRole("link", { name: "我的空间" })).getAttribute("aria-current")).toBe("page")
     expect(fixture.view.getByText("Contributor User").getAttribute("data-identity-name")).not.toBeNull()
-    expect(fixture.view.getByText("E000001").getAttribute("data-identity-id")).not.toBeNull()
+    const employeeID = fixture.view.getByText("E000001")
+    expect(employeeID.getAttribute("data-identity-id")).not.toBeNull()
+    expect(employeeID.classList).toContain("machine-id")
     expect(fixture.view.queryByRole("link", { name: "个人空间" })).toBeNull()
     expect(fixture.view.queryByRole("link", { name: "我的投稿" })).toBeNull()
     expect(fixture.view.queryByRole("link", { name: "我的收藏" })).toBeNull()

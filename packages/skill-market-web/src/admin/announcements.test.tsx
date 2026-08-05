@@ -29,6 +29,8 @@ test("validates and publishes an immutable announcement", async () => {
     </Router>
   ))
 
+  expect(view.getByRole("heading", { name: "公告发布", level: 1 }).classList).toContain("type-page-title")
+  expect(view.container.textContent).not.toContain("Admin workspace")
   fireEvent.submit(view.getByRole("button", { name: "立即发布公告" }).closest("form")!)
   expect(view.getByRole("alert").textContent).toContain("请完整填写")
 

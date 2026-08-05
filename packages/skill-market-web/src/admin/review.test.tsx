@@ -14,6 +14,7 @@ describe("moderation review", () => {
     const view = renderReview(source(detail()), "E000001")
 
     expect(await view.findByText("不能审核自己的投稿")).toBeTruthy()
+    expect(view.getByRole("heading", { name: "审核 Safe Skill", level: 1 }).classList).toContain("type-page-title")
     expect(view.getByRole("button", { name: "提交审核决定" }).hasAttribute("disabled")).toBe(true)
   })
 

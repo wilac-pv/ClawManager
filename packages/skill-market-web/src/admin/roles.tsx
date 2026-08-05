@@ -61,15 +61,14 @@ export function RoleAdministration(props: RoleAdministrationProps) {
     <main class="submission-page admin-roles">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Admin workspace</p>
-          <h1>角色管理</h1>
-          <p>Reviewer 可以审核投稿；Admin 还可以管理角色、审计和市场运营。</p>
+          <h1 class="type-page-title">角色管理</h1>
+          <p class="type-secondary">Reviewer 可以审核投稿；Admin 还可以管理角色、审计和市场运营。</p>
         </div>
       </header>
 
       <form class="admin-role-form" onSubmit={assign} onInput={() => setError(undefined)}>
         <label>
-          <span>员工工号</span>
+          <span class="type-label">员工工号</span>
           <input
             aria-label="员工工号"
             value={employeeID()}
@@ -77,7 +76,7 @@ export function RoleAdministration(props: RoleAdministrationProps) {
           />
         </label>
         <label>
-          <span>角色</span>
+          <span class="type-label">角色</span>
           <select
             aria-label="角色"
             value={role()}
@@ -129,7 +128,7 @@ export function RoleAdministration(props: RoleAdministrationProps) {
         </Match>
         <Match when={assignments.error}>
           <section class="submission-state" role="alert">
-            <h2>角色加载失败</h2>
+            <h2 class="type-section-title">角色加载失败</h2>
             <button type="button" onClick={() => void assignments.refetch()}>
               重新加载
             </button>
@@ -154,13 +153,13 @@ export function RoleAdministration(props: RoleAdministrationProps) {
                       <tr>
                         <td>
                           <strong>{item.user.displayName}</strong>
-                          <small>{item.user.employeeID}</small>
+                          <small class="type-secondary machine-id">{item.user.employeeID}</small>
                           <Show when={item.user.disabledAt}>
                             <span class="admin-disabled-user">账号已禁用</span>
                           </Show>
                         </td>
                         <td>{roleLabel(item.role)}</td>
-                        <td>{item.createdBy}</td>
+                        <td class="machine-id">{item.createdBy}</td>
                         <td>{formatDate(item.createdAt)}</td>
                         <td>
                           <button

@@ -72,8 +72,8 @@ export function MarketShell(props: ParentProps) {
             {(session) => (
               <>
                 <span class="market-shell__identity">
-                  <strong data-identity-name>{session().user.displayName}</strong>
-                  <small data-identity-id>{session().user.employeeID}</small>
+                  <strong class="type-body" data-identity-name>{session().user.displayName}</strong>
+                  <small class="type-secondary machine-id" data-identity-id>{session().user.employeeID}</small>
                 </span>
                 <button type="button" class="market-shell__logout" onClick={() => void current.logout()}>
                   退出登录

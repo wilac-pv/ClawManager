@@ -53,8 +53,8 @@ export function SkillHubImport(props: SkillHubImportProps) {
       <Match when={status.error}>
         <main class="submission-page">
           <section class="submission-state" role="alert">
-            <h1>SkillHub 同步进度加载失败</h1>
-            <p>请检查网络后重试。</p>
+            <h1 class="type-page-title">SkillHub 同步进度加载失败</h1>
+            <p class="type-body">请检查网络后重试。</p>
             <button type="button" onClick={() => void status.refetch()}>
               重新加载
             </button>
@@ -66,17 +66,16 @@ export function SkillHubImport(props: SkillHubImportProps) {
           <main class="submission-page skillhub-import-page">
             <header class="submission-page__heading">
               <div>
-                <p class="submission-page__eyebrow">Admin workspace</p>
-                <h1>SkillHub 同步</h1>
-                <p>查看上游 SkillHub 导入状态，并按需要控制同步队列。</p>
+                <h1 class="type-page-title">SkillHub 同步</h1>
+                <p class="type-secondary">查看上游 SkillHub 导入状态，并按需要控制同步队列。</p>
               </div>
-              <span class={`skillhub-import-state skillhub-import-state--${progress().state}`}>{stateLabel(progress().state)}</span>
+              <span class={`skillhub-import-state type-badge skillhub-import-state--${progress().state}`}>{stateLabel(progress().state)}</span>
             </header>
 
             <section class="skillhub-import-progress" aria-label="同步进度概览">
               <div class="skillhub-import-progress__heading">
-                <span>已处理 {formatNumber(progress().mirrored + progress().rejected)} / {formatNumber(progress().upstreamTotal)}</span>
-                <strong>{formatPercent(progress())}</strong>
+                <span class="type-secondary">已处理 {formatNumber(progress().mirrored + progress().rejected)} / {formatNumber(progress().upstreamTotal)}</span>
+                <strong class="type-section-title">{formatPercent(progress())}</strong>
               </div>
               <div
                 class="skillhub-import-progress__bar"
@@ -137,11 +136,11 @@ export function SkillHubImport(props: SkillHubImportProps) {
             <section class="skillhub-import-progress" aria-labelledby="skillhub-evaluation-heading">
               <div class="skillhub-import-progress__heading">
                 <div>
-                  <h2 id="skillhub-evaluation-heading">TRACE 评分补齐</h2>
-                  <span>补齐 SkillHub 的真实 TRACE 评分，不影响内容同步。</span>
+                  <h2 class="type-section-title" id="skillhub-evaluation-heading">TRACE 评分补齐</h2>
+                  <span class="type-secondary">补齐 SkillHub 的真实 TRACE 评分，不影响内容同步。</span>
                 </div>
-                <Show when={evaluation.data} fallback={<strong>加载中</strong>}>
-                  {(progress) => <strong>{formatEvaluationPercent(progress())}%</strong>}
+                <Show when={evaluation.data} fallback={<strong class="type-section-title">加载中</strong>}>
+                  {(progress) => <strong class="type-section-title">{formatEvaluationPercent(progress())}%</strong>}
                 </Show>
               </div>
               <Show when={evaluation.data}>
@@ -249,8 +248,8 @@ export function SkillHubImport(props: SkillHubImportProps) {
 function StatCard(props: { readonly label: string; readonly value: string }) {
   return (
     <article aria-label={props.label}>
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
+      <span class="type-label">{props.label}</span>
+      <strong class="type-card-title">{props.value}</strong>
     </article>
   )
 }

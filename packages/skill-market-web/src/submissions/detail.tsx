@@ -45,8 +45,8 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
       <Match when={submission.error}>
         <main class="submission-page">
           <section class="submission-state" role="alert">
-            <h1>投稿详情加载失败</h1>
-            <p>请检查网络后重试。</p>
+            <h1 class="type-page-title">投稿详情加载失败</h1>
+            <p class="type-body">请检查网络后重试。</p>
             <button type="button" onClick={() => void submission.refetch()}>
               重新加载
             </button>
@@ -82,8 +82,8 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
                   <A href={detail().target === "personal" ? "/personal" : "/submissions"}>
                     ← 返回{detail().target === "personal" ? "个人空间" : "我的投稿"}
                   </A>
-                  <h1>{detail().metadata.displayName}</h1>
-                  <p>
+                  <h1 class="type-page-title">{detail().metadata.displayName}</h1>
+                  <p class="type-secondary">
                     {detail().skillID} · 目标版本 {detail().targetVersion}
                   </p>
                 </div>
@@ -111,12 +111,12 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
               </Show>
 
               <section class="submission-detail__section" aria-labelledby="submission-overview-title">
-                <h2 id="submission-overview-title">投稿信息</h2>
-                <p>{detail().metadata.description}</p>
+                <h2 class="type-section-title" id="submission-overview-title">投稿信息</h2>
+                <p class="type-body">{detail().metadata.description}</p>
                 <dl class="submission-detail__facts">
                   <div>
-                    <dt>分类</dt>
-                    <dd>{detail().metadata.category}</dd>
+                    <dt class="type-label">分类</dt>
+                    <dd class="type-body">{detail().metadata.category}</dd>
                   </div>
                   <div>
                     <dt>风险等级</dt>
@@ -139,14 +139,14 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
                     <dd>{detail().metadata.tags.join("、") || "无"}</dd>
                   </div>
                 </dl>
-                <h3>变更说明</h3>
-                <p>{detail().metadata.changeNotes}</p>
+                <h3 class="type-card-title">变更说明</h3>
+                <p class="type-body">{detail().metadata.changeNotes}</p>
               </section>
 
               <RevisionReport detail={detail()} />
 
               <section class="submission-detail__section" aria-labelledby="submission-revisions-title">
-                <h2 id="submission-revisions-title">修订历史</h2>
+                <h2 class="type-section-title" id="submission-revisions-title">修订历史</h2>
                 <ol class="submission-detail__history">
                   <For each={detail().revisions}>
                     {(revision) => (
@@ -162,7 +162,7 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
 
               <Show when={detail().reviews.length > 0}>
                 <section class="submission-detail__section" aria-labelledby="submission-reviews-title">
-                  <h2 id="submission-reviews-title">审核记录</h2>
+                  <h2 class="type-section-title" id="submission-reviews-title">审核记录</h2>
                   <ol class="submission-detail__history">
                     <For each={detail().reviews}>
                       {(review) => (

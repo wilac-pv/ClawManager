@@ -16,6 +16,9 @@ describe("moderation queue", () => {
     const view = renderQueue(source)
 
     expect(await view.findByText("共 2 个投稿")).toBeTruthy()
+    expect(view.getByRole("heading", { name: "审核队列", level: 1 }).classList).toContain("type-page-title")
+    expect(view.container.textContent).not.toContain("Reviewer workspace")
+    expect(view.getByText("E000001").classList).toContain("machine-id")
     expect(view.getAllByText("待审核").length).toBeGreaterThan(1)
     expect(view.getAllByText("警告").length).toBeGreaterThan(1)
     expect(view.getAllByText("危险").length).toBeGreaterThan(1)

@@ -39,6 +39,7 @@ describe("submission detail", () => {
     const fixture = renderDetail(detail("changes_requested"))
 
     expect(await fixture.findByRole("heading", { name: "Safe Skill" })).toBeTruthy()
+    expect(fixture.getByRole("heading", { name: "Safe Skill", level: 1 }).classList).toContain("type-page-title")
     expect(fixture.getByText("missing-skill-md")).toBeTruthy()
     expect(fixture.getByText("必须包含 SKILL.md")).toBeTruthy()
     expect(fixture.getByText("secret-pattern")).toBeTruthy()

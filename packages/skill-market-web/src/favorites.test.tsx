@@ -18,7 +18,10 @@ describe("favorites page", () => {
     const view = renderFavorites(() => Promise.resolve([]))
 
     expect(await view.findByRole("heading", { name: "还没有收藏 Skill" })).toBeTruthy()
-    expect(view.getByRole("heading", { name: "我的收藏" }).closest("header")?.className).toBe("space-page__header")
+    const heading = view.getByRole("heading", { name: "我的收藏", level: 1 })
+    expect(heading.classList).toContain("type-page-title")
+    expect(heading.closest("header")?.className).toBe("space-page__header")
+    expect(view.container.textContent).not.toContain("Saved skills")
     expect(view.getByRole("link", { name: "浏览 Skill 市场" }).getAttribute("href")).toBe("/skills")
     expect(view.getByRole("main").classList.contains("space-page")).toBe(true)
   })

@@ -58,6 +58,8 @@ describe("SkillHub import administration", () => {
     })
 
     expect((await view.findByRole("progressbar", { name: "导入进度" })).getAttribute("aria-valuenow")).toBe("25.6")
+    expect(view.getByRole("heading", { name: "SkillHub 同步", level: 1 }).classList).toContain("type-page-title")
+    expect(view.container.textContent).not.toContain("Admin workspace")
     expect(view.getByText("20,000")).toBeTruthy()
     expect(view.getByText("2 MB")).toBeTruthy()
     expect(view.getByText("1,280 个/分钟")).toBeTruthy()

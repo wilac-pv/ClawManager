@@ -50,9 +50,8 @@ export function AnnouncementAdministration(props: { readonly source: Announcemen
     <main class="submission-page announcement-admin">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Admin workspace</p>
-          <h1>公告发布</h1>
-          <p>发布后立即展示在 Skill 市场首页和公告历史中。公告为永久记录，发布后不可修改或删除。</p>
+          <h1 class="type-page-title">公告发布</h1>
+          <p class="type-secondary">发布后立即展示在 Skill 市场首页和公告历史中。公告为永久记录，发布后不可修改或删除。</p>
         </div>
         <A class="submission-page__primary" href="/announcements">
           查看公告历史
@@ -61,7 +60,7 @@ export function AnnouncementAdministration(props: { readonly source: Announcemen
 
       <form class="announcement-admin__form" onSubmit={publish} onInput={() => setError(undefined)}>
         <label>
-          <span>公告标题</span>
+          <span class="type-label">公告标题</span>
           <input
             aria-label="公告标题"
             required
@@ -73,7 +72,7 @@ export function AnnouncementAdministration(props: { readonly source: Announcemen
           <small>{title().length}/120</small>
         </label>
         <label>
-          <span>首页摘要</span>
+          <span class="type-label">首页摘要</span>
           <textarea
             aria-label="首页摘要"
             required
@@ -86,7 +85,7 @@ export function AnnouncementAdministration(props: { readonly source: Announcemen
           <small>{summary().length}/300</small>
         </label>
         <label>
-          <span>公告正文</span>
+          <span class="type-label">公告正文</span>
           <textarea
             aria-label="公告正文"
             required
@@ -109,7 +108,7 @@ export function AnnouncementAdministration(props: { readonly source: Announcemen
         <Show when={published()}>
           {(announcement) => (
             <div class="announcement-admin__success" role="status">
-              <strong>公告已发布</strong>
+              <strong class="type-card-title">公告已发布</strong>
               <A href={`/announcements/${announcement().id}`}>查看公告详情</A>
             </div>
           )}

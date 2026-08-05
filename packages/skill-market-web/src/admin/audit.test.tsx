@@ -20,6 +20,9 @@ describe("audit log", () => {
     const view = renderAudit(source, "/admin/audit?actor=E000009&action=role-assigned&objectType=role&page=2")
 
     expect(await view.findByText("req_abcdef")).toBeTruthy()
+    expect(view.getByRole("heading", { name: "审计日志", level: 1 }).classList).toContain("type-page-title")
+    expect(view.getByText("req_abcdef").classList).toContain("machine-id")
+    expect(view.container.textContent).not.toContain("Admin workspace")
     expect(calls[0]).toMatchObject({ actor: "E000009", action: "role-assigned", objectType: "role", page: 2 })
     expect(view.container.textContent).toContain("[REDACTED]")
     expect(view.container.textContent).not.toContain("sensitive-token-value")

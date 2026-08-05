@@ -64,15 +64,14 @@ export function ModerationQueue(props: ModerationQueueProps) {
     <main class="submission-page moderation-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Reviewer workspace</p>
-          <h1>审核队列</h1>
-          <p>按等待顺序处理投稿，重点检查安全扫描与变更内容。</p>
+          <h1 class="type-page-title">审核队列</h1>
+          <p class="type-secondary">按等待顺序处理投稿，重点检查安全扫描与变更内容。</p>
         </div>
       </header>
 
       <section class="moderation-filters" aria-label="审核队列筛选">
         <label>
-          <span>投稿状态</span>
+          <span class="type-label">投稿状态</span>
           <select
             aria-label="投稿状态"
             value={status() ?? ""}
@@ -83,7 +82,7 @@ export function ModerationQueue(props: ModerationQueueProps) {
           </select>
         </label>
         <label>
-          <span>风险等级</span>
+          <span class="type-label">风险等级</span>
           <select
             aria-label="风险等级"
             value={risk() ?? ""}
@@ -94,7 +93,7 @@ export function ModerationQueue(props: ModerationQueueProps) {
           </select>
         </label>
         <label>
-          <span>投稿人工号</span>
+          <span class="type-label">投稿人工号</span>
           <input
             aria-label="投稿人工号"
             value={submitter() ?? ""}
@@ -102,7 +101,7 @@ export function ModerationQueue(props: ModerationQueueProps) {
           />
         </label>
         <label>
-          <span>开始日期</span>
+          <span class="type-label">开始日期</span>
           <input
             aria-label="开始日期"
             type="date"
@@ -111,7 +110,7 @@ export function ModerationQueue(props: ModerationQueueProps) {
           />
         </label>
         <label>
-          <span>结束日期</span>
+          <span class="type-label">结束日期</span>
           <input
             aria-label="结束日期"
             type="date"
@@ -119,7 +118,7 @@ export function ModerationQueue(props: ModerationQueueProps) {
             onChange={(event) => update({ createdTo: event.currentTarget.value || undefined })}
           />
         </label>
-        <Show when={submissions.data}>{(result) => <strong>共 {result().total} 个投稿</strong>}</Show>
+        <Show when={submissions.data}>{(result) => <strong class="type-label">共 {result().total} 个投稿</strong>}</Show>
       </section>
 
       <Switch>
@@ -130,8 +129,8 @@ export function ModerationQueue(props: ModerationQueueProps) {
         </Match>
         <Match when={submissions.error}>
           <section class="submission-state" role="alert">
-            <h2>审核队列加载失败</h2>
-            <p>请检查网络后重试。</p>
+            <h2 class="type-section-title">审核队列加载失败</h2>
+            <p class="type-body">请检查网络后重试。</p>
             <button type="button" onClick={() => void submissions.refetch()}>
               重新加载
             </button>
@@ -143,8 +142,8 @@ export function ModerationQueue(props: ModerationQueueProps) {
               when={result().items.length > 0}
               fallback={
                 <section class="submission-state">
-                  <h2>没有匹配的投稿</h2>
-                  <p>可以调整筛选条件查看其他投稿。</p>
+                  <h2 class="type-section-title">没有匹配的投稿</h2>
+                  <p class="type-body">可以调整筛选条件查看其他投稿。</p>
                 </section>
               }
             >
@@ -171,18 +170,18 @@ export function ModerationQueue(props: ModerationQueueProps) {
                           </td>
                           <td>
                             <strong>{item.owner.displayName}</strong>
-                            <small>{item.owner.employeeID}</small>
+                            <small class="type-secondary machine-id">{item.owner.employeeID}</small>
                           </td>
                           <td>
-                            <span class={`submission-status submission-status--${item.status}`}>
+                            <span class={`submission-status type-badge submission-status--${item.status}`}>
                               {statusLabel(item.status)}
                             </span>
                           </td>
                           <td>
-                            <span class="submission-status">{audienceLabel(item)}</span>
+                            <span class="submission-status type-badge">{audienceLabel(item)}</span>
                           </td>
                           <td>
-                            <span class={`moderation-risk moderation-risk--${item.risk}`}>{riskLabel(item.risk)}</span>
+                            <span class={`moderation-risk type-badge moderation-risk--${item.risk}`}>{riskLabel(item.risk)}</span>
                           </td>
                           <td>{waitLabel(item.createdAt, (props.now ?? Date.now)())}</td>
                           <td>

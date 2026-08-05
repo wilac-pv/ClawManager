@@ -99,7 +99,7 @@ export function ModerationReview(props: ModerationReviewProps) {
       <Match when={submission.error}>
         <main class="submission-page">
           <section class="submission-state" role="alert">
-            <h1>审核详情加载失败</h1>
+            <h1 class="type-page-title">审核详情加载失败</h1>
             <button type="button" onClick={() => void submission.refetch()}>
               重新加载
             </button>
@@ -119,12 +119,12 @@ export function ModerationReview(props: ModerationReviewProps) {
               <header class="submission-detail__header">
                 <div>
                   <A href="/admin">← 返回审核队列</A>
-                  <h1>审核 {detail().metadata.displayName}</h1>
-                  <p>
+                  <h1 class="type-page-title">审核 {detail().metadata.displayName}</h1>
+                  <p class="type-secondary">
                     {detail().skillID} · 投稿人 {detail().owner.displayName}（{detail().owner.employeeID}）
                   </p>
                 </div>
-                <span class={`moderation-risk moderation-risk--${detail().risk}`}>{riskLabel(detail().risk)}</span>
+                <span class={`moderation-risk type-badge moderation-risk--${detail().risk}`}>{riskLabel(detail().risk)}</span>
               </header>
 
               <SubmissionStatusTimeline status={detail().status} timeline={detail().timeline} />
@@ -153,8 +153,8 @@ export function ModerationReview(props: ModerationReviewProps) {
               </Show>
 
               <section class="submission-detail__section moderation-review__overview">
-                <h2>投稿概览</h2>
-                <p>{detail().metadata.description}</p>
+                <h2 class="type-section-title">投稿概览</h2>
+                <p class="type-body">{detail().metadata.description}</p>
                 <dl class="submission-detail__facts">
                   <div>
                     <dt>目标版本</dt>
@@ -190,7 +190,7 @@ export function ModerationReview(props: ModerationReviewProps) {
               <Show when={revision()?.scan}>
                 {(scan) => (
                   <section class="submission-detail__section">
-                    <h2>安全扫描</h2>
+                    <h2 class="type-section-title">安全扫描</h2>
                     <p class={`moderation-risk-summary moderation-risk-summary--${scan().risk}`}>
                       {riskLabel(scan().risk)}：{scan().reasons.join("；") || "没有附加原因"}
                     </p>
@@ -218,7 +218,7 @@ export function ModerationReview(props: ModerationReviewProps) {
 
               <section class="submission-detail__section">
                 <div class="submission-detail__section-heading">
-                  <h2>文件清单</h2>
+                  <h2 class="type-section-title">文件清单</h2>
                   <span>
                     第 {filePage()} / {pages()} 页 · 共 {files().length} 个文件
                   </span>
@@ -242,7 +242,7 @@ export function ModerationReview(props: ModerationReviewProps) {
 
               <Show when={detail().reviews.length > 0}>
                 <section class="submission-detail__section">
-                  <h2>历史审核</h2>
+                  <h2 class="type-section-title">历史审核</h2>
                   <ol class="submission-detail__history">
                     <For each={detail().reviews}>
                       {(review) => (
@@ -259,7 +259,7 @@ export function ModerationReview(props: ModerationReviewProps) {
               </Show>
 
               <section class="submission-detail__section moderation-decision" aria-labelledby="decision-title">
-                <h2 id="decision-title">审核决定</h2>
+                <h2 class="type-section-title" id="decision-title">审核决定</h2>
                 <Show when={selfReview()}>
                   <div class="moderation-decision__notice" role="alert">
                     <strong>不能审核自己的投稿</strong>

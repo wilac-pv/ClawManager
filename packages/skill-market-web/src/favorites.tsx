@@ -56,7 +56,7 @@ export function FavoritesPage(props: {
   return (
     <main class="favorite-page space-page">
       <SpacePageHeader
-        eyebrow="Saved skills"
+        eyebrow="收藏内容"
         title="我的收藏"
         description="收藏的 Skill 会跟随当前 GWM SSO 账号，在不同设备上保持一致。"
         action={
@@ -73,8 +73,8 @@ export function FavoritesPage(props: {
         </Match>
         <Match when={favorites.error}>
           <section class="space-page__state" role="alert">
-            <h2>收藏加载失败</h2>
-            <p>请检查网络后重试。</p>
+            <h2 class="type-section-title">收藏加载失败</h2>
+            <p class="type-body">请检查网络后重试。</p>
             <button type="button" onClick={() => void favorites.refetch()}>
               重新加载
             </button>
@@ -86,8 +86,8 @@ export function FavoritesPage(props: {
               when={items().length > 0}
               fallback={
                 <section class="space-page__state">
-                  <h2>还没有收藏 Skill</h2>
-                  <p>在市场卡片或 Skill 详情页点击星标即可收藏。</p>
+                  <h2 class="type-section-title">还没有收藏 Skill</h2>
+                  <p class="type-body">在市场卡片或 Skill 详情页点击星标即可收藏。</p>
                 </section>
               }
             >
@@ -120,11 +120,11 @@ function FavoriteSkill(props: {
         {(skill) => (
           <>
             <div>
-              <span class="favorite-page__source">
+              <span class="favorite-page__source type-badge">
                 {skill().source === "skillhub" ? "SkillHub" : skill().source === "enterprise" ? "企业精选" : "用户投稿"}
               </span>
-              <h2>{skill().name}</h2>
-              <p>{skill().description}</p>
+              <h2 class="type-card-title">{skill().name}</h2>
+              <p class="type-secondary">{skill().description}</p>
             </div>
             <div class="favorite-page__actions">
               <A href={`/skills/${skill().source}/${encodeURIComponent(skill().id)}`}>查看详情</A>

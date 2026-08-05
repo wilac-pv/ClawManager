@@ -40,6 +40,9 @@ describe("role administration", () => {
     }
     const view = renderRoles(source)
     expect(await view.findByText("账号已禁用")).toBeTruthy()
+    expect(view.getByRole("heading", { name: "角色管理", level: 1 }).classList).toContain("type-page-title")
+    expect(view.container.textContent).not.toContain("Admin workspace")
+    expect(view.getByText("E000001").classList).toContain("machine-id")
     fireEvent.input(view.getByLabelText("员工工号"), { target: { value: "E000002" } })
     fireEvent.change(view.getByLabelText("角色"), { target: { value: "reviewer" } })
     fireEvent.click(view.getByRole("button", { name: "添加角色" }))

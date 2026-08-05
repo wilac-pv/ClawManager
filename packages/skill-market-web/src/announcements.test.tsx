@@ -42,6 +42,7 @@ test("shows the latest announcement as a carousel and switches announcements", a
   const view = renderPage(() => <AnnouncementCarousel source={source} />)
 
   expect(await view.findByRole("link", { name: /Skill 市场新功能上线/ })).toBeTruthy()
+  expect(view.getByText("公告").classList).toContain("type-badge")
   fireEvent.click(view.getByRole("button", { name: /查看公告 2/ }))
   expect(view.getByRole("link", { name: /服务维护通知/ }).getAttribute("href")).toBe(
     "/announcements/ann_ijklmnop",
@@ -52,11 +53,15 @@ test("shows the latest announcement as a carousel and switches announcements", a
 test("renders announcement history and detail with the historical sidebar", async () => {
   const history = renderPage(() => <AnnouncementHistory source={source} />)
   expect(await history.findByRole("heading", { name: "公告中心", level: 1 })).toBeTruthy()
+  expect(history.getByRole("heading", { name: "公告中心", level: 1 }).classList).toContain("type-page-title")
+  expect(history.container.textContent).not.toContain("Ruying SkillHub updates")
   expect(await history.findByRole("link", { name: /Skill 市场新功能上线/ })).toBeTruthy()
   cleanup()
 
   const detail = renderPage(() => <AnnouncementDetail announcementID="ann_abcdefgh" source={source} />)
   expect(await detail.findByRole("heading", { name: "Skill 市场新功能上线", level: 1 })).toBeTruthy()
+  expect(detail.getByRole("heading", { name: "Skill 市场新功能上线", level: 1 }).classList).toContain("type-page-title")
+  expect(detail.container.textContent).not.toContain("Announcement")
   expect(detail.getByRole("heading", { name: "新功能" })).toBeTruthy()
   expect(detail.getByRole("navigation", { name: "历史公告" })).toBeTruthy()
 })

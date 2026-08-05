@@ -82,15 +82,14 @@ export function AuditLog(props: AuditLogProps) {
     <main class="submission-page audit-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Admin workspace</p>
-          <h1>审计日志</h1>
-          <p>只读查看角色、审核、发布和市场运营操作。</p>
+          <h1 class="type-page-title">审计日志</h1>
+          <p class="type-secondary">只读查看角色、审核、发布和市场运营操作。</p>
         </div>
       </header>
 
       <section class="moderation-filters audit-filters" aria-label="审计筛选">
         <label>
-          <span>操作人工号</span>
+          <span class="type-label">操作人工号</span>
           <input
             aria-label="操作人工号"
             value={actor() ?? ""}
@@ -98,7 +97,7 @@ export function AuditLog(props: AuditLogProps) {
           />
         </label>
         <label>
-          <span>操作类型</span>
+          <span class="type-label">操作类型</span>
           <select
             aria-label="操作类型"
             value={action() ?? ""}
@@ -109,7 +108,7 @@ export function AuditLog(props: AuditLogProps) {
           </select>
         </label>
         <label>
-          <span>对象类型</span>
+          <span class="type-label">对象类型</span>
           <select
             aria-label="对象类型"
             value={objectType() ?? ""}
@@ -120,7 +119,7 @@ export function AuditLog(props: AuditLogProps) {
           </select>
         </label>
         <label>
-          <span>对象 ID</span>
+          <span class="type-label">对象 ID</span>
           <input
             aria-label="对象 ID"
             value={objectID() ?? ""}
@@ -128,7 +127,7 @@ export function AuditLog(props: AuditLogProps) {
           />
         </label>
         <label>
-          <span>开始日期</span>
+          <span class="type-label">开始日期</span>
           <input
             aria-label="开始日期"
             type="date"
@@ -137,7 +136,7 @@ export function AuditLog(props: AuditLogProps) {
           />
         </label>
         <label>
-          <span>结束日期</span>
+          <span class="type-label">结束日期</span>
           <input
             aria-label="结束日期"
             type="date"
@@ -155,7 +154,7 @@ export function AuditLog(props: AuditLogProps) {
         </Match>
         <Match when={events.error}>
           <section class="submission-state" role="alert">
-            <h2>审计日志加载失败</h2>
+            <h2 class="type-section-title">审计日志加载失败</h2>
             <button type="button" onClick={() => void events.refetch()}>
               重新加载
             </button>
@@ -167,7 +166,7 @@ export function AuditLog(props: AuditLogProps) {
               when={result().items.length > 0}
               fallback={
                 <section class="submission-state">
-                  <h2>没有匹配的审计事件</h2>
+                  <h2 class="type-section-title">没有匹配的审计事件</h2>
                 </section>
               }
             >
@@ -177,21 +176,21 @@ export function AuditLog(props: AuditLogProps) {
                     <article class="audit-event">
                       <header>
                         <div>
-                          <strong>{actionLabel(event.action)}</strong>
-                          <span>
+                          <strong class="type-card-title">{actionLabel(event.action)}</strong>
+                          <span class="type-secondary">
                             {objectTypeLabel(event.objectType)} · {event.objectID}
                           </span>
                         </div>
-                        <time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time>
+                        <time class="type-secondary" dateTime={event.createdAt}>{formatDate(event.createdAt)}</time>
                       </header>
                       <dl>
                         <div>
-                          <dt>操作人</dt>
-                          <dd>{event.actor ? `${event.actor.displayName}（${event.actor.employeeID}）` : "系统"}</dd>
+                          <dt class="type-label">操作人</dt>
+                          <dd class="type-body">{event.actor ? `${event.actor.displayName}（${event.actor.employeeID}）` : "系统"}</dd>
                         </div>
                         <div>
-                          <dt>请求编号</dt>
-                          <dd>{event.requestID}</dd>
+                          <dt class="type-label">请求编号</dt>
+                          <dd class="type-body machine-id">{event.requestID}</dd>
                         </div>
                       </dl>
                       <div class="audit-event__changes">

@@ -23,8 +23,8 @@ export function AnnouncementDetail(props: { readonly announcementID: string; rea
         </Match>
         <Match when={detail.error}>
           <section class="submission-state" role="alert">
-            <h1>公告暂不可用</h1>
-            <p>该公告不存在，或服务暂时无法访问。</p>
+            <h1 class="type-page-title">公告暂不可用</h1>
+            <p class="type-body">该公告不存在，或服务暂时无法访问。</p>
             <A href="/announcements">返回公告中心</A>
           </section>
         </Match>
@@ -35,18 +35,17 @@ export function AnnouncementDetail(props: { readonly announcementID: string; rea
                 <A class="announcement-detail__back" href="/announcements">
                   ← 公告中心
                 </A>
-                <p class="submission-page__eyebrow">Announcement</p>
-                <h1>{announcement().title}</h1>
-                <time datetime={announcement().publishedAt}>{formatDate(announcement().publishedAt)}</time>
-                <p class="announcement-detail__summary">{announcement().summary}</p>
-                <div class="announcement-detail__body">
+                <h1 class="type-page-title">{announcement().title}</h1>
+                <time class="type-secondary" datetime={announcement().publishedAt}>{formatDate(announcement().publishedAt)}</time>
+                <p class="announcement-detail__summary type-body">{announcement().summary}</p>
+                <div class="announcement-detail__body type-body">
                   <AnnouncementContent value={announcement().content} />
                 </div>
               </article>
 
               <aside class="announcement-detail__history">
                 <header>
-                  <h2>历史公告</h2>
+                  <h2 class="type-section-title">历史公告</h2>
                   <A href="/announcements">查看全部</A>
                 </header>
                 <Show when={history.data}>
@@ -58,8 +57,8 @@ export function AnnouncementDetail(props: { readonly announcementID: string; rea
                             href={`/announcements/${item.id}`}
                             classList={{ "is-active": item.id === props.announcementID }}
                           >
-                            <strong>{item.title}</strong>
-                            <time datetime={item.publishedAt}>{formatShortDate(item.publishedAt)}</time>
+                            <strong class="type-card-title">{item.title}</strong>
+                            <time class="type-secondary" datetime={item.publishedAt}>{formatShortDate(item.publishedAt)}</time>
                           </A>
                         )}
                       </For>
@@ -82,15 +81,15 @@ function AnnouncementContent(props: { readonly value: string }) {
       <For each={lines()}>
         {(line) =>
           line.startsWith("### ") ? (
-            <h3>{line.slice(4)}</h3>
+            <h3 class="type-card-title">{line.slice(4)}</h3>
           ) : line.startsWith("## ") ? (
-            <h2>{line.slice(3)}</h2>
+            <h2 class="type-section-title">{line.slice(3)}</h2>
           ) : line.startsWith("# ") ? (
-            <h2>{line.slice(2)}</h2>
+            <h2 class="type-section-title">{line.slice(2)}</h2>
           ) : line.startsWith("- ") ? (
-            <p>• {line.slice(2)}</p>
+            <p class="type-body">• {line.slice(2)}</p>
           ) : (
-            <p>{line.replace(/\*\*/g, "")}</p>
+            <p class="type-body">{line.replace(/\*\*/g, "")}</p>
           )
         }
       </For>

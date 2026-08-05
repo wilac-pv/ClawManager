@@ -28,10 +28,10 @@ export function AnnouncementCarousel(props: { readonly source: AnnouncementSourc
     <Show when={current()}>
       {(announcement) => (
         <section class="announcement-carousel" aria-label="最新公告" aria-roledescription="走马灯">
-          <span class="announcement-carousel__badge">公告</span>
+          <span class="announcement-carousel__badge type-badge">公告</span>
           <A class="announcement-carousel__content" href={`/announcements/${announcement().id}`}>
-            <strong>{announcement().title}</strong>
-            <span>{announcement().summary}</span>
+            <strong class="type-card-title">{announcement().title}</strong>
+            <span class="type-secondary">{announcement().summary}</span>
           </A>
           <div class="announcement-carousel__controls">
             <div class="announcement-carousel__dots" aria-label="公告切换">

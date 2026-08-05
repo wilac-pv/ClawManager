@@ -72,6 +72,46 @@ samp,
   font-family: var(--font-mono);
 }
 
+.type-page-title {
+  font-size: var(--text-page);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-title);
+}
+
+.type-section-title {
+  font-size: var(--text-section);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-title);
+}
+
+.type-card-title {
+  font-size: var(--text-card);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-title);
+}
+
+.type-body {
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.type-secondary {
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+}
+
+.type-label {
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-title);
+}
+
+.type-badge {
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-title);
+}
+
 button,
 a {
   outline-offset: 3px;
@@ -275,7 +315,6 @@ a {
 .submission-page__heading h1,
 .space-page__header h1 {
   margin: 5px 0 9px;
-  font-size: clamp(28px, 4vw, 36px);
   letter-spacing: -0.03em;
 }
 
@@ -652,14 +691,11 @@ a {
 .favorite-page__card h2 {
   margin: 9px 0 7px;
   color: #101828;
-  font-size: 18px;
 }
 
 .favorite-page__card p {
   margin: 0;
   color: #667085;
-  font-size: 14px;
-  line-height: 1.6;
 }
 
 .favorite-page__source {
@@ -668,8 +704,6 @@ a {
   border-radius: 999px;
   background: #eef4ff;
   color: #125fc3;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .favorite-page__actions {
@@ -1276,7 +1310,6 @@ a {
 
 .submission-detail__header h1 {
   margin: 16px 0 6px;
-  font-size: clamp(28px, 4vw, 40px);
   letter-spacing: -0.03em;
 }
 
@@ -1306,7 +1339,6 @@ a {
 .submission-detail__section > h2,
 .submission-detail__section-heading h2 {
   margin-top: 0;
-  font-size: 20px;
 }
 
 .submission-detail__section-heading {
@@ -1319,7 +1351,6 @@ a {
 .submission-status-message {
   margin: 0 0 24px;
   color: #4e5865;
-  font-size: 16px;
 }
 
 .submission-timeline {
@@ -1369,7 +1400,6 @@ a {
 .submission-timeline time,
 .submission-detail__history time {
   color: var(--skillhub-muted);
-  font-size: 13px;
 }
 
 .submission-timeline p {
@@ -1415,13 +1445,11 @@ a {
 .submission-detail__facts dt {
   margin-bottom: 5px;
   color: var(--skillhub-muted);
-  font-size: 12px;
 }
 
 .submission-detail__facts dd {
   overflow: hidden;
   margin: 0;
-  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1505,8 +1533,7 @@ a {
 }
 
 .moderation-filters label > span {
-  font-size: 13px;
-  font-weight: 650;
+  color: #27303c;
 }
 
 .moderation-filters input,
@@ -1544,7 +1571,6 @@ a {
 .moderation-table th {
   background: #f7f8fa;
   color: #626b78;
-  font-size: 12px;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
@@ -1580,8 +1606,6 @@ a {
   border-radius: 999px;
   background: #eef1f5;
   color: #56606d;
-  font-size: 12px;
-  font-weight: 750;
 }
 
 .moderation-risk--safe {
@@ -1937,8 +1961,6 @@ a {
   border-radius: 999px;
   background: #eef1f5;
   color: #52606d;
-  font-size: 13px;
-  font-weight: 700;
 }
 
 .skillhub-import-state--running {
@@ -1981,7 +2003,6 @@ a {
 
 .skillhub-import-progress__heading strong {
   color: #202b38;
-  font-size: 22px;
 }
 
 .skillhub-import-progress__bar {
@@ -2016,12 +2037,10 @@ a {
 .skillhub-import-details dt,
 .skillhub-import-controls__slugs > span {
   color: #687383;
-  font-size: 13px;
 }
 
 .skillhub-import-cards strong {
   color: #202b38;
-  font-size: 19px;
 }
 
 .skillhub-import-details {
@@ -2141,7 +2160,6 @@ a {
 .audit-event > header span,
 .audit-event > header time {
   color: #6c7480;
-  font-size: 13px;
 }
 
 .audit-event dl {
@@ -2158,7 +2176,6 @@ a {
 
 .audit-event dt {
   color: var(--skillhub-muted);
-  font-size: 12px;
 }
 
 .audit-event dd {
@@ -2425,8 +2442,6 @@ a {
   border-radius: 999px;
   background: var(--skillhub-brand);
   color: #fff;
-  font-size: 13px;
-  font-weight: 800;
   letter-spacing: 0.08em;
 }
 
@@ -2441,7 +2456,6 @@ a {
 
 .announcement-carousel__content strong {
   overflow: hidden;
-  font-size: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2450,7 +2464,6 @@ a {
   overflow: hidden;
   margin-top: 3px;
   color: #697087;
-  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2516,7 +2529,6 @@ a {
 .announcement-detail__article h1 {
   margin: 4px 0 10px;
   color: #111827;
-  font-size: clamp(32px, 4vw, 44px);
   letter-spacing: -0.035em;
 }
 
@@ -2524,7 +2536,6 @@ a {
   max-width: 640px;
   margin: 0;
   color: #687087;
-  font-size: 16px;
 }
 
 .announcement-history {
@@ -2559,13 +2570,11 @@ a {
 
 .announcement-history__item time {
   color: var(--skillhub-muted);
-  font-size: 13px;
 }
 
 .announcement-history__item h2 {
   margin: 0 0 6px;
   color: #172033;
-  font-size: 19px;
 }
 
 .announcement-history__item p {
@@ -2573,8 +2582,6 @@ a {
   margin: 0;
   overflow: hidden;
   color: #687087;
-  font-size: 14px;
-  line-height: 1.65;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -2591,7 +2598,6 @@ a {
   gap: 18px;
   margin-top: 26px;
   color: var(--skillhub-muted);
-  font-size: 13px;
 }
 
 .announcement-pagination button {
@@ -2627,14 +2633,11 @@ a {
   display: inline-block;
   margin-bottom: 34px;
   color: var(--skillhub-brand);
-  font-size: 14px;
-  font-weight: 700;
   text-decoration: none;
 }
 
 .announcement-detail__article > time {
   color: var(--skillhub-muted);
-  font-size: 13px;
 }
 
 .announcement-detail__summary {
@@ -2644,14 +2647,10 @@ a {
   border-radius: 0 12px 12px 0;
   background: var(--skillhub-brand-soft);
   color: #4e566c;
-  font-size: 16px;
-  line-height: 1.75;
 }
 
 .announcement-detail__body {
   color: #30384c;
-  font-size: 16px;
-  line-height: 1.85;
 }
 
 .announcement-detail__history {
@@ -2673,12 +2672,10 @@ a {
 
 .announcement-detail__history h2 {
   margin: 0;
-  font-size: 17px;
 }
 
 .announcement-detail__history header a {
   color: var(--skillhub-brand);
-  font-size: 12px;
   text-decoration: none;
 }
 
@@ -2706,14 +2703,12 @@ a {
 
 .announcement-detail__history nav strong {
   overflow: hidden;
-  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .announcement-detail__history nav time {
   color: var(--skillhub-muted);
-  font-size: 12px;
 }
 
 .announcement-admin__form {
@@ -2735,8 +2730,6 @@ a {
 
 .announcement-admin__form label > span {
   color: #242c3e;
-  font-size: 14px;
-  font-weight: 750;
 }
 
 .announcement-admin__form input,

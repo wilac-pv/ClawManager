@@ -14,9 +14,8 @@ export function AnnouncementHistory(props: { readonly source: AnnouncementSource
     <main class="announcement-page">
       <header class="announcement-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Ruying SkillHub updates</p>
-          <h1>公告中心</h1>
-          <p>查看 Skill 市场的功能发布、服务调整和运营通知。</p>
+          <h1 class="type-page-title">公告中心</h1>
+          <p class="type-secondary">查看 Skill 市场的功能发布、服务调整和运营通知。</p>
         </div>
       </header>
 
@@ -28,7 +27,7 @@ export function AnnouncementHistory(props: { readonly source: AnnouncementSource
         </Match>
         <Match when={announcements.error}>
           <section class="submission-state" role="alert">
-            <h2>公告加载失败</h2>
+            <h2 class="type-section-title">公告加载失败</h2>
             <button type="button" onClick={() => void announcements.refetch()}>
               重新加载
             </button>
@@ -41,8 +40,8 @@ export function AnnouncementHistory(props: { readonly source: AnnouncementSource
                 when={result().items.length > 0}
                 fallback={
                   <section class="submission-state">
-                    <h2>暂无公告</h2>
-                    <p>管理员发布后会显示在这里。</p>
+                    <h2 class="type-section-title">暂无公告</h2>
+                    <p class="type-body">管理员发布后会显示在这里。</p>
                   </section>
                 }
               >
@@ -50,10 +49,10 @@ export function AnnouncementHistory(props: { readonly source: AnnouncementSource
                   <For each={result().items}>
                     {(announcement) => (
                       <A class="announcement-history__item" href={`/announcements/${announcement.id}`}>
-                        <time datetime={announcement.publishedAt}>{formatDate(announcement.publishedAt)}</time>
+                        <time class="type-secondary" datetime={announcement.publishedAt}>{formatDate(announcement.publishedAt)}</time>
                         <div>
-                          <h2>{announcement.title}</h2>
-                          <p>{announcement.summary}</p>
+                          <h2 class="type-card-title">{announcement.title}</h2>
+                          <p class="type-secondary">{announcement.summary}</p>
                         </div>
                         <span aria-hidden="true">→</span>
                       </A>
