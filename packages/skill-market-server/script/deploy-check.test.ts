@@ -150,10 +150,15 @@ describe("deployment checks", () => {
               "content-type": "application/json",
             },
           })
+        if (url.pathname === "/v1/restricted-skills/pub_missing")
+          return Response.json(
+            { code: "invalid-request" },
+            { status: 400, headers: { "cache-control": "no-store", "content-type": "application/json" } },
+          )
         if (url.pathname.startsWith("/v1/restricted-skills/"))
           return Response.json(
             { code: "not-found" },
-            { status: 404, headers: { "cache-control": "no-store", "content-type": "application/json" } },
+            { status: 404, headers: { "cache-control": "private, no-store", "content-type": "application/json" } },
           )
         if (url.pathname === "/v1/restricted-skills")
           return Response.json([], { headers: { "cache-control": "no-store", "content-type": "application/json" } })

@@ -111,11 +111,17 @@ export async function runSmoke(options: { readonly apiUrl: string; readonly webO
         "/v1/restricted-skills/pub_preflight/versions",
         "/v1/restricted-skills/pub_preflight/install-grants",
         "/v1/restricted-skills/pub_preflight/download",
-        "/v1/restricted-skills/pub_missing",
+        "/v1/restricted-skills/pub_missing01",
       ]
       const responses = await Promise.all(paths.map((path) => fetch(new URL(path, api))))
       return (
-        responses.every((response) => response.headers.get("cache-control") === "no-store") &&
+        responses.every((response) =>
+          response.headers
+            .get("cache-control")
+            ?.split(",")
+            .map((value) => value.trim())
+            .includes("no-store"),
+        ) &&
         responses.at(-1)?.status === 404
       )
     }),
