@@ -1573,23 +1573,28 @@ async function marketFixture(
     sessionAbsoluteMilliseconds: 12 * 60 * 60 * 1_000,
     now: () => now,
   })
-  const provisioningFetch: typeof fetch = Object.assign(
-    async (_input: string | URL | Request, _init?: RequestInit) =>
-      Response.json({ status: "ready", key: "must-not-leak", tokenName: "E123456-CONTRIBUTOR" }),
+  const identityFetch: typeof fetch = Object.assign(
+    async (input: string | URL | Request, _init?: RequestInit) =>
+      new URL(input instanceof Request ? input.url : input).pathname === "/authenticate/check_token"
+        ? Response.json({ key: "S_0000", result: { user_code: "E123456", user_name: "CONTRIBUTOR" } })
+        : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     { preconnect: fetch.preconnect },
   )
   const auth = createAuth({
     database,
     security,
     ssoLoginUrl: "https://sso.example.com/login",
-    adminApiBaseUrl: "https://admin.example.com",
+    ssoCheckTokenUrl: "https://auth.example.com/authenticate/check_token",
+    ssoPlatformCode: "platform-test",
+    departmentLookupUrl: "https://pcm.example.com/team",
+    departmentLookupAppCode: "department-test",
     apiPublicUrl: "http://127.0.0.1:4210",
     sessionCookieName: "ruying_market_session",
     cookieSecure: false,
     loginAttemptMilliseconds: 5 * 60 * 1_000,
     sessionAbsoluteMilliseconds: 12 * 60 * 60 * 1_000,
     now: () => now,
-    fetch: provisioningFetch,
+    fetch: identityFetch,
   })
   const packageBody = new TextEncoder().encode("verified package from Effect HttpApi")
   const packageSha256 = new Bun.CryptoHasher("sha256").update(packageBody).digest("hex")

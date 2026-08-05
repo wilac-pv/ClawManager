@@ -170,10 +170,18 @@ export function loadConfig(environment: Environment = process.env) {
       "SKILL_MARKET_SSO_LOGIN_URL",
       environment.SKILL_MARKET_SSO_LOGIN_URL ?? "https://sso.gwm.cn/login",
     ),
-    adminApiBaseUrl: httpsUrl(
-      "SKILL_MARKET_ADMIN_API_BASE_URL",
-      environment.SKILL_MARKET_ADMIN_API_BASE_URL ?? "https://aicoding-admin.gwm.cn",
+    ssoCheckTokenUrl: companyServiceUrl(
+      "SKILL_MARKET_SSO_CHECK_TOKEN_URL",
+      environment.SKILL_MARKET_SSO_CHECK_TOKEN_URL ?? "http://auth.paas.gwm.cn/authenticate/check_token",
     ),
+    ssoPlatformCode: environment.SKILL_MARKET_SSO_PLATFORM_CODE ?? "6533f020e78fcae0e8a28222e49fa558",
+    departmentLookupUrl: companyServiceUrl(
+      "SKILL_MARKET_DEPARTMENT_LOOKUP_URL",
+      environment.SKILL_MARKET_DEPARTMENT_LOOKUP_URL ??
+        "http://1ac8d2983fe640fbbd2374ab2f7a9a1c.apigateway.res.cloud.gwm.cn/RD/PCM/getRYUserTeamInformBygh",
+    ),
+    departmentLookupAppCode:
+      environment.SKILL_MARKET_DEPARTMENT_LOOKUP_APP_CODE ?? "13192890f4c64de38ff5e6ce593b8def",
     cookieSecure: apiUrl.protocol === "https:",
     sessionCookieName: apiUrl.protocol === "https:" ? "__Host-ruying_market_session" : "ruying_market_session",
     loginAttemptMilliseconds:
@@ -307,6 +315,19 @@ function httpsUrl(name: string, value: string | undefined) {
   const url = new URL(value)
   if (url.protocol !== "https:" || url.username || url.password)
     throw new Error(`${name} must be an HTTPS URL without credentials`)
+  return url.href
+}
+
+function companyServiceUrl(name: string, value: string) {
+  if (!URL.canParse(value)) throw new Error(`${name} must be an HTTP or HTTPS company URL without credentials`)
+  const url = new URL(value)
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    (url.protocol === "http:" && !url.hostname.endsWith(".gwm.cn"))
+  )
+    throw new Error(`${name} must be an HTTP or HTTPS company URL without credentials`)
   return url.href
 }
 

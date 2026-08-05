@@ -298,7 +298,10 @@ function validEnvironment(databaseDirectory: string) {
     SKILL_MARKET_WEB_ORIGIN: "https://market.example.com",
     SKILL_MARKET_API_PUBLIC_URL: "https://market.example.com",
     SKILL_MARKET_SSO_LOGIN_URL: "https://sso.example.com/login",
-    SKILL_MARKET_ADMIN_API_BASE_URL: "https://admin.example.com",
+    SKILL_MARKET_SSO_CHECK_TOKEN_URL: "https://auth.example.com/authenticate/check_token",
+    SKILL_MARKET_SSO_PLATFORM_CODE: "platform-test",
+    SKILL_MARKET_DEPARTMENT_LOOKUP_URL: "https://pcm.example.com/team",
+    SKILL_MARKET_DEPARTMENT_LOOKUP_APP_CODE: "department-test",
   } satisfies Record<string, string>
 }
 

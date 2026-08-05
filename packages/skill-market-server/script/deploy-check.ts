@@ -48,7 +48,7 @@ export async function runPreflight(options: {
   if (!configuration)
     return [
       ...checks,
-      ...["oss-prefixes", "oss-endpoint", "external-proxy", "sso", "provisioning", "catalog", "web"].map(
+      ...["oss-prefixes", "oss-endpoint", "external-proxy", "sso", "sso-identity", "department", "catalog", "web"].map(
         (name) => ({ name, status: "SKIP" as const }),
       ),
     ]
@@ -61,7 +61,8 @@ export async function runPreflight(options: {
       ? await probeCheck("external-proxy", configuration.skillhubBaseUrl, probe)
       : { name: "external-proxy", status: "SKIP" },
     await probeCheck("sso", configuration.ssoLoginUrl, probe),
-    await probeCheck("provisioning", configuration.adminApiBaseUrl, probe),
+    await probeCheck("sso-identity", configuration.ssoCheckTokenUrl, probe),
+    await probeCheck("department", configuration.departmentLookupUrl, probe),
     await probeCheck("catalog", new URL("/v1/catalog/skills", configuration.apiPublicUrl).href, probe),
     await probeCheck("web", configuration.webOrigin, probe),
   ]

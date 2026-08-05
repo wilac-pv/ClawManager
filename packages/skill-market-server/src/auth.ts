@@ -7,7 +7,10 @@ interface AuthOptions {
   readonly database: MarketDatabase
   readonly security: MarketSecurity
   readonly ssoLoginUrl: string
-  readonly adminApiBaseUrl: string
+  readonly ssoCheckTokenUrl: string
+  readonly ssoPlatformCode: string
+  readonly departmentLookupUrl: string
+  readonly departmentLookupAppCode: string
   readonly apiPublicUrl: string
   readonly sessionCookieName: string
   readonly cookieSecure: boolean
@@ -28,7 +31,7 @@ interface UserRow {
   readonly disabled_at: number | null
 }
 
-interface ProvisioningIdentity {
+interface SsoIdentity {
   readonly employeeID: string
   readonly displayName: string
   readonly department?: SkillMarketControl.Department
@@ -76,7 +79,7 @@ export function createAuth(options: AuthOptions) {
       })
       if (!returnTo) throw new SkillMarketSecurityError("unauthenticated", "login attempt is not active")
 
-      const identity = await provisionIdentity(options, token)
+      const identity = await verifyIdentity(options, token)
       const sessionToken = randomSecret()
       const csrfToken = randomSecret()
       const created = options.database.transaction((connection) => {
@@ -98,7 +101,7 @@ export function createAuth(options: AuthOptions) {
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(employee_id) DO UPDATE SET
              display_name = excluded.display_name,
-             department_id = excluded.department_id,
+             department_id = COALESCE(excluded.department_id, users.department_id),
              last_login_at = excluded.last_login_at`,
           [identity.employeeID, identity.displayName, identity.department?.id ?? null, now, now],
         )
@@ -149,25 +152,27 @@ export function createAuth(options: AuthOptions) {
   }
 }
 
-async function provisionIdentity(options: AuthOptions, token: string) {
-  const response = await (options.fetch ?? fetch)(new URL("/api/provision/token", options.adminApiBaseUrl), {
-    method: "POST",
-    headers: { accept: "application/json", "content-type": "application/json" },
-    body: JSON.stringify({ ssoAccessToken: token }),
+async function verifyIdentity(options: AuthOptions, token: string) {
+  const checkUrl = new URL(options.ssoCheckTokenUrl)
+  checkUrl.searchParams.set("access_token", token)
+  checkUrl.searchParams.set("platform_code", options.ssoPlatformCode)
+  const response = await (options.fetch ?? fetch)(checkUrl, {
+    method: "GET",
+    headers: { accept: "application/json" },
   }).then(
     (value) => value,
     () => {
-      throw provisioningFailure(options, "network", "dependency-unavailable", "provisioning service is unavailable")
+      throw identityFailure(options, "sso-network", "dependency-unavailable", "SSO validation service is unavailable")
     },
   )
   if (response.status === 401 || response.status === 403)
-    throw provisioningFailure(options, "rejected", "unauthenticated", "SSO token was rejected", response.status)
+    throw identityFailure(options, "sso-rejected", "unauthenticated", "SSO token was rejected", response.status)
   if (!response.ok)
-    throw provisioningFailure(
+    throw identityFailure(
       options,
-      "http",
+      "sso-http",
       "dependency-unavailable",
-      "provisioning service is unavailable",
+      "SSO validation service is unavailable",
       response.status,
     )
 
@@ -176,92 +181,120 @@ async function provisionIdentity(options: AuthOptions, token: string) {
     () => undefined,
   )
   if (!record(body))
-    throw provisioningFailure(options, "json", "dependency-unavailable", "provisioning response is malformed")
-  if (body.status === "pending_enable")
-    throw provisioningFailure(options, "pending", "unauthenticated", "account provisioning is pending")
-  if (body.status !== "ready" || typeof body.key !== "string" || !body.key || typeof body.tokenName !== "string")
-    throw provisioningFailure(options, "response", "dependency-unavailable", "provisioning response is malformed")
-  return parseIdentity(options, body.tokenName, body.departmentId, body.departmentName)
+    throw identityFailure(options, "sso-json", "dependency-unavailable", "SSO validation response is malformed")
+  if (body.key !== "S_0000")
+    throw identityFailure(options, "sso-rejected", "unauthenticated", "SSO token was rejected")
+  if (!record(body.result))
+    throw identityFailure(options, "sso-response", "dependency-unavailable", "SSO validation response is malformed")
+  const employeeID = typeof body.result.user_code === "string" ? body.result.user_code.trim() : ""
+  const displayName = typeof body.result.user_name === "string" ? body.result.user_name.trim() : ""
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(employeeID) || displayName.length < 1 || displayName.length > 100)
+    throw identityFailure(options, "sso-identity", "dependency-unavailable", "SSO identity is malformed")
+  return {
+    employeeID,
+    displayName,
+    department: await loadDepartment(options, employeeID),
+  }
 }
 
-function parseIdentity(
-  options: AuthOptions,
-  tokenName: string,
-  departmentID: unknown,
-  departmentName: unknown,
-): ProvisioningIdentity {
-  const name = tokenName.trim()
-  const separator = name.indexOf("-")
-  const employeeID = separator > 0 ? name.slice(0, separator) : ""
-  const displayName = separator > 0 ? name.slice(separator + 1).trim() : ""
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(employeeID) || displayName.length < 1 || displayName.length > 100)
-    throw provisioningFailure(options, "identity", "dependency-unavailable", "provisioning identity is malformed")
-  if (
-    (departmentID === undefined && departmentName === undefined) ||
-    (departmentID === null && departmentName === null) ||
-    (typeof departmentID === "string" &&
-      typeof departmentName === "string" &&
-      !departmentID.trim() &&
-      !departmentName.trim())
+async function loadDepartment(options: AuthOptions, employeeID: string) {
+  const lookupUrl = new URL(options.departmentLookupUrl)
+  lookupUrl.searchParams.set("appCode", options.departmentLookupAppCode)
+  lookupUrl.searchParams.set("person_number", employeeID.toUpperCase())
+  const response = await (options.fetch ?? fetch)(lookupUrl, {
+    method: "GET",
+    headers: { accept: "application/json" },
+  }).then(
+    (value) => value,
+    () => {
+      throw identityFailure(options, "department-network", "dependency-unavailable", "department service is unavailable")
+    },
   )
-    return { employeeID, displayName }
+  if (!response.ok)
+    throw identityFailure(
+      options,
+      "department-http",
+      "dependency-unavailable",
+      "department service is unavailable",
+      response.status,
+    )
+  const body = await response.json().then(
+    (value) => value,
+    () => undefined,
+  )
+  if (!record(body) || body.errCode !== 0 || !Array.isArray(body.data))
+    throw identityFailure(
+      options,
+      "department-response",
+      "dependency-unavailable",
+      "department response is malformed",
+    )
+  if (body.data.length === 0) return undefined
+  const department = body.data[0]
+  if (!record(department))
+    throw identityFailure(
+      options,
+      "department-response",
+      "dependency-unavailable",
+      "department response is malformed",
+    )
   const normalizedDepartmentID =
-    typeof departmentID === "string"
-      ? departmentID.trim()
-      : typeof departmentID === "number" && Number.isSafeInteger(departmentID) && departmentID >= 0
-        ? String(departmentID)
+    typeof department.team_id === "string"
+      ? department.team_id.trim()
+      : typeof department.team_id === "number" && Number.isSafeInteger(department.team_id) && department.team_id >= 0
+        ? String(department.team_id)
         : undefined
   if (normalizedDepartmentID === undefined)
-    throw provisioningFailure(
+    throw identityFailure(
       options,
-      "department-id-type",
+      "department-id",
       "dependency-unavailable",
-      "provisioning department is malformed",
+      "department response is malformed",
     )
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(normalizedDepartmentID))
-    throw provisioningFailure(
+    throw identityFailure(
       options,
-      "department-id-format",
+      "department-id",
       "dependency-unavailable",
-      "provisioning department is malformed",
+      "department response is malformed",
     )
-  if (typeof departmentName !== "string")
-    throw provisioningFailure(
+  if (typeof department.team_name !== "string")
+    throw identityFailure(
       options,
-      "department-name-type",
+      "department-name",
       "dependency-unavailable",
-      "provisioning department is malformed",
+      "department response is malformed",
     )
-  if (departmentName.trim().length < 1 || departmentName.trim().length > 100)
-    throw provisioningFailure(
+  if (department.team_name.trim().length < 1 || department.team_name.trim().length > 100)
+    throw identityFailure(
       options,
-      "department-name-length",
+      "department-name",
       "dependency-unavailable",
-      "provisioning department is malformed",
+      "department response is malformed",
     )
-  return { employeeID, displayName, department: { id: normalizedDepartmentID, name: departmentName.trim() } }
+  return { id: normalizedDepartmentID, name: department.team_name.trim() }
 }
 
-function provisioningFailure(
+function identityFailure(
   options: AuthOptions,
   stage:
-    | "network"
-    | "rejected"
-    | "http"
-    | "json"
-    | "pending"
-    | "response"
-    | "identity"
-    | "department-id-type"
-    | "department-id-format"
-    | "department-name-type"
-    | "department-name-length",
+    | "sso-network"
+    | "sso-rejected"
+    | "sso-http"
+    | "sso-json"
+    | "sso-response"
+    | "sso-identity"
+    | "department-network"
+    | "department-http"
+    | "department-response"
+    | "department-id"
+    | "department-name",
   code: "unauthenticated" | "dependency-unavailable",
   message: string,
   status?: number,
 ) {
   options.emit?.({
-    skill_market_provisioning_failure: {
+    skill_market_sso_identity_failure: {
       [stage]: 1,
       ...(status === undefined ? {} : { [`http_${status}`]: 1 }),
     },

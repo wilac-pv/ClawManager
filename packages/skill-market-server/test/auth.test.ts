@@ -14,20 +14,85 @@ afterEach(async () => {
 })
 
 describe("SSO authentication", () => {
+  test("validates SSO directly and loads the user's department without provisioning", async () => {
+    const requests: URL[] = []
+    const fixture = await authenticationFixture("https://unused.example.com", false, {
+      ssoCheckTokenUrl: "http://auth.example.com/authenticate/check_token",
+      ssoPlatformCode: "platform-test",
+      departmentLookupUrl: "http://pcm.example.com/team",
+      departmentLookupAppCode: "department-test",
+      fetch: Object.assign(
+        async (request: string | URL | Request) => {
+          const url = new URL(request instanceof Request ? request.url : request)
+          requests.push(url)
+          if (url.pathname === "/authenticate/check_token")
+            return Response.json({
+              key: "S_0000",
+              result: { user_code: "GW00178937", user_name: "武晓达", email: "user@gwm.cn" },
+            })
+          if (url.pathname === "/team")
+            return Response.json({
+              data: [{ person_number: "GW00178937", team_id: 100200300, team_name: "研发一部" }],
+              errCode: 0,
+              errMsg: "success",
+            })
+          return new Response(null, { status: 404 })
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    })
+
+    const result = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "sso-sensitive-access-token")
+
+    expect(
+      requests.map((url) => ({
+        pathname: url.pathname,
+        accessToken: url.searchParams.get("access_token"),
+        platformCode: url.searchParams.get("platform_code"),
+        appCode: url.searchParams.get("appCode"),
+        employeeID: url.searchParams.get("person_number"),
+      })),
+    ).toEqual([
+      {
+        pathname: "/authenticate/check_token",
+        accessToken: "sso-sensitive-access-token",
+        platformCode: "platform-test",
+        appCode: null,
+        employeeID: null,
+      },
+      {
+        pathname: "/team",
+        accessToken: null,
+        platformCode: null,
+        appCode: "department-test",
+        employeeID: "GW00178937",
+      },
+    ])
+    expect(result.session.user).toEqual({
+      employeeID: "GW00178937",
+      displayName: "武晓达",
+      department: { id: "100200300", name: "研发一部" },
+    })
+    fixture.database.close()
+  })
+
   test("consumes a TOKEN-mode login once and stores only identity and secret hashes", async () => {
-    let provisionBody: unknown
+    const identityRequests: URL[] = []
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      async fetch(request) {
-        expect(new URL(request.url).pathname).toBe("/api/provision/token")
-        provisionBody = await request.json()
+      fetch(request) {
+        const url = new URL(request.url)
+        identityRequests.push(url)
+        if (url.pathname === "/authenticate/check_token")
+          return Response.json({
+            key: "S_0000",
+            result: { user_code: "GW00178937", user_name: "武晓达", email: "user@gwm.cn" },
+          })
         return Response.json({
-          status: "ready",
-          key: "sk-sensitive-gateway-key",
-          tokenName: "GW00178937-武晓达",
-          departmentId: "D-001",
-          departmentName: "研发一部",
+          data: [{ person_number: "GW00178937", team_id: "D-001", team_name: "研发一部" }],
+          errCode: 0,
+          errMsg: "success",
         })
       },
     })
@@ -48,7 +113,7 @@ describe("SSO authentication", () => {
     ).toEqual({ attempt_hash: sha256(login.attemptID), return_to: "/submissions" })
 
     const result = await fixture.auth.complete(login.attemptID, "sso-sensitive-access-token")
-    expect(provisionBody).toEqual({ ssoAccessToken: "sso-sensitive-access-token" })
+    expect(identityRequests[0]?.searchParams.get("access_token")).toBe("sso-sensitive-access-token")
     expect(result.returnTo).toBe("/submissions")
     expect(result.session.user).toEqual({
       employeeID: "GW00178937",
@@ -70,10 +135,8 @@ describe("SSO authentication", () => {
     expect(stored).toEqual({ session_hash: sha256(result.sessionToken), csrf_hash: sha256(result.csrfToken) })
     const bytes = new TextDecoder().decode(fixture.database.connection.serialize())
     expect(bytes).not.toContain("sso-sensitive-access-token")
-    expect(bytes).not.toContain("sk-sensitive-gateway-key")
     expect(bytes).not.toContain(result.sessionToken)
     expect(bytes).not.toContain(result.csrfToken)
-    expect(JSON.stringify(result)).not.toContain("sk-sensitive-gateway-key")
 
     const logout = fixture.auth.logout(result.sessionToken)
     expect(logout.clearCookies).toEqual([
@@ -88,14 +151,17 @@ describe("SSO authentication", () => {
 
   test("updates trusted department names and employee transfers on login", async () => {
     const departments = [
-      { departmentId: "D-001", departmentName: "研发一部" },
-      { departmentId: "D-001", departmentName: "研发平台部" },
-      { departmentId: "D-002", departmentName: "质量部" },
+      { team_id: "D-001", team_name: "研发一部" },
+      { team_id: "D-001", team_name: "研发平台部" },
+      { team_id: "D-002", team_name: "质量部" },
     ]
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User", ...departments.shift() }),
+      fetch: (request) =>
+        new URL(request.url).pathname === "/authenticate/check_token"
+          ? Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+          : Response.json({ data: [departments.shift()], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin)
 
@@ -123,15 +189,14 @@ describe("SSO authentication", () => {
     fixture.database.close()
   })
 
-  test("treats null and blank department pairs as absent during rollout", async () => {
-    const departments = [
-      { departmentId: null, departmentName: null },
-      { departmentId: "", departmentName: "  " },
-    ]
+  test("treats an empty department lookup as absent during rollout", async () => {
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User", ...departments.shift() }),
+      fetch: (request) =>
+        new URL(request.url).pathname === "/authenticate/check_token"
+          ? Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+          : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin)
 
@@ -146,18 +211,18 @@ describe("SSO authentication", () => {
     fixture.database.close()
   })
 
-  test("normalizes a safe numeric department ID from the provisioning service", async () => {
+  test("normalizes a safe numeric department ID from the department service", async () => {
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () =>
-        Response.json({
-          status: "ready",
-          key: "sk-key",
-          tokenName: "E000001-Test User",
-          departmentId: 100200300,
-          departmentName: "研发部",
-        }),
+      fetch: (request) =>
+        new URL(request.url).pathname === "/authenticate/check_token"
+          ? Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+          : Response.json({
+              data: [{ person_number: "E000001", team_id: 100200300, team_name: "研发部" }],
+              errCode: 0,
+              errMsg: "success",
+            }),
     })
     const fixture = await authenticationFixture(server.url.origin)
 
@@ -171,7 +236,10 @@ describe("SSO authentication", () => {
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User" }),
+      fetch: (request) =>
+        new URL(request.url).pathname === "/authenticate/check_token"
+          ? Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+          : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin)
     bootstrapAdmins(fixture.database, ["ADMIN"], fixture.clock.value)
@@ -232,14 +300,17 @@ describe("SSO authentication", () => {
     fixture.database.close()
   })
 
-  test("rejects unknown, expired, and replayed attempts before provisioning", async () => {
+  test("rejects unknown, expired, and replayed attempts before SSO validation", async () => {
     let calls = 0
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch() {
-        calls++
-        return Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User" })
+      fetch(request) {
+        if (new URL(request.url).pathname === "/authenticate/check_token") {
+          calls++
+          return Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+        }
+        return Response.json({ data: [], errCode: 0, errMsg: "success" })
       },
     })
     const fixture = await authenticationFixture(server.url.origin)
@@ -261,21 +332,21 @@ describe("SSO authentication", () => {
     fixture.database.close()
   })
 
-  test("consumes attempts on provisioning rejection and refuses malformed trusted identity", async () => {
+  test("consumes attempts on SSO rejection and refuses malformed trusted identity", async () => {
     let calls = 0
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      async fetch(request) {
+      fetch(request) {
+        const url = new URL(request.url)
+        if (url.pathname === "/team")
+          return Response.json({ data: [{ team_id: "D-1" }], errCode: 0, errMsg: "success" })
         calls++
-        const body = await request.json()
-        const token =
-          typeof body === "object" && body !== null && "ssoAccessToken" in body ? body.ssoAccessToken : undefined
-        if (token === "rejected") return new Response("invalid SSO", { status: 401 })
-        if (token === "pending") return Response.json({ status: "pending_enable", tokenName: "E000001-Test User" })
+        const token = url.searchParams.get("access_token")
+        if (token === "rejected") return Response.json({ key: "E_0003", result: null })
         if (token === "partial")
-          return Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User", departmentId: "D-1" })
-        return Response.json({ status: "ready", key: "sk-key", tokenName: "missingdisplayname" })
+          return Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+        return Response.json({ key: "S_0000", result: { user_code: "missingdisplayname" } })
       },
     })
     const fixture = await authenticationFixture(server.url.origin)
@@ -285,8 +356,6 @@ describe("SSO authentication", () => {
     expect((await securityFailure(fixture.auth.complete(rejected.attemptID, "rejected"))).code).toBe("unauthenticated")
     expect(calls).toBe(1)
 
-    const pending = fixture.auth.begin("/submissions")
-    expect((await securityFailure(fixture.auth.complete(pending.attemptID, "pending"))).code).toBe("unauthenticated")
     const malformed = fixture.auth.begin("/submissions")
     expect((await securityFailure(fixture.auth.complete(malformed.attemptID, "malformed"))).code).toBe(
       "dependency-unavailable",
@@ -306,7 +375,10 @@ describe("SSO authentication", () => {
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User" }),
+      fetch: (request) =>
+        new URL(request.url).pathname === "/authenticate/check_token"
+          ? Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+          : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin)
     fixture.database.connection.run(
@@ -327,7 +399,10 @@ describe("SSO authentication", () => {
     using server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () => Response.json({ status: "ready", key: "sk-key", tokenName: "E000001-Test User" }),
+      fetch: (request) =>
+        new URL(request.url).pathname === "/authenticate/check_token"
+          ? Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+          : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin, true)
     const login = fixture.auth.begin("/admin")
@@ -341,7 +416,17 @@ describe("SSO authentication", () => {
   })
 })
 
-async function authenticationFixture(adminApiBaseUrl: string, cookieSecure = false) {
+async function authenticationFixture(
+  identityServiceBaseUrl: string,
+  cookieSecure = false,
+  authentication: {
+    readonly ssoCheckTokenUrl: string
+    readonly ssoPlatformCode: string
+    readonly departmentLookupUrl: string
+    readonly departmentLookupAppCode: string
+    readonly fetch: typeof fetch
+  } | undefined = undefined,
+) {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-auth-"))
   directories.push(directory)
   const database = await openDatabase({
@@ -360,13 +445,17 @@ async function authenticationFixture(adminApiBaseUrl: string, cookieSecure = fal
     database,
     security,
     ssoLoginUrl: "https://sso.example.com/login",
-    adminApiBaseUrl,
+    ssoCheckTokenUrl: `${identityServiceBaseUrl}/authenticate/check_token`,
+    ssoPlatformCode: "platform-test",
+    departmentLookupUrl: `${identityServiceBaseUrl}/team`,
+    departmentLookupAppCode: "department-test",
     apiPublicUrl: "http://127.0.0.1:4210/",
     sessionCookieName: cookieSecure ? "__Host-ruying_market_session" : "ruying_market_session",
     cookieSecure,
     loginAttemptMilliseconds: 5 * 60 * 1_000,
     sessionAbsoluteMilliseconds: 12 * 60 * 60 * 1_000,
     now: () => clock.value,
+    ...authentication,
   })
   return { auth, clock, database, security }
 }
