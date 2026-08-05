@@ -42,6 +42,25 @@ describe("skill market session", () => {
     expect(fixture.navigations).toEqual(["http://127.0.0.1:4210/v1/auth/login?returnTo=%2Fsubmissions%2Fnew"])
   })
 
+  test("returns an anonymous restricted detail to the exact route after SSO", async () => {
+    const basePath = "/ai-coding/ruying-code/skill-market/"
+    const fixture = renderSession(
+      null,
+      `${basePath}skills/restricted/pub_abcdefgh?tab=versions`,
+      () => (
+        <RequireSession>
+          <div>Restricted Skill</div>
+        </RequireSession>
+      ),
+      basePath,
+    )
+
+    fireEvent.click(await fixture.view.findByRole("button", { name: "使用 GWM SSO 登录" }))
+    expect(fixture.navigations).toEqual([
+      "http://127.0.0.1:4210/v1/auth/login?returnTo=%2Fskills%2Frestricted%2Fpub_abcdefgh%3Ftab%3Dversions",
+    ])
+  })
+
   test("enforces Reviewer and Admin guards from server-returned roles", async () => {
     const contributorView = renderSession(contributor, "/admin", () => (
       <RequireReviewer>
@@ -119,6 +138,12 @@ describe("skill market session", () => {
     expect(safeReturnTo("/admin/skillhub")).toBe("/admin/skillhub")
     expect(safeReturnTo("/announcements/ann_abcdefgh")).toBe("/announcements/ann_abcdefgh")
     expect(safeReturnTo("/admin/announcements")).toBe("/admin/announcements")
+    expect(safeReturnTo("/skills/restricted/pub_abcdefgh?tab=versions")).toBe(
+      "/skills/restricted/pub_abcdefgh?tab=versions",
+    )
+    expect(safeReturnTo("/skills/restricted/not-a-publication")).toBe("/skills")
+    expect(safeReturnTo("/skills/restricted/pub_abcdefgh/extra")).toBe("/skills")
+    expect(safeReturnTo("/skills/restricted/pub_abcdefgh%2F..%2Fcommunity%2Fevil")).toBe("/skills")
     expect(
       safeReturnTo(
         "/ai-coding/ruying-code/skill-market/submissions/new?from=market",
