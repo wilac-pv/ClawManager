@@ -12,7 +12,7 @@ The E2E fixture now has anonymous, group owner, ordinary group member, outsider,
 ## Moderation, backup, preflight, and docs
 
 - Queue and review render scope badges with resolved group IDs or department name/ID; private package keys are not rendered.
-- Backup verification requires every migration-011 scoped table, review artifact snapshot columns, critical indexes, and audience triggers; output remains limited to backup key/digest/version.
+- Backup verification accepts coherent pre-migration v10 rollback backups and requires every migration-011 scoped table, review artifact snapshot column, critical index, and audience trigger from v11 onward; output remains limited to backup key/digest/version.
 - Smoke preflight rejects cacheable restricted list/detail/version/grant/download/404 routes and requires the private missing route to return `404` with `no-store`.
 - Server and deploy documentation record the access matrix, ten-minute hashed grants, immediate revocation, enumeration-safe `404`, coordinated audit enum, migration/backup/rollback flags, secret-log exclusions, prefix separation, and two-department controlled validation.
 
@@ -35,3 +35,11 @@ Chromium was installed for this validation using `bunx playwright install chromi
 ## Self-review and concerns
 
 `git diff --check` is clean. The only concern is the existing package-command ambiguity above: Task 6’s literal `bun test` bypasses the package’s declared browser test setup. No unrelated test-runner changes were made.
+
+## Follow-up gate fixes
+
+- The outsider fixture now creates an authenticated session, and the scoped journey proves that authenticated outsider still receives `404`.
+- The same journey retains the member-removal case and adds disabled-group revocation: an active member receives exactly one Aurora restricted list card, a disabled group removes that card immediately, and the direct detail route returns `404`.
+- Backup schema verification now accepts coherent v10 pre-migration rollback backups while requiring the migration-011 schema safeguards for v11 and later.
+
+Focused follow-up results: `bun test script/backup.test.ts script/deploy-check.test.ts` passed 13 tests; `bunx playwright test e2e/market.e2e.ts --grep "enforces scoped sharing"` passed 1 desktop test with 2 project skips.

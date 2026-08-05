@@ -73,6 +73,8 @@ function verifyDatabase(path: string) {
 }
 
 function verifyScopedSharingSchema(database: Database) {
+  const version = database.query<{ user_version: number }, []>("PRAGMA user_version").get()!.user_version
+  if (version < 11) return
   const requiredTables = [
     "market_groups",
     "market_group_members",

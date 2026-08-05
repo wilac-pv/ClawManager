@@ -24,7 +24,7 @@ describe("database backup", () => {
   test("backs up a real WAL database without partial committed transactions", async () => {
     const directory = await temporaryDirectory()
     const databasePath = join(directory, "market.db")
-    const writer = createWalDatabase(databasePath)
+    const writer = createWalDatabase(databasePath, 11)
     Array.from({ length: 20 }, (_, index) => index + 1).forEach((id) => insertPair(writer, id))
     const store = memoryStore()
 
@@ -42,8 +42,8 @@ describe("database backup", () => {
     await Promise.all(writes)
     writer.close()
 
-    expect(backup.key).toMatch(/^private-test\/backups\/sqlite\/20260716T021000Z-v7-[a-f0-9]{64}\.db\.zst$/)
-    expect(store.metadata.get(backup.key)).toEqual({ sha256: backup.sha256, "user-version": "7" })
+    expect(backup.key).toMatch(/^private-test\/backups\/sqlite\/20260716T021000Z-v11-[a-f0-9]{64}\.db\.zst$/)
+    expect(store.metadata.get(backup.key)).toEqual({ sha256: backup.sha256, "user-version": "11" })
     const restored = await decompress(store.objects.get(backup.key)!, directory)
     const snapshot = new Database(restored, { readonly: true })
     const parents = snapshot.query<{ count: number }, []>("SELECT count(*) AS count FROM parent").get()!.count
@@ -57,7 +57,7 @@ describe("database backup", () => {
   test("keeps the live database untouched and redacts upload failures", async () => {
     const directory = await temporaryDirectory()
     const databasePath = join(directory, "market.db")
-    const database = createWalDatabase(databasePath)
+    const database = createWalDatabase(databasePath, 11)
     insertPair(database, 1)
     database.close()
 
@@ -85,7 +85,7 @@ describe("database backup", () => {
   test("rejects a snapshot missing migration 011 scoped-sharing tables and schema safeguards", async () => {
     const directory = await temporaryDirectory()
     const databasePath = join(directory, "market.db")
-    const database = createWalDatabase(databasePath)
+    const database = createWalDatabase(databasePath, 11)
     database.exec("DROP TABLE market_groups")
     database.close()
 
@@ -98,16 +98,33 @@ describe("database backup", () => {
       }),
     ).rejects.toThrow("scoped-sharing backup schema is incomplete")
   })
+
+  test("accepts a coherent pre-migration v10 backup for rollback", async () => {
+    const directory = await temporaryDirectory()
+    const databasePath = join(directory, "market.db")
+    const database = createWalDatabase(databasePath, 10, false)
+    database.close()
+
+    await expect(
+      backupDatabase({
+        databasePath,
+        backupDirectory: join(directory, "backups"),
+        privatePrefix: "private-test",
+        store: memoryStore().client,
+      }),
+    ).resolves.toMatchObject({ userVersion: 10 })
+  })
 })
 
-function createWalDatabase(path: string) {
+function createWalDatabase(path: string, userVersion: number, scoped = true) {
   const database = new Database(path, { create: true, readwrite: true })
   database.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
-    PRAGMA user_version = 7;
+    PRAGMA user_version = ${userVersion};
     CREATE TABLE parent (id INTEGER PRIMARY KEY);
     CREATE TABLE child (id INTEGER PRIMARY KEY REFERENCES parent(id));
+    ${scoped ? `
     CREATE TABLE submissions (id TEXT PRIMARY KEY);
     CREATE TABLE reviews (
       approved_package_key TEXT,
@@ -135,6 +152,7 @@ function createWalDatabase(path: string) {
     CREATE TRIGGER submission_group_targets_no_update BEFORE UPDATE ON submission_group_targets BEGIN SELECT 1; END;
     CREATE TRIGGER submission_group_targets_no_delete BEFORE DELETE ON submission_group_targets BEGIN SELECT 1; END;
     CREATE TRIGGER submissions_audience_valid_transition BEFORE UPDATE ON submissions BEGIN SELECT 1; END;
+    ` : ""}
   `)
   return database
 }

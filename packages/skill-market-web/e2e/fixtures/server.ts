@@ -995,7 +995,8 @@ function userFor(persona: Persona) {
   if (persona === "group-member") return users.groupMember
   if (persona === "same-department") return users.sameDepartment
   if (persona === "other-department") return users.otherDepartment
-  if (persona === "outsider" || persona === "anonymous") return undefined
+  if (persona === "outsider") return users.outsider
+  if (persona === "anonymous") return undefined
   return users[persona]
 }
 

@@ -220,15 +220,27 @@ test("enforces scoped sharing for group and department fixtures without public i
   await page.context().request.post(`${fixtureApi}/__fixture/remove-member`)
   expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).status()).toBe(404)
 
+  await resetFixture(page, "group-member")
+  const initialCards = await page.context().request.get(`${fixtureApi}/v1/restricted-skills`)
+  expect((await initialCards.json()).filter((item: { id: string }) => item.id === "pub_aurora01")).toHaveLength(1)
+  await page.context().request.post(`${fixtureApi}/__fixture/disable-group`)
+  const revokedCards = await page.context().request.get(`${fixtureApi}/v1/restricted-skills`)
+  expect((await revokedCards.json()).filter((item: { id: string }) => item.id === "pub_aurora01")).toHaveLength(0)
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).status()).toBe(404)
+
   await resetFixture(page, "same-department")
   expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_platform01/versions`)).ok()).toBe(true)
   await page.context().request.post(`${fixtureApi}/__fixture/move-department`)
   expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_platform01`)).status()).toBe(404)
 
-  for (const persona of ["anonymous", "outsider", "other-department"] as const) {
+  for (const persona of ["anonymous", "other-department"] as const) {
     await resetFixture(page, persona)
     expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).status()).toBe(404)
   }
+  await resetFixture(page, "outsider")
+  const outsiderSession = await page.context().request.get(`${fixtureApi}/v1/auth/session`)
+  expect((await outsiderSession.json()).user.employeeID).toBe("outsider")
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).status()).toBe(404)
   await resetFixture(page, "admin")
   expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).ok()).toBe(true)
   expect((await page.context().request.get(`${fixtureApi}/v1/catalog/skills/restricted/pub_aurora01`)).status()).toBe(404)
