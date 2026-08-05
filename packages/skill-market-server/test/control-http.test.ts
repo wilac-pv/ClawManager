@@ -348,6 +348,21 @@ describe("skill market control HTTP", () => {
         .map((item) => item.source),
     ).toEqual(["community"])
 
+    const outsiderFavorite = await fetch(`${fixture.url}/v1/favorites/restricted/pub_httpgroup01`, {
+      method: "POST",
+      headers: { cookie: users.outsider.cookie, origin: webOrigin, "x-csrf-token": users.outsider.csrf },
+    })
+    expect(outsiderFavorite.status).toBe(404)
+    const groupFavorite = await fetch(`${fixture.url}/v1/favorites/restricted/pub_httpgroup01`, {
+      method: "POST",
+      headers: { cookie: users.group.cookie, origin: webOrigin, "x-csrf-token": users.group.csrf },
+    })
+    expect(groupFavorite.status).toBe(200)
+    const groupFavorites = await fetch(`${fixture.url}/v1/favorites`, { headers: { cookie: users.group.cookie } })
+    expect(Schema.decodeUnknownSync(Schema.Array(SkillMarket.Favorite))(await groupFavorites.json())).toEqual([
+      expect.objectContaining({ source: "restricted", id: "pub_httpgroup01" }),
+    ])
+
     const anonymousDetail = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpgroup01`)
     expect(anonymousDetail.status).toBe(404)
     expect(anonymousDetail.headers.get("cache-control")).toBe("private, no-store")
@@ -493,6 +508,8 @@ describe("skill market control HTTP", () => {
       "DELETE FROM market_group_members WHERE group_id = 'grp_httpactive1' AND employee_id = 'restricted-group'",
     )
     expect((await fetch(`${fixture.url}${downloadPath}`)).status).toBe(404)
+    const revokedFavorites = await fetch(`${fixture.url}/v1/favorites`, { headers: { cookie: users.group.cookie } })
+    expect(Schema.decodeUnknownSync(Schema.Array(SkillMarket.Favorite))(await revokedFavorites.json())).toEqual([])
     expect((await fetch(`${fixture.url}/v1/private-download/malformed`)).status).toBe(404)
 
     fixture.database.connection.run(

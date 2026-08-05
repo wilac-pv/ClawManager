@@ -127,6 +127,121 @@ describe("private object retention", () => {
     )
   })
 
+  test("purges withdrawn artifacts at seven days without deleting referenced objects or metadata", async () => {
+    const directory = await temporaryDirectory()
+    const databasePath = join(directory, "market.db")
+    const database = await openDatabase({ databasePath, migrationBackupDirectory: join(directory, "backups") })
+    database.transaction((connection) => {
+      connection.run(
+        `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
+         VALUES ('alice', 'Alice', ?, ?), ('bob', 'Bob', ?, ?)`,
+        [now.getTime(), now.getTime(), now.getTime(), now.getTime()],
+      )
+      connection.run(
+        `INSERT INTO submissions
+          (id, skill_id, owner_employee_id, target_version, status, current_revision, version, user_message,
+           created_at, updated_at, target_scope)
+         VALUES
+          ('sub_withdrawsoon', 'withdraw-soon', 'alice', '1.0.0', 'withdrawn', 1, 2, 'retained message', ?, ?, 'company'),
+          ('sub_withdrawdue1', 'withdraw-due', 'alice', '1.0.0', 'withdrawn', 2, 2, 'retained message', ?, ?, 'company'),
+          ('sub_withdrawshare', 'withdraw-shared', 'alice', '1.0.0', 'withdrawn', 1, 2, 'retained message', ?, ?, 'company'),
+          ('sub_reference001', 'reference', 'bob', '1.0.0', 'pending_review', 1, 1, NULL, ?, ?, 'company')`,
+        [
+          now.getTime() - 8 * day,
+          now.getTime() - 7 * day + 1,
+          now.getTime() - 8 * day,
+          now.getTime() - 7 * day,
+          now.getTime() - 8 * day,
+          now.getTime() - 8 * day,
+          now.getTime() - 8 * day,
+          now.getTime() - 8 * day,
+        ],
+      )
+      const icon = (key: string, hash: string) =>
+        JSON.stringify({ key, sha256: hash.repeat(64), size: 10, mime: "image/png" })
+      connection.run(
+        `INSERT INTO submission_revisions
+          (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
+           private_icon_json, manifest_json, scan_json, created_at)
+         VALUES
+          ('sub_withdrawsoon', 1, 'private-test/submissions/alice/sub_withdrawsoon/1/package.zip', ?, 100,
+           '{"displayName":"Soon"}', ?, '{"files":[]}', '{"risk":"safe"}', ?),
+          ('sub_withdrawdue1', 1, 'private-test/submissions/alice/sub_withdrawdue1/1/package.zip', ?, 100,
+           '{"displayName":"Due old"}', ?, '{"files":[]}', '{"risk":"safe"}', ?),
+          ('sub_withdrawdue1', 2, 'private-test/submissions/alice/sub_withdrawdue1/2/package.zip', ?, 100,
+           '{"displayName":"Due"}', ?, '{"files":[]}', '{"risk":"safe"}', ?),
+          ('sub_withdrawshare', 1, 'private-test/submissions/alice/sub_withdrawshare/1/package.zip', ?, 100,
+           '{"displayName":"Shared"}', ?, '{"files":[]}', '{"risk":"safe"}', ?),
+          ('sub_reference001', 1, 'private-test/submissions/alice/sub_withdrawshare/1/package.zip', ?, 100,
+           '{"displayName":"Reference"}', ?, '{"files":[]}', '{"risk":"safe"}', ?)`,
+        [
+          "a".repeat(64),
+          icon("private-test/submissions/alice/sub_withdrawsoon/1/icon.png", "a"),
+          now.getTime() - 8 * day,
+          "b".repeat(64),
+          icon("private-test/submissions/alice/sub_withdrawdue1/1/icon.png", "b"),
+          now.getTime() - 8 * day,
+          "d".repeat(64),
+          icon("private-test/submissions/alice/sub_withdrawdue1/2/icon.png", "d"),
+          now.getTime() - 8 * day,
+          "c".repeat(64),
+          icon("private-test/submissions/alice/sub_withdrawshare/1/icon.png", "c"),
+          now.getTime() - 8 * day,
+          "c".repeat(64),
+          icon("private-test/submissions/alice/sub_withdrawshare/1/icon.png", "c"),
+          now.getTime() - 8 * day,
+        ],
+      )
+      connection.run(
+        `INSERT INTO audit_events (id, actor_employee_id, action, object_type, object_id, request_id, after_json, created_at)
+         VALUES ('audit-withdraw1', 'alice', 'submission-withdrawn', 'submission', 'sub_withdrawdue1',
+                 'request-withdraw1', '{"status":"withdrawn"}', ?)`,
+        [now.getTime() - 7 * day],
+      )
+    })
+    database.close()
+    const due = "private-test/submissions/alice/sub_withdrawdue1/1/"
+    const dueCurrent = "private-test/submissions/alice/sub_withdrawdue1/2/"
+    const soon = "private-test/submissions/alice/sub_withdrawsoon/1/"
+    const shared = "private-test/submissions/alice/sub_withdrawshare/1/"
+    const store = memoryStore(
+      [due, dueCurrent, soon, shared].flatMap((prefix) =>
+        ["package.zip", "icon.png", "manifest.json", "scan.json"].map((name) => object(`${prefix}${name}`, 8)),
+      ),
+    )
+
+    const result = await cleanupPrivateObjects({ databasePath, privatePrefix: "private-test", store, now, limit: 20 })
+
+    expect(result.withdrawnPurged).toEqual(["sub_withdrawdue1"])
+    expect(store.deleted.sort()).toEqual(
+      [due, dueCurrent]
+        .flatMap((prefix) => ["package.zip", "icon.png", "manifest.json", "scan.json"].map((name) => `${prefix}${name}`))
+        .sort(),
+    )
+    expect(store.deleted.some((key) => key.startsWith(soon) || key.startsWith(shared))).toBe(false)
+
+    const retry = await cleanupPrivateObjects({ databasePath, privatePrefix: "private-test", store, now, limit: 20 })
+    expect(retry.withdrawnPurged).toEqual([])
+    expect(store.deleted).toHaveLength(8)
+    const persisted = new Database(databasePath, { create: false, readonly: true, strict: true })
+    expect(
+      persisted
+        .query<{ status: string; user_message: string; withdrawn_artifacts_purged_at: number }, []>(
+          "SELECT status, user_message, withdrawn_artifacts_purged_at FROM submissions WHERE id = 'sub_withdrawdue1'",
+        )
+        .get(),
+    ).toEqual({ status: "withdrawn", user_message: "retained message", withdrawn_artifacts_purged_at: now.getTime() })
+    expect(
+      persisted
+        .query<{ metadata_json: string; manifest_json: string; scan_json: string }, []>(
+          "SELECT metadata_json, manifest_json, scan_json FROM submission_revisions WHERE submission_id = 'sub_withdrawdue1' AND revision_number = 2",
+        )
+        .get(),
+    ).toEqual({ metadata_json: '{"displayName":"Due"}', manifest_json: '{"files":[]}', scan_json: '{"risk":"safe"}' })
+    expect(persisted.query<{ count: number }, []>("SELECT count(*) AS count FROM audit_events").get()!.count).toBe(1)
+    persisted.close()
+  })
+
   test("completes approved delist cleanup without deleting shared publication artifacts", async () => {
     const directory = await temporaryDirectory()
     const databasePath = join(directory, "market.db")

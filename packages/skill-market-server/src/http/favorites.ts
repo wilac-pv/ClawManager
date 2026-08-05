@@ -1,22 +1,26 @@
 import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
+import { SkillMarketControlNotFound, SkillMarketDependencyUnavailable } from "@opencode-ai/protocol/skill-market-errors"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import { Effect } from "effect"
 import { HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { Favorites } from "../favorites"
-import { principalFromSession } from "./middleware"
+import { SkillMarketSecurityError } from "../security"
+import { principalFromSession, requestID } from "./middleware"
 
 export function createFavoritesHttp(favorites: Favorites) {
   return HttpApiBuilder.group(SkillMarketApi, "skillMarket.favorites", (handlers) =>
     handlers
       .handle("skillMarket.favorites.list", () =>
         Effect.gen(function* () {
-          return favorites.list(principalFromSession(yield* SkillMarketPrincipal))
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({ try: () => favorites.list(principal), catch: dependencyProblem })
         }),
       )
       .handle("skillMarket.favorites.add", (context) =>
         Effect.gen(function* () {
-          return favorites.add(principalFromSession(yield* SkillMarketPrincipal), context.params)
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({ try: () => favorites.add(principal, context.params), catch: favoriteProblem })
         }),
       )
       .handle("skillMarket.favorites.remove", (context) =>
@@ -26,4 +30,22 @@ export function createFavoritesHttp(favorites: Favorites) {
         }),
       ),
   )
+}
+
+function favoriteProblem(error: unknown) {
+  if (error instanceof SkillMarketSecurityError && error.code === "not-found")
+    return new SkillMarketControlNotFound({
+      code: "not-found",
+      message: "受限 Skill 不存在",
+      requestId: requestID(),
+    })
+  return dependencyProblem()
+}
+
+function dependencyProblem() {
+  return new SkillMarketDependencyUnavailable({
+    code: "dependency-unavailable",
+    message: "收藏服务暂不可用",
+    requestId: requestID(),
+  })
 }

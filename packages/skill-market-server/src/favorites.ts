@@ -1,7 +1,9 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
+import { canReadRestricted } from "./audience"
 import type { MarketDatabase } from "./database"
 import type { Principal } from "./security"
+import { SkillMarketSecurityError } from "./security"
 
 interface FavoriteRow {
   readonly source: SkillMarket.Source
@@ -21,21 +23,26 @@ export function createFavorites(options: { readonly database: MarketDatabase; re
                WHERE employee_id = ?
                ORDER BY created_at DESC, source, skill_id`,
             )
-            .all(principal.session.user.employeeID),
+            .all(principal.session.user.employeeID)
+            .filter(
+              (row) =>
+                row.source !== "restricted" || canReadRestricted(connection, principal, row.skill_id),
+            ),
         )
         .map(favorite)
     },
 
     add(principal: Principal, key: SkillMarket.SkillKey) {
       const now = options.now?.() ?? Date.now()
-      options.database.transaction((connection) =>
+      options.database.transaction((connection) => {
+        if (key.source === "restricted" && !canReadRestricted(connection, principal, key.id)) throw restrictedNotFound()
         connection.run(
           `INSERT INTO skill_favorites (employee_id, source, skill_id, created_at)
            VALUES (?, ?, ?, ?)
            ON CONFLICT(employee_id, source, skill_id) DO NOTHING`,
           [principal.session.user.employeeID, key.source, key.id, now],
-        ),
-      )
+        )
+      })
       const row = options.database.read((connection) =>
         connection
           .query<FavoriteRow, [string, SkillMarket.Source, string]>(
@@ -66,4 +73,8 @@ function favorite(row: FavoriteRow) {
     id: row.skill_id,
     createdAt: new Date(row.created_at).toISOString(),
   })
+}
+
+function restrictedNotFound() {
+  return new SkillMarketSecurityError("not-found", "restricted publication was not found")
 }

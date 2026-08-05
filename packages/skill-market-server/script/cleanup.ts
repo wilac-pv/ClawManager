@@ -25,6 +25,7 @@ export async function cleanupPrivateObjects(options: CleanupPrivateObjectsOption
   const prefix = normalizePrefix(options.privatePrefix)
   const limit = positiveInteger(options.limit ?? 100)
   const cutoff = (options.now ?? new Date()).getTime() - positiveInteger(options.retentionDays ?? 30) * 86_400_000
+  const withdrawnCutoff = (options.now ?? new Date()).getTime() - 7 * 86_400_000
   const database = new Database(options.databasePath, { create: false, readwrite: true, strict: true })
   const marketDatabase = new MarketDatabase(database)
   const delistPurged =
@@ -63,6 +64,43 @@ export async function cleanupPrivateObjects(options: CleanupPrivateObjectsOption
           },
         )
     : []
+  const withdrawnArtifacts = hasColumn(database, "submission_revisions", "private_package_key")
+    ? database
+        .query<WithdrawnArtifactRow, [number, number]>(
+          `WITH eligible_submissions AS (
+             SELECT id, current_revision
+             FROM submissions
+             WHERE status = 'withdrawn' AND updated_at <= ? AND withdrawn_artifacts_purged_at IS NULL
+             ORDER BY updated_at, id
+             LIMIT ?
+           )
+           SELECT eligible_submissions.id, submission_revisions.revision_number AS current_revision,
+                  submission_revisions.private_package_key,
+                  submission_revisions.private_icon_json
+           FROM eligible_submissions
+           INNER JOIN submission_revisions
+             ON submission_revisions.submission_id = eligible_submissions.id
+           ORDER BY eligible_submissions.id, submission_revisions.revision_number`,
+        )
+        .all(withdrawnCutoff, limit)
+        .map((row) => {
+          const icon = row.private_icon_json
+            ? Schema.decodeUnknownOption(CleanupIcon)(Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(row.private_icon_json))
+            : Option.none()
+          const directory = row.private_package_key.replace(/[^/]+$/, "")
+          return {
+            id: row.id,
+            keys: [
+              ...(artifactReferenced(database, row.id, row.current_revision, row.private_package_key)
+                ? []
+                : [row.private_package_key, `${directory}manifest.json`, `${directory}scan.json`]),
+              ...(Option.isSome(icon) && !artifactReferenced(database, row.id, row.current_revision, icon.value.key)
+                ? [icon.value.key]
+                : []),
+            ],
+          }
+        })
+    : []
   const submissions = new Map(
     database
       .query<
@@ -87,6 +125,21 @@ export async function cleanupPrivateObjects(options: CleanupPrivateObjectsOption
   const backupPrefix = `${prefix}/backups/sqlite/`
   const submissionObjects = await options.store.list(submissionPrefix)
   const backupObjects = await options.store.list(backupPrefix)
+  const existingSubmissionKeys = new Set(submissionObjects.map((object) => object.key))
+  const withdrawn = options.dryRun
+    ? []
+    : withdrawnArtifacts
+        .map((artifact) => ({ ...artifact, keys: artifact.keys.filter((key) => existingSubmissionKeys.has(key)) }))
+        .filter((artifact) => artifact.keys.length > 0)
+  if (!options.dryRun) await Promise.all(withdrawn.flatMap((artifact) => artifact.keys).map((key) => options.store.delete(key)))
+  const withdrawnPurged =
+    !options.dryRun && withdrawnArtifacts.length > 0
+      ? markWithdrawnPurged(
+          options.databasePath,
+          [...new Set(withdrawnArtifacts.map((artifact) => artifact.id))],
+          (options.now ?? new Date()).getTime(),
+        ).filter((submissionID) => withdrawn.some((artifact) => artifact.id === submissionID))
+      : []
   const eligible = [
     ...submissionObjects.filter((object) => {
       if (!object.key.startsWith(submissionPrefix) || object.lastModified.getTime() >= cutoff) return false
@@ -111,7 +164,13 @@ export async function cleanupPrivateObjects(options: CleanupPrivateObjectsOption
     .sort()
   const deleted = eligible.slice(0, limit)
   if (!options.dryRun) await Promise.all(deleted.map((key) => options.store.delete(key)))
-  return { deleted, truncated: eligible.length > limit, personalPurged, delistPurged }
+  return {
+    deleted,
+    truncated: eligible.length > limit,
+    personalPurged,
+    delistPurged,
+    withdrawnPurged,
+  }
 }
 
 const CleanupIcon = Schema.Struct({
@@ -131,6 +190,13 @@ interface CleanupJobRow {
   readonly target_version: string
   readonly private_package_key: string
   readonly package_sha256: string
+  readonly private_icon_json: string | null
+}
+
+interface WithdrawnArtifactRow {
+  readonly id: string
+  readonly current_revision: number
+  readonly private_package_key: string
   readonly private_icon_json: string | null
 }
 
@@ -300,6 +366,29 @@ function requirePublicPrefix(value: string | undefined) {
 
 function hasTable(database: Database, table: string) {
   return Boolean(database.query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table))
+}
+
+function hasColumn(database: Database, table: string, column: string) {
+  return database
+    .query<{ name: string }, []>(`SELECT name FROM pragma_table_info('${table}')`)
+    .all()
+    .some((entry) => entry.name === column)
+}
+
+function markWithdrawnPurged(databasePath: string, submissionIDs: ReadonlyArray<string>, now: number) {
+  const database = new Database(databasePath, { create: false, readwrite: true, strict: true })
+  const purged = database.transaction(() =>
+    submissionIDs.filter(
+      (submissionID) =>
+        database.run(
+          `UPDATE submissions SET withdrawn_artifacts_purged_at = ?
+           WHERE id = ? AND status = 'withdrawn' AND withdrawn_artifacts_purged_at IS NULL`,
+          [now, submissionID],
+        ).changes === 1,
+    ),
+  ).immediate()
+  database.close()
+  return purged
 }
 
 function positiveInteger(value: number) {

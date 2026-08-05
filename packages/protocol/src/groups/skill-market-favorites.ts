@@ -1,6 +1,7 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { SkillMarketControlNotFound, SkillMarketDependencyUnavailable } from "../skill-market-errors"
 import { SkillMarketSessionMiddleware, SkillMarketWriteMiddleware } from "../skill-market-middleware"
 
 const Key = {
@@ -12,12 +13,14 @@ export const SkillMarketFavoritesGroup = HttpApiGroup.make("skillMarket.favorite
   .add(
     HttpApiEndpoint.get("skillMarket.favorites.list", "/v1/favorites", {
       success: Schema.Array(SkillMarket.Favorite),
+      error: SkillMarketDependencyUnavailable,
     }),
   )
   .add(
     HttpApiEndpoint.post("skillMarket.favorites.add", "/v1/favorites/:source/:id", {
       params: Key,
       success: SkillMarket.Favorite,
+      error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
     }).middleware(SkillMarketWriteMiddleware),
   )
   .add(

@@ -25,7 +25,7 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submissions)")
@@ -406,7 +406,7 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([12, 12])
+    ).toEqual([13, 13])
     databases.forEach((database) => database.close())
   })
 
@@ -483,6 +483,55 @@ describe("control-plane database", () => {
         "submissions_audience_valid_transition",
       ]),
     )
+    upgraded.close()
+  })
+
+  test("upgrades v12 favorites without data loss and accepts restricted sources", async () => {
+    const directory = await temporaryDirectory()
+    const migrations = join(directory, "v12-migrations")
+    const path = join(directory, "market.db")
+    const backups = join(directory, "backups")
+    await mkdir(migrations)
+    const migrationFiles = await Array.fromAsync(new Bun.Glob("*.sql").scan({ cwd: join(import.meta.dir, "../migrations") }))
+    await Promise.all(
+      migrationFiles
+        .filter((file) => Number(file.slice(0, 3)) <= 12)
+        .map(async (file) => Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file)))),
+    )
+    const v12 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+    v12.connection.run(
+      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES ('E000001', 'Owner', 1, 1)",
+    )
+    v12.connection.run(
+      "INSERT INTO skill_favorites (employee_id, source, skill_id, created_at) VALUES ('E000001', 'skillhub', 'existing-skill', 1)",
+    )
+    v12.close()
+    await Promise.all(
+      migrationFiles
+        .filter((file) => Number(file.slice(0, 3)) > 12)
+        .map(async (file) => Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file)))),
+    )
+
+    const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
+    expect(
+      upgraded.connection
+        .query<{ source: string; skill_id: string }, []>("SELECT source, skill_id FROM skill_favorites")
+        .all(),
+    ).toEqual([{ source: "skillhub", skill_id: "existing-skill" }])
+    upgraded.connection.run(
+      "INSERT INTO skill_favorites (employee_id, source, skill_id, created_at) VALUES ('E000001', 'restricted', 'pub_restricted1', 2)",
+    )
+    expect(
+      upgraded.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM skill_favorites").get()?.count,
+    ).toBe(2)
+    expect(() =>
+      upgraded.connection.run(
+        "INSERT INTO skill_favorites (employee_id, source, skill_id, created_at) VALUES ('E000001', 'invalid', 'bad', 3)",
+      ),
+    ).toThrow()
+    expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
     upgraded.close()
   })
 
@@ -587,7 +636,7 @@ describe("control-plane database", () => {
     v3.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
     expect(
       upgraded.connection
         .query<
@@ -756,7 +805,7 @@ describe("control-plane database", () => {
     v4.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
     const row = upgraded.connection
       .query<
         { evaluation_state: string; evaluation_score: number | null; summary_json: string },
