@@ -194,12 +194,37 @@ describe("moderation review", () => {
       ]),
     )
   })
+
+  test("only lets Admin decide a pending delist request using its request version", async () => {
+    const calls: unknown[][] = []
+    const operations = {
+      retryPublish: () => Promise.resolve(detail()),
+      delist: () => Promise.resolve({ source: "community" as const, id: "safe-skill", version: "1.2.0", rowVersion: 2, status: "delisted" as const }),
+      restore: () => Promise.resolve({ source: "community" as const, id: "safe-skill", version: "1.2.0", rowVersion: 2, status: "published" as const }),
+      approveDelist: (...input: unknown[]) => {
+        calls.push(input)
+        return Promise.resolve({ ...delistRequest(), status: "approved" as const, decidedByEmployeeID: "E000009", decidedAt: "2026-08-05T01:00:00.000Z" })
+      },
+      rejectDelist: () => Promise.resolve({ ...delistRequest(), status: "rejected" as const, decidedByEmployeeID: "E000009", decidedAt: "2026-08-05T01:00:00.000Z" }),
+    }
+    const reviewer = renderReview(source(detail()), "E000009", { admin: false, operations, delistRequest: delistRequest() })
+    await reviewer.findByRole("heading", { name: "审核 Safe Skill" })
+    expect(reviewer.queryByRole("button", { name: "批准下架" })).toBeNull()
+    cleanup()
+
+    const admin = renderReview(source(detail()), "E000009", { admin: true, operations, delistRequest: delistRequest() })
+    await admin.findByRole("heading", { name: "审核 Safe Skill" })
+    fireEvent.click(admin.getByRole("button", { name: "批准下架" }))
+    expect(admin.getByRole("dialog")).toHaveTextContent("safe-skill")
+    fireEvent.click(admin.getByRole("button", { name: "确认批准下架" }))
+    await waitFor(() => expect(calls[0]?.slice(0, 2)).toEqual(["dlr_abcdefgh", { expectedVersion: 2 }]))
+  })
 })
 
 function renderReview(
   source: ModerationReviewSource,
   actor = "E000009",
-  admin?: { admin: boolean; operations?: ModerationOperationsSource },
+  admin?: { admin: boolean; operations?: ModerationOperationsSource; delistRequest?: SkillMarketControl.DelistRequest },
 ) {
   const history = createMemoryHistory()
   history.set({ value: "/admin/submissions/sub_abcdefgh", replace: true })
@@ -216,12 +241,25 @@ function renderReview(
               actor={actor}
               admin={admin?.admin}
               operations={admin?.operations}
+              delistRequest={admin?.delistRequest}
             />
           )}
         />
       </MemoryRouter>
     </QueryClientProvider>
   ))
+}
+
+function delistRequest(): SkillMarketControl.DelistRequest {
+  return {
+    id: "dlr_abcdefgh",
+    submissionID: "sub_abcdefgh",
+    requestedByEmployeeID: "E000001",
+    reason: "No longer maintained",
+    version: 2,
+    status: "pending",
+    createdAt: "2026-08-05T00:00:00.000Z",
+  }
 }
 
 function source(

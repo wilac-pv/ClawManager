@@ -39,6 +39,7 @@ import {
 import { resolveSkillMarketRuntime, skillDetailUrl, skillPackageUrl } from "./runtime-config"
 import { MarketShell } from "./shell"
 import { MySpaceLayout } from "./space/layout"
+import { PersonalTrash } from "./space/trash"
 import { SubmissionDetail } from "./submissions/detail"
 import { SubmissionForm } from "./submissions/form"
 import { SubmissionList } from "./submissions/list"
@@ -151,6 +152,7 @@ export function App() {
       />
       <Route path="/submissions" component={() => <SubmissionListRoute source={control} />} />
       <Route path="/personal" component={() => <PersonalSpaceRoute source={control} />} />
+      <Route path="/trash" component={() => <TrashRoute source={control} />} />
       <Route path="/submissions/new" component={() => <SubmissionFormRoute source={control} />} />
       <Route path="/submissions/:id" component={() => <SubmissionDetailRoute source={control} />} />
       <Route path="/groups" component={() => <GroupListRoute source={control} />} />
@@ -182,6 +184,16 @@ function PersonalSpaceRoute(props: { source: SkillMarketControlDataSource }) {
     <RequireSession>
       <MySpaceLayout>
         <SubmissionList source={props.source.submissions} target="personal" />
+      </MySpaceLayout>
+    </RequireSession>
+  )
+}
+
+function TrashRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireSession>
+      <MySpaceLayout>
+        <PersonalTrash source={props.source.submissions} />
       </MySpaceLayout>
     </RequireSession>
   )

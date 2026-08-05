@@ -131,6 +131,7 @@ export function safeReturnTo(value: string, basePath = "/") {
     /^\/announcements(?:\/ann_[a-zA-Z0-9_-]{8,64})?$/,
     /^\/expert-packages(?:\/[a-z0-9][a-z0-9-]{0,127})?$/,
     /^\/favorites$/,
+    /^\/trash$/,
     /^\/submissions(?:\/new|\/sub_[a-zA-Z0-9_-]{8,64})?$/,
     /^\/personal$/,
     /^\/groups(?:\/grp_[a-zA-Z0-9_-]{8,64})?$/,

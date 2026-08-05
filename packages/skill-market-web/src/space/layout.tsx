@@ -7,6 +7,7 @@ export function MySpaceLayout(props: ParentProps) {
     { href: "/personal", label: "个人 Skill" },
     { href: "/submissions", label: "我的投稿" },
     { href: "/favorites", label: "我的收藏" },
+    { href: "/trash", label: "回收站" },
     { href: "/groups", label: "我的小组" },
   ]
   const active = (href: string) => {
@@ -16,6 +17,7 @@ export function MySpaceLayout(props: ParentProps) {
         (location.pathname === "/submissions/new" && new URLSearchParams(location.search).get("target") === "personal")
       )
     if (href === "/favorites") return location.pathname === "/favorites"
+    if (href === "/trash") return location.pathname === "/trash"
     if (href === "/groups") return location.pathname === "/groups" || location.pathname.startsWith("/groups/")
     return (
       location.pathname.startsWith("/submissions") &&

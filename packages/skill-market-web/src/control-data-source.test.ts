@@ -41,6 +41,13 @@ const detail = {
   reviews: [],
   timeline: [{ status: "validating", at: "2026-07-16T00:00:00.000Z" }],
 } satisfies SkillMarketControl.SubmissionDetail
+const trash = {
+  ...summary,
+  status: "published",
+  target: "personal",
+  deletedAt: "2026-08-05T00:00:00.000Z",
+  purgeAfter: "2026-08-12T00:00:00.000Z",
+} satisfies SkillMarketControl.PersonalTrashItem
 
 afterEach(() => {
   servers.splice(0).forEach((server) => server.stop(true))
@@ -246,6 +253,53 @@ describe("skill market control data source", () => {
     expect(decision?.body).toBe(
       JSON.stringify({ expectedVersion: 1, decision: "request_changes", comment: "Please revise" }),
     )
+  })
+
+  test("uses lifecycle endpoints with CSRF, expected versions, and idempotency keys", async () => {
+    const requests: Array<{ method: string; path: string; csrf: string | null; key: string | null; body: string }> = []
+    const request = {
+      id: "dlr_abcdefgh",
+      submissionID: summary.id,
+      requestedByEmployeeID: user.employeeID,
+      reason: "No longer maintained",
+      version: 2,
+      status: "pending" as const,
+      createdAt: "2026-08-05T00:00:00.000Z",
+    }
+    const server = serve(async (input) => {
+      const path = new URL(input.url).pathname
+      requests.push({
+        method: input.method,
+        path,
+        csrf: input.headers.get("x-csrf-token"),
+        key: input.headers.get("idempotency-key"),
+        body: input.body ? await input.text() : "",
+      })
+      if (path === "/v1/personal-trash") return Response.json([trash])
+      if (path.includes("delist-requests")) return Response.json(request)
+      if (path.endsWith("/withdraw")) return Response.json({ ...detail, status: "withdrawn" })
+      if (path.includes("personal-trash")) return Response.json(summary)
+      return Response.json(trash)
+    })
+    const source = createSkillMarketControlDataSource(server.url, { csrfToken: () => csrfToken })
+
+    await expect(source.submissions.personalTrash()).resolves.toEqual([trash])
+    await source.submissions.deletePersonal(summary.id, { expectedVersion: 4 }, "delete-key")
+    await source.submissions.restorePersonal(summary.id, { expectedVersion: 5 }, "restore-key")
+    await source.submissions.withdraw(summary.id, { expectedVersion: 6 }, "withdraw-key")
+    await source.submissions.requestDelist(summary.id, { expectedVersion: 7, reason: request.reason }, "request-key")
+    await source.moderation.approveDelist(request.id, { expectedVersion: 2 }, "approve-key")
+    await source.moderation.rejectDelist(request.id, { expectedVersion: 3 }, "reject-key")
+
+    expect(requests).toEqual([
+      { method: "GET", path: "/v1/personal-trash", csrf: null, key: null, body: "" },
+      { method: "DELETE", path: `/v1/submissions/${summary.id}/personal`, csrf: csrfToken, key: "delete-key", body: '{"expectedVersion":4}' },
+      { method: "POST", path: `/v1/personal-trash/${summary.id}/restore`, csrf: csrfToken, key: "restore-key", body: '{"expectedVersion":5}' },
+      { method: "POST", path: `/v1/submissions/${summary.id}/withdraw`, csrf: csrfToken, key: "withdraw-key", body: '{"expectedVersion":6}' },
+      { method: "POST", path: `/v1/submissions/${summary.id}/delist-requests`, csrf: csrfToken, key: "request-key", body: '{"expectedVersion":7,"reason":"No longer maintained"}' },
+      { method: "POST", path: `/v1/admin/delist-requests/${request.id}/approve`, csrf: csrfToken, key: "approve-key", body: '{"expectedVersion":2}' },
+      { method: "POST", path: `/v1/admin/delist-requests/${request.id}/reject`, csrf: csrfToken, key: "reject-key", body: '{"expectedVersion":3}' },
+    ])
   })
 
   test("reads SkillHub import progress and writes commands through the CSRF-protected JSON boundary", async () => {

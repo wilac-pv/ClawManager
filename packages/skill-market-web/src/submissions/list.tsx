@@ -1,11 +1,11 @@
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { A, useSearchParams } from "@solidjs/router"
-import { createQuery } from "@tanstack/solid-query"
-import { For, Match, Show, Switch } from "solid-js"
-import type { SkillMarketControlDataSource } from "../control-data-source"
+import { createQuery, useQueryClient } from "@tanstack/solid-query"
+import { For, Match, Show, Switch, createSignal } from "solid-js"
+import { MarketControlError, type SkillMarketControlDataSource } from "../control-data-source"
 import { SpacePageHeader } from "../space/page"
 
-export type SubmissionReader = Pick<SkillMarketControlDataSource["submissions"], "list">
+export type SubmissionReader = Pick<SkillMarketControlDataSource["submissions"], "list" | "deletePersonal">
 
 interface SubmissionListProps {
   readonly source: SubmissionReader
@@ -24,7 +24,12 @@ const statuses: ReadonlyArray<{ value: SkillMarketControl.SubmissionStatus; labe
 ]
 
 export function SubmissionList(props: SubmissionListProps) {
+  const client = useQueryClient()
   const [params, setParams] = useSearchParams()
+  const [deleting, setDeleting] = createSignal<SkillMarketControl.SubmissionSummary>()
+  const [deletePending, setDeletePending] = createSignal(false)
+  const [deleteError, setDeleteError] = createSignal<string>()
+  let deleteTrigger: HTMLButtonElement | undefined
   const status = () => statuses.find((item) => item.value === params.status)?.value
   const page = () => {
     const value = Number(params.page ?? "1")
@@ -36,6 +41,33 @@ export function SubmissionList(props: SubmissionListProps) {
     queryFn: ({ signal }) =>
       props.source.list({ target: props.target, status: status(), page: page(), limit: 30 }, signal),
   }))
+  const closeDelete = () => {
+    if (deletePending()) return
+    setDeleting(undefined)
+    queueMicrotask(() => deleteTrigger?.focus())
+  }
+  const confirmDelete = () => {
+    const item = deleting()
+    if (!item || deletePending()) return
+    setDeletePending(true)
+    setDeleteError(undefined)
+    void props.source
+      .deletePersonal(item.id, { expectedVersion: item.version }, createIdempotencyKey())
+      .then(() => {
+        setDeleting(undefined)
+        void client.invalidateQueries({ queryKey: ["skill-market", "submissions"] })
+        void client.invalidateQueries({ queryKey: ["skill-market", "personal-trash"] })
+        queueMicrotask(() => deleteTrigger?.focus())
+      })
+      .catch((cause: unknown) =>
+        setDeleteError(
+          cause instanceof MarketControlError
+            ? `${cause.message}（请求编号：${cause.requestId}）`
+            : "删除个人 Skill 失败，请检查网络后重试。",
+        ),
+      )
+      .finally(() => setDeletePending(false))
+  }
 
   return (
     <main class="submission-page space-page">
@@ -129,6 +161,23 @@ export function SubmissionList(props: SubmissionListProps) {
                         <Show when={item.status === "validation_failed" || item.status === "changes_requested"}>
                           <A href={`/submissions/${item.id}`}>修改并重试</A>
                         </Show>
+                        <Show when={props.target === "personal" && item.status === "published"}>
+                          <button
+                            type="button"
+                            class="admin-danger-action"
+                            disabled={deletePending()}
+                            ref={(element) => {
+                              deleteTrigger = element
+                            }}
+                            onClick={(event) => {
+                              deleteTrigger = event.currentTarget
+                              setDeleteError(undefined)
+                              setDeleting(item)
+                            }}
+                          >
+                            删除个人 Skill
+                          </button>
+                        </Show>
                       </div>
                     </article>
                   )}
@@ -145,6 +194,34 @@ export function SubmissionList(props: SubmissionListProps) {
           )}
         </Match>
       </Switch>
+      <Show when={deleting()}>
+        {(item) => (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="personal-delete-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeDelete()
+            }}
+          >
+            <h2 id="personal-delete-title">删除个人 Skill</h2>
+            <p>
+              确认删除 {item().skillID} {item().targetVersion}？删除后可在回收站恢复。
+            </p>
+            <Show when={deleteError()}>
+              {(message) => <div class="submission-form__errors" role="alert">{message()}</div>}
+            </Show>
+            <div>
+              <button type="button" disabled={deletePending()} ref={(element) => queueMicrotask(() => element.focus())} onClick={closeDelete}>
+                取消
+              </button>
+              <button type="button" class="admin-danger-action" disabled={deletePending()} onClick={confirmDelete}>
+                {deletePending() ? "正在删除…" : "确认删除"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Show>
     </main>
   )
 }
@@ -189,4 +266,9 @@ function statusLabel(status: SkillMarketControl.SubmissionStatus) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID()
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }

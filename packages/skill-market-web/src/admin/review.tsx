@@ -8,7 +8,7 @@ import { SubmissionStatusTimeline } from "../submissions/status"
 export type ModerationReviewSource = Pick<SkillMarketControlDataSource["moderation"], "detail" | "decide">
 export type ModerationOperationsSource = Pick<
   SkillMarketControlDataSource["moderation"],
-  "retryPublish" | "delist" | "restore"
+  "retryPublish" | "delist" | "restore" | "approveDelist" | "rejectDelist"
 >
 
 interface ModerationReviewProps {
@@ -17,6 +17,7 @@ interface ModerationReviewProps {
   readonly actor: string
   readonly admin?: boolean
   readonly operations?: ModerationOperationsSource
+  readonly delistRequest?: SkillMarketControl.DelistRequest
   readonly onDecided?: (detail: SkillMarketControl.SubmissionDetail) => void
 }
 
@@ -140,6 +141,10 @@ export function ModerationReview(props: ModerationReviewProps) {
                     onConflict={() => void submission.refetch()}
                   />
                 )}
+              </Show>
+
+              <Show when={props.admin && props.operations && props.delistRequest}>
+                <AdminDelistDecision request={props.delistRequest!} source={props.operations!} />
               </Show>
 
               <section class="submission-detail__section moderation-review__overview">
@@ -342,6 +347,76 @@ export function ModerationReview(props: ModerationReviewProps) {
         }}
       </Match>
     </Switch>
+  )
+}
+
+function AdminDelistDecision(props: {
+  request: SkillMarketControl.DelistRequest
+  source: Pick<ModerationOperationsSource, "approveDelist" | "rejectDelist">
+}) {
+  const [request, setRequest] = createSignal(props.request)
+  const [action, setAction] = createSignal<"approve" | "reject">()
+  const [pending, setPending] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+  let trigger: HTMLButtonElement | undefined
+  const close = () => {
+    if (pending()) return
+    setAction(undefined)
+    queueMicrotask(() => trigger?.focus())
+  }
+  const decide = () => {
+    const kind = action()
+    if (!kind || pending()) return
+    setPending(true)
+    setError(undefined)
+    const operation =
+      kind === "approve"
+        ? props.source.approveDelist(request().id, { expectedVersion: request().version }, createIdempotencyKey())
+        : props.source.rejectDelist(request().id, { expectedVersion: request().version }, createIdempotencyKey())
+    void operation
+      .then((result) => {
+        setRequest(result)
+        setAction(undefined)
+        queueMicrotask(() => trigger?.focus())
+      })
+      .catch((cause: unknown) =>
+        setError(cause instanceof MarketControlError ? `${cause.message}（请求编号：${cause.requestId}）` : "下架申请处理失败，请检查网络后重试。"),
+      )
+      .finally(() => setPending(false))
+  }
+  return (
+    <section class="submission-detail__section admin-operations" aria-labelledby="delist-request-title">
+      <h2 id="delist-request-title">下架申请</h2>
+      <p>{request().reason}</p>
+      <Show
+        when={request().status === "pending"}
+        fallback={<p>申请已{request().status === "approved" ? "批准" : "拒绝"}。</p>}
+      >
+        <div class="admin-operations__actions">
+          <button type="button" class="market-primary-action" disabled={pending()} ref={(element) => { trigger = element }} onClick={(event) => { trigger = event.currentTarget; setAction("approve") }}>
+            批准下架
+          </button>
+          <button type="button" class="admin-danger-action" disabled={pending()} ref={(element) => { trigger = element }} onClick={(event) => { trigger = event.currentTarget; setAction("reject") }}>
+            拒绝下架
+          </button>
+        </div>
+      </Show>
+      <Show when={action()}>
+        {(kind) => (
+          <div role="dialog" aria-modal="true" aria-labelledby="delist-decision-title" onKeyDown={(event) => { if (event.key === "Escape") close() }}>
+            <h3 id="delist-decision-title">{kind() === "approve" ? "批准下架" : "拒绝下架"}</h3>
+            <p>确认{kind() === "approve" ? "批准" : "拒绝"} {request().submissionID} 的下架申请？</p>
+            <div>
+              <button type="button" disabled={pending()} ref={(element) => queueMicrotask(() => element.focus())} onClick={close}>取消</button>
+              <button type="button" class="market-primary-action" disabled={pending()} onClick={decide}>
+                {pending() ? "正在提交…" : kind() === "approve" ? "确认批准下架" : "确认拒绝下架"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Show>
+      <Show when={error()}>{(message) => <div class="submission-form__errors" role="alert">{message()}</div>}</Show>
+    </section>
   )
 }
 

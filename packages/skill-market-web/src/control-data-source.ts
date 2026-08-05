@@ -214,6 +214,60 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
           input,
           { idempotencyKey, signal },
         ),
+      personalTrash: (signal?: AbortSignal) =>
+        read("/v1/personal-trash", Schema.Array(SkillMarketControl.PersonalTrashItem), signal),
+      deletePersonal: (
+        submissionID: string,
+        input: SkillMarketControl.ExpectedVersionInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "DELETE",
+          `/v1/submissions/${encodeURIComponent(submissionID)}/personal`,
+          SkillMarketControl.PersonalTrashItem,
+          input,
+          { idempotencyKey, signal },
+        ),
+      restorePersonal: (
+        submissionID: string,
+        input: SkillMarketControl.ExpectedVersionInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "POST",
+          `/v1/personal-trash/${encodeURIComponent(submissionID)}/restore`,
+          SkillMarketControl.SubmissionSummary,
+          input,
+          { idempotencyKey, signal },
+        ),
+      withdraw: (
+        submissionID: string,
+        input: SkillMarketControl.ExpectedVersionInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "POST",
+          `/v1/submissions/${encodeURIComponent(submissionID)}/withdraw`,
+          SkillMarketControl.SubmissionDetail,
+          input,
+          { idempotencyKey, signal },
+        ),
+      requestDelist: (
+        submissionID: string,
+        input: SkillMarketControl.ReasonInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "POST",
+          `/v1/submissions/${encodeURIComponent(submissionID)}/delist-requests`,
+          SkillMarketControl.DelistRequest,
+          input,
+          { idempotencyKey, signal },
+        ),
     },
     groups: {
       list: (signal?: AbortSignal) => read("/v1/groups", SkillMarketControl.GroupPage, signal),
@@ -333,6 +387,32 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
           SkillMarketControl.PublicSkill,
           input,
           signal,
+        ),
+      approveDelist: (
+        requestID: string,
+        input: SkillMarketControl.ExpectedVersionInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "POST",
+          `/v1/admin/delist-requests/${encodeURIComponent(requestID)}/approve`,
+          SkillMarketControl.DelistRequest,
+          input,
+          { idempotencyKey, signal },
+        ),
+      rejectDelist: (
+        requestID: string,
+        input: SkillMarketControl.ExpectedVersionInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "POST",
+          `/v1/admin/delist-requests/${encodeURIComponent(requestID)}/reject`,
+          SkillMarketControl.DelistRequest,
+          input,
+          { idempotencyKey, signal },
         ),
     },
     roles: {

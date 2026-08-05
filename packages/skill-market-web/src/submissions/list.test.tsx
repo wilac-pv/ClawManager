@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import { cleanup, fireEvent, render } from "@solidjs/testing-library"
+import { afterEach, describe, expect, mock, test } from "bun:test"
+import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library"
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { MemoryRouter, Route, createMemoryHistory } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
-import { SubmissionList } from "./list"
+import { SubmissionList, type SubmissionReader } from "./list"
 
 afterEach(() => cleanup())
 
@@ -64,20 +64,34 @@ describe("submission list", () => {
     expect(await fixture.view.findByText("第 1 / 3 页")).toBeTruthy()
     expect(calls.at(-1)).toEqual({ status: "published", page: 1, limit: 30 })
   })
+
+  test("only lets an active published personal Skill be deleted after confirmation", async () => {
+    const deletePersonal = mock<SubmissionReader["deletePersonal"]>(() => Promise.resolve({} as never))
+    const fixture = renderList(() => Promise.resolve(page([submission("published", 0)])), "/personal", {
+      deletePersonal,
+    })
+
+    fireEvent.click(await fixture.view.findByRole("button", { name: "删除个人 Skill" }))
+    expect(fixture.view.getByRole("dialog")).toHaveTextContent("safe-skill-0 1.0.0")
+    expect(fixture.view.getByRole("button", { name: "取消" })).toBe(document.activeElement)
+    fireEvent.click(fixture.view.getByRole("button", { name: "确认删除" }))
+    await waitFor(() => expect(deletePersonal).toHaveBeenCalledWith("sub_abcdefgh0", { expectedVersion: 1 }, expect.any(String)))
+  })
 })
 
 function renderList(
   list: (query: SkillMarketControl.SubmissionListQuery) => Promise<SkillMarketControl.SubmissionPage>,
   path = "/submissions",
+  lifecycle: Partial<SubmissionReader> = {},
 ) {
-  const source = { list: (query: SkillMarketControl.SubmissionListQuery) => list(query) }
+  const source: SubmissionReader = { list: (query: SkillMarketControl.SubmissionListQuery) => list(query), ...lifecycle }
   const history = createMemoryHistory()
   history.set({ value: path, replace: true })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   const view = render(() => (
     <QueryClientProvider client={client}>
       <MemoryRouter history={history}>
-        <Route path="*" component={() => <SubmissionList source={source} />} />
+        <Route path="*" component={() => <SubmissionList source={source} target={path === "/personal" ? "personal" : undefined} />} />
       </MemoryRouter>
     </QueryClientProvider>
   ))

@@ -1,14 +1,14 @@
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { A, useSearchParams } from "@solidjs/router"
-import { createQuery } from "@tanstack/solid-query"
+import { createQuery, useQueryClient } from "@tanstack/solid-query"
 import { For, Match, Show, Switch, createSignal } from "solid-js"
-import type { SkillMarketControlDataSource } from "../control-data-source"
+import { MarketControlError, type SkillMarketControlDataSource } from "../control-data-source"
 import { SubmissionForm } from "./form"
 import { SubmissionStatusTimeline, submissionPollInterval } from "./status"
 
 export type SubmissionDetailSource = Pick<
   SkillMarketControlDataSource["submissions"],
-  "detail" | "create" | "packageUrl" | "revise" | "promote"
+  "detail" | "create" | "packageUrl" | "revise" | "promote" | "withdraw" | "requestDelist"
 >
 
 interface SubmissionDetailProps {
@@ -195,7 +195,61 @@ function SubmissionActions(props: {
   department?: SkillMarketControl.Department
   onPromoted: () => void
 }) {
+  const client = useQueryClient()
   const [sharing, setSharing] = createSignal(false)
+  const [action, setAction] = createSignal<"withdraw" | "delist">()
+  const [reason, setReason] = createSignal("")
+  const [pending, setPending] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+  const [delistRequest, setDelistRequest] = createSignal<SkillMarketControl.DelistRequest>()
+  let actionTrigger: HTMLButtonElement | undefined
+  const closeAction = () => {
+    if (pending()) return
+    setAction(undefined)
+    setReason("")
+    queueMicrotask(() => actionTrigger?.focus())
+  }
+  const submitAction = () => {
+    const kind = action()
+    if (!kind || pending()) return
+    if (kind === "delist" && !reason().trim()) {
+      setError("请填写下架原因")
+      return
+    }
+    setPending(true)
+    setError(undefined)
+    if (kind === "withdraw") {
+      void props.source
+        .withdraw(props.detail.id, { expectedVersion: props.detail.version }, createIdempotencyKey())
+        .then((result) => {
+          client.setQueryData(["skill-market", "submission", props.detail.id], result)
+          void client.invalidateQueries({ queryKey: ["skill-market", "submissions"] })
+          setAction(undefined)
+          queueMicrotask(() => actionTrigger?.focus())
+        })
+        .catch((cause: unknown) =>
+          setError(cause instanceof MarketControlError ? `${cause.message}（请求编号：${cause.requestId}）` : "撤回投稿失败，请检查网络后重试。"),
+        )
+        .finally(() => setPending(false))
+      return
+    }
+    void props.source
+      .requestDelist(
+        props.detail.id,
+        { expectedVersion: props.detail.version, reason: reason().trim() },
+        createIdempotencyKey(),
+      )
+      .then((result) => {
+        setDelistRequest(result)
+        setAction(undefined)
+        setReason("")
+        queueMicrotask(() => actionTrigger?.focus())
+      })
+      .catch((cause: unknown) =>
+        setError(cause instanceof MarketControlError ? `${cause.message}（请求编号：${cause.requestId}）` : "下架申请提交失败，请检查网络后重试。"),
+      )
+      .finally(() => setPending(false))
+  }
   return (
     <div class="submission-detail__actions">
       <Show when={props.detail.status === "validation_failed" || props.detail.status === "changes_requested"}>
@@ -224,6 +278,41 @@ function SubmissionActions(props: {
           <button type="button" onClick={() => setSharing((value) => !value)}>发布给其他人</button>
         </Show>
       </Show>
+      <Show when={["validating", "validation_failed", "pending_review", "changes_requested", "publish_failed"].includes(props.detail.status)}>
+        <button
+          type="button"
+          disabled={pending()}
+          ref={(element) => {
+            actionTrigger = element
+          }}
+          onClick={(event) => {
+            actionTrigger = event.currentTarget
+            setError(undefined)
+            setAction("withdraw")
+          }}
+        >
+          撤回投稿
+        </button>
+      </Show>
+      <Show when={props.detail.status === "published" && props.detail.target !== "personal" && !delistRequest()}>
+        <button
+          type="button"
+          disabled={pending()}
+          ref={(element) => {
+            actionTrigger = element
+          }}
+          onClick={(event) => {
+            actionTrigger = event.currentTarget
+            setError(undefined)
+            setAction("delist")
+          }}
+        >
+          申请下架
+        </button>
+      </Show>
+      <Show when={delistRequest()}>
+        {(request) => <span>下架申请{request().status === "pending" ? "待处理" : request().status === "approved" ? "已批准" : "已拒绝"}</span>}
+      </Show>
       <Show when={sharing()}>
         <PromotionForm
           detail={props.detail}
@@ -232,6 +321,38 @@ function SubmissionActions(props: {
           department={props.department}
           onPromoted={props.onPromoted}
         />
+      </Show>
+      <Show when={action()}>
+        {(kind) => (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="submission-action-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeAction()
+            }}
+          >
+            <h2 id="submission-action-title">{kind() === "withdraw" ? "撤回投稿" : "申请下架"}</h2>
+            <p>
+              {kind() === "withdraw"
+                ? `确认撤回 ${props.detail.metadata.displayName} ${props.detail.targetVersion}？`
+                : `确认申请下架 ${props.detail.metadata.displayName} ${props.detail.targetVersion}？`}
+            </p>
+            <Show when={kind() === "delist"}>
+              <label class="submission-form__field">
+                <span>下架原因</span>
+                <textarea aria-label="下架原因" rows="3" value={reason()} disabled={pending()} onInput={(event) => setReason(event.currentTarget.value)} />
+              </label>
+            </Show>
+            <Show when={error()}>{(message) => <div class="submission-form__errors" role="alert">{message()}</div>}</Show>
+            <div>
+              <button type="button" disabled={pending()} ref={(element) => queueMicrotask(() => element.focus())} onClick={closeAction}>取消</button>
+              <button type="button" class="market-primary-action" disabled={pending()} onClick={submitAction}>
+                {pending() ? "正在提交…" : kind() === "withdraw" ? "确认撤回" : "确认申请下架"}
+              </button>
+            </div>
+          </div>
+        )}
       </Show>
     </div>
   )

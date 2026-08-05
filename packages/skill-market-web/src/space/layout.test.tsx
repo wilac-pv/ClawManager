@@ -13,6 +13,7 @@ describe("my space layout", () => {
     expect(view.getByRole("link", { name: "个人 Skill" }).getAttribute("aria-current")).toBe("page")
     expect(view.getByRole("link", { name: "我的投稿" })).toBeTruthy()
     expect(view.getByRole("link", { name: "我的收藏" })).toBeTruthy()
+    expect(view.getByRole("link", { name: "回收站" })).toBeTruthy()
     expect(view.getByRole("link", { name: "我的小组" })).toBeTruthy()
     expect(view.queryByRole("banner")).toBeNull()
   })
@@ -25,6 +26,10 @@ describe("my space layout", () => {
   test("marks company submissions and favorites active", () => {
     const submissions = renderLayout("/submissions")
     expect(submissions.getByRole("link", { name: "我的投稿" }).getAttribute("aria-current")).toBe("page")
+    cleanup()
+
+    const trash = renderLayout("/trash")
+    expect(trash.getByRole("link", { name: "回收站" }).getAttribute("aria-current")).toBe("page")
     cleanup()
 
     const favorites = renderLayout("/favorites")

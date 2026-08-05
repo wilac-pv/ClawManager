@@ -99,6 +99,46 @@ describe("submission detail", () => {
     expect(submissionPollInterval("pending_review", 1)).toBe(false)
     expect(submissionPollInterval(undefined, 0)).toBe(false)
   })
+
+  test("withdraws an in-flight submission with its current version", async () => {
+    const calls: unknown[][] = []
+    const fixture = renderDetail(detail("validation_failed"), {
+      withdraw: (...input) => {
+        calls.push(input)
+        return Promise.resolve({ ...detail("validation_failed"), status: "withdrawn" })
+      },
+    })
+
+    fireEvent.click(await fixture.findByRole("button", { name: "撤回投稿" }))
+    expect(fixture.getByRole("dialog")).toHaveTextContent("Safe Skill 1.2.0")
+    fireEvent.click(fixture.getByRole("button", { name: "确认撤回" }))
+    await waitFor(() => expect(calls[0]?.slice(0, 2)).toEqual(["sub_abcdefgh", { expectedVersion: 3 }]))
+    expect(fixture.queryByRole("button", { name: "撤回投稿" })).toBeNull()
+  })
+
+  test("requests delisting for a published public submission", async () => {
+    const calls: unknown[][] = []
+    const fixture = renderDetail(detail("published"), {
+      requestDelist: (...input) => {
+        calls.push(input)
+        return Promise.resolve({
+          id: "dlr_abcdefgh",
+          submissionID: "sub_abcdefgh",
+          requestedByEmployeeID: "E000001",
+          reason: "No longer maintained",
+          version: 1,
+          status: "pending",
+          createdAt: "2026-08-05T00:00:00.000Z",
+        })
+      },
+    })
+
+    fireEvent.click(await fixture.findByRole("button", { name: "申请下架" }))
+    fireEvent.input(fixture.getByLabelText("下架原因"), { target: { value: "No longer maintained" } })
+    fireEvent.click(fixture.getByRole("button", { name: "确认申请下架" }))
+    await waitFor(() => expect(calls[0]?.slice(0, 2)).toEqual(["sub_abcdefgh", { expectedVersion: 3, reason: "No longer maintained" }]))
+    expect(fixture.getByText("下架申请待处理")).toBeTruthy()
+  })
 })
 
 function renderDetail(value: SkillMarketControl.SubmissionDetail, overrides: Partial<SubmissionDetailSource> = {}) {
@@ -108,6 +148,8 @@ function renderDetail(value: SkillMarketControl.SubmissionDetail, overrides: Par
     packageUrl: (submissionID) => `http://127.0.0.1:4210/v1/submissions/${submissionID}/package`,
     revise: () => Promise.resolve({ submission: value }),
     promote: () => Promise.resolve({ submission: value }),
+    withdraw: () => Promise.resolve(value),
+    requestDelist: () => Promise.reject(new Error("not configured")),
     ...overrides,
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
