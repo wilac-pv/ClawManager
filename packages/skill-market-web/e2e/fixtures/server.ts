@@ -19,9 +19,14 @@ const users = {
   otherDepartment: { employeeID: "other-department", displayName: "Other Department", email: "other-department@example.com" },
   other: { employeeID: "other1", displayName: "Other Submitter", email: "other1@example.com" },
   reviewer2: { employeeID: "reviewer2", displayName: "Reviewer Two", email: "reviewer2@example.com" },
+  typography: {
+    employeeID: "typography-employee-id-abcdefghijklmnopqrstuvwxyz0123456789",
+    displayName: "中文排版验证用户",
+    email: "typography@example.com",
+  },
 } satisfies Record<string, SkillMarketControl.User>
 
-type Persona = "anonymous" | "submitter" | "reviewer" | "admin" | "group-owner" | "group-member" | "outsider" | "same-department" | "other-department"
+type Persona = "anonymous" | "submitter" | "reviewer" | "admin" | "group-owner" | "group-member" | "outsider" | "same-department" | "other-department" | "typography"
 type FixtureState = {
   submissions: Map<string, SkillMarketControl.SubmissionDetail>
   roles: SkillMarketControl.RoleAssignment[]
@@ -53,6 +58,21 @@ const publishedCommunity = makeSubmission({
   publicSkill: {
     source: "community",
     id: "published-community-skill",
+    version: "1.0.0",
+    rowVersion: 1,
+    status: "published",
+  },
+})
+const typographyPublic = makeSubmission({
+  id: "sub_typography_public",
+  skillID: "typography-public-skill",
+  owner: users.typography,
+  metadata: metadata("跨部门协作与中文排版验证 Skill 标题需要在手机宽度下自然换行且不能裁切", "1.0.0"),
+  status: "published",
+  currentPublicVersion: "1.0.0",
+  publicSkill: {
+    source: "community",
+    id: "typography-public-skill",
     version: "1.0.0",
     rowVersion: 1,
     status: "published",
@@ -92,6 +112,8 @@ const server = Bun.serve({
     if (request.method !== "GET" && !validCsrf(request)) {
       return problem(request, 403, "csrf-invalid", "CSRF 校验失败")
     }
+    if (url.pathname === "/v1/favorites" && request.method === "GET") return json(request, [])
+    if (url.pathname === "/v1/groups" && request.method === "GET") return groupPage(request, context.persona)
     if (url.pathname === "/v1/submissions" && request.method === "GET") {
       return submissionList(request, url, context.state, context.user, false)
     }
@@ -801,6 +823,14 @@ async function skillHubCommand(request: Request, state: FixtureState) {
 function initialState(): FixtureState {
   const submissions = [
     makeSubmission({
+      id: "sub_typography01",
+      skillID: "typography-machine-id-用于窄屏换行验证-abcdefghijklmnopqrstuvwxyz0123456789",
+      owner: users.typography,
+      target: "personal",
+      metadata: metadata("Typography Machine ID", "1.0.0"),
+      status: "published",
+    }),
+    makeSubmission({
       id: "sub_validation01",
       skillID: "invalid-community-skill",
       owner: users.submitter,
@@ -1009,7 +1039,21 @@ function catalogItems(state?: FixtureState): SkillMarket.Summary[] {
         item.publicSkill?.status === "published",
     )
     .map(publicSummary)
-  return [summary, communitySummary, publicSummary(publishedCommunity), ...dynamic]
+  return [summary, communitySummary, publicSummary(publishedCommunity), publicSummary(typographyPublic), ...dynamic]
+}
+
+function groupPage(request: Request, persona: Persona) {
+  const group = {
+    id: "grp_typography01",
+    name: "跨部门中文排版验证小组",
+    description: "用于验证窄屏文本换行。",
+    ownerEmployeeID: persona === "typography" ? users.typography.employeeID : users.groupOwner.employeeID,
+    status: "active" as const,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  }
+  return json(request, persona === "group-owner" || persona === "typography" ? { managed: [group], joined: [] } : { managed: [], joined: [] })
 }
 
 function restrictedList(request: Request, context: ReturnType<typeof fixtureContext>) {
@@ -1257,7 +1301,8 @@ function parsePersona(value: string | null | undefined): Persona {
     value === "group-member" ||
     value === "outsider" ||
     value === "same-department" ||
-    value === "other-department"
+    value === "other-department" ||
+    value === "typography"
   )
     return value
   return "anonymous"

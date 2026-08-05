@@ -21,6 +21,16 @@ bun run test:e2e
 
 E2E 使用本地、隔离且无真实员工信息的状态夹具，覆盖 Submitter、Reviewer 和 Admin。每个测试分配独立租户状态，因此可以并发运行而不会互相污染。
 
+## 排版验收
+
+Playwright 固定检查两个视口：桌面 `1440×1000` 与移动端 `390×844`。扫检页面为 `/skills`、`/personal`、`/submissions`、`/groups`、`/favorites`、`/trash` 和 `/admin`；夹具会按页面使用匿名、Submitter、群组负责人或 Admin 身份。
+
+验收命令：
+
+```bash
+bun run test:e2e
+```
+
 ## OSS 发布
 
 发布脚本把每次构建放到内容寻址的不可变版本目录，确认每个对象已经上传且大小正确后，最后更新 `current.json`：

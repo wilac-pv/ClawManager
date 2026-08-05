@@ -70,6 +70,8 @@ samp,
 .machine-id,
 .hash {
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .type-page-title {
@@ -231,6 +233,11 @@ a {
 .market-shell__identity small {
   margin-top: 3px;
   color: var(--skillhub-muted);
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .market-primary-action,

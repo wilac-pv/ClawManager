@@ -16,19 +16,11 @@ export default defineConfig({
   projects: [
     {
       name: "desktop-light",
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, colorScheme: "light" },
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 }, colorScheme: "light" },
     },
     {
       name: "mobile-light",
-      use: {
-        ...devices["Pixel 7"],
-        viewport: { width: 390, height: 844 },
-        colorScheme: "light",
-      },
-    },
-    {
-      name: "desktop-dark-os",
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 }, colorScheme: "dark" },
+      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 }, colorScheme: "light" },
     },
   ],
   webServer: [
