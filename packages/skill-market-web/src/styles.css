@@ -4,13 +4,25 @@
   --skillhub-surface: #ffffff;
   --skillhub-surface-muted: #fafbfc;
   --skillhub-border: #e1e5eb;
+  --skillhub-border-soft: #eceff3;
   --skillhub-border-strong: #cfd5de;
   --skillhub-text: #20242c;
   --skillhub-muted: #626b78;
   --skillhub-brand: #6d5dfc;
   --skillhub-brand-hover: #5b49f0;
   --skillhub-brand-soft: #efedff;
+  --skillhub-brand-border: #c7c2ff;
   --skillhub-focus-ring: rgba(109, 93, 252, 0.18);
+  --skillhub-danger: var(--skillhub-danger);
+  --skillhub-danger-soft: var(--skillhub-danger-soft);
+  --skillhub-danger-border: var(--skillhub-danger-border);
+  --skillhub-success: var(--skillhub-success);
+  --skillhub-success-soft: var(--skillhub-success-soft);
+  --skillhub-warning: var(--skillhub-warning);
+  --skillhub-warning-soft: var(--skillhub-warning-soft);
+  --skillhub-warning-border: var(--skillhub-warning-border);
+  --skillhub-neutral-soft: var(--skillhub-neutral-soft);
+  --skillhub-neutral-text: var(--skillhub-neutral-text);
   --skillhub-content-width: 1120px;
   --skillhub-radius-sm: 8px;
   --skillhub-radius-md: 12px;
@@ -28,6 +40,8 @@
   --weight-medium: 500;
   --weight-semibold: 650;
   --weight-bold: 700;
+  --weight-heavy: 750;
+  --weight-black: 800;
   background: var(--skillhub-bg);
 }
 
@@ -67,8 +81,7 @@ code,
 pre,
 kbd,
 samp,
-.machine-id,
-.hash {
+.machine-id {
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -145,7 +158,7 @@ a {
   gap: 24px;
   min-height: 64px;
   padding: 0 28px;
-  border-bottom: 1px solid #e3e6eb;
+  border-bottom: 1px solid var(--skillhub-border);
   background: rgba(255, 255, 255, 0.96);
 }
 
@@ -165,7 +178,7 @@ a {
   display: block;
   width: 38px;
   height: 38px;
-  filter: drop-shadow(0 5px 10px rgba(18, 95, 195, 0.18));
+  filter: drop-shadow(0 5px 10px rgba(109, 93, 252, 0.18));
 }
 
 .market-shell__wordmark {
@@ -178,13 +191,13 @@ a {
 .market-shell__wordmark > span {
   color: #202b38;
   font-size: 15px;
-  font-weight: 750;
+  font-weight: var(--weight-heavy);
 }
 
 .market-shell__wordmark strong {
   color: var(--skillhub-brand);
   font-size: 17px;
-  font-weight: 800;
+  font-weight: var(--weight-black);
   letter-spacing: -0.03em;
 }
 
@@ -197,7 +210,7 @@ a {
 
 .market-shell__nav a {
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   color: #626b78;
   white-space: nowrap;
 }
@@ -245,7 +258,7 @@ a {
   min-height: 38px;
   padding: 0 14px;
   border: 1px solid #d5dbe3;
-  border-radius: 9px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
   color: #27303c;
   cursor: pointer;
@@ -275,7 +288,7 @@ a {
   width: min(720px, calc(100% - 40px));
   margin: 72px auto;
   padding: 32px;
-  border: 1px solid #e3e6eb;
+  border: 1px solid var(--skillhub-border);
   border-radius: var(--skillhub-radius-lg);
   background: var(--skillhub-surface);
   text-align: center;
@@ -288,7 +301,7 @@ a {
   padding: 32px;
   margin: 28px auto;
   border: 1px dashed #ced4dc;
-  border-radius: 14px;
+  border-radius: var(--skillhub-radius-md);
   background: var(--skillhub-surface-muted);
   color: var(--skillhub-muted);
   text-align: center;
@@ -340,9 +353,6 @@ a {
   text-transform: uppercase;
 }
 
-.submission-page__create {
-  flex: none;
-}
 
 .space-page__action {
   flex: none;
@@ -355,8 +365,8 @@ a {
   gap: 20px;
   margin-bottom: 18px;
   padding: 16px 18px;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -368,7 +378,7 @@ a {
 
 .submission-toolbar label > span,
 .submission-form__field > span {
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
 }
 
 .market-section-hero {
@@ -379,7 +389,7 @@ a {
 .market-section-hero > span {
   color: var(--skillhub-brand);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: var(--weight-black);
   letter-spacing: 0.14em;
 }
 
@@ -412,7 +422,7 @@ a {
   min-height: calc(100vh - 72px);
   padding: 48px clamp(18px, 5vw, 72px) 72px;
   background:
-    radial-gradient(circle at 20% 0%, rgba(18, 104, 229, 0.08), transparent 28%),
+    radial-gradient(circle at 20% 0%, rgba(109, 93, 252, 0.08), transparent 28%),
     var(--skillhub-bg);
 }
 
@@ -439,7 +449,7 @@ a {
   height: 44px;
   padding: 0 18px;
   border: 1px solid #d8dce5;
-  border-radius: 14px;
+  border-radius: var(--skillhub-radius-md);
   background: white;
   color: #101828;
   font: inherit;
@@ -470,7 +480,7 @@ a {
 
 .expert-packages__scenes button:hover,
 .expert-packages__scenes button.is-active {
-  border-color: #c8dcf8;
+  border-color: var(--skillhub-brand-border);
   background: var(--skillhub-surface);
   color: var(--skillhub-brand);
 }
@@ -501,8 +511,8 @@ a {
 }
 
 .expert-package-card:hover {
-  border-color: #9fc2f0;
-  box-shadow: 0 16px 36px rgba(32, 75, 131, 0.1);
+  border-color: var(--skillhub-brand-border);
+  box-shadow: 0 16px 36px rgba(109, 93, 252, 0.1);
   transform: translateY(-2px);
 }
 
@@ -511,11 +521,11 @@ a {
   display: grid;
   width: 48px;
   height: 48px;
-  border-radius: 14px;
+  border-radius: var(--skillhub-radius-md);
   background: linear-gradient(145deg, var(--skillhub-brand-hover), var(--skillhub-brand));
   color: white;
   font-size: 20px;
-  font-weight: 800;
+  font-weight: var(--weight-black);
   place-items: center;
 }
 
@@ -555,7 +565,7 @@ a {
 .expert-packages__pagination button {
   padding: 8px 14px;
   border: 1px solid #d8dce5;
-  border-radius: 9px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
 }
 
@@ -689,7 +699,7 @@ a {
   flex-direction: column;
   justify-content: space-between;
   padding: 20px 22px;
-  border-radius: 12px;
+  border-radius: var(--skillhub-radius-md);
   box-shadow: none;
 }
 
@@ -721,7 +731,7 @@ a {
 .favorite-page__actions button {
   border: 0;
   background: transparent;
-  color: #b54708;
+  color: var(--skillhub-danger);
   cursor: pointer;
 }
 
@@ -762,7 +772,7 @@ a {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid #cfd5de;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
   color: #222833;
   box-sizing: border-box;
@@ -780,7 +790,7 @@ a {
 .space-page__state {
   padding: 56px 28px;
   border: 1px dashed #ced4dc;
-  border-radius: 14px;
+  border-radius: var(--skillhub-radius-md);
   background: #fafbfc;
   text-align: center;
 }
@@ -794,7 +804,7 @@ a {
   min-height: 38px;
   padding: 0 14px;
   border: 1px solid #d5dbe3;
-  border-radius: 9px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
   color: #27303c;
   cursor: pointer;
@@ -811,8 +821,8 @@ a {
   justify-content: space-between;
   gap: 24px;
   padding: 20px 22px;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -849,10 +859,10 @@ a {
   flex: none;
   padding: 4px 8px;
   border-radius: 999px;
-  background: #eef1f5;
-  color: #56606d;
+  background: var(--skillhub-neutral-soft);
+  color: var(--skillhub-neutral-text);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .submission-status--validating,
@@ -862,25 +872,25 @@ a {
 }
 
 .submission-status--pending_review {
-  background: #fff4d6;
-  color: #815600;
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
 }
 
 .submission-status--validation_failed,
 .submission-status--rejected,
 .submission-status--publish_failed {
-  background: #ffebeb;
-  color: #a32b2b;
+  background: var(--skillhub-danger-soft);
+  color: var(--skillhub-danger);
 }
 
 .submission-status--changes_requested {
-  background: #fff0e1;
-  color: #934700;
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
 }
 
 .submission-status--published {
-  background: #e8f7ee;
-  color: #18733d;
+  background: var(--skillhub-success-soft);
+  color: var(--skillhub-success);
 }
 
 .submission-card__actions {
@@ -916,10 +926,10 @@ a {
 
 .submission-form__errors {
   padding: 17px 20px;
-  border: 1px solid #e49a9a;
-  border-radius: 10px;
-  background: #fff4f4;
-  color: #842727;
+  border: 1px solid var(--skillhub-danger-border);
+  border-radius: var(--skillhub-radius-md);
+  background: var(--skillhub-danger-soft);
+  color: var(--skillhub-danger);
 }
 
 .submission-form__errors p,
@@ -933,8 +943,8 @@ a {
   min-width: 0;
   gap: 34px;
   padding: 26px;
-  border: 1px solid #e1e5eb;
-  border-radius: 14px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -951,9 +961,9 @@ a {
 
 .submission-form__section--target {
   overflow: hidden;
-  border-color: #d9e3f2;
+  border-color: var(--skillhub-brand-border);
   background:
-    radial-gradient(circle at 0 0, rgba(18, 104, 229, 0.07), transparent 230px),
+    radial-gradient(circle at 0 0, rgba(109, 93, 252, 0.07), transparent 230px),
     white;
 }
 
@@ -962,7 +972,7 @@ a {
   margin-bottom: 8px;
   color: var(--skillhub-brand);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: var(--weight-heavy);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -982,7 +992,7 @@ a {
   padding: 0;
   color: #4f5968;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
 }
 
 .submission-target-card {
@@ -994,7 +1004,7 @@ a {
   min-height: 112px;
   padding: 18px;
   border: 1px solid #dce2ea;
-  border-radius: 14px;
+  border-radius: var(--skillhub-radius-md);
   background: rgba(255, 255, 255, 0.88);
   box-sizing: border-box;
   cursor: pointer;
@@ -1006,30 +1016,30 @@ a {
 }
 
 .submission-target-card:hover {
-  border-color: #94b9ec;
-  box-shadow: 0 10px 24px rgba(32, 75, 131, 0.09);
+  border-color: var(--skillhub-brand-border);
+  box-shadow: 0 10px 24px rgba(109, 93, 252, 0.09);
   transform: translateY(-1px);
 }
 
 .submission-target-card:focus-within {
-  outline: 3px solid rgba(18, 104, 229, 0.2);
+  outline: 3px solid rgba(109, 93, 252, 0.2);
   outline-offset: 2px;
 }
 
 .submission-target-card--selected {
   border-color: var(--skillhub-brand);
-  background: linear-gradient(145deg, #f7faff, #edf4ff);
+  background: linear-gradient(145deg, var(--skillhub-brand-soft), var(--skillhub-brand-soft));
   box-shadow:
     0 0 0 1px var(--skillhub-brand),
-    0 12px 28px rgba(18, 104, 229, 0.12);
+    0 12px 28px rgba(109, 93, 252, 0.12);
 }
 
 .submission-target-card__icon {
   display: grid;
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  background: #edf4ff;
+  border-radius: var(--skillhub-radius-md);
+  background: var(--skillhub-brand-soft);
   color: var(--skillhub-brand);
   place-items: center;
 }
@@ -1081,15 +1091,15 @@ a {
 .submission-target-card__badge {
   padding: 3px 7px;
   border-radius: 999px;
-  background: #dceaff;
-  color: #0d5fc5;
+  background: var(--skillhub-brand-soft);
+  color: var(--skillhub-brand);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   line-height: 1.2;
 }
 
 .submission-target-card__badge--review {
-  background: #edf0f4;
+  background: var(--skillhub-border);
   color: #596474;
 }
 
@@ -1108,8 +1118,8 @@ a {
   margin: 0;
   padding: 16px;
   border: 1px solid #dce2ea;
-  border-radius: 12px;
-  background: #f8faff;
+  border-radius: var(--skillhub-radius-md);
+  background: var(--skillhub-brand-soft);
 }
 
 .submission-group-picker label,
@@ -1130,8 +1140,8 @@ a {
   display: grid;
   gap: 14px;
   padding: 20px;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -1154,7 +1164,7 @@ a {
   min-height: 40px;
   padding: 8px 10px;
   border: 1px solid #cfd5de;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   box-sizing: border-box;
 }
 
@@ -1175,8 +1185,8 @@ a {
   display: grid;
   gap: 10px;
   padding: 20px;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
   color: inherit;
   text-decoration: none;
@@ -1185,7 +1195,7 @@ a {
 .group-card:focus-visible,
 .group-card:hover {
   border-color: var(--skillhub-brand);
-  box-shadow: 0 8px 22px rgba(18, 104, 229, 0.1);
+  box-shadow: 0 8px 22px rgba(109, 93, 252, 0.1);
 }
 
 .group-card > span,
@@ -1204,8 +1214,8 @@ a {
 .group-status {
   padding: 6px 10px;
   border-radius: 999px;
-  background: #e8f7ee;
-  color: #18733d;
+  background: var(--skillhub-success-soft);
+  color: var(--skillhub-success);
 }
 
 .group-member-list {
@@ -1218,7 +1228,7 @@ a {
 
 .group-member-list li {
   padding: 12px 0;
-  border-bottom: 1px solid #eceff3;
+  border-bottom: 1px solid var(--skillhub-border-soft);
 }
 
 .group-member-list span,
@@ -1228,7 +1238,7 @@ a {
 
 .group-danger-action {
   justify-self: start;
-  color: #a32b2b;
+  color: var(--skillhub-danger);
 }
 
 .admin-group-search {
@@ -1258,18 +1268,18 @@ a {
 }
 
 .submission-form__field-error {
-  color: #a32b2b !important;
+  color: var(--skillhub-danger);
 }
 
 .submission-form input[aria-invalid="true"],
 .submission-form textarea[aria-invalid="true"] {
-  border-color: #c94646;
+  border-color: var(--skillhub-danger-border);
 }
 
 .submission-form input[type="file"] {
   padding: 10px;
   border: 1px dashed #bbc3ce;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   background: #fafbfc;
 }
 
@@ -1278,8 +1288,8 @@ a {
   align-items: flex-start;
   gap: 10px;
   padding: 13px;
-  border: 1px solid #e1e5eb;
-  border-radius: 9px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-sm);
 }
 
 .submission-form__checkbox span {
@@ -1337,8 +1347,8 @@ a {
 
 .submission-detail__section {
   padding: 26px;
-  border: 1px solid #e1e5eb;
-  border-radius: 14px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -1393,7 +1403,7 @@ a {
   border: 3px solid white;
   border-radius: 50%;
   background: var(--skillhub-brand);
-  box-shadow: 0 0 0 1px #9ebce6;
+  box-shadow: 0 0 0 1px var(--skillhub-brand-border);
   box-sizing: border-box;
 }
 
@@ -1420,10 +1430,10 @@ a {
   justify-content: space-between;
   gap: 18px;
   padding: 14px 18px;
-  border: 1px solid #e8ca83;
-  border-radius: 10px;
-  background: #fff8e7;
-  color: #71500c;
+  border: 1px solid var(--skillhub-warning-border);
+  border-radius: var(--skillhub-radius-md);
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
 }
 
 .submission-detail__polling button {
@@ -1431,7 +1441,7 @@ a {
   background: transparent;
   color: var(--skillhub-brand);
   cursor: pointer;
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
 }
 
 .submission-detail__facts {
@@ -1444,7 +1454,7 @@ a {
 .submission-detail__facts > div {
   min-width: 0;
   padding: 14px;
-  border-radius: 9px;
+  border-radius: var(--skillhub-radius-sm);
   background: #f7f8fa;
 }
 
@@ -1472,9 +1482,9 @@ a {
 
 .submission-report-list li {
   padding: 14px 16px;
-  border-left: 3px solid #dc9a2b;
-  border-radius: 6px;
-  background: #fff9ed;
+  border-left: 3px solid var(--skillhub-warning-border);
+  border-radius: var(--skillhub-radius-sm);
+  background: var(--skillhub-warning-soft);
 }
 
 .submission-report-list p {
@@ -1497,7 +1507,7 @@ a {
 
 .submission-manifest li {
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--skillhub-radius-sm);
   background: #f6f7f9;
 }
 
@@ -1507,7 +1517,7 @@ a {
   align-items: baseline;
   gap: 12px;
   padding: 13px 0;
-  border-bottom: 1px solid #eceff3;
+  border-bottom: 1px solid var(--skillhub-border-soft);
 }
 
 .submission-detail__history li:last-child {
@@ -1527,8 +1537,8 @@ a {
   gap: 12px;
   margin-bottom: 18px;
   padding: 16px;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -1548,15 +1558,15 @@ a {
   min-height: 38px;
   padding: 7px 9px;
   border: 1px solid #cfd5de;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
   box-sizing: border-box;
 }
 
 .moderation-table-wrap {
   overflow-x: auto;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -1569,7 +1579,7 @@ a {
 .moderation-table th,
 .moderation-table td {
   padding: 14px 16px;
-  border-bottom: 1px solid #eceff3;
+  border-bottom: 1px solid var(--skillhub-border-soft);
   vertical-align: middle;
   white-space: nowrap;
 }
@@ -1610,23 +1620,23 @@ a {
   min-height: 26px;
   padding: 0 9px;
   border-radius: 999px;
-  background: #eef1f5;
-  color: #56606d;
+  background: var(--skillhub-neutral-soft);
+  color: var(--skillhub-neutral-text);
 }
 
 .moderation-risk--safe {
-  background: #e8f7ee;
-  color: #18733d;
+  background: var(--skillhub-success-soft);
+  color: var(--skillhub-success);
 }
 
 .moderation-risk--warning {
-  background: #fff4d6;
-  color: #815600;
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
 }
 
 .moderation-risk--danger {
-  background: #ffebeb;
-  color: #a32b2b;
+  background: var(--skillhub-danger-soft);
+  color: var(--skillhub-danger);
 }
 
 .moderation-review {
@@ -1636,18 +1646,18 @@ a {
 
 .moderation-risk-summary {
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   background: #f5f7f9;
 }
 
 .moderation-risk-summary--warning {
-  background: #fff8e7;
-  color: #71500c;
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
 }
 
 .moderation-risk-summary--danger {
-  background: #fff0f0;
-  color: #8f2929;
+  background: var(--skillhub-danger-soft);
+  color: var(--skillhub-danger);
 }
 
 .moderation-file-pagination {
@@ -1661,7 +1671,7 @@ a {
   min-height: 34px;
   padding: 0 11px;
   border: 1px solid #cfd5de;
-  border-radius: 7px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
   cursor: pointer;
 }
@@ -1674,10 +1684,10 @@ a {
 .moderation-decision__notice {
   margin-bottom: 18px;
   padding: 14px 16px;
-  border: 1px solid #e8ca83;
-  border-radius: 9px;
-  background: #fff8e7;
-  color: #71500c;
+  border: 1px solid var(--skillhub-warning-border);
+  border-radius: var(--skillhub-radius-sm);
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
 }
 
 .moderation-decision__notice p {
@@ -1695,12 +1705,12 @@ a {
   margin: 0;
   padding: 14px 16px;
   border: 1px solid #dce1e7;
-  border-radius: 9px;
+  border-radius: var(--skillhub-radius-sm);
 }
 
 .moderation-decision legend {
   padding: 0 5px;
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
 }
 
 .moderation-decision fieldset label {
@@ -1711,9 +1721,9 @@ a {
 
 .moderation-decision__confirmation {
   padding: 14px;
-  border: 1px solid #e8ca83;
-  border-radius: 9px;
-  background: #fffaf0;
+  border: 1px solid var(--skillhub-warning-border);
+  border-radius: var(--skillhub-radius-sm);
+  background: var(--skillhub-warning-soft);
 }
 
 .moderation-decision .market-primary-action {
@@ -1727,8 +1737,8 @@ a {
   gap: 14px;
   margin-bottom: 18px;
   padding: 20px;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -1738,7 +1748,7 @@ a {
 }
 
 .admin-role-form label > span {
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
 }
 
 .admin-role-form input,
@@ -1746,7 +1756,7 @@ a {
   min-height: 40px;
   padding: 8px 10px;
   border: 1px solid #cfd5de;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
 }
 
@@ -1761,9 +1771,9 @@ a {
   gap: 20px;
   margin-bottom: 18px;
   padding: 16px 18px;
-  border: 1px solid #e8ca83;
-  border-radius: 10px;
-  background: #fff8e7;
+  border: 1px solid var(--skillhub-warning-border);
+  border-radius: var(--skillhub-radius-md);
+  background: var(--skillhub-warning-soft);
 }
 
 .admin-role-confirmation p {
@@ -1786,7 +1796,7 @@ a {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #b12f2f;
+  color: var(--skillhub-danger);
   cursor: pointer;
 }
 
@@ -1794,11 +1804,11 @@ a {
   display: inline-block;
   margin-top: 6px;
   padding: 2px 6px;
-  border-radius: 5px;
-  background: #ffebeb;
-  color: #a32b2b;
+  border-radius: var(--skillhub-radius-sm);
+  background: var(--skillhub-danger-soft);
+  color: var(--skillhub-danger);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .admin-workspace {
@@ -1812,7 +1822,7 @@ a {
   gap: 24px;
   min-height: 76px;
   padding: 0 max(24px, calc((100% - var(--skillhub-content-width)) / 2));
-  border-bottom: 1px solid #e4e8ee;
+  border-bottom: 1px solid var(--skillhub-border);
   background: #fff;
 }
 
@@ -1825,7 +1835,7 @@ a {
   margin: 0;
   color: var(--skillhub-muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1841,33 +1851,37 @@ a {
   background: var(--skillhub-brand-soft);
   color: var(--skillhub-brand);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
-.admin-workspace__nav {
+.admin-workspace__nav,
+.my-space__nav {
   display: flex;
   gap: 4px;
   padding: 10px max(24px, calc((100% - var(--skillhub-content-width)) / 2));
   overflow-x: auto;
-  border-bottom: 1px solid #e4e8ee;
+  border-bottom: 1px solid var(--skillhub-border);
   background: #fff;
 }
 
-.admin-workspace__nav a {
+.admin-workspace__nav a,
+.my-space__nav a {
   padding: 9px 14px;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   color: #626b78;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
   text-decoration: none;
   white-space: nowrap;
 }
 
-.admin-workspace__nav a:hover {
+.admin-workspace__nav a:hover,
+.my-space__nav a:hover {
   color: var(--skillhub-brand);
 }
 
-.admin-workspace__nav a.is-active {
+.admin-workspace__nav a.is-active,
+.my-space__nav a.is-active {
   background: var(--skillhub-brand);
   color: #fff;
 }
@@ -1879,34 +1893,6 @@ a {
 
 .my-space {
   min-height: calc(100vh - 64px);
-}
-
-.my-space__nav {
-  display: flex;
-  gap: 4px;
-  padding: 10px max(24px, calc((100% - var(--skillhub-content-width)) / 2));
-  overflow-x: auto;
-  border-bottom: 1px solid #e4e8ee;
-  background: #fff;
-}
-
-.my-space__nav a {
-  padding: 9px 14px;
-  border-radius: 8px;
-  color: #626b78;
-  font-size: 14px;
-  font-weight: 650;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.my-space__nav a:hover {
-  color: var(--skillhub-brand);
-}
-
-.my-space__nav a.is-active {
-  background: var(--skillhub-brand);
-  color: #fff;
 }
 
 .my-space__content > .space-page {
@@ -1926,23 +1912,23 @@ a {
   align-self: flex-start;
   padding: 5px 9px;
   border-radius: 999px;
-  background: #eef1f5;
+  background: var(--skillhub-neutral-soft);
   color: #52606d;
 }
 
 .skillhub-import-state--running {
-  background: #e8f3ff;
-  color: #16649c;
+  background: var(--skillhub-brand-soft);
+  color: var(--skillhub-brand);
 }
 
 .skillhub-import-state--paused {
-  background: #fff5de;
-  color: #8d5a00;
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
 }
 
 .skillhub-import-state--failed {
-  background: #ffebeb;
-  color: #a32b2b;
+  background: var(--skillhub-danger-soft);
+  color: var(--skillhub-danger);
 }
 
 .skillhub-import-progress,
@@ -1950,8 +1936,8 @@ a {
 .skillhub-import-details,
 .skillhub-import-controls,
 .skillhub-import-confirmation {
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -1976,14 +1962,14 @@ a {
   height: 12px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e9edf2;
+  background: var(--skillhub-border);
 }
 
 .skillhub-import-progress__bar > span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #2275ba;
+  background: var(--skillhub-brand);
   transition: width 160ms ease-out;
 }
 
@@ -2045,7 +2031,7 @@ a {
   min-height: 38px;
   padding: 0 13px;
   border: 1px solid #cfd5de;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
   background: white;
   color: #2f3b49;
   cursor: pointer;
@@ -2072,7 +2058,7 @@ a {
   min-height: 38px;
   padding: 8px 10px;
   border: 1px solid #cfd5de;
-  border-radius: 8px;
+  border-radius: var(--skillhub-radius-sm);
 }
 
 .skillhub-import-confirmation {
@@ -2081,8 +2067,8 @@ a {
   justify-content: space-between;
   gap: 16px;
   padding: 16px 18px;
-  border-color: #e8ca83;
-  background: #fff8e7;
+  border-color: var(--skillhub-warning-border);
+  background: var(--skillhub-warning-soft);
 }
 
 .skillhub-import-confirmation p {
@@ -2105,8 +2091,8 @@ a {
 
 .audit-event {
   padding: 20px;
-  border: 1px solid #e1e5eb;
-  border-radius: 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: var(--skillhub-radius-md);
   background: white;
 }
 
@@ -2116,7 +2102,7 @@ a {
   justify-content: space-between;
   gap: 20px;
   padding-bottom: 14px;
-  border-bottom: 1px solid #eceff3;
+  border-bottom: 1px solid var(--skillhub-border-soft);
 }
 
 .audit-event > header div {
@@ -2164,7 +2150,7 @@ a {
   overflow: auto;
   margin: 7px 0 0;
   padding: 12px;
-  border-radius: 7px;
+  border-radius: var(--skillhub-radius-sm);
   background: #f5f7f9;
   color: #4c5663;
   font-size: 12px;
@@ -2195,10 +2181,10 @@ a {
 .admin-danger-action {
   min-height: 38px;
   padding: 0 14px;
-  border: 1px solid #c84343;
-  border-radius: 9px;
+  border: 1px solid var(--skillhub-danger-border);
+  border-radius: var(--skillhub-radius-sm);
   background: white;
-  color: #a32b2b;
+  color: var(--skillhub-danger);
   cursor: pointer;
 }
 
@@ -2207,14 +2193,14 @@ a {
   gap: 12px;
   margin-top: 18px;
   padding: 17px;
-  border: 1px solid #e8ca83;
-  border-radius: 10px;
-  background: #fffaf0;
+  border: 1px solid var(--skillhub-warning-border);
+  border-radius: var(--skillhub-radius-md);
+  background: var(--skillhub-warning-soft);
 }
 
 .admin-operation-confirmation p {
   margin: 0;
-  color: #71500c;
+  color: var(--skillhub-warning);
 }
 
 .admin-operation-confirmation > div {
@@ -2269,7 +2255,6 @@ a {
     flex-direction: column;
   }
 
-  .submission-page__create,
   .space-page__action {
     align-self: flex-start;
   }
@@ -2380,11 +2365,11 @@ a {
   margin: 28px auto -18px;
   padding: 15px 18px;
   overflow: hidden;
-  border: 1px solid rgba(18, 104, 229, 0.16);
+  border: 1px solid rgba(109, 93, 252, 0.16);
   border-radius: var(--skillhub-radius-lg);
   background:
-    radial-gradient(circle at 10% 20%, rgba(18, 104, 229, 0.1), transparent 30%),
-    linear-gradient(110deg, #f4f8ff 0%, #fff 58%, #f5f9ff 100%);
+    radial-gradient(circle at 10% 20%, rgba(109, 93, 252, 0.1), transparent 30%),
+    linear-gradient(110deg, var(--skillhub-brand-soft) 0%, #fff 58%, var(--skillhub-brand-soft) 100%);
   box-shadow: var(--skillhub-shadow-card);
 }
 
@@ -2393,7 +2378,7 @@ a {
   right: -36px;
   width: 120px;
   height: 120px;
-  border: 22px solid rgba(18, 104, 229, 0.055);
+  border: 22px solid rgba(109, 93, 252, 0.055);
   border-radius: 50%;
   content: "";
 }
@@ -2451,7 +2436,7 @@ a {
 .announcement-carousel__controls > a {
   color: var(--skillhub-brand);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   text-decoration: none;
 }
 
@@ -2507,7 +2492,7 @@ a {
 
 .announcement-history {
   overflow: hidden;
-  border: 1px solid #e4e7f0;
+  border: 1px solid var(--skillhub-border);
   border-radius: var(--skillhub-radius-lg);
   background: var(--skillhub-surface);
   box-shadow: var(--skillhub-shadow-card);
@@ -2519,7 +2504,7 @@ a {
   align-items: center;
   gap: 24px;
   padding: 24px 28px;
-  border-bottom: 1px solid #edf0f6;
+  border-bottom: 1px solid var(--skillhub-border);
   color: inherit;
   text-decoration: none;
   transition:
@@ -2532,7 +2517,7 @@ a {
 }
 
 .announcement-history__item:hover {
-  background: #f7faff;
+  background: var(--skillhub-brand-soft);
 }
 
 .announcement-history__item time {
@@ -2570,7 +2555,7 @@ a {
 .announcement-pagination button {
   padding: 9px 15px;
   border: 1px solid #dfe3ee;
-  border-radius: 10px;
+  border-radius: var(--skillhub-radius-md);
   background: #fff;
   color: #313a4e;
   cursor: pointer;
@@ -2590,7 +2575,7 @@ a {
 
 .announcement-detail__article {
   padding: 42px 48px 54px;
-  border: 1px solid #e4e7f0;
+  border: 1px solid var(--skillhub-border);
   border-radius: var(--skillhub-radius-lg);
   background: var(--skillhub-surface);
   box-shadow: var(--skillhub-shadow-card);
@@ -2611,7 +2596,7 @@ a {
   margin: 26px 0 30px;
   padding: 18px 20px;
   border-left: 4px solid var(--skillhub-brand);
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 var(--skillhub-radius-md) var(--skillhub-radius-md) 0;
   background: var(--skillhub-brand-soft);
   color: #4e566c;
 }
@@ -2624,7 +2609,7 @@ a {
   position: sticky;
   top: 86px;
   overflow: hidden;
-  border: 1px solid #e4e7f0;
+  border: 1px solid var(--skillhub-border);
   border-radius: var(--skillhub-radius-lg);
   background: var(--skillhub-surface);
 }
@@ -2634,7 +2619,7 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 18px 20px;
-  border-bottom: 1px solid #edf0f6;
+  border-bottom: 1px solid var(--skillhub-border);
 }
 
 .announcement-detail__history h2 {
@@ -2683,7 +2668,7 @@ a {
   gap: 22px;
   max-width: 860px;
   padding: 30px;
-  border: 1px solid #e3e6ef;
+  border: 1px solid var(--skillhub-border);
   border-radius: var(--skillhub-radius-lg);
   background: var(--skillhub-surface);
   box-shadow: var(--skillhub-shadow-card);
@@ -2704,7 +2689,7 @@ a {
   width: 100%;
   padding: 13px 14px;
   border: 1px solid #d9deea;
-  border-radius: 12px;
+  border-radius: var(--skillhub-radius-md);
   outline: none;
   background: #fbfcff;
   color: #1f2738;
@@ -2736,15 +2721,15 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border: 1px solid #b9e5cb;
-  border-radius: 12px;
-  background: #f0fbf5;
-  color: #17633a;
+  border: 1px solid var(--skillhub-success-soft);
+  border-radius: var(--skillhub-radius-md);
+  background: var(--skillhub-success-soft);
+  color: var(--skillhub-success);
 }
 
 .announcement-admin__success a {
-  color: #17633a;
-  font-weight: 700;
+  color: var(--skillhub-success);
+  font-weight: var(--weight-bold);
 }
 
 @media (max-width: 860px) {
