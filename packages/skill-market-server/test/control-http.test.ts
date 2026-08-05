@@ -17,6 +17,7 @@ import { createGroups } from "../src/groups"
 import { createInstallGrants } from "../src/install-grants"
 import { createMarketWebHandler } from "../src/handlers"
 import { createModeration } from "../src/moderation"
+import { createPersonalTrash } from "../src/personal-trash"
 import type { PrivateObjectStore } from "../src/oss"
 import { MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
 import { createRestrictedCatalog } from "../src/restricted-catalog"
@@ -1707,6 +1708,7 @@ async function marketFixture(
     auth,
     security,
     submissions,
+    personalTrash: createPersonalTrash({ database, store, now: () => now }),
     moderation,
     expertPackages: createExpertPackages({ database, baseUrl: "https://api.skillhub.cn" }),
     favorites: createFavorites({ database, now: () => now }),

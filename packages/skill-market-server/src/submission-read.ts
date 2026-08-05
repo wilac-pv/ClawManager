@@ -59,7 +59,7 @@ const AuditAfter = Schema.Struct({
   message: Schema.optional(Schema.String),
 })
 
-export function submissionSummarySelect() {
+export function submissionSummarySelect(extra = "") {
   return `SELECT
     submissions.id,
     submissions.skill_id,
@@ -86,7 +86,7 @@ export function submissionSummarySelect() {
     submission_revisions.scan_json,
     community_skills.current_version,
     submissions.created_at,
-    submissions.updated_at
+    submissions.updated_at${extra}
    FROM submissions
    INNER JOIN users ON users.employee_id = submissions.owner_employee_id
    LEFT JOIN departments ON departments.department_id = submissions.target_department_id

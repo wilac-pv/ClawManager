@@ -50,10 +50,17 @@ CREATE TABLE submissions_v12 (
   source_publication_id TEXT REFERENCES restricted_publications(id),
   deleted_at INTEGER,
   purge_after INTEGER,
+  artifacts_purge_token TEXT,
+  artifacts_purge_claimed_at INTEGER,
+  artifacts_purged_at INTEGER,
   CHECK (updated_at >= created_at),
   CHECK (
-    (deleted_at IS NULL AND purge_after IS NULL) OR
-    (target_scope = 'personal' AND deleted_at IS NOT NULL AND purge_after IS NOT NULL AND purge_after > deleted_at)
+    (deleted_at IS NULL AND purge_after IS NULL AND artifacts_purge_token IS NULL
+      AND artifacts_purge_claimed_at IS NULL AND artifacts_purged_at IS NULL) OR
+    (target_scope = 'personal' AND deleted_at IS NOT NULL AND purge_after IS NOT NULL AND purge_after > deleted_at
+      AND (artifacts_purged_at IS NULL OR artifacts_purged_at >= purge_after)
+      AND ((artifacts_purge_token IS NULL AND artifacts_purge_claimed_at IS NULL)
+        OR (artifacts_purged_at IS NULL AND artifacts_purge_token IS NOT NULL AND artifacts_purge_claimed_at IS NOT NULL)))
   )
 ) STRICT;
 

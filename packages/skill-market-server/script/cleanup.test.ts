@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { openDatabase } from "../src/database"
 import { cleanupPrivateObjects } from "./cleanup"
 
 const directories: string[] = []
@@ -72,6 +73,58 @@ describe("private object retention", () => {
     ])
     expect(dryRun.truncated).toBe(false)
     expect(store.deleted).toEqual([])
+  })
+
+  test("purges expired personal artifacts in the existing cleanup run", async () => {
+    const directory = await temporaryDirectory()
+    const databasePath = join(directory, "market.db")
+    const database = await openDatabase({ databasePath, migrationBackupDirectory: join(directory, "backups") })
+    database.connection.run(
+      `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
+       VALUES ('alice', 'Alice', ?, ?)`,
+      [now.getTime(), now.getTime()],
+    )
+    database.connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, status, current_revision, version, created_at, updated_at,
+         target_scope, deleted_at, purge_after)
+       VALUES ('sub_cleanuptrash1', 'cleanup-trash', 'alice', '1.0.0', 'published', 1, 3, ?, ?, 'personal', ?, ?)`,
+      [now.getTime() - 8 * day, now.getTime() - 8 * day, now.getTime() - 7 * day - 1, now.getTime() - 1],
+    )
+    database.connection.run(
+      `INSERT INTO submission_revisions
+        (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json, created_at)
+       VALUES ('sub_cleanuptrash1', 1, 'private-test/submissions/alice/sub_cleanuptrash1/1/package.zip', ?, 100, '{}', ?)`,
+      ["a".repeat(64), now.getTime() - 8 * day],
+    )
+    database.close()
+    const store = memoryStore([
+      object("private-test/submissions/alice/sub_cleanuptrash1/1/package.zip", 8),
+      object("private-test/submissions/alice/sub_cleanuptrash1/1/manifest.json", 8),
+      object("private-test/submissions/alice/sub_cleanuptrash1/1/scan.json", 8),
+    ])
+
+    const dryRun = await cleanupPrivateObjects({
+      databasePath,
+      privatePrefix: "private-test",
+      store,
+      now,
+      limit: 20,
+      dryRun: true,
+    })
+    expect(dryRun.personalPurged).toEqual([])
+    expect(store.deleted).toEqual([])
+
+    const result = await cleanupPrivateObjects({ databasePath, privatePrefix: "private-test", store, now, limit: 20 })
+
+    expect(result.personalPurged).toEqual(["sub_cleanuptrash1"])
+    expect(store.deleted.sort()).toEqual(
+      [
+        "private-test/submissions/alice/sub_cleanuptrash1/1/package.zip",
+        "private-test/submissions/alice/sub_cleanuptrash1/1/manifest.json",
+        "private-test/submissions/alice/sub_cleanuptrash1/1/scan.json",
+      ].sort(),
+    )
   })
 })
 

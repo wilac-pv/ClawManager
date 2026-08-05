@@ -176,7 +176,7 @@ export class Submissions {
   listOwn(principal: Principal, query: SkillMarketControl.SubmissionListQuery) {
     if (!Schema.is(SkillMarketControl.SubmissionListQuery)(query))
       throw new SkillMarketSecurityError("invalid-request", "submission list query is invalid")
-    const filters = ["submissions.owner_employee_id = ?"]
+    const filters = ["submissions.owner_employee_id = ?", "submissions.deleted_at IS NULL"]
     const parameters: Array<string | number> = [principal.session.user.employeeID]
     if (query.status) {
       filters.push("submissions.status = ?")
@@ -209,7 +209,7 @@ export class Submissions {
       .query<
         SummaryRow,
         [string, string]
-      >(`${summarySql()} WHERE submissions.id = ? AND submissions.owner_employee_id = ?`)
+      >(`${summarySql()} WHERE submissions.id = ? AND submissions.owner_employee_id = ? AND submissions.deleted_at IS NULL`)
       .get(submissionID, principal.session.user.employeeID)
     if (!row) throw new SkillMarketSecurityError("not-found", "submission was not found")
 
@@ -731,7 +731,8 @@ export class Submissions {
          WHERE submissions.id = ?
            AND submissions.owner_employee_id = ?
            AND submissions.target_scope = 'personal'
-           AND submissions.status = 'published'`,
+           AND submissions.status = 'published'
+           AND submissions.deleted_at IS NULL`,
       )
       .get(submissionID, principal.session.user.employeeID)
     if (!row) throw new SkillMarketSecurityError("not-found", "personal Skill package was not found")
@@ -843,7 +844,7 @@ function requireSharingSource(connection: Database, principal: Principal, submis
        LEFT JOIN restricted_publications
          ON restricted_publications.submission_id = submissions.id
         AND restricted_publications.status = 'published'
-       WHERE submissions.id = ? AND submissions.owner_employee_id = ?`,
+       WHERE submissions.id = ? AND submissions.owner_employee_id = ? AND submissions.deleted_at IS NULL`,
     )
     .get(submissionID, principal.session.user.employeeID)
   if (source) return source

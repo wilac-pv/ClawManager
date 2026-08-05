@@ -1,4 +1,6 @@
 import { Database } from "bun:sqlite"
+import { MarketDatabase } from "../src/database"
+import { createPersonalTrash } from "../src/personal-trash"
 
 export interface CleanupObjectStore {
   readonly list: (prefix: string) => Promise<ReadonlyArray<{ readonly key: string; readonly lastModified: Date }>>
@@ -19,7 +21,27 @@ export async function cleanupPrivateObjects(options: CleanupPrivateObjectsOption
   const prefix = normalizePrefix(options.privatePrefix)
   const limit = positiveInteger(options.limit ?? 100)
   const cutoff = (options.now ?? new Date()).getTime() - positiveInteger(options.retentionDays ?? 30) * 86_400_000
-  const database = new Database(options.databasePath, { create: false, readonly: true, strict: true })
+  const database = new Database(options.databasePath, { create: false, readwrite: true, strict: true })
+  const personalPurged =
+    !options.dryRun &&
+    database
+      .query<{ name: string }, []>("SELECT name FROM pragma_table_info('submissions')")
+      .all()
+      .some((column) => column.name === "artifacts_purged_at")
+    ? await createPersonalTrash({
+        database: new MarketDatabase(database),
+        store: options.store,
+        now: () => (options.now ?? new Date()).getTime(),
+      })
+        .purgeExpiredPersonal()
+        .then(
+          (result) => result.purged,
+          (error) => {
+            database.close()
+            throw error
+          },
+        )
+    : []
   const submissions = new Map(
     database
       .query<
@@ -68,7 +90,7 @@ export async function cleanupPrivateObjects(options: CleanupPrivateObjectsOption
     .sort()
   const deleted = eligible.slice(0, limit)
   if (!options.dryRun) await Promise.all(deleted.map((key) => options.store.delete(key)))
-  return { deleted, truncated: eligible.length > limit }
+  return { deleted, truncated: eligible.length > limit, personalPurged }
 }
 
 function positiveInteger(value: number) {

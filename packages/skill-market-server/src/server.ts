@@ -14,6 +14,7 @@ import { createFavorites } from "./favorites"
 import { createGroups } from "./groups"
 import { createInstallGrants } from "./install-grants"
 import { createModeration } from "./moderation"
+import { createPersonalTrash } from "./personal-trash"
 import { makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
 import { createRestrictedCatalog } from "./restricted-catalog"
@@ -68,6 +69,7 @@ const main = Effect.scoped(
       void state.worker?.wake("server").catch(() => undefined)
     }
     const submissions = createSubmissions({ database, onValidationReady: wake })
+    const personalTrash = createPersonalTrash({ database, store })
     const moderation = createModeration({ database, security })
     const announcements = createAnnouncements({ database })
     const imports = createSkillHubImportStore({
@@ -140,6 +142,7 @@ const main = Effect.scoped(
       auth,
       security,
       submissions,
+      personalTrash,
       moderation,
       expertPackages,
       favorites,

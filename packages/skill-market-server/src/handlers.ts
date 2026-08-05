@@ -17,6 +17,7 @@ import { authorizeCatalogReader, type CatalogReader } from "./catalog-reader"
 import type { InstallGrants } from "./install-grants"
 import type { MarketMetricEmitter } from "./metrics"
 import type { Moderation } from "./moderation"
+import type { PersonalTrash } from "./personal-trash"
 import type { ExpertPackages } from "./expert-packages"
 import type { Favorites } from "./favorites"
 import type { Groups } from "./groups"
@@ -33,6 +34,7 @@ import { createCatalogHttp, packageHeaders, packageNotFoundProblem, packageReadP
 import { createExpertPackagesHttp } from "./http/expert-packages"
 import { createFavoritesHttp } from "./http/favorites"
 import { createGroupsHttp } from "./http/groups"
+import { createPersonalTrashHttp } from "./http/personal-trash"
 import { createSecurityLayers } from "./http/middleware"
 import { createSubmissionsHttp } from "./http/submissions"
 import { createCatalogPackageReader, type CatalogPackageReader } from "./package-reader"
@@ -48,6 +50,7 @@ export interface MarketHttpOptions {
   readonly security: MarketSecurity
   readonly submissions: Submissions
   readonly moderation: Moderation
+  readonly personalTrash: PersonalTrash
   readonly expertPackages: ExpertPackages
   readonly favorites: Favorites
   readonly groups: Groups
@@ -90,6 +93,7 @@ export function createMarketRoutes(options: MarketHttpOptions) {
     createGroupsHttp(options.groups),
     createAuthHttp(options),
     createSubmissionsHttp(options),
+    createPersonalTrashHttp(options),
     createAdminHttp(options),
   ] as const
   const api = HttpApiBuilder.layer(SkillMarketApi).pipe(
