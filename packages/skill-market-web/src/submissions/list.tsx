@@ -38,7 +38,7 @@ export function SubmissionList(props: SubmissionListProps) {
     <main class="submission-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Contributor workspace</p>
+          <p class="submission-page__eyebrow">投稿工作台</p>
           <h1>我的投稿</h1>
           <p>查看校验、审核和发布进度，或提交新的 Skill 版本。</p>
         </div>

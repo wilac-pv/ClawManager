@@ -56,7 +56,7 @@ export function MarketShell(props: ParentProps) {
           </Show>
         </div>
       </header>
-      <div class="market-shell__content">{props.children}</div>
+      {props.children}
     </div>
   )
 }

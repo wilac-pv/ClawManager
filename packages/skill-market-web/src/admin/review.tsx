@@ -142,7 +142,7 @@ export function ModerationReview(props: ModerationReviewProps) {
                 )}
               </Show>
 
-              <section class="submission-detail__section moderation-review__overview">
+              <section class="submission-detail__section">
                 <h2>投稿概览</h2>
                 <p>{detail().metadata.description}</p>
                 <dl class="submission-detail__facts">

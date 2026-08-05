@@ -61,10 +61,10 @@ export function ModerationQueue(props: ModerationQueueProps) {
     setParams({ ...values, page: undefined }, { replace: true })
 
   return (
-    <main class="submission-page moderation-page">
+    <main class="submission-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Reviewer workspace</p>
+          <p class="submission-page__eyebrow">审核工作台</p>
           <h1>审核队列</h1>
           <p>按等待顺序处理投稿，重点检查安全扫描与变更内容。</p>
         </div>

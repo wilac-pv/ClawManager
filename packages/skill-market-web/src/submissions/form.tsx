@@ -86,10 +86,10 @@ export function SubmissionForm(props: SubmissionFormProps) {
   }
 
   return (
-    <main class="submission-page submission-form-page">
+    <main class="submission-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Skill package</p>
+          <p class="submission-page__eyebrow">Skill 安装包</p>
           <h1>{mode() === "revision" ? "提交修订" : mode() === "version" ? "提交新版本" : "投稿 Skill"}</h1>
           <p>上传 ZIP 包后将自动校验和安全扫描，通过人工审核后上架。</p>
         </div>

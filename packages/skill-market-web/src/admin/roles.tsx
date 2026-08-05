@@ -61,7 +61,7 @@ export function RoleAdministration(props: RoleAdministrationProps) {
     <main class="submission-page admin-roles">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Admin workspace</p>
+          <p class="submission-page__eyebrow">管理工作台</p>
           <h1>角色管理</h1>
           <p>Reviewer 可以审核投稿；Admin 还可以管理角色、审计和市场运营。</p>
         </div>

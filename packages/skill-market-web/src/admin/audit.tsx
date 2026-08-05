@@ -82,7 +82,7 @@ export function AuditLog(props: AuditLogProps) {
     <main class="submission-page audit-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Admin workspace</p>
+          <p class="submission-page__eyebrow">管理工作台</p>
           <h1>审计日志</h1>
           <p>只读查看角色、审核、发布和市场运营操作。</p>
         </div>
