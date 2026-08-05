@@ -1103,11 +1103,10 @@
 }
 
 .ruying-skill-market__versions code {
-  overflow: hidden;
   color: #475467;
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .ruying-skill-market__security-reports article {

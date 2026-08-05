@@ -8,9 +8,9 @@ The focused sweep first failed because the fixture had no authenticated typograp
 
 - Viewports: `1440×1000` and `390×844`.
 - Pages: `/skills`, `/personal`, `/submissions`, `/groups`, `/favorites`, `/trash`, and `/admin` with anonymous, Submitter, group-owner, or Admin guards as appropriate.
-- Assertions: `h1` and first relevant control use the approved UI stack; no document horizontal overflow; long Chinese title plus employee/machine identifiers are contained; seeded favorites/trash empty states and the personal deletion dialog use heading hierarchy.
+- Assertions: `h1` and first relevant control use the approved UI stack; no document horizontal overflow; long Chinese title, employee/machine identifiers, and a representative SHA-256 value are contained; seeded favorites/trash empty states, the retryable favorites error state, and the personal deletion dialog use heading hierarchy.
 - Fixtures: a schema-valid long employee ID with Chinese display name, a long machine ID, a global public Chinese-title record for the credential-free catalog, one group, and an empty favorites response.
-- Responsive fix: machine/hash tokens may break anywhere; the shell identity value wraps instead of being ellipsized.
+- Responsive fix: machine/hash tokens may break anywhere; the shell identity value and version-list SHA-256 value wrap instead of being ellipsized.
 
 ## Commands and results
 
