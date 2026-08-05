@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test"
+import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createCatalogReader } from "../src/catalog-reader"
+import type { Principal } from "../src/security"
 import { type CatalogIndex, key } from "../src/catalog"
 import { publishCatalogIndex, type ObjectStore } from "../src/oss"
 import { sampleDetail, sampleSnapshot } from "./fixture"
@@ -85,6 +87,74 @@ test("reads version-1 detail objects from their revision-specific key", async ()
   const reader = createCatalogReader({ store: store.client, prefix: config.prefix })
   expect((await reader.detail("skillhub", "code-review"))?.id).toBe("code-review")
   expect(store.reads.keys).toContain(detailKey)
+})
+
+test("merges authorized restricted summaries before deterministic filtering, ordering, and pagination", async () => {
+  const publicDetails = Array.from({ length: 3 }, (_, index) =>
+    sampleDetail({
+      id: `skill-${String(index).padStart(6, "0")}`,
+      name: `Public ${index}`,
+      updatedAt: `2026-08-0${3 - index}T00:00:00.000Z`,
+    }),
+  )
+  const store = memoryObjectStore()
+  const entries = publicDetails.map((detail) => [key(detail.source, detail.id), detail] as const)
+  await publishCatalogIndex(store.client, config, catalogIndex("merge", entries), new Map(entries))
+  const principal = {
+    session: {
+      user: { employeeID: "member", displayName: "Member" },
+      roles: [],
+      csrfToken: "_".repeat(43),
+      createdAt: "2026-08-05T00:00:00.000Z",
+      absoluteExpiresAt: "2026-08-05T01:00:00.000Z",
+      idleExpiresAt: "2026-08-05T01:00:00.000Z",
+    },
+    csrfHash: "",
+  } satisfies Principal
+  const restricted: SkillMarket.Summary[] = [
+    {
+      ...summary(publicDetails[0]!),
+      id: "pub_restricted1",
+      name: "Restricted Alpha",
+      description: "visible only to one group",
+      visibility: "groups" as const,
+      updatedAt: "2026-08-05T00:00:00.000Z",
+    },
+    {
+      ...summary(publicDetails[0]!),
+      id: "pub_restricted2",
+      name: "Restricted Beta",
+      description: "visible only to one department",
+      visibility: "department" as const,
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    },
+  ]
+  const reader = createCatalogReader({
+    store: store.client,
+    prefix: config.prefix,
+    restrictedCatalog: {
+      list: () => restricted,
+    },
+  })
+
+  expect((await reader.list({ sort: "recent", page: 1, limit: 10 })).items.map((item) => item.id)).toEqual([
+    "skill-000000",
+    "skill-000001",
+    "skill-000002",
+  ])
+  expect(
+    (await reader.list({ sort: "recent", page: 1, limit: 2 }, undefined, principal)).items.map((item) => item.id),
+  ).toEqual(["pub_restricted1", "pub_restricted2"])
+  const second = await reader.list({ sort: "recent", page: 2, limit: 2 }, undefined, principal)
+  expect(second.total).toBe(5)
+  expect(second.items.map((item) => item.id)).toEqual(["skill-000000", "skill-000001"])
+  expect(second.revision).not.toBe((await reader.index()).revision)
+  const searched = await reader.list(
+    { query: "one department", sort: "score", page: 1, limit: 30 },
+    undefined,
+    principal,
+  )
+  expect(searched.items.map((item) => item.id)).toEqual(["pub_restricted2"])
 })
 
 function catalogIndex(revision: string, entries: ReadonlyArray<readonly [string, ReturnType<typeof sampleDetail>]>): CatalogIndex {

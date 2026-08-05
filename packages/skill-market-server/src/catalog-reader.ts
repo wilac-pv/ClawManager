@@ -1,13 +1,16 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
-import { type CatalogIndex, key, queryCatalogIndex } from "./catalog"
+import { createCatalogIndex, type CatalogIndex, key, queryCatalogIndex } from "./catalog"
 import { loadCatalogDetail, loadCatalogIndex, type ObjectStore } from "./oss"
+import type { RestrictedCatalog } from "./restricted-catalog"
+import type { Principal } from "./security"
 
 export function createCatalogReader(options: {
   readonly store: ObjectStore
   readonly prefix: string
   readonly ttlMilliseconds?: number
   readonly now?: () => number
-}) {
+  readonly restrictedCatalog?: Pick<RestrictedCatalog, "list">
+}): CatalogReader {
   const ttlMilliseconds = options.ttlMilliseconds ?? 60_000
   const now = options.now ?? Date.now
   let cached: { readonly expiresAt: number; readonly index: CatalogIndex } | undefined
@@ -54,12 +57,12 @@ export function createCatalogReader(options: {
     }
   }
 
-  return {
+  const reader: CatalogReader = {
     index,
-    async list(query: SkillMarket.PageQuery, current?: CatalogIndex) {
+    async list(query: SkillMarket.PageQuery, current?: CatalogIndex, principal?: Principal) {
       return queryCatalogIndex(current ?? (await index()), query)
     },
-    async facets(current?: CatalogIndex) {
+    async facets(current?: CatalogIndex, principal?: Principal) {
       return (current ?? (await index())).facets
     },
     detail,
@@ -72,6 +75,50 @@ export function createCatalogReader(options: {
       return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
     },
   }
+  if (!options.restrictedCatalog) return reader
+  return authorizeCatalogReader(reader, options.restrictedCatalog)
 }
 
-export type CatalogReader = ReturnType<typeof createCatalogReader>
+export function authorizeCatalogReader(catalog: CatalogReader, restrictedCatalog: Pick<RestrictedCatalog, "list">) {
+  return {
+    ...catalog,
+    async list(query: SkillMarket.PageQuery, current?: CatalogIndex, principal?: Principal) {
+      const index = current ?? (await catalog.index())
+      if (!principal) return catalog.list(query, index)
+      return queryCatalogIndex(combine(index, restrictedCatalog.list(principal)), query)
+    },
+    async facets(current?: CatalogIndex, principal?: Principal) {
+      const index = current ?? (await catalog.index())
+      if (!principal) return catalog.facets(index)
+      return combine(index, restrictedCatalog.list(principal)).facets
+    },
+  } satisfies CatalogReader
+}
+
+function combine(index: CatalogIndex, restricted: ReadonlyArray<SkillMarket.Summary>) {
+  if (restricted.length === 0) return index
+  const ref = (summary: SkillMarket.Summary) => {
+    const sha256 = new Bun.CryptoHasher("sha256").update(JSON.stringify(summary)).digest("hex")
+    return { key: `restricted/${sha256}.json`, sha256, version: summary.version }
+  }
+  return createCatalogIndex({
+    createdAt: index.createdAt,
+    sourceStatus: index.sourceStatus,
+    entries: new Map([
+      ...index.items.map((summary) => [
+        `public:${key(summary.source, summary.id)}`,
+        { summary, ref: index.details.get(key(summary.source, summary.id)) ?? ref(summary) },
+      ] as const),
+      ...restricted.map((summary) => [`restricted:${summary.id}`, { summary, ref: ref(summary) }] as const),
+    ]),
+  })
+}
+
+export interface CatalogReader {
+  readonly index: () => Promise<CatalogIndex>
+  readonly list: (query: SkillMarket.PageQuery, current?: CatalogIndex, principal?: Principal) => Promise<SkillMarket.Page>
+  readonly facets: (current?: CatalogIndex, principal?: Principal) => Promise<SkillMarket.Facets>
+  readonly detail: (source: SkillMarket.Source, id: string, current?: CatalogIndex) => Promise<SkillMarket.Detail | undefined>
+  readonly versions: (source: SkillMarket.Source, id: string) => Promise<ReadonlyArray<SkillMarket.Version> | undefined>
+  readonly download: (source: SkillMarket.Source, id: string) => Promise<SkillMarket.Download | undefined>
+}

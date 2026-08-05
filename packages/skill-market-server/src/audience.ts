@@ -100,7 +100,62 @@ export function submissionAudience(row: SubmissionAudienceRow): SkillMarketContr
   return { scope: "groups", groupIDs }
 }
 
+export const RestrictedReadConditionSql = `(
+  ? = 1 OR
+  restricted_publications.owner_employee_id = ? OR
+  (
+    restricted_publications.scope = 'department'
+    AND restricted_publications.department_id = (
+      SELECT users.department_id FROM users WHERE users.employee_id = ?
+    )
+  ) OR
+  (
+    restricted_publications.scope = 'groups'
+    AND EXISTS (
+      SELECT 1
+      FROM restricted_publication_groups
+      INNER JOIN market_groups ON market_groups.id = restricted_publication_groups.group_id
+      INNER JOIN market_group_members ON market_group_members.group_id = market_groups.id
+      WHERE restricted_publication_groups.publication_id = restricted_publications.id
+        AND market_groups.status = 'active'
+        AND market_group_members.employee_id = ?
+    )
+  )
+)`
+
+export function restrictedReadParameters(principal: Principal) {
+  return [
+    Number(principal.session.roles.includes("admin")),
+    principal.session.user.employeeID,
+    principal.session.user.employeeID,
+    principal.session.user.employeeID,
+  ] as const
+}
+
 export function canReadRestricted(connection: Database, principal: Principal, publicationID: string) {
+  return canReadRestrictedWithParameters(connection, publicationID, restrictedReadParameters(principal))
+}
+
+export function canEmployeeReadRestricted(connection: Database, employeeID: string, publicationID: string) {
+  const user = connection
+    .query<{ disabled_at: number | null; admin: number }, [string]>(
+      `SELECT users.disabled_at,
+        EXISTS (
+          SELECT 1 FROM role_assignments
+          WHERE role_assignments.employee_id = users.employee_id AND role_assignments.role = 'admin'
+        ) AS admin
+       FROM users WHERE users.employee_id = ?`,
+    )
+    .get(employeeID)
+  if (!user || user.disabled_at !== null) return false
+  return canReadRestrictedWithParameters(connection, publicationID, [user.admin, employeeID, employeeID, employeeID])
+}
+
+function canReadRestrictedWithParameters(
+  connection: Database,
+  publicationID: string,
+  parameters: readonly [number, string, string, string],
+) {
   if (!Schema.is(SkillMarketControl.PublicationID)(publicationID)) return false
   return Boolean(
     connection
@@ -109,37 +164,10 @@ export function canReadRestricted(connection: Database, principal: Principal, pu
          FROM restricted_publications
          WHERE restricted_publications.id = ?
            AND restricted_publications.status = 'published'
-           AND (
-             ? = 1 OR
-             restricted_publications.owner_employee_id = ? OR
-             (
-               restricted_publications.scope = 'department'
-               AND restricted_publications.department_id = (
-                 SELECT users.department_id FROM users WHERE users.employee_id = ?
-               )
-             ) OR
-             (
-               restricted_publications.scope = 'groups'
-               AND EXISTS (
-                 SELECT 1
-                 FROM restricted_publication_groups
-                 INNER JOIN market_groups ON market_groups.id = restricted_publication_groups.group_id
-                 INNER JOIN market_group_members ON market_group_members.group_id = market_groups.id
-                 WHERE restricted_publication_groups.publication_id = restricted_publications.id
-                   AND market_groups.status = 'active'
-                   AND market_group_members.employee_id = ?
-               )
-             )
-           )
+           AND ${RestrictedReadConditionSql}
          LIMIT 1`,
       )
-      .get(
-        publicationID,
-        Number(principal.session.roles.includes("admin")),
-        principal.session.user.employeeID,
-        principal.session.user.employeeID,
-        principal.session.user.employeeID,
-      )?.allowed,
+      .get(publicationID, ...parameters)?.allowed,
   )
 }
 

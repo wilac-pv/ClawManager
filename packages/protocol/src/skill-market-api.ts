@@ -20,6 +20,7 @@ export const SkillMarketCatalogApi = HttpApi.make("skillMarketCatalog")
 
 export const SkillMarketApi = HttpApi.make("skillMarket")
   .add(SkillMarketCatalogGroup)
+  .add(SkillMarketCatalogPrivateGroup)
   .add(SkillMarketAnnouncementsGroup)
   .add(SkillMarketExpertPackagesGroup)
   .add(SkillMarketFavoritesGroup)

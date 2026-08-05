@@ -13,13 +13,15 @@ import type { Announcements } from "./announcements"
 import type { createAuth } from "./auth"
 import { createCatalogIconProxy, type CatalogIconProxy } from "./catalog-icon"
 import { type CatalogSnapshot, key, queryCatalog } from "./catalog"
-import type { CatalogReader } from "./catalog-reader"
+import { authorizeCatalogReader, type CatalogReader } from "./catalog-reader"
+import type { InstallGrants } from "./install-grants"
 import type { MarketMetricEmitter } from "./metrics"
 import type { Moderation } from "./moderation"
 import type { ExpertPackages } from "./expert-packages"
 import type { Favorites } from "./favorites"
 import type { Groups } from "./groups"
 import type { PrivateObjectStore } from "./oss"
+import type { RestrictedCatalog } from "./restricted-catalog"
 import type { MarketSecurity } from "./security"
 import type { SkillHubImportAdmin } from "./skillhub-import-admin"
 import { randomSecret } from "./security"
@@ -39,6 +41,8 @@ type SnapshotLoader = () => Promise<CatalogSnapshot>
 
 export interface MarketHttpOptions {
   readonly catalog: CatalogReader
+  readonly restrictedCatalog: RestrictedCatalog
+  readonly installGrants: InstallGrants
   readonly announcements: Announcements
   readonly auth: ReturnType<typeof createAuth>
   readonly security: MarketSecurity
@@ -64,13 +68,22 @@ export interface MarketHttpOptions {
 
 export function createMarketRoutes(options: MarketHttpOptions) {
   const packages = createCatalogPackageReader(options.store, options.publicPrefix)
+  const catalog = authorizeCatalogReader(options.catalog, options.restrictedCatalog)
   const icons = createCatalogIconProxy({
     store: options.store,
     publicPrefix: options.publicPrefix,
     publicBaseUrl: options.publicBaseUrl,
   })
   const groups = [
-    createCatalogHttp(options.catalog, packages, options.emit),
+    createCatalogHttp({
+      catalog,
+      packages,
+      restrictedCatalog: options.restrictedCatalog,
+      installGrants: options.installGrants,
+      security: options.security,
+      sessionCookieName: options.sessionCookieName,
+      emit: options.emit,
+    }),
     createAnnouncementsHttp(options.announcements),
     createExpertPackagesHttp(options.expertPackages),
     createFavoritesHttp(options.favorites),
@@ -87,6 +100,7 @@ export function createMarketRoutes(options: MarketHttpOptions) {
     api,
     HttpRouter.add("GET", "/health", HttpServerResponse.jsonUnsafe({ status: "ok", ready: true })),
     HttpRouter.add("*", "/v1/catalog/icon", catalogIconResponse(icons)),
+    HttpRouter.add("*", "/v1/private-download/:token", privatePackageResponse(options.installGrants, options.store)),
   ).pipe(
     Layer.provide(controlHeaders(options.webOrigin)),
     // HttpApi's inherited group middleware leaves the provided principal in the
@@ -190,6 +204,7 @@ function controlHeaders(webOrigin: string) {
           url.pathname.startsWith("/v1/favorites") ||
           url.pathname.startsWith("/v1/groups") ||
           url.pathname.startsWith("/v1/submissions") ||
+          url.pathname.startsWith("/v1/restricted-skills") ||
           url.pathname.startsWith("/v1/admin/")
         const origin = request.headers.origin
         const baseHeaders = {
@@ -250,6 +265,58 @@ function controlHeaders(webOrigin: string) {
       }),
     { global: true },
   )
+}
+
+function privatePackageResponse(grants: InstallGrants, store: PrivateObjectStore) {
+  return Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const head = request.method === "HEAD"
+    if (request.method !== "GET" && !head)
+      return HttpServerResponse.empty({
+        status: 405,
+        headers: { allow: "GET, HEAD", "cache-control": "private, no-store" },
+      })
+    const segments = new URL(request.url, "http://localhost").pathname.split("/").filter(Boolean)
+    const token = segments.length === 3 && segments[0] === "v1" && segments[1] === "private-download" ? segments[2] : undefined
+    const identity = token
+      ? yield* Effect.try({ try: () => grants.resolve(token), catch: () => undefined }).pipe(
+          Effect.match({ onFailure: () => undefined, onSuccess: (value) => value }),
+        )
+      : undefined
+    if (!identity) return privatePackageProblem(404, head, "受限 Skill 包不存在")
+    const body = yield* Effect.tryPromise({
+      try: async () => {
+        const metadata = await store.head(identity.key)
+        if (metadata.size !== identity.size) throw new Error("private package size mismatch")
+        const value = await store.get(identity.key)
+        if (
+          value.byteLength !== identity.size ||
+          new Bun.CryptoHasher("sha256").update(value).digest("hex") !== identity.sha256
+        )
+          throw new Error("private package integrity mismatch")
+        return value
+      },
+      catch: () => undefined,
+    }).pipe(Effect.match({ onFailure: () => undefined, onSuccess: (value) => value }))
+    if (!body) return privatePackageProblem(502, head, "受限 Skill 包暂不可用")
+    const filename = `${identity.skillID}-${identity.version}.zip`.replace(/[^a-zA-Z0-9._-]/g, "_")
+    const headers = {
+      "cache-control": "private, no-store",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "content-length": String(identity.size),
+      "content-type": "application/zip",
+      etag: `"${identity.sha256}"`,
+      "x-content-sha256": identity.sha256,
+    }
+    if (head) return HttpServerResponse.empty({ status: 200, headers })
+    return HttpServerResponse.uint8Array(body, { headers })
+  })
+}
+
+function privatePackageProblem(status: number, head: boolean, message: string) {
+  const headers = { "cache-control": "private, no-store" }
+  if (head) return HttpServerResponse.empty({ status, headers })
+  return HttpServerResponse.jsonUnsafe({ code: "not-found", message }, { status, headers })
 }
 
 export function createCatalogHandler(input: CatalogReader | SnapshotLoader, packages?: CatalogPackageReader) {

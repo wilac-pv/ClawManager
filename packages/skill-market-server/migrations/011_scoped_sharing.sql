@@ -99,6 +99,19 @@ CREATE TABLE restricted_publication_groups (
 CREATE INDEX restricted_publication_groups_group
   ON restricted_publication_groups(group_id, publication_id);
 
+CREATE TABLE private_install_grants (
+  token_hash TEXT PRIMARY KEY
+    CHECK (length(token_hash) = 64 AND token_hash NOT GLOB '*[^a-f0-9]*'),
+  publication_id TEXT NOT NULL REFERENCES restricted_publications(id) ON DELETE CASCADE,
+  employee_id TEXT NOT NULL REFERENCES users(employee_id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  CHECK (expires_at = created_at + 600000)
+) STRICT;
+
+CREATE INDEX private_install_grants_expiry
+  ON private_install_grants(expires_at, token_hash);
+
 ALTER TABLE submissions ADD COLUMN source_publication_id TEXT REFERENCES restricted_publications(id);
 
 ALTER TABLE reviews ADD COLUMN approved_package_key TEXT;

@@ -46,7 +46,11 @@ test("generated clients expose callable scoped sharing operations", async () => 
     "update",
   ])
   expect(Object.keys(client.skillMarketSharing).toSorted()).toEqual(["audienceChange", "promote"])
-  expect(Object.keys(client.skillMarketRestricted)).toEqual(["privateInstallGrant"])
+  expect(Object.keys(client.skillMarketRestricted)).toEqual([
+    "restrictedDetail",
+    "restrictedVersions",
+    "privateInstallGrant",
+  ])
 
   await client.skillMarketGroups.create({ name: "Reviewers", description: "Reviews scoped skills" })
   await client.skillMarketSharing.promote({

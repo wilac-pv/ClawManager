@@ -1,4 +1,8 @@
 import type {
+  SkillMarketRestrictedRestrictedDetailInput,
+  SkillMarketRestrictedRestrictedDetailOutput,
+  SkillMarketRestrictedRestrictedVersionsInput,
+  SkillMarketRestrictedRestrictedVersionsOutput,
   SkillMarketRestrictedPrivateInstallGrantInput,
   SkillMarketRestrictedPrivateInstallGrantOutput,
   SkillMarketGroupsListOutput,
@@ -158,6 +162,28 @@ export function make(options: ClientOptions) {
 
   return {
     skillMarketRestricted: {
+      restrictedDetail: (input: SkillMarketRestrictedRestrictedDetailInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketRestrictedRestrictedDetailOutput>(
+          {
+            method: "GET",
+            path: `/v1/restricted-skills/${encodeURIComponent(input.publicationID)}`,
+            successStatus: 200,
+            declaredStatuses: [404, 503],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      restrictedVersions: (input: SkillMarketRestrictedRestrictedVersionsInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketRestrictedRestrictedVersionsOutput>(
+          {
+            method: "GET",
+            path: `/v1/restricted-skills/${encodeURIComponent(input.publicationID)}/versions`,
+            successStatus: 200,
+            declaredStatuses: [404, 503],
+            empty: false,
+          },
+          requestOptions,
+        ),
       privateInstallGrant: (input: SkillMarketRestrictedPrivateInstallGrantInput, requestOptions?: RequestOptions) =>
         request<SkillMarketRestrictedPrivateInstallGrantOutput>(
           {

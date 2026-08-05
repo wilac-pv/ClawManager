@@ -62,6 +62,7 @@ describe("control-plane database", () => {
         "login_attempts",
         "market_group_members",
         "market_groups",
+        "private_install_grants",
         "publish_jobs",
         "restricted_publication_groups",
         "restricted_publications",
@@ -104,6 +105,7 @@ describe("control-plane database", () => {
     expect(indexes).toContain("restricted_publications_live_owner_skill_version")
     expect(indexes).toContain("restricted_publication_groups_group")
     expect(indexes).toContain("submissions_active_audience_change_source")
+    expect(indexes).toContain("private_install_grants_expiry")
 
     database.connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
@@ -197,6 +199,20 @@ describe("control-plane database", () => {
     database.connection.run(
       "INSERT INTO restricted_publication_groups (publication_id, group_id) VALUES ('pub_abcdefgh', 'grp_abcdefgh')",
     )
+    database.connection.run(
+      `INSERT INTO private_install_grants
+        (token_hash, publication_id, employee_id, expires_at, created_at)
+       VALUES (?, 'pub_abcdefgh', 'E000001', 600001, 1)`,
+      ["a".repeat(64)],
+    )
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO private_install_grants
+          (token_hash, publication_id, employee_id, expires_at, created_at)
+         VALUES (?, 'pub_abcdefgh', 'E000001', 600002, 1)`,
+        ["b".repeat(64)],
+      ),
+    ).toThrow()
     database.connection.run(
       `INSERT INTO submissions
         (id, skill_id, owner_employee_id, target_version, target_scope,

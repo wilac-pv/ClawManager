@@ -12,9 +12,11 @@ import { emitMarketMetric } from "./metrics"
 import { createExpertPackages } from "./expert-packages"
 import { createFavorites } from "./favorites"
 import { createGroups } from "./groups"
+import { createInstallGrants } from "./install-grants"
 import { createModeration } from "./moderation"
 import { makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
+import { createRestrictedCatalog } from "./restricted-catalog"
 import { bootstrapAdmins, createSecurity } from "./security"
 import { createSkillHubImportAdmin } from "./skillhub-import-admin"
 import { createSkillHubImportStore } from "./skillhub-import-store"
@@ -106,6 +108,12 @@ const main = Effect.scoped(
     )
     const favorites = createFavorites({ database })
     const groups = createGroups({ database })
+    const restrictedCatalog = createRestrictedCatalog({ database, apiPublicUrl: config.apiPublicUrl })
+    const installGrants = createInstallGrants({
+      database,
+      restrictedCatalog,
+      apiPublicUrl: config.apiPublicUrl,
+    })
     const skillhubImportAdmin = createSkillHubImportAdmin({ database, security, imports, evaluations })
     const worker = createWorker({
       database,
@@ -126,6 +134,8 @@ const main = Effect.scoped(
     yield* Effect.promise(() => worker.drain("server-startup"))
     const routes = createMarketRoutes({
       catalog: createCatalogReader({ store, prefix: config.ossPrefix }),
+      restrictedCatalog,
+      installGrants,
       announcements,
       auth,
       security,

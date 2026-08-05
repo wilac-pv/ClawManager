@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
@@ -13,11 +14,13 @@ import { openDatabase } from "../src/database"
 import { createExpertPackages } from "../src/expert-packages"
 import { createFavorites } from "../src/favorites"
 import { createGroups } from "../src/groups"
+import { createInstallGrants } from "../src/install-grants"
 import { createMarketWebHandler } from "../src/handlers"
 import { createModeration } from "../src/moderation"
 import type { PrivateObjectStore } from "../src/oss"
 import { MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
-import { createSecurity } from "../src/security"
+import { createRestrictedCatalog } from "../src/restricted-catalog"
+import { createSecurity, hashSecret } from "../src/security"
 import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { createSkillHubEvaluationStore } from "../src/skillhub-evaluation-store"
@@ -222,6 +225,291 @@ describe("skill market control HTTP", () => {
     expect(preflight.status).toBe(204)
     expect(preflight.headers.get("access-control-allow-origin")).toBe("*")
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, OPTIONS")
+  })
+
+  test("merges only current restricted access and delivers private packages through bounded grants", async () => {
+    await using fixture = await marketFixture()
+    const body = new TextEncoder().encode("restricted package body")
+    const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
+    const users = fixture.database.transaction((connection) => {
+      connection.run(
+        "INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+        ["engineering", "Engineering", now, now, "other", "Other", now, now],
+      )
+      const owner = seedHttpSession(connection, "restricted-owner", "engineering")
+      const admin = seedHttpSession(connection, "restricted-admin", "other", ["admin"])
+      const department = seedHttpSession(connection, "restricted-department", "engineering")
+      const group = seedHttpSession(connection, "restricted-group", "other")
+      const outsider = seedHttpSession(connection, "restricted-outsider", "other")
+      connection.run(
+        `INSERT INTO market_groups (id, name, owner_employee_id, status, version, created_at, updated_at)
+         VALUES ('grp_httpactive1', 'HTTP Active', 'restricted-owner', 'active', 1, ?, ?),
+                ('grp_httpdisable', 'HTTP Disabled', 'restricted-owner', 'disabled', 1, ?, ?)`,
+        [now, now, now, now],
+      )
+      connection.run(
+        `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
+         VALUES ('grp_httpactive1', 'restricted-group', 'restricted-owner', ?),
+                ('grp_httpdisable', 'restricted-group', 'restricted-owner', ?)`,
+        [now, now],
+      )
+      seedCatalogPublication(connection, {
+        id: "pub_httpgroup01",
+        submissionID: "sub_httpgroup01",
+        skillID: "http-group-skill",
+        scope: "groups",
+        groupID: "grp_httpactive1",
+        key: "skill-market-private/http-group.zip",
+        sha256,
+        size: body.byteLength,
+      })
+      seedCatalogPublication(connection, {
+        id: "pub_httpdepart1",
+        submissionID: "sub_httpdepart1",
+        skillID: "http-department-skill",
+        scope: "department",
+        departmentID: "engineering",
+        key: "skill-market-private/http-department.zip",
+        sha256,
+        size: body.byteLength,
+      })
+      seedCatalogPublication(connection, {
+        id: "pub_httpdisable",
+        submissionID: "sub_httpdisable",
+        skillID: "http-disabled-skill",
+        scope: "groups",
+        groupID: "grp_httpdisable",
+        key: "skill-market-private/http-disabled.zip",
+        sha256,
+        size: body.byteLength,
+      })
+      seedCatalogPublication(connection, {
+        id: "pub_httpdelist1",
+        submissionID: "sub_httpdelist1",
+        skillID: "http-delisted-skill",
+        scope: "groups",
+        groupID: "grp_httpactive1",
+        key: "skill-market-private/http-delisted.zip",
+        sha256,
+        size: body.byteLength,
+        status: "delisted",
+      })
+      return { owner, admin, department, group, outsider }
+    })
+    ;[
+      "skill-market-private/http-group.zip",
+      "skill-market-private/http-department.zip",
+      "skill-market-private/http-disabled.zip",
+      "skill-market-private/http-delisted.zip",
+    ].forEach((key) => fixture.objects.set(key, body))
+
+    const anonymous = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`)
+    expect(Schema.decodeUnknownSync(SkillMarket.Page)(await anonymous.json()).items.map((item) => item.id)).not.toContain(
+      "pub_httpgroup01",
+    )
+    expect(anonymous.headers.get("cache-control")).toBe("public, max-age=60")
+    const invalidSession = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`, {
+      headers: { cookie: "ruying_market_session=invalid; ruying_market_csrf=invalid" },
+    })
+    expect(invalidSession.status).toBe(200)
+    expect(
+      Schema.decodeUnknownSync(SkillMarket.Page)(await invalidSession.json()).items.map((item) => item.id),
+    ).not.toContain("pub_httpgroup01")
+    expect(invalidSession.headers.get("cache-control")).toBe("public, max-age=60")
+
+    const groupList = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`, {
+      headers: { cookie: users.group.cookie },
+    })
+    expect(groupList.headers.get("cache-control")).toBe("private, no-store")
+    expect(Schema.decodeUnknownSync(SkillMarket.Page)(await groupList.json()).items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "pub_httpgroup01", visibility: "groups" })]),
+    )
+    const outsiderList = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`, {
+      headers: { cookie: users.outsider.cookie },
+    })
+    expect(
+      Schema.decodeUnknownSync(SkillMarket.Page)(await outsiderList.json()).items.map((item) => item.id),
+    ).not.toContain("pub_httpgroup01")
+
+    const anonymousDetail = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpgroup01`)
+    expect(anonymousDetail.status).toBe(404)
+    expect(anonymousDetail.headers.get("cache-control")).toBe("private, no-store")
+    const groupDetail = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpgroup01`, {
+      headers: { cookie: users.group.cookie },
+    })
+    expect(groupDetail.status).toBe(200)
+    expect(groupDetail.headers.get("cache-control")).toBe("private, no-store")
+    const detailJson = await groupDetail.json()
+    expect(detailJson).toMatchObject({ id: "pub_httpgroup01", visibility: "groups" })
+    expect(JSON.stringify(detailJson)).not.toContain("skill-market-private")
+    const versions = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpgroup01/versions`, {
+      headers: { cookie: users.group.cookie },
+    })
+    expect(versions.status).toBe(200)
+    expect(versions.headers.get("cache-control")).toBe("private, no-store")
+    expect(await versions.json()).toEqual([expect.objectContaining({ version: "1.0.0", sha256 })])
+    const outsiderDetail = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpgroup01`, {
+      headers: { cookie: users.outsider.cookie },
+    })
+    expect(outsiderDetail.status).toBe(404)
+    expect(outsiderDetail.headers.get("cache-control")).toBe("private, no-store")
+    expect(
+      (
+        await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdisable`, {
+          headers: { cookie: users.group.cookie },
+        })
+      ).status,
+    ).toBe(404)
+    expect(
+      (
+        await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdisable`, {
+          headers: { cookie: users.owner.cookie },
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdisable`, {
+          headers: { cookie: users.admin.cookie },
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdepart1`, {
+          headers: { cookie: users.department.cookie },
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdepart1`, {
+          headers: { cookie: users.outsider.cookie },
+        })
+      ).status,
+    ).toBe(404)
+    const departmentGrantResponse = await fetch(
+      `${fixture.url}/v1/restricted-skills/pub_httpdepart1/install-grants`,
+      {
+        method: "POST",
+        headers: {
+          cookie: users.department.cookie,
+          origin: webOrigin,
+          "x-csrf-token": users.department.csrf,
+        },
+      },
+    )
+    expect(departmentGrantResponse.status).toBe(200)
+    const departmentGrant = Schema.decodeUnknownSync(SkillMarket.PrivateInstallGrant)(await departmentGrantResponse.json())
+    expect(
+      (
+        await fetch(`${fixture.url}${new URL(departmentGrant.url).pathname}`, {
+          method: "HEAD",
+        })
+      ).status,
+    ).toBe(200)
+    const outsiderGrant = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdepart1/install-grants`, {
+      method: "POST",
+      headers: { cookie: users.outsider.cookie, origin: webOrigin, "x-csrf-token": users.outsider.csrf },
+    })
+    expect(outsiderGrant.status).toBe(404)
+    expect(outsiderGrant.headers.get("cache-control")).toBe("private, no-store")
+    expect(
+      [401, 403].includes(
+        (
+          await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdepart1/install-grants`, {
+            method: "POST",
+            headers: { origin: webOrigin },
+          })
+        ).status,
+      ),
+    ).toBeTrue()
+    fixture.database.connection.run("UPDATE users SET department_id = 'other' WHERE employee_id = 'restricted-department'")
+    expect(
+      (
+        await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdepart1`, {
+          headers: { cookie: users.department.cookie },
+        })
+      ).status,
+    ).toBe(404)
+    expect((await fetch(`${fixture.url}${new URL(departmentGrant.url).pathname}`)).status).toBe(404)
+    expect(
+      (
+        await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdelist1`, {
+          headers: { cookie: users.owner.cookie },
+        })
+      ).status,
+    ).toBe(404)
+
+    const grantResponse = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpgroup01/install-grants`, {
+      method: "POST",
+      headers: { cookie: users.group.cookie, origin: webOrigin, "x-csrf-token": users.group.csrf },
+    })
+    expect(grantResponse.status).toBe(200)
+    expect(grantResponse.headers.get("cache-control")).toBe("private, no-store")
+    const grant = Schema.decodeUnknownSync(SkillMarket.PrivateInstallGrant)(await grantResponse.json())
+    const grantUrl = new URL(grant.url)
+    const token = grantUrl.pathname.split("/").at(-1)!
+    expect(grantUrl.origin).toBe("https://market.example")
+    expect(grant.expiresAt).toBe(new Date(now + 10 * 60_000).toISOString())
+    expect(JSON.stringify(grant)).not.toContain("skill-market-private")
+    const grantRow = fixture.database.connection
+      .query<{ token_hash: string }, [string]>(
+        "SELECT token_hash FROM private_install_grants WHERE publication_id = ? ORDER BY created_at DESC",
+      )
+      .get("pub_httpgroup01")!
+    expect(grantRow.token_hash).toBe(hashSecret(token))
+    expect(JSON.stringify(grantRow)).not.toContain(token)
+
+    const downloadPath = grantUrl.pathname
+    const head = await fetch(`${fixture.url}${downloadPath}`, { method: "HEAD" })
+    const get = await fetch(`${fixture.url}${downloadPath}`)
+    expect(head.status).toBe(200)
+    expect(get.status).toBe(200)
+    expect(head.headers.get("cache-control")).toBe("private, no-store")
+    expect(head.headers.get("content-length")).toBe(String(body.byteLength))
+    expect(head.headers.get("x-content-sha256")).toBe(sha256)
+    expect(await head.text()).toBe("")
+    expect(new Uint8Array(await get.arrayBuffer())).toEqual(body)
+
+    fixture.database.connection.run(
+      "DELETE FROM market_group_members WHERE group_id = 'grp_httpactive1' AND employee_id = 'restricted-group'",
+    )
+    expect((await fetch(`${fixture.url}${downloadPath}`)).status).toBe(404)
+    expect((await fetch(`${fixture.url}/v1/private-download/malformed`)).status).toBe(404)
+
+    fixture.database.connection.run(
+      "INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at) VALUES (?, ?, ?, ?)",
+      ["grp_httpactive1", "restricted-group", "restricted-owner", now],
+    )
+    fixture.database.connection.run(
+      "UPDATE private_install_grants SET created_at = ?, expires_at = ? WHERE token_hash = ?",
+      [now - 10 * 60_000, now, hashSecret(token)],
+    )
+    expect((await fetch(`${fixture.url}${downloadPath}`, { method: "HEAD" })).status).toBe(404)
+    const delistedGrantResponse = await fetch(
+      `${fixture.url}/v1/restricted-skills/pub_httpgroup01/install-grants`,
+      {
+        method: "POST",
+        headers: { cookie: users.owner.cookie, origin: webOrigin, "x-csrf-token": users.owner.csrf },
+      },
+    )
+    const delistedGrant = Schema.decodeUnknownSync(SkillMarket.PrivateInstallGrant)(await delistedGrantResponse.json())
+    fixture.database.connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = 'pub_httpgroup01'")
+    expect((await fetch(`${fixture.url}${new URL(delistedGrant.url).pathname}`)).status).toBe(404)
+    expect(JSON.stringify(fixture.metrics)).not.toContain(token)
+    expect(
+      fixture.database.connection
+        .query<{ count: number }, []>(
+          `SELECT count(*) AS count FROM audit_events
+           WHERE before_json LIKE '%skill-market-private%' OR after_json LIKE '%skill-market-private%'`,
+        )
+        .get()!.count,
+    ).toBe(0)
+
+    const publicPackage = await fetch(`${fixture.url}/v1/catalog/skills/skillhub/code-review/package`)
+    expect(publicPackage.status).toBe(200)
+    expect(publicPackage.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
   })
 
   test("proxies immutable catalog icons without exposing the OSS certificate chain", async () => {
@@ -1332,6 +1620,17 @@ async function marketFixture(
     evaluations: createSkillHubEvaluationStore({ database, now: () => now }),
     now: () => now,
   })
+  const restrictedCatalog = createRestrictedCatalog({
+    database,
+    apiPublicUrl: "https://market.example",
+    now: () => now,
+  })
+  const installGrants = createInstallGrants({
+    database,
+    restrictedCatalog,
+    apiPublicUrl: "https://market.example",
+    now: () => now,
+  })
   const baseSnapshot = sampleSnapshot()
   baseSnapshot.details.delete("skillhub:code-review")
   baseSnapshot.details.set(
@@ -1375,6 +1674,8 @@ async function marketFixture(
             }
           : undefined,
       ),
+    restrictedCatalog,
+    installGrants,
     announcements: createAnnouncements({ database, now: () => now }),
     auth,
     security,
@@ -1464,4 +1765,106 @@ function seedHttpRestrictedPublication(fixture: Awaited<ReturnType<typeof market
       [submissionID],
     )
   })
+}
+
+function seedHttpSession(
+  connection: Database,
+  employeeID: string,
+  departmentID: string,
+  roles: ReadonlyArray<"contributor" | "reviewer" | "admin"> = [],
+) {
+  const sessionToken = `session-${employeeID}`
+  const csrf = new Bun.CryptoHasher("sha256").update(`csrf-${employeeID}`).digest("base64url")
+  connection.run(
+    `INSERT INTO users (employee_id, display_name, department_id, created_at, last_login_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [employeeID, employeeID, departmentID, now, now],
+  )
+  roles.forEach((role) =>
+    connection.run(
+      "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
+      [employeeID, role, employeeID, now],
+    ),
+  )
+  connection.run(
+    `INSERT INTO sessions
+      (session_hash, employee_id, csrf_hash, created_at, last_activity_at, absolute_expires_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [hashSecret(sessionToken), employeeID, hashSecret(csrf), now, now, now + 12 * 60 * 60_000],
+  )
+  return { cookie: `ruying_market_session=${sessionToken}; ruying_market_csrf=${csrf}`, csrf }
+}
+
+function seedCatalogPublication(
+  connection: Database,
+  input: {
+    readonly id: string
+    readonly submissionID: string
+    readonly skillID: string
+    readonly scope: "groups" | "department"
+    readonly groupID?: string
+    readonly departmentID?: string
+    readonly key: string
+    readonly sha256: string
+    readonly size: number
+    readonly status?: "published" | "delisted"
+  },
+) {
+  const metadata = {
+    version: "1.0.0",
+    displayName: input.skillID,
+    description: `${input.skillID} description`,
+    category: "Developer Tools",
+    tags: ["restricted"],
+    requiresApiKey: false,
+    changeNotes: "Initial release",
+  }
+  connection.run(
+    `INSERT INTO submissions
+      (id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
+       status, current_revision, version, created_at, updated_at)
+     VALUES (?, ?, 'restricted-owner', '1.0.0', ?, ?, 'published', 1, 1, ?, ?)`,
+    [input.submissionID, input.skillID, input.scope, input.departmentID ?? null, now, now],
+  )
+  connection.run(
+    `INSERT INTO submission_revisions
+      (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
+       manifest_json, scan_json, validation_errors_json, created_at)
+     VALUES (?, 1, ?, ?, ?, ?, ?, ?, '[]', ?)`,
+    [
+      input.submissionID,
+      input.key,
+      input.sha256,
+      input.size,
+      JSON.stringify(metadata),
+      JSON.stringify({ packageSha256: input.sha256, packageSize: input.size, files: [] }),
+      JSON.stringify({ risk: "safe", reasons: [], evidence: [], scannedAt: new Date(now).toISOString() }),
+      now,
+    ],
+  )
+  connection.run(
+    `INSERT INTO restricted_publications
+      (id, submission_id, skill_id, owner_employee_id, version, scope, department_id, package_key,
+       package_sha256, package_size, metadata_json, status, row_version, created_at, updated_at)
+     VALUES (?, ?, ?, 'restricted-owner', '1.0.0', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    [
+      input.id,
+      input.submissionID,
+      input.skillID,
+      input.scope,
+      input.departmentID ?? null,
+      input.key,
+      input.sha256,
+      input.size,
+      JSON.stringify(metadata),
+      input.status ?? "published",
+      now,
+      now,
+    ],
+  )
+  if (input.groupID)
+    connection.run("INSERT INTO restricted_publication_groups (publication_id, group_id) VALUES (?, ?)", [
+      input.id,
+      input.groupID,
+    ])
 }

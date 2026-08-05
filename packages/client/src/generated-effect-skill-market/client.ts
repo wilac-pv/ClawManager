@@ -13,16 +13,36 @@ const mapClientError = <E>(error: E) =>
     ? new ClientError({ cause: error })
     : error
 
-type Endpoint0_0Request = Parameters<
-  RawClient["skillMarket.catalogPrivate"]["skillMarket.catalog.privateInstallGrant"]
->[0]
+type Endpoint0_0Request = Parameters<RawClient["skillMarket.catalogPrivate"]["skillMarket.catalog.restrictedDetail"]>[0]
 type Endpoint0_0Input = { readonly publicationID: Endpoint0_0Request["params"]["publicationID"] }
 const Endpoint0_0 = (raw: RawClient["skillMarket.catalogPrivate"]) => (input: Endpoint0_0Input) =>
+  raw["skillMarket.catalog.restrictedDetail"]({ params: { publicationID: input["publicationID"] } }).pipe(
+    Effect.mapError(mapClientError),
+  )
+
+type Endpoint0_1Request = Parameters<
+  RawClient["skillMarket.catalogPrivate"]["skillMarket.catalog.restrictedVersions"]
+>[0]
+type Endpoint0_1Input = { readonly publicationID: Endpoint0_1Request["params"]["publicationID"] }
+const Endpoint0_1 = (raw: RawClient["skillMarket.catalogPrivate"]) => (input: Endpoint0_1Input) =>
+  raw["skillMarket.catalog.restrictedVersions"]({ params: { publicationID: input["publicationID"] } }).pipe(
+    Effect.mapError(mapClientError),
+  )
+
+type Endpoint0_2Request = Parameters<
+  RawClient["skillMarket.catalogPrivate"]["skillMarket.catalog.privateInstallGrant"]
+>[0]
+type Endpoint0_2Input = { readonly publicationID: Endpoint0_2Request["params"]["publicationID"] }
+const Endpoint0_2 = (raw: RawClient["skillMarket.catalogPrivate"]) => (input: Endpoint0_2Input) =>
   raw["skillMarket.catalog.privateInstallGrant"]({ params: { publicationID: input["publicationID"] } }).pipe(
     Effect.mapError(mapClientError),
   )
 
-const adaptGroup0 = (raw: RawClient["skillMarket.catalogPrivate"]) => ({ privateInstallGrant: Endpoint0_0(raw) })
+const adaptGroup0 = (raw: RawClient["skillMarket.catalogPrivate"]) => ({
+  restrictedDetail: Endpoint0_0(raw),
+  restrictedVersions: Endpoint0_1(raw),
+  privateInstallGrant: Endpoint0_2(raw),
+})
 
 const Endpoint1_0 = (raw: RawClient["skillMarket.groups"]) => () =>
   raw["skillMarket.groups.list"]({}).pipe(Effect.mapError(mapClientError))

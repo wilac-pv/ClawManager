@@ -6,14 +6,6 @@ export type SkillMarketControlNotFound = {
 export const isSkillMarketControlNotFound = (value: unknown): value is SkillMarketControlNotFound =>
   typeof value === "object" && value !== null && "code" in value && value["code"] === "not-found"
 
-export type SkillMarketInvalidRequest = {
-  readonly code: "invalid-request"
-  readonly message: string
-  readonly requestId: string
-}
-export const isSkillMarketInvalidRequest = (value: unknown): value is SkillMarketInvalidRequest =>
-  typeof value === "object" && value !== null && "code" in value && value["code"] === "invalid-request"
-
 export type SkillMarketDependencyUnavailable = {
   readonly code: "dependency-unavailable"
   readonly message: string
@@ -21,6 +13,14 @@ export type SkillMarketDependencyUnavailable = {
 }
 export const isSkillMarketDependencyUnavailable = (value: unknown): value is SkillMarketDependencyUnavailable =>
   typeof value === "object" && value !== null && "code" in value && value["code"] === "dependency-unavailable"
+
+export type SkillMarketInvalidRequest = {
+  readonly code: "invalid-request"
+  readonly message: string
+  readonly requestId: string
+}
+export const isSkillMarketInvalidRequest = (value: unknown): value is SkillMarketInvalidRequest =>
+  typeof value === "object" && value !== null && "code" in value && value["code"] === "invalid-request"
 
 export type SkillMarketCsrfInvalid = {
   readonly code: "csrf-invalid"
@@ -81,6 +81,85 @@ export type SkillMarketUploadRateLimited = {
 }
 export const isSkillMarketUploadRateLimited = (value: unknown): value is SkillMarketUploadRateLimited =>
   typeof value === "object" && value !== null && "code" in value && value["code"] === "upload-rate-limited"
+
+export type SkillMarketRestrictedRestrictedDetailInput = {
+  readonly publicationID: { readonly publicationID: string }["publicationID"]
+}
+
+export type SkillMarketRestrictedRestrictedDetailOutput = {
+  readonly id: string
+  readonly source: "skillhub" | "enterprise" | "community"
+  readonly sourceUrl: string
+  readonly name: string
+  readonly description: string
+  readonly iconUrl?: string
+  readonly categories: ReadonlyArray<string>
+  readonly tags: ReadonlyArray<string>
+  readonly aliases?: ReadonlyArray<string>
+  readonly requiresApiKey: boolean
+  readonly risk: "unknown" | "safe" | "warning" | "danger"
+  readonly version: string
+  readonly updatedAt: string
+  readonly downloads: number | "Infinity" | "-Infinity" | "NaN"
+  readonly favorites: number | "Infinity" | "-Infinity" | "NaN"
+  readonly score: number | "Infinity" | "-Infinity" | "NaN"
+  readonly evaluationScore?: number
+  readonly traceEvaluation?: {
+    readonly trust: number
+    readonly reliability: number
+    readonly adaptability: number
+    readonly convention: number
+    readonly effectiveness: number
+    readonly evaluatedAt: string
+  }
+  readonly featured: boolean
+  readonly enterprise: boolean
+  readonly visibility?: "personal" | "groups" | "department"
+  readonly delisted: boolean
+  readonly installedVersion?: string
+  readonly updateAvailable?: boolean
+  readonly submittedBy?: { readonly displayName: string }
+  readonly reviewedAt?: string
+  readonly reviewRisk?: "unknown" | "safe" | "warning" | "danger"
+  readonly readme: string
+  readonly license?: string
+  readonly author: { readonly name: string; readonly url?: string }
+  readonly versions: ReadonlyArray<{
+    readonly version: string
+    readonly publishedAt: string
+    readonly sha256: string
+    readonly size: number | "Infinity" | "-Infinity" | "NaN"
+  }>
+  readonly securityReports: ReadonlyArray<{
+    readonly provider: string
+    readonly verdict: "unknown" | "safe" | "warning" | "danger"
+    readonly summary: string
+    readonly reportUrl?: string
+  }>
+  readonly riskReason?: string
+  readonly package: {
+    readonly url: string
+    readonly sha256: string
+    readonly size: number | "Infinity" | "-Infinity" | "NaN"
+    readonly files: ReadonlyArray<{
+      readonly path: string
+      readonly sha256: string
+      readonly size: number | "Infinity" | "-Infinity" | "NaN"
+    }>
+  }
+  readonly publicDetailUrl: string
+}
+
+export type SkillMarketRestrictedRestrictedVersionsInput = {
+  readonly publicationID: { readonly publicationID: string }["publicationID"]
+}
+
+export type SkillMarketRestrictedRestrictedVersionsOutput = ReadonlyArray<{
+  readonly version: string
+  readonly publishedAt: string
+  readonly sha256: string
+  readonly size: number
+}>
 
 export type SkillMarketRestrictedPrivateInstallGrantInput = {
   readonly publicationID: { readonly publicationID: string }["publicationID"]

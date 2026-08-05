@@ -126,6 +126,20 @@ export const SkillMarketCatalogGroup = HttpApiGroup.make("skillMarket.catalog")
 
 export const SkillMarketCatalogPrivateGroup = HttpApiGroup.make("skillMarket.catalogPrivate")
   .add(
+    HttpApiEndpoint.get("skillMarket.catalog.restrictedDetail", "/v1/restricted-skills/:publicationID", {
+      params: { publicationID: SkillMarketControl.PublicationID },
+      success: SkillMarket.Detail,
+      error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("skillMarket.catalog.restrictedVersions", "/v1/restricted-skills/:publicationID/versions", {
+      params: { publicationID: SkillMarketControl.PublicationID },
+      success: Schema.Array(SkillMarket.Version),
+      error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
+    }),
+  )
+  .add(
     HttpApiEndpoint.post("skillMarket.catalog.privateInstallGrant", "/v1/restricted-skills/:publicationID/install-grants", {
       params: { publicationID: SkillMarketControl.PublicationID },
       success: SkillMarket.PrivateInstallGrant,
@@ -136,5 +150,5 @@ export const SkillMarketCatalogPrivateGroup = HttpApiGroup.make("skillMarket.cat
       .annotateMerge(SkillMarketWriteOpenApi),
   )
   .annotateMerge(
-    OpenApi.annotations({ title: "Ruying Restricted Skill Catalog", description: "Private installation grants." }),
+    OpenApi.annotations({ title: "Ruying Restricted Skill Catalog", description: "Authorized private catalog." }),
   )

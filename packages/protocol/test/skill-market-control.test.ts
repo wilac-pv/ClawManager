@@ -74,6 +74,21 @@ test("scoped sharing api declares its operations", () => {
   })
   expect(endpoints).toContain("skillMarket.groups.create")
   expect(endpoints).toContain("skillMarket.submissions.promote")
+  expect(endpoints).toContain("skillMarket.catalog.restrictedDetail")
+  expect(endpoints).toContain("skillMarket.catalog.restrictedVersions")
+  expect(endpoints).toContain("skillMarket.catalog.privateInstallGrant")
+})
+
+test("server api composes only the implemented private catalog sharing group", () => {
+  const endpoints: string[] = []
+  HttpApi.reflect(SkillMarketApi, {
+    onGroup() {},
+    onEndpoint({ endpoint }) {
+      if (endpoint.name.startsWith("skillMarket.catalog.")) endpoints.push(endpoint.name)
+    },
+  })
+  expect(endpoints).toContain("skillMarket.catalog.restrictedDetail")
+  expect(endpoints).toContain("skillMarket.catalog.restrictedVersions")
   expect(endpoints).toContain("skillMarket.catalog.privateInstallGrant")
 })
 
@@ -227,6 +242,21 @@ test("every scoped sharing endpoint carries its runtime middleware policy", () =
   })
 
   expect(inspected).toEqual(new Set([...reads, ...mutations]))
+})
+
+test("restricted direct reads are optional-session 404 surfaces while grant issuance remains protected", () => {
+  const policies = new Map<string, ReadonlySet<string>>()
+  HttpApi.reflect(SkillMarketScopedSharingApi, {
+    onGroup() {},
+    onEndpoint({ endpoint }) {
+      if (!endpoint.name.startsWith("skillMarket.catalog.")) return
+      policies.set(endpoint.name, new Set(Array.from(endpoint.middlewares, (item) => item.key)))
+    },
+  })
+  expect(policies.get("skillMarket.catalog.restrictedDetail")).toEqual(new Set())
+  expect(policies.get("skillMarket.catalog.restrictedVersions")).toEqual(new Set())
+  expect(policies.get("skillMarket.catalog.privateInstallGrant")?.has(SkillMarketSessionMiddleware.key)).toBeTrue()
+  expect(policies.get("skillMarket.catalog.privateInstallGrant")?.has(SkillMarketWriteMiddleware.key)).toBeTrue()
 })
 
 test("catalog-only api remains anonymous and isolated from control middleware", () => {

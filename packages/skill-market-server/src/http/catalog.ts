@@ -1,48 +1,120 @@
 import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
+import {
+  SkillMarketControlNotFound,
+  SkillMarketDependencyUnavailable,
+} from "@opencode-ai/protocol/skill-market-errors"
+import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import { normalizeSkillMarketCatalogQuery } from "@opencode-ai/protocol/groups/skill-market-catalog"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { CatalogReader } from "../catalog-reader"
+import type { InstallGrants } from "../install-grants"
 import type { MarketMetricEmitter } from "../metrics"
 import { CatalogPackageReadError, type CatalogPackageReader } from "../package-reader"
-import { requestID } from "./middleware"
+import type { RestrictedCatalog } from "../restricted-catalog"
+import type { MarketSecurity, Principal } from "../security"
+import { SkillMarketSecurityError } from "../security"
+import { principalFromSession, readCookies, requestID } from "./middleware"
 
-export function createCatalogHttp(
-  catalog: CatalogReader,
-  packages: CatalogPackageReader,
-  emit?: MarketMetricEmitter,
-) {
-  return HttpApiBuilder.group(SkillMarketApi, "skillMarket.catalog", (handlers) =>
+interface CatalogHttpOptions {
+  readonly catalog: CatalogReader
+  readonly packages: CatalogPackageReader
+  readonly restrictedCatalog: RestrictedCatalog
+  readonly installGrants: InstallGrants
+  readonly security: MarketSecurity
+  readonly sessionCookieName: string
+  readonly emit?: MarketMetricEmitter
+}
+
+export function createCatalogHttp(options: CatalogHttpOptions) {
+  const catalog = HttpApiBuilder.group(SkillMarketApi, "skillMarket.catalog", (handlers) =>
     handlers
       .handle("skillMarket.catalog.list", (context) =>
-        withCatalog(catalog, (current) => catalog.list(normalizeSkillMarketCatalogQuery(context.query), current)),
+        Effect.gen(function* () {
+          const principal = yield* optionalPrincipal(options)
+          return yield* withCatalog(
+            options.catalog,
+            (current) => options.catalog.list(normalizeSkillMarketCatalogQuery(context.query), current, principal),
+            Boolean(principal),
+          )
+        }),
       )
-      .handle("skillMarket.catalog.facets", () => withCatalog(catalog, (current) => catalog.facets(current)))
+      .handle("skillMarket.catalog.facets", () =>
+        Effect.gen(function* () {
+          const principal = yield* optionalPrincipal(options)
+          return yield* withCatalog(
+            options.catalog,
+            (current) => options.catalog.facets(current, principal),
+            Boolean(principal),
+          )
+        }),
+      )
       .handle("skillMarket.catalog.detail", (context) =>
-        withCatalog(catalog, (current) => detail(catalog, current, context.params.source, context.params.id)),
+        withCatalog(options.catalog, (current) =>
+          detail(options.catalog, current, context.params.source, context.params.id),
+        ),
       )
       .handle("skillMarket.catalog.versions", (context) =>
-        withCatalog(catalog, async (current) => {
-          const value = await detail(catalog, current, context.params.source, context.params.id)
+        withCatalog(options.catalog, async (current) => {
+          const value = await detail(options.catalog, current, context.params.source, context.params.id)
           return HttpServerResponse.isHttpServerResponse(value) ? value : value.versions
         }),
       )
       .handle("skillMarket.catalog.download", (context) =>
-        withCatalog(catalog, async (current) => {
-          const value = await detail(catalog, current, context.params.source, context.params.id)
+        withCatalog(options.catalog, async (current) => {
+          const value = await detail(options.catalog, current, context.params.source, context.params.id)
           if (HttpServerResponse.isHttpServerResponse(value)) return value
           return { url: value.package.url, sha256: value.package.sha256, size: value.package.size }
         }),
       )
       .handleRaw("skillMarket.catalog.package", (context) =>
-        packageResponse(catalog, packages, context.params.source, context.params.id, false, emit),
+        packageResponse(
+          options.catalog,
+          options.packages,
+          context.params.source,
+          context.params.id,
+          false,
+          options.emit,
+        ),
       )
       .handleRaw("skillMarket.catalog.packageHead", (context) =>
-        packageResponse(catalog, packages, context.params.source, context.params.id, true, emit),
+        packageResponse(
+          options.catalog,
+          options.packages,
+          context.params.source,
+          context.params.id,
+          true,
+          options.emit,
+        ),
       ),
   )
+  const restricted = HttpApiBuilder.group(SkillMarketApi, "skillMarket.catalogPrivate", (handlers) =>
+    handlers
+      .handle("skillMarket.catalog.restrictedDetail", (context) =>
+        privateCatalogResponse(options, (principal) =>
+          options.restrictedCatalog.detail(principal, context.params.publicationID),
+        ),
+      )
+      .handle("skillMarket.catalog.restrictedVersions", (context) =>
+        privateCatalogResponse(options, (principal) =>
+          options.restrictedCatalog.versions(principal, context.params.publicationID),
+        ),
+      )
+      .handle("skillMarket.catalog.privateInstallGrant", (context) =>
+        privateHeaders(
+          Effect.gen(function* () {
+            const principal = principalFromSession(yield* SkillMarketPrincipal)
+            return yield* Effect.try({
+              try: () => options.installGrants.issue(principal, context.params.publicationID),
+              catch: restrictedProblem,
+            })
+          }),
+        ),
+      ),
+  )
+  return Layer.merge(catalog, restricted)
 }
 
 function packageResponse(
@@ -122,6 +194,7 @@ function packageResponse(
 function withCatalog<A>(
   catalog: CatalogReader,
   use: (current: Awaited<ReturnType<CatalogReader["index"]>>) => Promise<A>,
+  privateResponse = false,
 ): Effect.Effect<A | HttpServerResponse.HttpServerResponse, never, HttpServerRequest.HttpServerRequest> {
   return Effect.tryPromise({
     try: async () => {
@@ -133,15 +206,21 @@ function withCatalog<A>(
     Effect.matchEffect({
       onFailure: () =>
         Effect.succeed(
-          HttpServerResponse.jsonUnsafe({ code: "market-unavailable", message: "Skill 市场暂不可用" }, { status: 503 }),
+          HttpServerResponse.jsonUnsafe(
+            { code: "market-unavailable", message: "Skill 市场暂不可用" },
+            {
+              status: 503,
+              headers: privateResponse ? { "cache-control": "private, no-store" } : undefined,
+            },
+          ),
         ),
       onSuccess: ([snapshot, value]) =>
         HttpEffect.appendPreResponseHandler((_request, response) =>
           Effect.succeed(
             HttpServerResponse.setHeaders(response, {
-              "cache-control": "public, max-age=60",
-              etag: `"${snapshot.revision}"`,
-              "x-skill-market-revision": snapshot.revision,
+              "cache-control": privateResponse ? "private, no-store" : "public, max-age=60",
+              etag: `"${responseRevision(snapshot.revision, value)}"`,
+              "x-skill-market-revision": responseRevision(snapshot.revision, value),
               "x-skill-market-source-skillhub": snapshot.sourceStatus.skillhub,
               "x-skill-market-source-enterprise": snapshot.sourceStatus.enterprise,
               "x-skill-market-source-community": snapshot.sourceStatus.community,
@@ -150,6 +229,65 @@ function withCatalog<A>(
         ).pipe(Effect.andThen(Effect.succeed(value))),
     }),
   )
+}
+
+function optionalPrincipal(options: Pick<CatalogHttpOptions, "security" | "sessionCookieName">) {
+  return Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const cookies = readCookies(request.headers.cookie)
+    return yield* Effect.try({
+      try: () =>
+        options.security.requireSession({
+          sessionToken: cookies.get(options.sessionCookieName) ?? "",
+          csrfToken: cookies.get(options.sessionCookieName.replace(/session$/, "csrf")) ?? "",
+        }),
+      catch: () => undefined,
+    }).pipe(Effect.match({ onFailure: () => undefined, onSuccess: (principal) => principal }))
+  })
+}
+
+function privateCatalogResponse<A>(
+  options: Pick<CatalogHttpOptions, "restrictedCatalog" | "security" | "sessionCookieName">,
+  read: (principal: Principal) => A,
+) {
+  return privateHeaders(
+    Effect.gen(function* () {
+      const principal = yield* optionalPrincipal(options)
+      if (!principal)
+        return yield* new SkillMarketControlNotFound({
+          code: "not-found",
+          message: "受限 Skill 不存在",
+          requestId: requestID(),
+        })
+      return yield* Effect.try({ try: () => read(principal), catch: restrictedProblem })
+    }),
+  )
+}
+
+function privateHeaders<A, E, R>(effect: Effect.Effect<A, E, R>) {
+  return HttpEffect.appendPreResponseHandler((_request, response) =>
+    Effect.succeed(HttpServerResponse.setHeader(response, "cache-control", "private, no-store")),
+  ).pipe(Effect.andThen(effect))
+}
+
+function restrictedProblem(error: unknown) {
+  if (error instanceof SkillMarketSecurityError && error.code === "not-found")
+    return new SkillMarketControlNotFound({
+      code: "not-found",
+      message: "受限 Skill 不存在",
+      requestId: requestID(),
+    })
+  return new SkillMarketDependencyUnavailable({
+    code: "dependency-unavailable",
+    message: "受限 Skill 暂不可用",
+    requestId: requestID(),
+  })
+}
+
+function responseRevision(fallback: string, value: unknown) {
+  if (typeof value !== "object" || value === null || !("revision" in value) || typeof value.revision !== "string")
+    return fallback
+  return value.revision
 }
 
 async function detail(
