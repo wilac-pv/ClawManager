@@ -242,6 +242,10 @@ function privateStore() {
       return { size: body.byteLength }
     },
     async putPrivate(key, body) {
+      if (body instanceof Uint8Array) {
+        objects.set(key, body)
+        return
+      }
       const chunks: Uint8Array[] = []
       for await (const chunk of body) chunks.push(chunk)
       const output = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))

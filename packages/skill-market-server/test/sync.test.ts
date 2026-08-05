@@ -393,6 +393,10 @@ function memoryStore(objects: Map<string, Uint8Array>): PrivateObjectStore {
       return { size: body.byteLength }
     },
     async putPrivate(key, body) {
+      if (body instanceof Uint8Array) {
+        objects.set(key, body)
+        return
+      }
       const chunks = await Array.fromAsync(body)
       const output = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))
       chunks.reduce((offset, chunk) => {

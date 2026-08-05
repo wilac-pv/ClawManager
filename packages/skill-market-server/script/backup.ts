@@ -49,7 +49,7 @@ export async function backupDatabase(options: BackupDatabaseOptions) {
     const key = `${prefix}/backups/sqlite/${filename}`
     await rename(compressedCopy, artifactPath)
     await options.store
-      .putPrivate(key, fileChunks(artifactPath), "application/zstd", { sha256, "user-version": String(userVersion) })
+      .putPrivate(key, bytes, "application/zstd", { sha256, "user-version": String(userVersion) })
       .then(undefined, () => {
         throw new Error("backup upload failed")
       })
@@ -208,19 +208,6 @@ function verifyScopedSharingSchema(database: Database) {
 async function compress(executable: string, input: string, output: string) {
   const process = Bun.spawn([executable, "-T1", "-q", input, "-o", output], { stderr: "pipe" })
   if ((await process.exited) !== 0) throw new Error("backup compression failed")
-}
-
-async function* fileChunks(path: string) {
-  const reader = Bun.file(path).stream().getReader()
-  try {
-    while (true) {
-      const chunk = await reader.read()
-      if (chunk.done) return
-      yield chunk.value
-    }
-  } finally {
-    reader.releaseLock()
-  }
 }
 
 function normalizePrefix(value: string) {

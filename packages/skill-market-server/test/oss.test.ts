@@ -222,8 +222,10 @@ describe("OSS snapshots", () => {
         region: "test-region",
         bucket: "test-bucket",
       })
-      await store.putPrivate("private/canary", chunks("hello", " world"), "application/octet-stream", undefined)
+      await store.putPrivate("private/canary", new TextEncoder().encode("hello world"), "application/octet-stream", undefined)
       expect(new TextDecoder().decode(bodies[0])).toBe("hello world")
+      expect(requestHeaders[0].get("content-length")).toBe("11")
+      expect(requestHeaders[0].has("content-encoding")).toBe(false)
       expect(requestHeaders[0].has("if-none-match")).toBe(false)
     } finally {
       server.stop(true)

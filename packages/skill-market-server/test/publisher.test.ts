@@ -1670,6 +1670,10 @@ function memoryStore(
       return { size: body.byteLength, metadata: metadataByKey.get(key) }
     },
     async putPrivate(key, body) {
+      if (body instanceof Uint8Array) {
+        objects.set(key, body)
+        return
+      }
       const chunks = await Array.fromAsync(body)
       const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
       const output = new Uint8Array(size)

@@ -1634,7 +1634,10 @@ async function marketFixture(
     },
     async putPrivate(key, body) {
       state.privateWrites++
-      objects.set(key, new Uint8Array(await new Blob(await Array.fromAsync(body)).arrayBuffer()))
+      objects.set(
+        key,
+        body instanceof Uint8Array ? body : new Uint8Array(await new Blob(await Array.fromAsync(body)).arrayBuffer()),
+      )
     },
     async copy(source, target) {
       const body = objects.get(source)

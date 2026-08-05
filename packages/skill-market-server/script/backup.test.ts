@@ -328,12 +328,11 @@ function memoryStore() {
     client: {
       async putPrivate(
         key: string,
-        body: AsyncIterable<Uint8Array>,
+        body: Uint8Array | AsyncIterable<Uint8Array>,
         _contentType: string,
         objectMetadata?: Readonly<Record<string, string>>,
       ) {
-        const chunks = await Array.fromAsync(body)
-        objects.set(key, Buffer.concat(chunks))
+        objects.set(key, body instanceof Uint8Array ? body : Buffer.concat(await Array.fromAsync(body)))
         metadata.set(key, objectMetadata ?? {})
       },
     },

@@ -48,7 +48,7 @@ export type ObjectStore = {
 export interface PrivateObjectStore extends ObjectStore {
   readonly putPrivate: (
     key: string,
-    body: AsyncIterable<Uint8Array>,
+    body: Uint8Array | AsyncIterable<Uint8Array>,
     contentType: string,
     metadata?: Readonly<Record<string, string>>,
     request?: ObjectStoreRequest,
@@ -148,7 +148,8 @@ export function makeS3ObjectStore(config: {
         new PutObjectCommand({
           Bucket: config.bucket,
           Key: key,
-          Body: Readable.from(body),
+          Body: body instanceof Uint8Array ? body : Readable.from(body),
+          ContentLength: body instanceof Uint8Array ? body.byteLength : undefined,
           ContentType: contentType,
           CacheControl: "private, no-store",
           Metadata: metadata,
