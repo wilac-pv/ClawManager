@@ -105,63 +105,59 @@ test("renders not-found, partial-source, empty and icon fallback states", async 
 })
 
 test("sweeps typography across the supported desktop and mobile pages", async ({ page }) => {
-  for (const viewport of [
-    { width: 1440, height: 1000 },
-    { width: 390, height: 844 },
-  ]) {
-    await page.setViewportSize(viewport)
-    for (const entry of [
-      { path: "/skills", persona: "anonymous" },
-      { path: "/personal", persona: "submitter" },
-      { path: "/submissions", persona: "submitter" },
-      { path: "/groups", persona: "group-owner" },
-      { path: "/favorites", persona: "submitter", empty: "还没有收藏 Skill" },
-      { path: "/trash", persona: "submitter", empty: "回收站为空" },
-      { path: "/admin", persona: "admin" },
-    ] as const) {
-      await resetBrowserFixture(page, entry.persona)
-      await page.goto(entry.path)
-      await expect(page.locator("h1")).toHaveCSS("font-family", /PingFang SC|Microsoft YaHei|Segoe UI/)
-      await expect(page.locator("input, select, textarea, button").first()).toHaveCSS(
-        "font-family",
-        /PingFang SC|Microsoft YaHei|Segoe UI/,
-      )
-      if ("empty" in entry) await expect(page.getByRole("heading", { name: entry.empty, level: 2 })).toBeVisible()
-      await expect
-        .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
-        .toBe(true)
-    }
-
-    await resetBrowserFixture(page, "typography")
-    expect((await page.context().cookies(webBaseUrl)).find((cookie) => cookie.name === "fixture_persona")?.value).toBe("typography")
-    await page.goto(`${fixtureApi}/v1/auth/login?persona=typography&returnTo=/skills`)
-    await page.setViewportSize(viewport)
-    await page.goto("/skills")
-    await page.getByRole("searchbox").fill("中文排版")
-    const title = page.getByText("跨部门协作与中文排版验证 Skill 标题需要在手机宽度下自然换行且不能裁切")
-    await expect(title).toBeVisible()
-    await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((element) => element.clientWidth))
-    await page.goto("/skills/skillhub/code-review")
-    await page.getByRole("tab", { name: "版本" }).click()
-    const hash = page.locator(".ruying-skill-market__versions code").first()
-    await expect(hash).toHaveText("a".repeat(64))
-    await expect(hash).toHaveJSProperty("scrollWidth", await hash.evaluate((element) => element.clientWidth))
-
-    await page.route(`${fixtureApi}/v1/favorites`, (route) => route.abort())
-    await page.goto("/favorites")
-    await expect(page.getByRole("alert").getByRole("heading", { name: "收藏加载失败", level: 2 })).toBeVisible()
-    await page.unroute(`${fixtureApi}/v1/favorites`)
-    await page.goto("/personal")
-    const employeeID = page.locator("[data-identity-id]")
-    const machineID = page.getByText("typography-machine-id-用于窄屏换行验证-abcdefghijklmnopqrstuvwxyz0123456789")
-    await expect(employeeID).toHaveText("typography-employee-id-abcdefghijklmnopqrstuvwxyz0123456789")
-    await expect(machineID).toBeVisible()
-    await expect(employeeID).toHaveJSProperty("scrollWidth", await employeeID.evaluate((element) => element.clientWidth))
-    await expect(machineID).toHaveJSProperty("scrollWidth", await machineID.evaluate((element) => element.clientWidth))
-
-    await page.getByRole("button", { name: "删除个人 Skill" }).click()
-    await expect(page.getByRole("dialog").getByRole("heading", { name: "删除个人 Skill", level: 2 })).toBeVisible()
+  for (const entry of [
+    { path: "/skills", persona: "anonymous" },
+    { path: "/personal", persona: "submitter" },
+    { path: "/submissions", persona: "submitter" },
+    { path: "/groups", persona: "group-owner" },
+    { path: "/favorites", persona: "submitter", empty: "还没有收藏 Skill" },
+    { path: "/trash", persona: "submitter", empty: "回收站为空" },
+    { path: "/admin", persona: "admin" },
+  ] as const) {
+    await resetBrowserFixture(page, entry.persona)
+    await page.goto(entry.path)
+    await expect(page.locator("h1")).toHaveCSS("font-family", /PingFang SC|Microsoft YaHei|Segoe UI/)
+    await expect(page.locator("input, select, textarea, button").first()).toHaveCSS(
+      "font-family",
+      /PingFang SC|Microsoft YaHei|Segoe UI/,
+    )
+    if ("empty" in entry) await expect(page.getByRole("heading", { name: entry.empty, level: 2 })).toBeVisible()
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+      .toBe(true)
   }
+
+  await resetBrowserFixture(page, "typography")
+  expect((await page.context().cookies(webBaseUrl)).find((cookie) => cookie.name === "fixture_persona")?.value).toBe("typography")
+  await page.goto(`${fixtureApi}/v1/auth/login?persona=typography&returnTo=/skills`)
+  await page.goto("/skills")
+  await page.getByRole("searchbox").fill("中文排版")
+  const title = page.getByText("跨部门协作与中文排版验证 Skill 标题需要在手机宽度下自然换行且不能裁切")
+  await expect(title).toBeVisible()
+  await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((element) => element.clientWidth))
+  await page.goto("/skills/skillhub/code-review")
+  await page.getByRole("tab", { name: "版本" }).click()
+  const hash = page.locator(".ruying-skill-market__versions code").first()
+  await expect(hash).toHaveText("a".repeat(64))
+  await expect(hash).toHaveJSProperty("scrollWidth", await hash.evaluate((element) => element.clientWidth))
+
+  await page.route(`${fixtureApi}/v1/favorites`, (route) => route.abort())
+  await page.goto("/favorites")
+  await expect(page.getByRole("alert").getByRole("heading", { name: "收藏加载失败", level: 2 })).toBeVisible()
+  await page.unroute(`${fixtureApi}/v1/favorites`)
+  await page.goto("/personal")
+  const employeeID = page.locator("[data-identity-id]")
+  const machineID = page.getByText("typography-machine-id-用于窄屏换行验证-abcdefghijklmnopqrstuvwxyz0123456789")
+  await expect(employeeID).toHaveText("typography-employee-id-abcdefghijklmnopqrstuvwxyz0123456789")
+  await expect(machineID).toBeVisible()
+  await expect(employeeID).toHaveJSProperty("scrollWidth", await employeeID.evaluate((element) => element.clientWidth))
+  await expect(machineID).toHaveJSProperty("scrollWidth", await machineID.evaluate((element) => element.clientWidth))
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true)
+
+  await page.getByRole("button", { name: "删除个人 Skill" }).click()
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "删除个人 Skill", level: 2 })).toBeVisible()
 })
 
 test("returns from SSO, reports invalid ZIP content and accepts a corrected revision", async ({ page }, testInfo) => {

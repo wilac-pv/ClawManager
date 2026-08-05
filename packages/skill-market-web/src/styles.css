@@ -823,6 +823,7 @@ a {
 .submission-card__title {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 12px;
 }
 
@@ -832,10 +833,10 @@ a {
 }
 
 .submission-card h2 {
-  overflow: hidden;
+  min-width: 0;
   font-size: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .submission-card a,

@@ -518,7 +518,7 @@ async function ownSubmission(request: Request, url: URL, state: FixtureState, us
   if (!current) return problem(request, 404, "not-found", "投稿不存在")
   if (current.owner.employeeID !== user.employeeID) return problem(request, 403, "forbidden", "只能读取自己的投稿")
   if (request.method === "GET" && !operation) return json(request, current)
-  const input = await request.json().catch(() => undefined)
+  const input = operation === "revisions" ? undefined : await request.json().catch(() => undefined)
   if (operation === "personal" && request.method === "DELETE") {
     if (!input || typeof input !== "object" || input.expectedVersion !== current.version || current.target !== "personal") return conflict(request)
     state.trash.set(id, { purgeAfter: state.clock + 7 * 24 * 60 * 60 * 1000, purged: false })
