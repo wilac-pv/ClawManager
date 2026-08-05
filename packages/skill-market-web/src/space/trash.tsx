@@ -36,7 +36,7 @@ export function PersonalTrash(props: { readonly source: PersonalTrashSource }) {
 
   return (
     <main class="submission-page space-page">
-      <SpacePageHeader eyebrow="Personal workspace" title="回收站" description="删除的个人 Skill 可在永久删除前恢复。" action={<></>} />
+      <SpacePageHeader eyebrow="个人空间" title="回收站" description="删除的个人 Skill 可在永久删除前恢复。" action={<></>} />
       <Show when={error()}>{(message) => <div class="submission-form__errors" role="alert">{message()}</div>}</Show>
       <Switch>
         <Match when={trash.isPending}>

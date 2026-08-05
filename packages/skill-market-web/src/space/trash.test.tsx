@@ -6,6 +6,17 @@ import { PersonalTrash } from "./trash"
 afterEach(() => cleanup())
 
 describe("personal trash", () => {
+  test("uses Chinese context for the trash eyebrow", () => {
+    const view = render(() => (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+        <PersonalTrash source={{ personalTrash: () => Promise.resolve([]), restorePersonal: () => Promise.resolve(item("2099-08-12T00:00:00.000Z")) }} />
+      </QueryClientProvider>
+    ))
+
+    expect(view.container.textContent).not.toContain("Personal workspace")
+    expect(view.container.textContent).toContain("个人空间")
+  })
+
   test("shows purge deadlines and restores only recoverable personal Skills", async () => {
     const restores: unknown[][] = []
     const view = render(() => (

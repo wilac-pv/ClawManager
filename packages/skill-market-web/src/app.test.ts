@@ -18,4 +18,5 @@ test("defines shared typography tokens and form control inheritance", async () =
   expect(styles).toContain('--font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;')
   expect(styles).toContain('--font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;')
   expect(styles).toMatch(/button,\s*input,\s*select,\s*textarea[\s\S]*font: inherit/)
+  expect(styles).toMatch(/\.submission-report-list code,[\s\S]*font-family: var\(--font-mono\)/)
 })
