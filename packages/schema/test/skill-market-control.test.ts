@@ -29,6 +29,7 @@ const submission = {
 describe("SkillMarketControl", () => {
   test("keeps the complete submission state vocabulary closed", () => {
     expect(Schema.decodeUnknownSync(SkillMarketControl.SubmissionStatus)("pending_review")).toBe("pending_review")
+    expect(SkillMarketControl.SubmissionStatus.literals).toContain("withdrawn")
     expect(() => Schema.decodeUnknownSync(SkillMarketControl.SubmissionStatus)("approved")).toThrow()
     expect(SkillMarketControl.ActiveSubmissionStatuses).toEqual([
       "validating",
@@ -38,7 +39,38 @@ describe("SkillMarketControl", () => {
       "publishing",
       "publish_failed",
     ])
-    expect(SkillMarketControl.TerminalSubmissionStatuses).toEqual(["rejected", "published"])
+    expect(SkillMarketControl.TerminalSubmissionStatuses).toEqual(["rejected", "published", "withdrawn"])
+  })
+
+  test("defines recoverable personal trash and auditable delisting contracts", () => {
+    const trash = Schema.decodeUnknownSync(SkillMarketControl.PersonalTrashItem)({
+      ...submission,
+      target: "personal",
+      status: "published",
+      deletedAt: "2026-08-04T00:00:00.000Z",
+      purgeAfter: "2026-08-11T00:00:00.000Z",
+    })
+    const request = Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({
+      id: "dlr_abcdefgh",
+      submissionID: submission.id,
+      requestedByEmployeeID: "owner",
+      reason: "This Skill is no longer maintained.",
+      status: "approved",
+      version: 2,
+      createdAt: "2026-08-04T00:00:00.000Z",
+      decidedByEmployeeID: "admin",
+      decidedAt: "2026-08-05T00:00:00.000Z",
+    })
+
+    expect(trash.purgeAfter).toBe("2026-08-11T00:00:00.000Z")
+    expect(request.decidedByEmployeeID).toBe("admin")
+    expect(() => Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({ ...request, version: 0 })).toThrow()
+    expect(() =>
+      Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({
+        ...request,
+        reason: " ",
+      }),
+    ).toThrow()
   })
 
   test("decodes every publication audience with only its matching target details", () => {

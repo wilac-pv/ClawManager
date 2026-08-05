@@ -112,3 +112,47 @@ export const SkillMarketSubmissionSharingGroup = HttpApiGroup.make("skillMarket.
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Skill Submission Sharing", description: "Reviewed audience changes." }),
   )
+
+export const SkillMarketSubmissionLifecycleGroup = HttpApiGroup.make("skillMarket.submissionLifecycle")
+  .add(
+    HttpApiEndpoint.get("skillMarket.submissions.personalTrash", "/v1/personal-trash", {
+      success: Schema.Array(SkillMarketControl.PersonalTrashItem),
+      error: SkillMarketDependencyUnavailable,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("skillMarket.submissions.personalDelete", "/v1/submissions/:submissionID/personal", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      payload: SkillMarketControl.ExpectedVersionInput,
+      success: SkillMarketControl.PersonalTrashItem,
+      error: [SkillMarketControlNotFound, ...WriteErrors],
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.submissions.personalRestore", "/v1/personal-trash/:submissionID/restore", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      payload: SkillMarketControl.ExpectedVersionInput,
+      success: SkillMarketControl.SubmissionSummary,
+      error: [SkillMarketControlNotFound, ...WriteErrors],
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.submissions.withdraw", "/v1/submissions/:submissionID/withdraw", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      payload: SkillMarketControl.ExpectedVersionInput,
+      success: SkillMarketControl.SubmissionDetail,
+      error: [SkillMarketControlNotFound, ...WriteErrors],
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.submissions.requestDelist", "/v1/submissions/:submissionID/delist-requests", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      payload: SkillMarketControl.ReasonInput,
+      success: SkillMarketControl.DelistRequest,
+      error: [SkillMarketControlNotFound, ...WriteErrors],
+    }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
+  )
+  .middleware(SkillMarketSessionMiddleware)
+  .annotateMerge(
+    OpenApi.annotations({ title: "Ruying Skill Submission Lifecycle", description: "Personal recovery and withdrawal." }),
+  )

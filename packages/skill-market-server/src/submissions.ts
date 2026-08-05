@@ -155,6 +155,7 @@ const submissionTransitions = {
   publishing: ["publish_failed", "published"],
   publish_failed: ["publishing"],
   published: [],
+  withdrawn: [],
 } as const satisfies Record<SkillMarketControl.SubmissionStatus, ReadonlyArray<SkillMarketControl.SubmissionStatus>>
 
 export function assertSubmissionTransition(

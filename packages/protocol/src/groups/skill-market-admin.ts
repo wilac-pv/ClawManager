@@ -165,3 +165,29 @@ export const SkillMarketAdminGroup = ReviewerEndpoints.add(
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Skill Market Administration", description: "Review and administration." }),
   )
+
+export const SkillMarketAdminLifecycleGroup = HttpApiGroup.make("skillMarket.adminLifecycle")
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.approveDelist", "/v1/admin/delist-requests/:requestID/approve", {
+      params: { requestID: SkillMarketControl.DelistRequestID },
+      payload: SkillMarketControl.ExpectedVersionInput,
+      success: SkillMarketControl.DelistRequest,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.rejectDelist", "/v1/admin/delist-requests/:requestID/reject", {
+      params: { requestID: SkillMarketControl.DelistRequestID },
+      payload: SkillMarketControl.ExpectedVersionInput,
+      success: SkillMarketControl.DelistRequest,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
+  .middleware(SkillMarketSessionMiddleware)
+  .annotateMerge(
+    OpenApi.annotations({ title: "Ruying Skill Market Lifecycle Administration", description: "Delisting decisions." }),
+  )

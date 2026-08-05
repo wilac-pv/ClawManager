@@ -173,10 +173,103 @@ const adaptGroup2 = (raw: RawClient["skillMarket.submissionSharing"]) => ({
   audienceChange: Endpoint2_1(raw),
 })
 
+const Endpoint3_0 = (raw: RawClient["skillMarket.submissionLifecycle"]) => () =>
+  raw["skillMarket.submissions.personalTrash"]({}).pipe(Effect.mapError(mapClientError))
+
+type Endpoint3_1Request = Parameters<
+  RawClient["skillMarket.submissionLifecycle"]["skillMarket.submissions.personalDelete"]
+>[0]
+type Endpoint3_1Input = {
+  readonly submissionID: Endpoint3_1Request["params"]["submissionID"]
+  readonly expectedVersion: Endpoint3_1Request["payload"]["expectedVersion"]
+}
+const Endpoint3_1 = (raw: RawClient["skillMarket.submissionLifecycle"]) => (input: Endpoint3_1Input) =>
+  raw["skillMarket.submissions.personalDelete"]({
+    params: { submissionID: input["submissionID"] },
+    payload: { expectedVersion: input["expectedVersion"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint3_2Request = Parameters<
+  RawClient["skillMarket.submissionLifecycle"]["skillMarket.submissions.personalRestore"]
+>[0]
+type Endpoint3_2Input = {
+  readonly submissionID: Endpoint3_2Request["params"]["submissionID"]
+  readonly expectedVersion: Endpoint3_2Request["payload"]["expectedVersion"]
+}
+const Endpoint3_2 = (raw: RawClient["skillMarket.submissionLifecycle"]) => (input: Endpoint3_2Input) =>
+  raw["skillMarket.submissions.personalRestore"]({
+    params: { submissionID: input["submissionID"] },
+    payload: { expectedVersion: input["expectedVersion"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint3_3Request = Parameters<
+  RawClient["skillMarket.submissionLifecycle"]["skillMarket.submissions.withdraw"]
+>[0]
+type Endpoint3_3Input = {
+  readonly submissionID: Endpoint3_3Request["params"]["submissionID"]
+  readonly expectedVersion: Endpoint3_3Request["payload"]["expectedVersion"]
+}
+const Endpoint3_3 = (raw: RawClient["skillMarket.submissionLifecycle"]) => (input: Endpoint3_3Input) =>
+  raw["skillMarket.submissions.withdraw"]({
+    params: { submissionID: input["submissionID"] },
+    payload: { expectedVersion: input["expectedVersion"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint3_4Request = Parameters<
+  RawClient["skillMarket.submissionLifecycle"]["skillMarket.submissions.requestDelist"]
+>[0]
+type Endpoint3_4Input = {
+  readonly submissionID: Endpoint3_4Request["params"]["submissionID"]
+  readonly expectedVersion: Endpoint3_4Request["payload"]["expectedVersion"]
+  readonly reason: Endpoint3_4Request["payload"]["reason"]
+}
+const Endpoint3_4 = (raw: RawClient["skillMarket.submissionLifecycle"]) => (input: Endpoint3_4Input) =>
+  raw["skillMarket.submissions.requestDelist"]({
+    params: { submissionID: input["submissionID"] },
+    payload: { expectedVersion: input["expectedVersion"], reason: input["reason"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+const adaptGroup3 = (raw: RawClient["skillMarket.submissionLifecycle"]) => ({
+  personalTrash: Endpoint3_0(raw),
+  personalDelete: Endpoint3_1(raw),
+  personalRestore: Endpoint3_2(raw),
+  withdraw: Endpoint3_3(raw),
+  requestDelist: Endpoint3_4(raw),
+})
+
+type Endpoint4_0Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.approveDelist"]>[0]
+type Endpoint4_0Input = {
+  readonly requestID: Endpoint4_0Request["params"]["requestID"]
+  readonly expectedVersion: Endpoint4_0Request["payload"]["expectedVersion"]
+}
+const Endpoint4_0 = (raw: RawClient["skillMarket.adminLifecycle"]) => (input: Endpoint4_0Input) =>
+  raw["skillMarket.admin.approveDelist"]({
+    params: { requestID: input["requestID"] },
+    payload: { expectedVersion: input["expectedVersion"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+type Endpoint4_1Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.rejectDelist"]>[0]
+type Endpoint4_1Input = {
+  readonly requestID: Endpoint4_1Request["params"]["requestID"]
+  readonly expectedVersion: Endpoint4_1Request["payload"]["expectedVersion"]
+}
+const Endpoint4_1 = (raw: RawClient["skillMarket.adminLifecycle"]) => (input: Endpoint4_1Input) =>
+  raw["skillMarket.admin.rejectDelist"]({
+    params: { requestID: input["requestID"] },
+    payload: { expectedVersion: input["expectedVersion"] },
+  }).pipe(Effect.mapError(mapClientError))
+
+const adaptGroup4 = (raw: RawClient["skillMarket.adminLifecycle"]) => ({
+  approveDelist: Endpoint4_0(raw),
+  rejectDelist: Endpoint4_1(raw),
+})
+
 const adaptClient = (raw: RawClient) => ({
   skillMarketRestricted: adaptGroup0(raw["skillMarket.catalogPrivate"]),
   skillMarketGroups: adaptGroup1(raw["skillMarket.groups"]),
   skillMarketSharing: adaptGroup2(raw["skillMarket.submissionSharing"]),
+  "skillMarket.submissionLifecycle": adaptGroup3(raw["skillMarket.submissionLifecycle"]),
+  "skillMarket.adminLifecycle": adaptGroup4(raw["skillMarket.adminLifecycle"]),
 })
 
 export const make = (options?: { readonly baseUrl?: URL | string }) =>

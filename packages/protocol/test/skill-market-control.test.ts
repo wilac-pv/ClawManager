@@ -3,8 +3,17 @@ import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Database } from "bun:sqlite"
 import { Schema } from "effect"
 import { HttpApi, OpenApi } from "effect/unstable/httpapi"
-import { SkillMarketApi, SkillMarketCatalogApi, SkillMarketScopedSharingApi } from "../src/skill-market-api"
-import { SkillMarketSessionMiddleware, SkillMarketWriteMiddleware } from "../src/skill-market-middleware"
+import {
+  SkillMarketApi,
+  SkillMarketCatalogApi,
+  SkillMarketLifecycleApi,
+  SkillMarketScopedSharingApi,
+} from "../src/skill-market-api"
+import {
+  SkillMarketAdminMiddleware,
+  SkillMarketSessionMiddleware,
+  SkillMarketWriteMiddleware,
+} from "../src/skill-market-middleware"
 
 const expected = [
   ["skillMarket.auth.login", "GET", "/v1/auth/login"],
@@ -90,6 +99,55 @@ test("server api composes only the implemented private catalog sharing group", (
   expect(endpoints).toContain("skillMarket.catalog.restrictedDetail")
   expect(endpoints).toContain("skillMarket.catalog.restrictedVersions")
   expect(endpoints).toContain("skillMarket.catalog.privateInstallGrant")
+})
+
+test("lifecycle api declares staged personal and delisting operations", () => {
+  const endpoints: Array<readonly [string, string, string]> = []
+  HttpApi.reflect(SkillMarketLifecycleApi, {
+    onGroup() {},
+    onEndpoint({ endpoint }) {
+      endpoints.push([endpoint.name, endpoint.method, endpoint.path])
+    },
+  })
+
+  expect(endpoints).toEqual(
+    expect.arrayContaining([
+      ["skillMarket.submissions.personalTrash", "GET", "/v1/personal-trash"],
+      ["skillMarket.submissions.personalDelete", "DELETE", "/v1/submissions/:submissionID/personal"],
+      ["skillMarket.submissions.personalRestore", "POST", "/v1/personal-trash/:submissionID/restore"],
+      ["skillMarket.submissions.withdraw", "POST", "/v1/submissions/:submissionID/withdraw"],
+      ["skillMarket.submissions.requestDelist", "POST", "/v1/submissions/:submissionID/delist-requests"],
+      ["skillMarket.admin.approveDelist", "POST", "/v1/admin/delist-requests/:requestID/approve"],
+      ["skillMarket.admin.rejectDelist", "POST", "/v1/admin/delist-requests/:requestID/reject"],
+    ]),
+  )
+})
+
+test("lifecycle writes require session, csrf, and administrator approval policy", () => {
+  const policies = new Map<string, ReadonlySet<string>>()
+  HttpApi.reflect(SkillMarketLifecycleApi, {
+    onGroup() {},
+    onEndpoint({ endpoint }) {
+      policies.set(endpoint.name, new Set(Array.from(endpoint.middlewares, (item) => item.key)))
+    },
+  })
+
+  expect(policies.get("skillMarket.submissions.personalTrash")).toEqual(
+    new Set([SkillMarketSessionMiddleware.key]),
+  )
+  for (const name of [
+    "skillMarket.submissions.personalDelete",
+    "skillMarket.submissions.personalRestore",
+    "skillMarket.submissions.withdraw",
+    "skillMarket.submissions.requestDelist",
+  ]) {
+    expect(policies.get(name)).toEqual(new Set([SkillMarketSessionMiddleware.key, SkillMarketWriteMiddleware.key]))
+  }
+  for (const name of ["skillMarket.admin.approveDelist", "skillMarket.admin.rejectDelist"]) {
+    expect(policies.get(name)).toEqual(
+      new Set([SkillMarketSessionMiddleware.key, SkillMarketWriteMiddleware.key, SkillMarketAdminMiddleware.key]),
+    )
+  }
 })
 
 test("scoped sharing routes expose their exact payload, success, and security contracts", () => {

@@ -25,7 +25,13 @@ describe("control-plane database", () => {
       "wal",
     )
     expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(11)
+    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
+    expect(
+      database.connection
+        .query<{ name: string }, []>("PRAGMA table_info(submissions)")
+        .all()
+        .map((column) => column.name),
+    ).toEqual(expect.arrayContaining(["deleted_at", "purge_after"]))
     expect(
       database.connection
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
@@ -57,6 +63,7 @@ describe("control-plane database", () => {
         "announcements",
         "community_skills",
         "departments",
+        "delist_requests",
         "expert_packages",
         "idempotency_keys",
         "login_attempts",
@@ -105,6 +112,9 @@ describe("control-plane database", () => {
     expect(indexes).toContain("restricted_publications_live_owner_skill_version")
     expect(indexes).toContain("restricted_publication_groups_group")
     expect(indexes).toContain("submissions_active_audience_change_source")
+    expect(indexes).toContain("submissions_status_updated")
+    expect(indexes).toContain("submissions_personal_trash")
+    expect(indexes).toContain("delist_requests_pending_submission")
     expect(indexes).toContain("private_install_grants_expiry")
 
     database.connection.run(
@@ -355,8 +365,84 @@ describe("control-plane database", () => {
         (database) =>
           database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
       ),
-    ).toEqual([11, 11])
+    ).toEqual([12, 12])
     databases.forEach((database) => database.close())
+  })
+
+  test("upgrades v11 scoped submissions without losing foreign keys, indexes, or audience triggers", async () => {
+    const directory = await temporaryDirectory()
+    const migrations = join(directory, "migrations")
+    const path = join(directory, "market.db")
+    const backups = join(directory, "backups")
+    await mkdir(migrations)
+    const files = (await Array.fromAsync(new Bun.Glob("*.sql").scan({ cwd: join(import.meta.dir, "../migrations") }))).filter(
+      (file) => Number(file.slice(0, 3)) <= 11,
+    )
+    await Promise.all(
+      files.map(async (file) => Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file)))),
+    )
+
+    const v11 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+    v11.connection.run(
+      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES ('E000001', 'Owner', 1, 1)",
+    )
+    v11.connection.run(
+      "INSERT INTO market_groups (id, name, owner_employee_id, status, version, created_at, updated_at) VALUES ('grp_abcdefgh', 'Group', 'E000001', 'active', 1, 1, 1)",
+    )
+    v11.connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_abcdefgh', 'scoped-skill', 'E000001', '1.0.0', 'groups', 'validating', 1, 3, 1, 2)`,
+    )
+    v11.connection.run("INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_abcdefgh', 'grp_abcdefgh')")
+    v11.connection.run("UPDATE submissions SET status = 'pending_review' WHERE id = 'sub_abcdefgh'")
+    v11.close()
+
+    await Bun.write(
+      join(migrations, "012_lifecycle_actions.sql"),
+      Bun.file(join(import.meta.dir, "../migrations/012_lifecycle_actions.sql")),
+    )
+    const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
+
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
+    expect(
+      upgraded.connection
+        .query<{ status: string; version: number; target_scope: string; deleted_at: number | null; purge_after: number | null }, [string]>(
+          "SELECT status, version, target_scope, deleted_at, purge_after FROM submissions WHERE id = ?",
+        )
+        .get("sub_abcdefgh"),
+    ).toEqual({ status: "pending_review", version: 3, target_scope: "groups", deleted_at: null, purge_after: null })
+    expect(
+      upgraded.connection
+        .query<{ count: number }, [string]>("SELECT count(*) AS count FROM submission_group_targets WHERE submission_id = ?")
+        .get("sub_abcdefgh"),
+    ).toEqual({ count: 1 })
+    expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
+    expect(
+      upgraded.connection
+        .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'index'")
+        .all()
+        .map((row) => row.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "submissions_active_restricted_skill_version",
+        "submissions_active_audience_change_source",
+        "submissions_personal_trash",
+      ]),
+    )
+    expect(
+      upgraded.connection
+        .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+        .all()
+        .map((row) => row.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "submissions_audience_no_update",
+        "submission_group_targets_valid_insert",
+        "submissions_audience_valid_transition",
+      ]),
+    )
+    upgraded.close()
   })
 
   test("upgrades persisted v3 imports without losing lifecycle or queue data", async () => {
@@ -460,7 +546,7 @@ describe("control-plane database", () => {
     v3.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(11)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
     expect(
       upgraded.connection
         .query<
@@ -629,7 +715,7 @@ describe("control-plane database", () => {
     v4.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(11)
+    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
     const row = upgraded.connection
       .query<
         { evaluation_state: string; evaluation_score: number | null; summary_json: string },

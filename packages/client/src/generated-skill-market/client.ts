@@ -26,6 +26,19 @@ import type {
   SkillMarketSharingPromoteOutput,
   SkillMarketSharingAudienceChangeInput,
   SkillMarketSharingAudienceChangeOutput,
+  SkillMarketSubmissionLifecyclePersonalTrashOutput,
+  SkillMarketSubmissionLifecyclePersonalDeleteInput,
+  SkillMarketSubmissionLifecyclePersonalDeleteOutput,
+  SkillMarketSubmissionLifecyclePersonalRestoreInput,
+  SkillMarketSubmissionLifecyclePersonalRestoreOutput,
+  SkillMarketSubmissionLifecycleWithdrawInput,
+  SkillMarketSubmissionLifecycleWithdrawOutput,
+  SkillMarketSubmissionLifecycleRequestDelistInput,
+  SkillMarketSubmissionLifecycleRequestDelistOutput,
+  SkillMarketAdminLifecycleApproveDelistInput,
+  SkillMarketAdminLifecycleApproveDelistOutput,
+  SkillMarketAdminLifecycleRejectDelistInput,
+  SkillMarketAdminLifecycleRejectDelistOutput,
 } from "./types"
 import { ClientError } from "./client-error"
 
@@ -318,6 +331,87 @@ export function make(options: ClientOptions) {
             body: { expectedVersion: input["expectedVersion"], target: input["target"], audience: input["audience"] },
             successStatus: 202,
             declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+    },
+    "skillMarket.submissionLifecycle": {
+      personalTrash: (requestOptions?: RequestOptions) =>
+        request<SkillMarketSubmissionLifecyclePersonalTrashOutput>(
+          { method: "GET", path: `/v1/personal-trash`, successStatus: 200, declaredStatuses: [503, 401], empty: false },
+          requestOptions,
+        ),
+      personalDelete: (input: SkillMarketSubmissionLifecyclePersonalDeleteInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketSubmissionLifecyclePersonalDeleteOutput>(
+          {
+            method: "DELETE",
+            path: `/v1/submissions/${encodeURIComponent(input.submissionID)}/personal`,
+            body: { expectedVersion: input["expectedVersion"] },
+            successStatus: 200,
+            declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      personalRestore: (input: SkillMarketSubmissionLifecyclePersonalRestoreInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketSubmissionLifecyclePersonalRestoreOutput>(
+          {
+            method: "POST",
+            path: `/v1/personal-trash/${encodeURIComponent(input.submissionID)}/restore`,
+            body: { expectedVersion: input["expectedVersion"] },
+            successStatus: 200,
+            declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      withdraw: (input: SkillMarketSubmissionLifecycleWithdrawInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketSubmissionLifecycleWithdrawOutput>(
+          {
+            method: "POST",
+            path: `/v1/submissions/${encodeURIComponent(input.submissionID)}/withdraw`,
+            body: { expectedVersion: input["expectedVersion"] },
+            successStatus: 200,
+            declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      requestDelist: (input: SkillMarketSubmissionLifecycleRequestDelistInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketSubmissionLifecycleRequestDelistOutput>(
+          {
+            method: "POST",
+            path: `/v1/submissions/${encodeURIComponent(input.submissionID)}/delist-requests`,
+            body: { expectedVersion: input["expectedVersion"], reason: input["reason"] },
+            successStatus: 200,
+            declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+    },
+    "skillMarket.adminLifecycle": {
+      approveDelist: (input: SkillMarketAdminLifecycleApproveDelistInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketAdminLifecycleApproveDelistOutput>(
+          {
+            method: "POST",
+            path: `/v1/admin/delist-requests/${encodeURIComponent(input.requestID)}/approve`,
+            body: { expectedVersion: input["expectedVersion"] },
+            successStatus: 200,
+            declaredStatuses: [400, 404, 409, 503, 403, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      rejectDelist: (input: SkillMarketAdminLifecycleRejectDelistInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketAdminLifecycleRejectDelistOutput>(
+          {
+            method: "POST",
+            path: `/v1/admin/delist-requests/${encodeURIComponent(input.requestID)}/reject`,
+            body: { expectedVersion: input["expectedVersion"] },
+            successStatus: 200,
+            declaredStatuses: [400, 404, 409, 503, 403, 401],
             empty: false,
           },
           requestOptions,

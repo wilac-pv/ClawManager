@@ -371,6 +371,7 @@ export type SkillMarketSharingPromoteOutput = {
       | "publishing"
       | "publish_failed"
       | "published"
+      | "withdrawn"
     readonly currentRevision: number
     readonly version: number
     readonly risk: "unknown" | "safe" | "warning" | "danger"
@@ -436,6 +437,7 @@ export type SkillMarketSharingAudienceChangeOutput = {
       | "publishing"
       | "publish_failed"
       | "published"
+      | "withdrawn"
     readonly currentRevision: number
     readonly version: number
     readonly risk: "unknown" | "safe" | "warning" | "danger"
@@ -453,4 +455,323 @@ export type SkillMarketSharingAudienceChangeOutput = {
     readonly createdAt: string
     readonly updatedAt: string
   }
+}
+
+export type SkillMarketSubmissionLifecyclePersonalTrashOutput = ReadonlyArray<{
+  readonly id: string
+  readonly skillID: string
+  readonly owner: {
+    readonly employeeID: string
+    readonly displayName: string
+    readonly email?: string
+    readonly department?: { readonly id: string; readonly name: string }
+    readonly disabledAt?: string
+  }
+  readonly targetVersion: string
+  readonly status:
+    | "validating"
+    | "validation_failed"
+    | "pending_review"
+    | "changes_requested"
+    | "rejected"
+    | "publishing"
+    | "publish_failed"
+    | "published"
+    | "withdrawn"
+  readonly currentRevision: number
+  readonly version: number
+  readonly risk: "unknown" | "safe" | "warning" | "danger"
+  readonly target?: "personal" | "groups" | "department" | "company"
+  readonly audience?:
+    | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+    | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+    | {
+        readonly scope: "department"
+        readonly department: { readonly id: string; readonly name: string }
+        readonly groupIDs?: never
+      }
+    | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  readonly currentPublicVersion?: string
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly deletedAt: string
+  readonly purgeAfter: string
+}>
+
+export type SkillMarketSubmissionLifecyclePersonalDeleteInput = {
+  readonly submissionID: { readonly submissionID: string }["submissionID"]
+  readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
+}
+
+export type SkillMarketSubmissionLifecyclePersonalDeleteOutput = {
+  readonly id: string
+  readonly skillID: string
+  readonly owner: {
+    readonly employeeID: string
+    readonly displayName: string
+    readonly email?: string
+    readonly department?: { readonly id: string; readonly name: string }
+    readonly disabledAt?: string
+  }
+  readonly targetVersion: string
+  readonly status:
+    | "validating"
+    | "validation_failed"
+    | "pending_review"
+    | "changes_requested"
+    | "rejected"
+    | "publishing"
+    | "publish_failed"
+    | "published"
+    | "withdrawn"
+  readonly currentRevision: number
+  readonly version: number
+  readonly risk: "unknown" | "safe" | "warning" | "danger"
+  readonly target?: "personal" | "groups" | "department" | "company"
+  readonly audience?:
+    | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+    | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+    | {
+        readonly scope: "department"
+        readonly department: { readonly id: string; readonly name: string }
+        readonly groupIDs?: never
+      }
+    | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  readonly currentPublicVersion?: string
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly deletedAt: string
+  readonly purgeAfter: string
+}
+
+export type SkillMarketSubmissionLifecyclePersonalRestoreInput = {
+  readonly submissionID: { readonly submissionID: string }["submissionID"]
+  readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
+}
+
+export type SkillMarketSubmissionLifecyclePersonalRestoreOutput = {
+  readonly id: string
+  readonly skillID: string
+  readonly owner: {
+    readonly employeeID: string
+    readonly displayName: string
+    readonly email?: string
+    readonly department?: { readonly id: string; readonly name: string }
+    readonly disabledAt?: string
+  }
+  readonly targetVersion: string
+  readonly status:
+    | "validating"
+    | "validation_failed"
+    | "pending_review"
+    | "changes_requested"
+    | "rejected"
+    | "publishing"
+    | "publish_failed"
+    | "published"
+    | "withdrawn"
+  readonly currentRevision: number
+  readonly version: number
+  readonly risk: "unknown" | "safe" | "warning" | "danger"
+  readonly target?: "personal" | "groups" | "department" | "company"
+  readonly audience?:
+    | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+    | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+    | {
+        readonly scope: "department"
+        readonly department: { readonly id: string; readonly name: string }
+        readonly groupIDs?: never
+      }
+    | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  readonly currentPublicVersion?: string
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type SkillMarketSubmissionLifecycleWithdrawInput = {
+  readonly submissionID: { readonly submissionID: string }["submissionID"]
+  readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
+}
+
+export type SkillMarketSubmissionLifecycleWithdrawOutput = {
+  readonly id: string
+  readonly skillID: string
+  readonly owner: {
+    readonly employeeID: string
+    readonly displayName: string
+    readonly email?: string
+    readonly department?: { readonly id: string; readonly name: string }
+    readonly disabledAt?: string
+  }
+  readonly targetVersion: string
+  readonly status:
+    | "validating"
+    | "validation_failed"
+    | "pending_review"
+    | "changes_requested"
+    | "rejected"
+    | "publishing"
+    | "publish_failed"
+    | "published"
+    | "withdrawn"
+  readonly currentRevision: number
+  readonly version: number
+  readonly risk: "unknown" | "safe" | "warning" | "danger"
+  readonly target?: "personal" | "groups" | "department" | "company"
+  readonly audience?:
+    | { readonly scope: "personal"; readonly department?: never; readonly groupIDs?: never }
+    | { readonly scope: "company"; readonly department?: never; readonly groupIDs?: never }
+    | {
+        readonly scope: "department"
+        readonly department: { readonly id: string; readonly name: string }
+        readonly groupIDs?: never
+      }
+    | { readonly scope: "groups"; readonly department?: never; readonly groupIDs: ReadonlyArray<string> }
+  readonly currentPublicVersion?: string
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly metadata: {
+    readonly version: string
+    readonly displayName: string
+    readonly description: string
+    readonly category: string
+    readonly tags: ReadonlyArray<string>
+    readonly license?: string
+    readonly requiresApiKey: boolean
+    readonly changeNotes: string
+  }
+  readonly revisions: ReadonlyArray<{
+    readonly number: number
+    readonly metadata: {
+      readonly version: string
+      readonly displayName: string
+      readonly description: string
+      readonly category: string
+      readonly tags: ReadonlyArray<string>
+      readonly license?: string
+      readonly requiresApiKey: boolean
+      readonly changeNotes: string
+    }
+    readonly manifest?: {
+      readonly packageSha256: string
+      readonly packageSize: number
+      readonly files: ReadonlyArray<{
+        readonly path: string
+        readonly sha256: string
+        readonly size: number
+        readonly mime: string
+      }>
+    }
+    readonly scan?: {
+      readonly risk: "unknown" | "safe" | "warning" | "danger"
+      readonly reasons: ReadonlyArray<string>
+      readonly evidence: ReadonlyArray<{
+        readonly rule: string
+        readonly summary: string
+        readonly path?: string
+        readonly line?: number
+      }>
+      readonly scannedAt: string
+    }
+    readonly validationIssues: ReadonlyArray<{
+      readonly code: string
+      readonly message: string
+      readonly path?: string
+    }>
+    readonly createdAt: string
+  }>
+  readonly reviews: ReadonlyArray<{
+    readonly revision: number
+    readonly reviewer: {
+      readonly employeeID: string
+      readonly displayName: string
+      readonly email?: string
+      readonly department?: { readonly id: string; readonly name: string }
+      readonly disabledAt?: string
+    }
+    readonly decision: "approve" | "request_changes" | "reject"
+    readonly comment?: string
+    readonly acceptedRiskSummary?: string
+    readonly createdAt: string
+  }>
+  readonly timeline: ReadonlyArray<{
+    readonly status:
+      | "validating"
+      | "validation_failed"
+      | "pending_review"
+      | "changes_requested"
+      | "rejected"
+      | "publishing"
+      | "publish_failed"
+      | "published"
+      | "withdrawn"
+    readonly at: string
+    readonly actor?: {
+      readonly employeeID: string
+      readonly displayName: string
+      readonly email?: string
+      readonly department?: { readonly id: string; readonly name: string }
+      readonly disabledAt?: string
+    }
+    readonly message?: string
+  }>
+  readonly publicSkill?: {
+    readonly source: "community"
+    readonly id: string
+    readonly version: string
+    readonly rowVersion: number
+    readonly status: "published" | "delisted"
+  }
+}
+
+export type SkillMarketSubmissionLifecycleRequestDelistInput = {
+  readonly submissionID: { readonly submissionID: string }["submissionID"]
+  readonly expectedVersion: { readonly expectedVersion: number; readonly reason: string }["expectedVersion"]
+  readonly reason: { readonly expectedVersion: number; readonly reason: string }["reason"]
+}
+
+export type SkillMarketSubmissionLifecycleRequestDelistOutput = {
+  readonly id: string
+  readonly submissionID: string
+  readonly requestedByEmployeeID: string
+  readonly reason: string
+  readonly status: "pending" | "approved" | "rejected"
+  readonly version: number
+  readonly createdAt: string
+  readonly decidedByEmployeeID?: string
+  readonly decidedAt?: string
+}
+
+export type SkillMarketAdminLifecycleApproveDelistInput = {
+  readonly requestID: { readonly requestID: string }["requestID"]
+  readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
+}
+
+export type SkillMarketAdminLifecycleApproveDelistOutput = {
+  readonly id: string
+  readonly submissionID: string
+  readonly requestedByEmployeeID: string
+  readonly reason: string
+  readonly status: "pending" | "approved" | "rejected"
+  readonly version: number
+  readonly createdAt: string
+  readonly decidedByEmployeeID?: string
+  readonly decidedAt?: string
+}
+
+export type SkillMarketAdminLifecycleRejectDelistInput = {
+  readonly requestID: { readonly requestID: string }["requestID"]
+  readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
+}
+
+export type SkillMarketAdminLifecycleRejectDelistOutput = {
+  readonly id: string
+  readonly submissionID: string
+  readonly requestedByEmployeeID: string
+  readonly reason: string
+  readonly status: "pending" | "approved" | "rejected"
+  readonly version: number
+  readonly createdAt: string
+  readonly decidedByEmployeeID?: string
+  readonly decidedAt?: string
 }

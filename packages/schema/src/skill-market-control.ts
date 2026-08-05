@@ -42,6 +42,11 @@ export const RequestID = Schema.String.check(
 ).annotate({ identifier: "SkillMarketControl.RequestID" })
 export type RequestID = typeof RequestID.Type
 
+export const DelistRequestID = Schema.String.check(
+  Schema.isPattern(/^dlr_[a-zA-Z0-9_-]{8,64}$/),
+).annotate({ identifier: "SkillMarketControl.DelistRequestID" })
+export type DelistRequestID = typeof DelistRequestID.Type
+
 export const SemVer = Schema.String.check(
   Schema.isPattern(
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/,
@@ -58,6 +63,7 @@ export const SubmissionStatus = Schema.Literals([
   "publishing",
   "publish_failed",
   "published",
+  "withdrawn",
 ])
 export type SubmissionStatus = typeof SubmissionStatus.Type
 
@@ -70,7 +76,7 @@ export const ActiveSubmissionStatuses = [
   "publish_failed",
 ] as const satisfies ReadonlyArray<SubmissionStatus>
 
-export const TerminalSubmissionStatuses = ["rejected", "published"] as const satisfies ReadonlyArray<SubmissionStatus>
+export const TerminalSubmissionStatuses = ["rejected", "published", "withdrawn"] as const satisfies ReadonlyArray<SubmissionStatus>
 
 export const ReviewDecision = Schema.Literals(["approve", "request_changes", "reject"])
 export type ReviewDecision = typeof ReviewDecision.Type
@@ -389,6 +395,38 @@ export const SubmissionPage = Schema.Struct({
   items: Schema.Array(SubmissionSummary),
 }).annotate({ identifier: "SkillMarketControl.SubmissionPage" })
 
+export interface PersonalTrashItem extends Schema.Schema.Type<typeof PersonalTrashItem> {}
+export const PersonalTrashItem = Schema.Struct({
+  ...SubmissionSummary.fields,
+  deletedAt: SkillMarket.Timestamp,
+  purgeAfter: SkillMarket.Timestamp,
+})
+  .check(matchesResolvedAudience)
+  .annotate({ identifier: "SkillMarketControl.PersonalTrashItem" })
+
+export const DelistRequestStatus = Schema.Literals(["pending", "approved", "rejected"])
+export type DelistRequestStatus = typeof DelistRequestStatus.Type
+
+export interface DelistRequest extends Schema.Schema.Type<typeof DelistRequest> {}
+export const DelistRequest = Schema.Struct({
+  id: DelistRequestID,
+  submissionID: SubmissionID,
+  requestedByEmployeeID: EmployeeID,
+  reason: bounded(1, 2_000),
+  status: DelistRequestStatus,
+  version: Positive,
+  createdAt: SkillMarket.Timestamp,
+  decidedByEmployeeID: EmployeeID.pipe(optional),
+  decidedAt: SkillMarket.Timestamp.pipe(optional),
+})
+  .check(
+    Schema.makeFilter(
+      (value) => (value.decidedByEmployeeID === undefined) === (value.decidedAt === undefined),
+      { expected: "both a decision actor and decision time, or neither" },
+    ),
+  )
+  .annotate({ identifier: "SkillMarketControl.DelistRequest" })
+
 export interface AcceptedSubmission extends Schema.Schema.Type<typeof AcceptedSubmission> {}
 export const AcceptedSubmission = Schema.Struct({
   submission: SubmissionSummary,
@@ -564,6 +602,12 @@ export const AuditAction = Schema.Literals([
   "publish-retried",
   "community-delisted",
   "community-restored",
+  "personal-deleted",
+  "personal-restored",
+  "submission-withdrawn",
+  "delist-requested",
+  "delist-approved",
+  "delist-rejected",
   "user-disabled",
   "user-enabled",
   "skillhub-import-paused",
@@ -590,6 +634,7 @@ export const AuditObjectType = Schema.Literals([
   "skillhub_import",
   "announcement",
   "group",
+  "delist_request",
 ])
 export type AuditObjectType = typeof AuditObjectType.Type
 
