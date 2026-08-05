@@ -2,6 +2,7 @@ import { A } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { For, Match, Show, Switch, createSignal } from "solid-js"
 import type { SkillMarketControlDataSource } from "../control-data-source"
+import { SpacePageHeader } from "../space/page"
 
 export type GroupListSource = Pick<SkillMarketControlDataSource["groups"], "list" | "create">
 
@@ -31,14 +32,13 @@ export function GroupList(props: { readonly source: GroupListSource }) {
   }
 
   return (
-    <main class="submission-page group-page">
-      <header class="submission-page__heading">
-        <div>
-          <p class="submission-page__eyebrow">Sharing groups</p>
-          <h1>我的小组</h1>
-          <p>维护可复用的成员范围，用于将 Skill 安全地分享给指定同事。</p>
-        </div>
-      </header>
+    <main class="submission-page space-page group-page">
+      <SpacePageHeader
+        eyebrow="共享小组"
+        title="我的小组"
+        description="维护可复用的成员范围，用于将 Skill 安全地分享给指定同事。"
+        action={<></>}
+      />
       <form class="group-create-form" onSubmit={create}>
         <label>
           <span>小组名称</span>

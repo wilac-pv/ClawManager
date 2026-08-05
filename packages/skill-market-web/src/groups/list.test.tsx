@@ -27,6 +27,8 @@ describe("group list", () => {
     ))
 
     expect(await view.findByRole("heading", { name: "我管理的小组" })).toBeTruthy()
+    expect(view.getByRole("heading", { name: "我的小组", level: 1 }).classList).toContain("type-page-title")
+    expect(view.queryByText("Sharing groups")).toBeNull()
     expect(view.getByRole("heading", { name: "我加入的小组" })).toBeTruthy()
     expect(view.getByRole("link", { name: /Managed/ })).toBeTruthy()
     expect(view.getByRole("link", { name: /Joined/ })).toBeTruthy()
