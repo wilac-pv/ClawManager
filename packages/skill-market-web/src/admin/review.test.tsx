@@ -17,6 +17,19 @@ describe("moderation review", () => {
     expect(view.getByRole("button", { name: "提交审核决定" }).hasAttribute("disabled")).toBe(true)
   })
 
+  test("shows the resolved department audience before a Reviewer approves", async () => {
+    const fixture = {
+      ...detail(),
+      target: "department" as const,
+      audience: { scope: "department" as const, department: { id: "department-platform", name: "平台研发部" } },
+    }
+    const view = renderReview(source(fixture))
+
+    expect(await view.findByText("发布范围")).toBeTruthy()
+    expect(view.getByText("部门 · 平台研发部（department-platform）")).toBeTruthy()
+    expect(view.queryByText(/private\//i)).toBeNull()
+  })
+
   test("allows Admin to review an owned submission", async () => {
     const calls: SkillMarketControl.DecisionInput[] = []
     const fixture = { ...detail(), risk: "safe" as const }

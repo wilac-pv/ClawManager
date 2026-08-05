@@ -76,6 +76,22 @@ Leases make a later invocation safe after a crashed process. Avoid intentionally
 
 All upstream and OSS URLs must use HTTPS without embedded credentials. Production control origins must also use HTTPS. With HTTPS, the session Cookie is host-only, `Secure`, `HttpOnly`, `SameSite=Lax`, and uses the `__Host-` prefix. Private-IP HTTP mode produces a non-Secure test Cookie and must not be used as a production deployment mode.
 
+## Scoped sharing operations
+
+All non-personal submissions, including company, department, and group scopes, require an independent Reviewer or Admin approval. Reviewers must not approve their own submissions. Moderation displays the resolved department name/ID or group IDs, never private package keys.
+
+| Audience | Anonymous | Authorized employee | Outsider |
+| --- | --- | --- | --- |
+| Company | Catalog and detail | Catalog and detail | Catalog and detail |
+| Department | No restricted record | List, detail, versions, 10-minute install grant, download | `404` |
+| Group | No restricted record | List, detail, versions, 10-minute install grant, download | `404` |
+
+Restricted grants store only token hashes, expire after ten minutes, and access is re-evaluated for every detail, version, grant, and download request. Disabling a group, removing a member, or moving a user between departments revokes access immediately. Return `404` for unauthenticated and unauthorized restricted requests to prevent enumeration. Do not log grant tokens or hashes, private package keys, authorization headers, or cookies.
+
+Restricted records use `/v1/restricted-skills/*` only; generic public catalog routes reject the `restricted` source. Every restricted response, including denial and `404`, must use `Cache-Control: no-store`. Public company catalog responses retain their normal public caching policy. Keep public and private OSS prefixes disjoint.
+
+Migration `011_scoped_sharing.sql` is a single not-yet-deployed compatibility batch. Before applying it, create and verify an encrypted private backup; its verifier checks all migration-011 scoped tables, review artifact snapshot columns, indexes, and triggers. Roll back by restoring the verified backup before re-enabling traffic; use the scoped-sharing feature flags to keep group/department publishing disabled until the controlled validation succeeds. Deploy the coordinated audit enum with this batch, never independently.
+
 The OSS identity needs read/write access to both configured prefixes. Only `SKILL_MARKET_OSS_PREFIX` should be publicly readable; quarantine objects under `SKILL_MARKET_PRIVATE_OSS_PREFIX` must remain private.
 
 Redacted example:

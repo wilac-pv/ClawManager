@@ -21,7 +21,7 @@ describe("database migration command", () => {
       migrationBackupDirectory: join(directory, "backups"),
     })
 
-    expect(result).toEqual({ userVersion: 10, integrity: "ok", foreignKeyViolations: 0 })
+    expect(result).toEqual({ userVersion: 11, integrity: "ok", foreignKeyViolations: 0 })
     const database = new Database(databasePath, { create: false, readwrite: true })
     expect(database.query<{ count: number }, []>("SELECT count(*) AS count FROM submissions").get()?.count).toBe(0)
     database.close()
@@ -55,7 +55,7 @@ describe("database migration command", () => {
         databasePath,
         migrationBackupDirectory: join(directory, "backups"),
       }),
-    ).resolves.toEqual({ userVersion: 10, integrity: "ok", foreignKeyViolations: 0 })
+    ).resolves.toEqual({ userVersion: 11, integrity: "ok", foreignKeyViolations: 0 })
   })
 
   test("runs with only migration-specific environment", async () => {
@@ -74,7 +74,7 @@ describe("database migration command", () => {
 
     expect(await subprocess.exited).toBe(0)
     expect(await new Response(subprocess.stdout).json()).toEqual({
-      userVersion: 10,
+      userVersion: 11,
       integrity: "ok",
       foreignKeyViolations: 0,
     })

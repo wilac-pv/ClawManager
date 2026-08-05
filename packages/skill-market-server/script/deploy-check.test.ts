@@ -150,6 +150,13 @@ describe("deployment checks", () => {
               "content-type": "application/json",
             },
           })
+        if (url.pathname.startsWith("/v1/restricted-skills/"))
+          return Response.json(
+            { code: "not-found" },
+            { status: 404, headers: { "cache-control": "no-store", "content-type": "application/json" } },
+          )
+        if (url.pathname === "/v1/restricted-skills")
+          return Response.json([], { headers: { "cache-control": "no-store", "content-type": "application/json" } })
         return Response.json({ code: "forbidden" }, { status: 403, headers: { "cache-control": "no-store" } })
       },
     })
@@ -161,6 +168,36 @@ describe("deployment checks", () => {
     })
 
     expect(checks.every((check) => check.status === "PASS")).toBe(true)
+  })
+
+  test("rejects cacheable restricted routes and requires a private 404", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url)
+        if (url.pathname.startsWith("/v1/restricted-skills/")) return Response.json({ private: true })
+        if (url.pathname === "/health") return Response.json({ status: "ok", ready: true })
+        if (url.pathname === "/v1/catalog/skills")
+          return new Response(null, { headers: { "access-control-allow-origin": "*" } })
+        if (url.pathname === "/v1/auth/session")
+          return new Response("null", {
+            headers: {
+              "access-control-allow-origin": "http://127.0.0.1:4211",
+              "access-control-allow-credentials": "true",
+              "cache-control": "no-store",
+            },
+          })
+        return Response.json({ code: "forbidden" }, { status: 403, headers: { "cache-control": "no-store" } })
+      },
+    })
+    servers.push(server)
+
+    const checks = await runSmoke({
+      apiUrl: `http://127.0.0.1:${server.port}`,
+      webOrigin: "http://127.0.0.1:4211",
+    })
+
+    expect(checks.find((check) => check.name === "restricted-cache")?.status).toBe("FAIL")
   })
 
   test("writes and removes a canary only under the configured private prefix", async () => {

@@ -228,6 +228,14 @@ parsing below its cgroup limit. Do not substitute source `.ts` paths.
 
 ## Preflight and initial migration
 
+### Scoped-sharing release gate
+
+Do not deploy scoped sharing in isolation. The preflight assumes migration `011_scoped_sharing.sql` is one, not-yet-deployed batch and rejects cacheable restricted list, detail, version, grant, private-download, and `404` responses. Confirm `SKILL_MARKET_API_PUBLIC_URL`, `SKILL_MARKET_WEB_ORIGIN`, and the public base domain point at the production API/Web origins, and confirm the private and public OSS prefixes neither equal nor contain one another.
+
+Before the migration, run a verified backup and ensure it contains `market_groups`, `market_group_members`, `submission_group_targets`, `restricted_publications`, `restricted_publication_groups`, and `private_install_grants`, plus the review artifact snapshot columns and migration-011 critical indexes/triggers. Backup logs must contain only the artifact key, digest, and user version—never grant hashes or private package keys.
+
+With scoped-sharing publishing feature flags disabled, validate two controlled departments: a group owner and ordinary member can read their group package; an outsider and another department receive `404`; the same-department account can read its department package; and disabling the group, removing the member, and moving the department account each immediately revoke access. Confirm anonymous users still see company content but no restricted identity, and that public generic routes reject restricted IDs. Only then enable the flags. If validation or migration fails, keep the flags disabled, restore the verified backup, and roll back the coordinated audit enum deployment together with the migration.
+
 Before mutation, run the read-only checks as the service identity:
 
 ```bash

@@ -151,6 +151,10 @@ export function ModerationReview(props: ModerationReviewProps) {
                     <dd>{detail().targetVersion}</dd>
                   </div>
                   <div>
+                    <dt>发布范围</dt>
+                    <dd>{audienceLabel(detail())}</dd>
+                  </div>
+                  <div>
                     <dt>并发版本</dt>
                     <dd>{detail().version}</dd>
                   </div>
@@ -498,6 +502,14 @@ function riskLabel(risk: SkillMarketControl.SubmissionSummary["risk"]) {
   if (risk === "warning") return "警告"
   if (risk === "danger") return "危险"
   return "未知"
+}
+
+function audienceLabel(detail: SkillMarketControl.SubmissionDetail) {
+  if (detail.target === "groups" && detail.audience?.scope === "groups") return `群组 · ${detail.audience.groupIDs.join("、")}`
+  if (detail.target === "department" && detail.audience?.scope === "department")
+    return `部门 · ${detail.audience.department.name}（${detail.audience.department.id}）`
+  if (detail.target === "personal") return "个人"
+  return "全公司"
 }
 
 function decisionLabel(decision: SkillMarketControl.ReviewDecision) {

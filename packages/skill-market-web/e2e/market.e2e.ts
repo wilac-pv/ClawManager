@@ -207,6 +207,33 @@ test("enforces self-review, typed risk confirmation and optimistic conflicts", a
   await expect(page.getByText("并发版本").locator("..")).toContainText("2")
 })
 
+test("enforces scoped sharing for group and department fixtures without public identity leakage", async ({ page }, testInfo) => {
+  desktopControlOnly(testInfo)
+  await resetFixture(page, "group-owner")
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).ok()).toBe(true)
+  const grant = await page.context().request.post(`${fixtureApi}/v1/restricted-skills/pub_aurora01/install-grants`)
+  expect(grant.ok()).toBe(true)
+  expect(grant.headers()["cache-control"]).toBe("no-store")
+
+  await resetFixture(page, "group-member")
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).ok()).toBe(true)
+  await page.context().request.post(`${fixtureApi}/__fixture/remove-member`)
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).status()).toBe(404)
+
+  await resetFixture(page, "same-department")
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_platform01/versions`)).ok()).toBe(true)
+  await page.context().request.post(`${fixtureApi}/__fixture/move-department`)
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_platform01`)).status()).toBe(404)
+
+  for (const persona of ["anonymous", "outsider", "other-department"] as const) {
+    await resetFixture(page, persona)
+    expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).status()).toBe(404)
+  }
+  await resetFixture(page, "admin")
+  expect((await page.context().request.get(`${fixtureApi}/v1/restricted-skills/pub_aurora01`)).ok()).toBe(true)
+  expect((await page.context().request.get(`${fixtureApi}/v1/catalog/skills/restricted/pub_aurora01`)).status()).toBe(404)
+})
+
 test("lets Admin retry publishing, moderate visibility, manage roles and filter audit", async ({ page }, testInfo) => {
   desktopControlOnly(testInfo)
   await resetFixture(page, "admin")
@@ -259,7 +286,19 @@ test("keeps workspace pages and the upload form inside the mobile viewport", asy
   await expect(page.getByRole("banner")).toHaveCount(1)
 })
 
-async function resetFixture(page: Page, persona: "anonymous" | "submitter" | "reviewer" | "admin") {
+async function resetFixture(
+  page: Page,
+  persona:
+    | "anonymous"
+    | "submitter"
+    | "reviewer"
+    | "admin"
+    | "group-owner"
+    | "group-member"
+    | "outsider"
+    | "same-department"
+    | "other-department",
+) {
   const response = await page.context().request.post(`${fixtureApi}/__fixture/reset?persona=${persona}`)
   expect(response.ok()).toBe(true)
 }

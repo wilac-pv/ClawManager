@@ -12,11 +12,16 @@ const users = {
   submitter: { employeeID: "submitter1", displayName: "Submitter One", email: "submitter1@example.com" },
   reviewer: { employeeID: "reviewer1", displayName: "Reviewer One", email: "reviewer1@example.com" },
   admin: { employeeID: "admin1", displayName: "Admin One", email: "admin1@example.com" },
+  groupOwner: { employeeID: "group-owner", displayName: "Aurora Owner", email: "group-owner@example.com" },
+  groupMember: { employeeID: "group-member", displayName: "Aurora Member", email: "group-member@example.com" },
+  outsider: { employeeID: "outsider", displayName: "Outside User", email: "outsider@example.com" },
+  sameDepartment: { employeeID: "same-department", displayName: "Platform Member", email: "same-department@example.com" },
+  otherDepartment: { employeeID: "other-department", displayName: "Other Department", email: "other-department@example.com" },
   other: { employeeID: "other1", displayName: "Other Submitter", email: "other1@example.com" },
   reviewer2: { employeeID: "reviewer2", displayName: "Reviewer Two", email: "reviewer2@example.com" },
 } satisfies Record<string, SkillMarketControl.User>
 
-type Persona = "anonymous" | "submitter" | "reviewer" | "admin"
+type Persona = "anonymous" | "submitter" | "reviewer" | "admin" | "group-owner" | "group-member" | "outsider" | "same-department" | "other-department"
 type FixtureState = {
   submissions: Map<string, SkillMarketControl.SubmissionDetail>
   roles: SkillMarketControl.RoleAssignment[]
@@ -24,6 +29,7 @@ type FixtureState = {
   idempotency: Map<string, SkillMarketControl.AcceptedSubmission>
   skillhub: SkillMarketControl.SkillHubImportProgress
   nextSubmission: number
+  access: { groupEnabled: boolean; groupMember: boolean; sameDepartment: boolean }
 }
 
 const states = new Map<string, FixtureState>()
@@ -52,6 +58,9 @@ const server = Bun.serve({
     if (url.pathname === "/health") return json(request, { ok: true })
     if (url.pathname === "/__fixture/reset" && request.method === "POST") return reset(request, url)
     if (url.pathname === "/__fixture/expire" && request.method === "POST") return expire(request)
+    if (url.pathname === "/__fixture/disable-group" && request.method === "POST") return changeAccess(request, "groupEnabled")
+    if (url.pathname === "/__fixture/remove-member" && request.method === "POST") return changeAccess(request, "groupMember")
+    if (url.pathname === "/__fixture/move-department" && request.method === "POST") return changeAccess(request, "sameDepartment")
     if (url.pathname.startsWith("/__fixture/bump/") && request.method === "POST") return bump(request, url)
     if (url.pathname === "/v1/auth/login" && request.method === "GET") return login(request, url)
     if (url.pathname === "/v1/auth/session" && request.method === "GET") return session(request)
@@ -63,6 +72,8 @@ const server = Bun.serve({
     if (url.pathname.startsWith("/v1/catalog/skills/") && request.method === "GET") {
       return catalogRecord(request, url, context)
     }
+    if (url.pathname === "/v1/restricted-skills" && request.method === "GET") return restrictedList(request, context)
+    if (url.pathname.startsWith("/v1/restricted-skills/")) return restrictedRecord(request, url, context)
 
     if (!context.user || !context.state) return problem(request, 401, "unauthenticated", "请先登录")
     if (request.method !== "GET" && !validCsrf(request)) {
@@ -138,6 +149,13 @@ function bump(request: Request, url: URL) {
   const current = context.state?.submissions.get(id)
   if (!context.state || !current) return problem(request, 404, "not-found", "投稿不存在")
   context.state.submissions.set(id, { ...current, version: current.version + 1, updatedAt: later })
+  return json(request, { ok: true })
+}
+
+function changeAccess(request: Request, key: keyof FixtureState["access"]) {
+  const context = fixtureContext(request)
+  if (!context.state) return problem(request, 404, "not-found", "测试会话不存在")
+  context.state.access[key] = false
   return json(request, { ok: true })
 }
 
@@ -219,6 +237,7 @@ function catalogRecord(request: Request, url: URL, context: ReturnType<typeof fi
   const download = suffix.endsWith("/download")
   const versions = suffix.endsWith("/versions")
   const key = suffix.replace(/\/(?:package|download|versions)$/, "")
+  if (key.startsWith("restricted/")) return problem(request, 404, "not-found", "Skill 不存在")
   if (key === "skillhub/code-review") {
     if (packageRequest)
       return new Response("verified zip fixture", {
@@ -656,6 +675,7 @@ function initialState(): FixtureState {
       updatedAt: now,
     },
     nextSubmission: 1,
+    access: { groupEnabled: true, groupMember: true, sameDepartment: true },
   }
 }
 
@@ -751,6 +771,76 @@ function catalogItems(state?: FixtureState): SkillMarket.Summary[] {
     )
     .map(publicSummary)
   return [summary, communitySummary, publicSummary(publishedCommunity), ...dynamic]
+}
+
+function restrictedList(request: Request, context: ReturnType<typeof fixtureContext>) {
+  if (!context.state || !context.user) return problem(request, 404, "not-found", "Skill 不存在")
+  return json(
+    request,
+    ["pub_aurora01", "pub_platform01"].flatMap((id) => {
+      const record = restrictedRecordValue(id, context)
+      return record ? [restrictedSummary(record)] : []
+    }),
+  )
+}
+
+function restrictedRecord(request: Request, url: URL, context: ReturnType<typeof fixtureContext>) {
+  const suffix = url.pathname.slice("/v1/restricted-skills/".length)
+  const versions = suffix.endsWith("/versions")
+  const grant = suffix.endsWith("/install-grants")
+  const download = suffix.endsWith("/download")
+  const id = decodeURIComponent(suffix.replace(/\/(?:versions|install-grants|download)$/, ""))
+  const record = restrictedRecordValue(id, context)
+  if (!record) return problem(request, 404, "not-found", "Skill 不存在")
+  if (grant && request.method === "POST")
+    return json(request, { url: `${webOrigin}/v1/restricted-skills/${id}/download`, expiresAt: "2026-07-15T08:10:00.000Z" })
+  if (download && request.method === "GET") return new Response("private zip fixture", { headers: corsHeaders(request) })
+  if (grant || download) return problem(request, 404, "not-found", "Skill 不存在")
+  if (versions) return json(request, record.versions)
+  return json(request, record)
+}
+
+function restrictedRecordValue(id: string, context: ReturnType<typeof fixtureContext>) {
+  if (!context.state || !context.user) return undefined
+  const group = id === "pub_aurora01"
+  const department = id === "pub_platform01"
+  const authorized =
+    context.persona === "admin" ||
+    (group && context.state.access.groupEnabled && (context.persona === "group-owner" || (context.persona === "group-member" && context.state.access.groupMember))) ||
+    (department && context.persona === "same-department" && context.state.access.sameDepartment)
+  if (!authorized) return undefined
+  const name = group ? "Project Aurora Helper" : "Platform Department Helper"
+  return {
+    id,
+    source: "restricted" as const,
+    sourceUrl: `${webOrigin}/v1/restricted-skills/${id}`,
+    name,
+    description: "Scoped fixture package",
+    categories: ["Internal"],
+    tags: ["scoped"],
+    requiresApiKey: false,
+    risk: "safe" as const,
+    version: "1.0.0",
+    updatedAt: now,
+    downloads: 0,
+    favorites: 0,
+    score: 0,
+    featured: false,
+    enterprise: false,
+    visibility: group ? ("groups" as const) : ("department" as const),
+    delisted: false,
+    readme: `# ${name}`,
+    author: { name: "Aurora Owner" },
+    versions: [{ version: "1.0.0", publishedAt: now, sha256, size: 2048 }],
+    securityReports: [],
+    package: { url: `${webOrigin}/private/${id}`, sha256, size: 2048, files: [] },
+    publicDetailUrl: `${webOrigin}/v1/restricted-skills/${id}`,
+  }
+}
+
+function restrictedSummary(record: NonNullable<ReturnType<typeof restrictedRecordValue>>) {
+  const { readme: _readme, author: _author, versions: _versions, securityReports: _reports, package: _package, publicDetailUrl: _detail, ...summary } = record
+  return summary
 }
 
 function publicSummary(record: SkillMarketControl.SubmissionDetail): SkillMarket.Summary {
@@ -896,8 +986,17 @@ function fixtureContext(request: Request) {
   const cookies = parseCookies(request.headers.get("cookie"))
   const tenant = cookies.fixture_tenant
   const persona = parsePersona(cookies.fixture_persona)
-  const user = persona === "anonymous" ? undefined : users[persona]
+  const user = userFor(persona)
   return { tenant, persona, user, state: tenant ? states.get(tenant) : undefined }
+}
+
+function userFor(persona: Persona) {
+  if (persona === "group-owner") return users.groupOwner
+  if (persona === "group-member") return users.groupMember
+  if (persona === "same-department") return users.sameDepartment
+  if (persona === "other-department") return users.otherDepartment
+  if (persona === "outsider" || persona === "anonymous") return undefined
+  return users[persona]
 }
 
 function parseCookies(value: string | null) {
@@ -910,7 +1009,17 @@ function parseCookies(value: string | null) {
 }
 
 function parsePersona(value: string | null | undefined): Persona {
-  if (value === "submitter" || value === "reviewer" || value === "admin") return value
+  if (
+    value === "submitter" ||
+    value === "reviewer" ||
+    value === "admin" ||
+    value === "group-owner" ||
+    value === "group-member" ||
+    value === "outsider" ||
+    value === "same-department" ||
+    value === "other-department"
+  )
+    return value
   return "anonymous"
 }
 

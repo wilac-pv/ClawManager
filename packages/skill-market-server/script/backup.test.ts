@@ -81,6 +81,23 @@ describe("database backup", () => {
     live.close()
     expect((await readdir(join(directory, "backups"))).filter((file) => file.endsWith(".tmp"))).toEqual([])
   })
+
+  test("rejects a snapshot missing migration 011 scoped-sharing tables and schema safeguards", async () => {
+    const directory = await temporaryDirectory()
+    const databasePath = join(directory, "market.db")
+    const database = createWalDatabase(databasePath)
+    database.exec("DROP TABLE market_groups")
+    database.close()
+
+    await expect(
+      backupDatabase({
+        databasePath,
+        backupDirectory: join(directory, "backups"),
+        privatePrefix: "private-test",
+        store: memoryStore().client,
+      }),
+    ).rejects.toThrow("scoped-sharing backup schema is incomplete")
+  })
 })
 
 function createWalDatabase(path: string) {
@@ -91,6 +108,33 @@ function createWalDatabase(path: string) {
     PRAGMA user_version = 7;
     CREATE TABLE parent (id INTEGER PRIMARY KEY);
     CREATE TABLE child (id INTEGER PRIMARY KEY REFERENCES parent(id));
+    CREATE TABLE submissions (id TEXT PRIMARY KEY);
+    CREATE TABLE reviews (
+      approved_package_key TEXT,
+      approved_package_sha256 TEXT,
+      approved_package_size INTEGER,
+      approved_metadata_json TEXT
+    );
+    CREATE TABLE market_groups (id TEXT PRIMARY KEY);
+    CREATE TABLE market_group_members (group_id TEXT, employee_id TEXT, PRIMARY KEY (group_id, employee_id));
+    CREATE TABLE submission_group_targets (submission_id TEXT, group_id TEXT, PRIMARY KEY (submission_id, group_id));
+    CREATE TABLE restricted_publications (id TEXT PRIMARY KEY);
+    CREATE TABLE restricted_publication_groups (publication_id TEXT, group_id TEXT, PRIMARY KEY (publication_id, group_id));
+    CREATE TABLE private_install_grants (token_hash TEXT PRIMARY KEY);
+    CREATE INDEX market_group_members_employee ON market_group_members(employee_id, group_id);
+    CREATE INDEX submission_group_targets_group ON submission_group_targets(group_id, submission_id);
+    CREATE INDEX restricted_publications_owner ON restricted_publications(id);
+    CREATE INDEX restricted_publications_department ON restricted_publications(id);
+    CREATE INDEX restricted_publications_live_owner_skill_version ON restricted_publications(id);
+    CREATE INDEX restricted_publication_groups_group ON restricted_publication_groups(group_id, publication_id);
+    CREATE INDEX private_install_grants_expiry ON private_install_grants(token_hash);
+    CREATE INDEX submissions_active_restricted_skill_version ON submissions(id);
+    CREATE INDEX submissions_active_audience_change_source ON submissions(id);
+    CREATE TRIGGER submissions_audience_no_update BEFORE UPDATE ON submissions BEGIN SELECT 1; END;
+    CREATE TRIGGER submission_group_targets_valid_insert BEFORE INSERT ON submission_group_targets BEGIN SELECT 1; END;
+    CREATE TRIGGER submission_group_targets_no_update BEFORE UPDATE ON submission_group_targets BEGIN SELECT 1; END;
+    CREATE TRIGGER submission_group_targets_no_delete BEFORE DELETE ON submission_group_targets BEGIN SELECT 1; END;
+    CREATE TRIGGER submissions_audience_valid_transition BEFORE UPDATE ON submissions BEGIN SELECT 1; END;
   `)
   return database
 }

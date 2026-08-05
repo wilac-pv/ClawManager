@@ -25,6 +25,18 @@ describe("moderation queue", () => {
     )
   })
 
+  test("shows each scoped target without exposing package keys", async () => {
+    const scoped = {
+      ...summary("pending_review", "safe"),
+      target: "groups" as const,
+      audience: { scope: "groups" as const, groupIDs: ["grp_aurora001"] },
+    }
+    const view = renderQueue({ list: () => Promise.resolve(page([scoped])) })
+
+    expect(await view.findByText("群组 · grp_aurora001")).toBeTruthy()
+    expect(view.queryByText(/private\//i)).toBeNull()
+  })
+
   test("preserves queue filters and pagination in query parameters", async () => {
     const calls: SkillMarketControl.AdminSubmissionQuery[] = []
     const source: ModerationQueueSource = {

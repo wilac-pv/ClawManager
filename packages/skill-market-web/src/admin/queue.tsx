@@ -155,6 +155,7 @@ export function ModerationQueue(props: ModerationQueueProps) {
                       <th>Skill</th>
                       <th>投稿人</th>
                       <th>状态</th>
+                      <th>发布范围</th>
                       <th>风险</th>
                       <th>等待时间</th>
                       <th>操作</th>
@@ -176,6 +177,9 @@ export function ModerationQueue(props: ModerationQueueProps) {
                             <span class={`submission-status submission-status--${item.status}`}>
                               {statusLabel(item.status)}
                             </span>
+                          </td>
+                          <td>
+                            <span class="submission-status">{audienceLabel(item)}</span>
                           </td>
                           <td>
                             <span class={`moderation-risk moderation-risk--${item.risk}`}>{riskLabel(item.risk)}</span>
@@ -248,6 +252,14 @@ function riskLabel(risk: SkillMarketControl.SubmissionSummary["risk"]) {
   if (risk === "warning") return "警告"
   if (risk === "danger") return "危险"
   return "未知"
+}
+
+function audienceLabel(item: SkillMarketControl.SubmissionSummary) {
+  if (item.target === "groups" && item.audience?.scope === "groups") return `群组 · ${item.audience.groupIDs.join("、")}`
+  if (item.target === "department" && item.audience?.scope === "department")
+    return `部门 · ${item.audience.department.name}（${item.audience.department.id}）`
+  if (item.target === "personal") return "个人"
+  return "全公司"
 }
 
 function waitLabel(createdAt: string, now: number) {

@@ -104,6 +104,21 @@ export async function runSmoke(options: { readonly apiUrl: string; readonly webO
       const body = await response.text()
       return response.status >= 400 && response.status < 500 && !body.toLocaleLowerCase().includes("stack")
     }),
+    httpCheck("restricted-cache", async () => {
+      const paths = [
+        "/v1/restricted-skills",
+        "/v1/restricted-skills/pub_preflight",
+        "/v1/restricted-skills/pub_preflight/versions",
+        "/v1/restricted-skills/pub_preflight/install-grants",
+        "/v1/restricted-skills/pub_preflight/download",
+        "/v1/restricted-skills/pub_missing",
+      ]
+      const responses = await Promise.all(paths.map((path) => fetch(new URL(path, api))))
+      return (
+        responses.every((response) => response.headers.get("cache-control") === "no-store") &&
+        responses.at(-1)?.status === 404
+      )
+    }),
   ])
 }
 

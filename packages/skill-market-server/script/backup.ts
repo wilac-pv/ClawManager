@@ -66,9 +66,55 @@ function verifyDatabase(path: string) {
     if (integrity !== "ok") throw new Error("backup integrity check failed")
     if (database.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").get())
       throw new Error("backup foreign key check failed")
+    verifyScopedSharingSchema(database)
   } finally {
     database.close()
   }
+}
+
+function verifyScopedSharingSchema(database: Database) {
+  const requiredTables = [
+    "market_groups",
+    "market_group_members",
+    "submission_group_targets",
+    "restricted_publications",
+    "restricted_publication_groups",
+    "private_install_grants",
+  ]
+  const requiredIndexes = [
+    "market_group_members_employee",
+    "submission_group_targets_group",
+    "restricted_publications_owner",
+    "restricted_publications_department",
+    "restricted_publications_live_owner_skill_version",
+    "restricted_publication_groups_group",
+    "private_install_grants_expiry",
+    "submissions_active_restricted_skill_version",
+    "submissions_active_audience_change_source",
+  ]
+  const requiredTriggers = [
+    "submissions_audience_no_update",
+    "submission_group_targets_valid_insert",
+    "submission_group_targets_no_update",
+    "submission_group_targets_no_delete",
+    "submissions_audience_valid_transition",
+  ]
+  const objects = new Set(
+    database
+      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index', 'trigger')")
+      .all()
+      .map((row) => row.name),
+  )
+  const reviewColumns = new Set(
+    database.query<{ name: string }, []>("SELECT name FROM pragma_table_info('reviews')").all().map((row) => row.name),
+  )
+  if (
+    [...requiredTables, ...requiredIndexes, ...requiredTriggers].some((name) => !objects.has(name)) ||
+    ["approved_package_key", "approved_package_sha256", "approved_package_size", "approved_metadata_json"].some(
+      (name) => !reviewColumns.has(name),
+    )
+  )
+    throw new Error("scoped-sharing backup schema is incomplete")
 }
 
 async function compress(executable: string, input: string, output: string) {
