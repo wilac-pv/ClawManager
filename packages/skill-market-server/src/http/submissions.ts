@@ -17,6 +17,7 @@ import { HttpServerRequest, HttpServerResponse, Multipart } from "effect/unstabl
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { MarketMetricEmitter } from "../metrics"
 import type { PrivateObjectStore } from "../oss"
+import type { PersonalTrash } from "../personal-trash"
 import { randomSecret, SkillMarketSecurityError } from "../security"
 import {
   receiveSubmission,
@@ -29,6 +30,7 @@ import { principalFromSession, requestID } from "./middleware"
 
 interface SubmissionsHttpOptions {
   readonly submissions: Submissions
+  readonly personalTrash: PersonalTrash
   readonly store: PrivateObjectStore
   readonly privatePrefix: string
   readonly emit?: MarketMetricEmitter
@@ -189,7 +191,62 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
         }),
       ),
   )
-  return Layer.merge(submissions, sharing)
+  const lifecycle = HttpApiBuilder.group(SkillMarketApi, "skillMarket.submissionLifecycle", (handlers) =>
+    handlers
+      .handle("skillMarket.submissions.personalTrash", () =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({ try: () => options.personalTrash.list(principal), catch: dependencyProblem })
+        }),
+      )
+      .handle("skillMarket.submissions.personalDelete", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () =>
+              options.personalTrash.deletePersonal(
+                principal,
+                context.params.submissionID,
+                context.payload.expectedVersion,
+              ),
+            catch: reviseProblem,
+          })
+        }),
+      )
+      .handle("skillMarket.submissions.personalRestore", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () =>
+              options.personalTrash.restorePersonal(
+                principal,
+                context.params.submissionID,
+                context.payload.expectedVersion,
+              ),
+            catch: reviseProblem,
+          })
+        }),
+      )
+      .handle("skillMarket.submissions.withdraw", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () => options.submissions.withdraw(principal, context.params.submissionID, context.payload),
+            catch: reviseProblem,
+          })
+        }),
+      )
+      .handle("skillMarket.submissions.requestDelist", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () => options.submissions.requestDelist(principal, context.params.submissionID, context.payload),
+            catch: reviseProblem,
+          })
+        }),
+      ),
+  )
+  return Layer.mergeAll(submissions, sharing, lifecycle)
 }
 
 function receive(

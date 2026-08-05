@@ -167,6 +167,50 @@ describe("durable skill market worker", () => {
     fixture.database.close()
   })
 
+  test("treats a validation completion after withdrawal as a stale no-op", async () => {
+    const fixture = await workerFixture(["withdraw-race"])
+    const submissions = createSubmissions({ database: fixture.database, now: () => clock.value })
+    const objectKeys = [...fixture.objects.keys()]
+    const claimed = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<void>()
+    const worker = createWorker({
+      database: fixture.database,
+      submissions,
+      store: {
+        ...fixture.store,
+        async get(key) {
+          claimed.resolve()
+          await resume.promise
+          return fixture.store.get(key)
+        },
+      },
+      now: () => clock.value,
+      emit: () => undefined,
+    })
+
+    const completion = worker.runOne("stale-worker")
+    await claimed.promise
+    submissions.withdraw(contributor(), "sub_00000000", { expectedVersion: 1 })
+    resume.resolve()
+
+    expect(await completion).toEqual({ kind: "validation", result: "stale" })
+    expect(
+      fixture.database.connection
+        .query<
+          { status: string; version: number; validation_completed_at: number | null; scan_json: string | null },
+          []
+        >(
+          `SELECT submissions.status, submissions.version,
+                  submission_revisions.validation_completed_at, submission_revisions.scan_json
+           FROM submissions
+           INNER JOIN submission_revisions ON submission_revisions.submission_id = submissions.id`,
+        )
+        .get(),
+    ).toEqual({ status: "withdrawn", version: 2, validation_completed_at: null, scan_json: null })
+    expect([...fixture.objects.keys()]).toEqual(objectKeys)
+    fixture.database.close()
+  })
+
   test("drains publication work after validation is idle", async () => {
     const fixture = await workerFixture([])
     const metrics: unknown[] = []

@@ -3,6 +3,7 @@ import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
 import { insertSubmissionGroupTargets, requireAudienceTarget, submissionAudience } from "./audience"
 import type { MarketDatabase } from "./database"
+import { requestDelist, withdraw } from "./lifecycle"
 import type { Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
 
@@ -147,13 +148,13 @@ const AuditAfter = Schema.Struct({
 })
 
 const submissionTransitions = {
-  validating: ["validation_failed", "pending_review"],
-  validation_failed: ["validating"],
-  pending_review: ["changes_requested", "rejected", "publishing"],
-  changes_requested: ["validating"],
+  validating: ["validation_failed", "pending_review", "withdrawn"],
+  validation_failed: ["validating", "withdrawn"],
+  pending_review: ["changes_requested", "rejected", "publishing", "withdrawn"],
+  changes_requested: ["validating", "withdrawn"],
   rejected: [],
   publishing: ["publish_failed", "published"],
-  publish_failed: ["publishing"],
+  publish_failed: ["publishing", "withdrawn"],
   published: [],
   withdrawn: [],
 } as const satisfies Record<SkillMarketControl.SubmissionStatus, ReadonlyArray<SkillMarketControl.SubmissionStatus>>
@@ -327,6 +328,30 @@ export class Submissions {
           }
         : {}),
     })
+  }
+
+  withdraw(principal: Principal, submissionID: string, input: SkillMarketControl.ExpectedVersionInput) {
+    if (!Schema.is(SkillMarketControl.ExpectedVersionInput)(input))
+      throw new SkillMarketSecurityError("invalid-request", "submission version is invalid")
+    this.options.database.transaction((connection) =>
+      withdraw(connection, principal, submissionID, input.expectedVersion, this.options.now?.() ?? Date.now()),
+    )
+    return this.getOwn(principal, submissionID)
+  }
+
+  requestDelist(principal: Principal, submissionID: string, input: SkillMarketControl.ReasonInput) {
+    if (!Schema.is(SkillMarketControl.ReasonInput)(input))
+      throw new SkillMarketSecurityError("invalid-request", "delist request is invalid")
+    return this.options.database.transaction((connection) =>
+      requestDelist(
+        connection,
+        principal,
+        submissionID,
+        input.expectedVersion,
+        input.reason,
+        this.options.now?.() ?? Date.now(),
+      ),
+    )
   }
 
   async create(principal: Principal, input: CreateSubmissionInput) {
@@ -732,6 +757,11 @@ export class Submissions {
            AND submissions.owner_employee_id = ?
            AND submissions.target_scope = 'personal'
            AND submissions.status = 'published'
+           AND NOT EXISTS (
+             SELECT 1 FROM delist_requests
+             WHERE delist_requests.submission_id = submissions.id
+               AND delist_requests.status = 'approved'
+           )
            AND submissions.deleted_at IS NULL`,
       )
       .get(submissionID, principal.session.user.employeeID)

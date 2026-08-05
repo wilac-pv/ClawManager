@@ -34,7 +34,6 @@ import { createCatalogHttp, packageHeaders, packageNotFoundProblem, packageReadP
 import { createExpertPackagesHttp } from "./http/expert-packages"
 import { createFavoritesHttp } from "./http/favorites"
 import { createGroupsHttp } from "./http/groups"
-import { createPersonalTrashHttp } from "./http/personal-trash"
 import { createSecurityLayers } from "./http/middleware"
 import { createSubmissionsHttp } from "./http/submissions"
 import { createCatalogPackageReader, type CatalogPackageReader } from "./package-reader"
@@ -93,7 +92,6 @@ export function createMarketRoutes(options: MarketHttpOptions) {
     createGroupsHttp(options.groups),
     createAuthHttp(options),
     createSubmissionsHttp(options),
-    createPersonalTrashHttp(options),
     createAdminHttp(options),
   ] as const
   const api = HttpApiBuilder.layer(SkillMarketApi).pipe(

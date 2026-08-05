@@ -21,14 +21,19 @@ describe("submission lifecycle", () => {
     const allowed = new Set([
       "validating:validation_failed",
       "validating:pending_review",
+      "validating:withdrawn",
       "validation_failed:validating",
+      "validation_failed:withdrawn",
       "pending_review:changes_requested",
       "pending_review:rejected",
       "pending_review:publishing",
+      "pending_review:withdrawn",
       "changes_requested:validating",
+      "changes_requested:withdrawn",
       "publishing:publish_failed",
       "publishing:published",
       "publish_failed:publishing",
+      "publish_failed:withdrawn",
     ])
 
     SkillMarketControl.SubmissionStatus.literals.forEach((from) =>
@@ -41,6 +46,116 @@ describe("submission lifecycle", () => {
         expect(transition).toThrow("submission status transition")
       }),
     )
+  })
+
+  test("lets an owner withdraw only the five cancellable states with one version increment", async () => {
+    const fixture = await submissionFixture()
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const allowed = [
+      "validating",
+      "validation_failed",
+      "pending_review",
+      "changes_requested",
+      "publish_failed",
+    ] as const
+
+    for (const [index, status] of allowed.entries()) {
+      const input = upload(`withdraw-${status}`, `1.0.${index}`)
+      const created = await submissions.create(fixture.alice, { idempotencyKey: `withdraw-${status}`, ...input })
+      fixture.database.connection.run(
+        "UPDATE submissions SET status = ?, version = 7, user_message = 'pending detail' WHERE id = ?",
+        [status, created.submission.id],
+      )
+      fixture.database.connection.run(
+        `UPDATE submission_revisions
+         SET validation_lease_owner = 'stale-worker', validation_lease_expires_at = ?
+         WHERE submission_id = ? AND revision_number = 1`,
+        [fixture.clock.value + 60_000, created.submission.id],
+      )
+
+      const withdrawn = submissions.withdraw(fixture.alice, created.submission.id, { expectedVersion: 7 })
+
+      expect(withdrawn).toMatchObject({ id: created.submission.id, status: "withdrawn", version: 8 })
+      expect(
+        fixture.database.connection
+          .query<
+            { status: string; version: number; user_message: string | null; validation_lease_owner: string | null },
+            [string]
+          >(
+            `SELECT submissions.status, submissions.version, submissions.user_message,
+                    submission_revisions.validation_lease_owner
+             FROM submissions
+             INNER JOIN submission_revisions
+               ON submission_revisions.submission_id = submissions.id
+              AND submission_revisions.revision_number = submissions.current_revision
+             WHERE submissions.id = ?`,
+          )
+          .get(created.submission.id),
+      ).toEqual({ status: "withdrawn", version: 8, user_message: null, validation_lease_owner: null })
+    }
+
+    for (const [index, status] of (["publishing", "published"] as const).entries()) {
+      const input = upload(`cannot-withdraw-${status}`, `2.0.${index}`)
+      const created = await submissions.create(fixture.alice, { idempotencyKey: `cannot-withdraw-${status}`, ...input })
+      fixture.database.connection.run("UPDATE submissions SET status = ?, version = 4 WHERE id = ?", [
+        status,
+        created.submission.id,
+      ])
+      await expectCode(
+        () => submissions.withdraw(fixture.alice, created.submission.id, { expectedVersion: 4 }),
+        "submission-conflict",
+      )
+    }
+
+    fixture.database.close()
+  })
+
+  test("lets a published owner create one version-fenced pending delist request", async () => {
+    const fixture = await submissionFixture()
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const input = upload("owner-delist", "1.0.0")
+    const created = await submissions.create(fixture.alice, { idempotencyKey: "owner-delist", ...input })
+    submissions.completeValidation(validation(input, created.submission.id, 1))
+    fixture.database.transaction((connection) => {
+      connection.run("UPDATE submissions SET status = 'published', version = 3 WHERE id = ?", [created.submission.id])
+      connection.run(
+        `UPDATE community_skills
+         SET current_submission_id = ?, current_version = '1.0.0', public_status = 'published'
+         WHERE skill_id = 'owner-delist'`,
+        [created.submission.id],
+      )
+    })
+
+    const request = submissions.requestDelist(fixture.alice, created.submission.id, {
+      expectedVersion: 3,
+      reason: "Owner requested retirement",
+    })
+
+    expect(request).toMatchObject({
+      submissionID: created.submission.id,
+      requestedByEmployeeID: "alice",
+      reason: "Owner requested retirement",
+      status: "pending",
+      version: 1,
+    })
+    await expectCode(
+      () =>
+        submissions.requestDelist(fixture.alice, created.submission.id, {
+          expectedVersion: 3,
+          reason: "Duplicate request",
+        }),
+      "submission-conflict",
+    )
+    await expectCode(
+      () =>
+        submissions.requestDelist(fixture.bob, created.submission.id, {
+          expectedVersion: 3,
+          reason: "Not the owner",
+        }),
+      "not-found",
+    )
+
+    fixture.database.close()
   })
 
   test("persists validation and corrected revisions as monotonic atomic transitions", async () => {

@@ -8,6 +8,7 @@ import { loadCatalogIndex, loadCurrentSnapshot, publishSnapshot, type PrivateObj
 import { CatalogPublicationBusyError, createPublisher } from "../src/publisher"
 import { createSkillHubImportStore, type SkillHubImportStore } from "../src/skillhub-import-store"
 import { validateSubmissionArchive } from "../src/submission-archive"
+import { createSubmissions } from "../src/submissions"
 import { sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
 
@@ -949,6 +950,56 @@ describe("community publisher", () => {
         .map((event) => event.action),
     ).toEqual(["publish-started", "publish-succeeded"])
 
+    fixture.database.close()
+  })
+
+  test("does not move the public catalog pointer after a claimed submission is withdrawn", async () => {
+    const fixture = await publisherFixture()
+    const paused = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<void>()
+    const store = {
+      ...fixture.store,
+      async get(key: string) {
+        if (key.endsWith("/current.json")) {
+          paused.resolve()
+          await resume.promise
+        }
+        return fixture.store.get(key)
+      },
+    }
+    const publication = createPublisher({ ...publisherOptions(fixture), store }).runOne("stale-publisher")
+    await paused.promise
+    fixture.database.connection.run(
+      "UPDATE submissions SET status = 'publish_failed', version = 4 WHERE id = 'sub_publish_12345678'",
+    )
+    createSubmissions({ database: fixture.database, now: () => fixture.clock.value }).withdraw(
+      {
+        csrfHash: "",
+        session: {
+          user: { employeeID: "E123456", displayName: "CONTRIBUTOR" },
+          roles: [],
+          csrfToken: "_".repeat(43),
+          createdAt: new Date(fixture.clock.value).toISOString(),
+          absoluteExpiresAt: new Date(fixture.clock.value + 60_000).toISOString(),
+          idleExpiresAt: new Date(fixture.clock.value + 60_000).toISOString(),
+        },
+      },
+      "sub_publish_12345678",
+      { expectedVersion: 4 },
+    )
+    resume.resolve()
+
+    await rejected(publication)
+    expect(
+      fixture.database.connection
+        .query<{ status: string; version: number }, []>(
+          "SELECT status, version FROM submissions WHERE id = 'sub_publish_12345678'",
+        )
+        .get(),
+    ).toEqual({ status: "withdrawn", version: 5 })
+    expect((await loadCurrentSnapshot(fixture.store, { prefix: "skill-market" })).details.has("community:community-publish")).toBe(
+      false,
+    )
     fixture.database.close()
   })
 

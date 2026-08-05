@@ -1,4 +1,4 @@
-import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
+import { SkillMarketPersonalTrashGroup } from "@opencode-ai/protocol/groups/skill-market-submissions"
 import {
   SkillMarketControlNotFound,
   SkillMarketDependencyUnavailable,
@@ -6,7 +6,7 @@ import {
 } from "@opencode-ai/protocol/skill-market-errors"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
 import { Effect } from "effect"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi"
 import type { PersonalTrash } from "../personal-trash"
 import { SkillMarketSecurityError } from "../security"
 import { principalFromSession, requestID } from "./middleware"
@@ -15,8 +15,10 @@ interface PersonalTrashHttpOptions {
   readonly personalTrash: PersonalTrash
 }
 
+const PersonalTrashApi = HttpApi.make("skillMarketPersonalTrash").add(SkillMarketPersonalTrashGroup)
+
 export function createPersonalTrashHttp(options: PersonalTrashHttpOptions) {
-  return HttpApiBuilder.group(SkillMarketApi, "skillMarket.personalTrash", (handlers) =>
+  return HttpApiBuilder.group(PersonalTrashApi, "skillMarket.personalTrash", (handlers) =>
     handlers
       .handle("skillMarket.submissions.personalTrash", () =>
         Effect.gen(function* () {

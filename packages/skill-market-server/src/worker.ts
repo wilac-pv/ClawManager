@@ -3,6 +3,7 @@ import { Option, Schema } from "effect"
 import { loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
 import { openDatabase } from "./database"
+import { requireLifecycleFence } from "./lifecycle"
 import { emitMarketMetric, type MarketMetricEmitter } from "./metrics"
 import { makeS3ObjectStore, type PrivateObjectStore } from "./oss"
 import type { Publisher } from "./publisher"
@@ -36,6 +37,7 @@ interface ValidationRow {
   readonly package_size: number
   readonly metadata_json: string
   readonly private_icon_json: string | null
+  readonly version: number
 }
 
 const StoredIcon = Schema.Struct({
@@ -152,6 +154,24 @@ export class Worker {
         persist: false,
       }),
     )
+    const fence = await settled(
+      Promise.resolve().then(() =>
+        this.options.database.read((connection) =>
+          requireLifecycleFence(connection, {
+            submissionID: row.submission_id,
+            revision: row.revision_number,
+            status: "validating",
+            version: row.version,
+            leaseOwner: workerID,
+          }),
+        ),
+      ),
+    )
+    if (!fence.ok) {
+      this.release(workerID, row)
+      this.emitValidation(started, "stale")
+      return { kind: "validation" as const, result: "stale" as const }
+    }
     if (!validation.ok) {
       const completed = await settled(
         Promise.resolve().then(() =>
@@ -261,7 +281,8 @@ function validationSelect() {
     submission_revisions.package_sha256,
     submission_revisions.package_size,
     submission_revisions.metadata_json,
-    submission_revisions.private_icon_json
+    submission_revisions.private_icon_json,
+    submissions.version
    FROM submission_revisions
    INNER JOIN submissions ON submissions.id = submission_revisions.submission_id`
 }

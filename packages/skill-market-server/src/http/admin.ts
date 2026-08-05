@@ -8,7 +8,7 @@ import {
   SkillMarketSubmissionConflict,
 } from "@opencode-ai/protocol/skill-market-errors"
 import { SkillMarketPrincipal } from "@opencode-ai/protocol/skill-market-middleware"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { Announcements } from "../announcements"
 import type { MarketMetricEmitter } from "../metrics"
@@ -27,7 +27,7 @@ interface AdminHttpOptions {
 }
 
 export function createAdminHttp(options: AdminHttpOptions) {
-  return HttpApiBuilder.group(SkillMarketApi, "skillMarket.admin", (handlers) =>
+  const admin = HttpApiBuilder.group(SkillMarketApi, "skillMarket.admin", (handlers) =>
     handlers
       .handle("skillMarket.admin.submissions.list", (context) =>
         Effect.gen(function* () {
@@ -185,6 +185,32 @@ export function createAdminHttp(options: AdminHttpOptions) {
         }),
       ),
   )
+  const lifecycle = HttpApiBuilder.group(SkillMarketApi, "skillMarket.adminLifecycle", (handlers) =>
+    handlers
+      .handle("skillMarket.admin.approveDelist", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.try({
+            try: () =>
+              options.moderation.decideDelist(principal, context.params.requestID, context.payload, "approved"),
+            catch: reviewProblem,
+          })
+          options.onWorkReady?.()
+          return result
+        }),
+      )
+      .handle("skillMarket.admin.rejectDelist", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.try({
+            try: () =>
+              options.moderation.decideDelist(principal, context.params.requestID, context.payload, "rejected"),
+            catch: reviewProblem,
+          })
+        }),
+      ),
+  )
+  return Layer.merge(admin, lifecycle)
 }
 
 function dependencyProblem(error?: unknown) {

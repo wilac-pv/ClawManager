@@ -412,6 +412,55 @@ describe("submission moderation", () => {
     fixture.database.close()
   })
 
+  test("lets only Admin approve or reject an owner delist request with atomic visibility", async () => {
+    const fixture = await moderationFixture()
+    const moderation = createModeration({
+      database: fixture.database,
+      security: fixture.security,
+      now: () => fixture.clock.value,
+    })
+    const approvedSubmission = seedSubmission(fixture, { owner: "author", risk: "safe", salt: "owner-approved" })
+    const approvedSkill = publishSubmission(fixture, approvedSubmission)
+    const rejectedSubmission = seedSubmission(fixture, { owner: "author", risk: "safe", salt: "owner-rejected" })
+    const rejectedSkill = publishSubmission(fixture, rejectedSubmission)
+    fixture.database.connection.run(
+      `INSERT INTO delist_requests
+        (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
+       VALUES ('dlr_approved123', ?, 'author', 'Retire approved Skill', 'pending', 1, ?),
+              ('dlr_rejected123', ?, 'author', 'Retire rejected Skill', 'pending', 1, ?)`,
+      [approvedSubmission, fixture.clock.value, rejectedSubmission, fixture.clock.value],
+    )
+
+    await expectCode(
+      () => moderation.decideDelist(fixture.reviewer, "dlr_approved123", { expectedVersion: 1 }, "approved"),
+      "forbidden",
+    )
+    expect(
+      moderation.decideDelist(fixture.admin, "dlr_approved123", { expectedVersion: 1 }, "approved"),
+    ).toMatchObject({ status: "approved", version: 2, decidedByEmployeeID: "admin" })
+    expect(
+      fixture.database.connection
+        .query<{ public_status: string }, [string]>("SELECT public_status FROM community_skills WHERE skill_id = ?")
+        .get(approvedSkill),
+    ).toEqual({ public_status: "delisted" })
+    expect(jobCount(fixture, "catalog_rebuild", "pending")).toBe(1)
+    await expectCode(
+      () => moderation.decideDelist(fixture.admin, "dlr_approved123", { expectedVersion: 1 }, "approved"),
+      "submission-conflict",
+    )
+
+    expect(
+      moderation.decideDelist(fixture.admin, "dlr_rejected123", { expectedVersion: 1 }, "rejected"),
+    ).toMatchObject({ status: "rejected", version: 2, decidedByEmployeeID: "admin" })
+    expect(
+      fixture.database.connection
+        .query<{ public_status: string }, [string]>("SELECT public_status FROM community_skills WHERE skill_id = ?")
+        .get(rejectedSkill),
+    ).toEqual({ public_status: "published" })
+
+    fixture.database.close()
+  })
+
   test("reviews scoped audiences and preserves their immutable target snapshot", async () => {
     const fixture = await moderationFixture()
     const groups = seedSubmission(fixture, {

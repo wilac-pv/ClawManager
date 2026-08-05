@@ -7,7 +7,6 @@ import { SkillMarketExpertPackagesGroup } from "./groups/skill-market-expert-pac
 import { SkillMarketFavoritesGroup } from "./groups/skill-market-favorites"
 import { SkillMarketGroupsGroup } from "./groups/skill-market-groups"
 import {
-  SkillMarketPersonalTrashGroup,
   SkillMarketSubmissionLifecycleGroup,
   SkillMarketSubmissionSharingGroup,
   SkillMarketSubmissionsGroup,
@@ -39,5 +38,6 @@ export const SkillMarketApi = HttpApi.make("skillMarket")
   .add(SkillMarketAuthGroup)
   .add(SkillMarketSubmissionsGroup)
   .add(SkillMarketSubmissionSharingGroup)
-  .add(SkillMarketPersonalTrashGroup)
+  .add(SkillMarketSubmissionLifecycleGroup)
   .add(SkillMarketAdminGroup)
+  .add(SkillMarketAdminLifecycleGroup)

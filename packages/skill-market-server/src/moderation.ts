@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
 import type { MarketDatabase } from "./database"
+import { decideDelist } from "./lifecycle"
 import type { MarketSecurity, Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
 import {
@@ -91,7 +92,8 @@ export class Moderation {
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "review queue query is invalid")
     const createdFrom = decoded.value.createdFrom ? Date.parse(decoded.value.createdFrom) : null
     const createdTo = decoded.value.createdTo ? Date.parse(decoded.value.createdTo) : null
-    const where = ` WHERE (submissions.target_scope != 'personal' OR submissions.source_publication_id IS NOT NULL)
+    const where = ` WHERE submissions.status != 'withdrawn'
+      AND (submissions.target_scope != 'personal' OR submissions.source_publication_id IS NOT NULL)
       AND (? IS NULL OR submissions.status = ?)
       AND (? IS NULL OR json_extract(submission_revisions.scan_json, '$.risk') = ?)
       AND (? IS NULL OR submissions.owner_employee_id = ?)
@@ -510,6 +512,30 @@ export class Moderation {
 
   delist(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {
     return this.setCommunityStatus(principal, skillID, input, "delisted")
+  }
+
+  decideDelist(
+    principal: Principal,
+    requestID: string,
+    input: SkillMarketControl.ExpectedVersionInput,
+    decision: "approved" | "rejected",
+  ) {
+    this.options.security.requireAdmin(principal)
+    if (
+      !Schema.is(SkillMarketControl.DelistRequestID)(requestID) ||
+      !Schema.is(SkillMarketControl.ExpectedVersionInput)(input)
+    )
+      throw new SkillMarketSecurityError("invalid-request", "delist decision is invalid")
+    return this.options.database.transaction((connection) =>
+      decideDelist(
+        connection,
+        principal,
+        requestID,
+        input.expectedVersion,
+        decision,
+        this.options.now?.() ?? Date.now(),
+      ),
+    )
   }
 
   restore(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {
