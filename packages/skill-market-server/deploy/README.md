@@ -234,6 +234,49 @@ Do not deploy scoped sharing in isolation. The preflight assumes migration `011_
 
 Before the migration, run a verified backup and ensure it contains `market_groups`, `market_group_members`, `submission_group_targets`, `restricted_publications`, `restricted_publication_groups`, and `private_install_grants`, plus the review artifact snapshot columns and migration-011 critical indexes/triggers. Backup logs must contain only the artifact key, digest, and user version—never grant hashes or private package keys.
 
+### v11/v12 backup and rollback gate
+
+Before applying `011_scoped_sharing.sql`, take and verify a v11 backup. Before
+applying `012_lifecycle_actions.sql`, repeat the same procedure while the
+database is still v11; after v12 is live, verify the scheduled backup and
+restore drill report v12. Run each command through the service identity and do
+not print the environment or backup contents:
+
+```bash
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/backup.ts
+'
+sudo -u ruying-market /bin/bash -c '
+  set -a
+  . /etc/ruying-skill-market/market.env
+  set +a
+  cd /srv/ruying-skill-market/current/packages/skill-market-server
+  exec /usr/local/bin/bun script/restore-drill.ts
+'
+```
+
+For a v11 rollback, stop writers, restore only the verified v11 backup to a
+new path, run the v11 restore drill and SQLite integrity/foreign-key checks,
+then atomically switch to the compatible v11 release. For a v12 rollback,
+use the same sequence with a verified v12 backup. Reject a partial v12 backup:
+it must include lifecycle columns, `delist_requests`, `artifact_cleanup_jobs`,
+and their lifecycle indexes and constraints. Never restore over the only live
+database or expose private object keys, hashes, grants, or credentials.
+
+### Lifecycle operating boundary
+
+Deleting a personal Skill makes it invisible immediately. It can be restored
+only before its seven-day deadline; once the purge completes, restoration is
+irreversible. If a contributor withdraws while scanning holds a lease, the
+withdrawn state wins and the late scan must not write artifacts or another
+status. An approved delist becomes invisible before asynchronous cleanup; the
+cleanup job may delete only artifacts with no shared revision or publication
+reference.
+
 With scoped-sharing publishing feature flags disabled, validate two controlled departments: a group owner and ordinary member can read their group package; an outsider and another department receive `404`; the same-department account can read its department package; and disabling the group, removing the member, and moving the department account each immediately revoke access. Confirm anonymous users still see company content but no restricted identity, and that public generic routes reject restricted IDs. Only then enable the flags. If validation or migration fails, keep the flags disabled, restore the verified backup, and roll back the coordinated audit enum deployment together with the migration.
 
 Before mutation, run the read-only checks as the service identity:

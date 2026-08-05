@@ -45,7 +45,9 @@ describe("systemd deployment", () => {
       expect(service).not.toMatch(/ExecStart=.*(?:sh -c|bash -c|\$\{|`)/)
     })
     expect(services[0]).toContain("Restart=on-failure")
-    services.slice(1).forEach((service) => expect(service).not.toContain("Restart="))
+    services.slice(1, -2).forEach((service) => expect(service).not.toContain("Restart="))
+    expect(services[6]).toContain("Restart=on-failure")
+    expect(services[7]).not.toContain("Restart=")
   })
 
   test("sandboxes services and serializes overlapping catalog operations", async () => {
@@ -81,6 +83,23 @@ describe("systemd deployment", () => {
     expect(services[4]).toContain("TimeoutStartSec=90s")
     expect(services[4]).toContain("TimeoutStopSec=10s")
     expect(services[4]).toContain("Type=oneshot")
+  })
+
+  test("bounds lifecycle cleanup and keeps daily retries from overlapping", async () => {
+    const cleanup = await read("ruying-skill-market-cleanup.service")
+
+    expect(cleanup).toContain("User=ruying-market")
+    expect(cleanup).toContain("Group=ruying-market")
+    expect(cleanup).toContain("ReadWritePaths=/var/lib/ruying-skill-market /var/backups/ruying-skill-market")
+    expect(cleanup).toContain(
+      "ExecStart=/usr/bin/flock -n -E 0 /run/lock/ruying-skill-market-ops.lock /usr/local/bin/bun script/cleanup.ts",
+    )
+    expect(cleanup).toContain("MemoryHigh=384M")
+    expect(cleanup).toContain("MemoryMax=512M")
+    expect(cleanup).toContain("TimeoutStartSec=5min")
+    expect(cleanup).toContain("TimeoutStopSec=10s")
+    expect(cleanup).toContain("Restart=on-failure")
+    expect(cleanup).toContain("RestartSec=5min")
   })
 
   test("defines persistent randomized worker, sync, daily, and monthly timers", async () => {

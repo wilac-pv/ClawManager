@@ -92,6 +92,8 @@ Restricted records use `/v1/restricted-skills/*` only; generic public catalog ro
 
 Migration `011_scoped_sharing.sql` is a single not-yet-deployed compatibility batch. Before applying it, create and verify an encrypted private backup; its verifier checks all migration-011 scoped tables, review artifact snapshot columns, indexes, and triggers. Roll back by restoring the verified backup before re-enabling traffic; use the scoped-sharing feature flags to keep group/department publishing disabled until the controlled validation succeeds. Deploy the coordinated audit enum with this batch, never independently.
 
+Migration `012_lifecycle_actions.sql` keeps a deleted personal Skill hidden immediately and recoverable for exactly seven days. Restore it before that deadline; after the purge worker deletes its artifacts, it is irreversible. A withdrawal wins over a scanner lease, so a late scanner completion must not create artifacts or change the withdrawn status. An approved delist removes the publication from visibility before its asynchronous cleanup begins; cleanup must retain any artifact still referenced by another revision or publication.
+
 The OSS identity needs read/write access to both configured prefixes. Only `SKILL_MARKET_OSS_PREFIX` should be publicly readable; quarantine objects under `SKILL_MARKET_PRIVATE_OSS_PREFIX` must remain private.
 
 Redacted example:

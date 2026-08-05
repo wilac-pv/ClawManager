@@ -30,6 +30,10 @@ type FixtureState = {
   skillhub: SkillMarketControl.SkillHubImportProgress
   nextSubmission: number
   access: { groupEnabled: boolean; groupMember: boolean; sameDepartment: boolean }
+  clock: number
+  trash: Map<string, { purgeAfter: number; purged: boolean }>
+  scanner: { leaseHeld: boolean; artifactWrites: number; statusEvents: number }
+  delist: { cleanup: "pending" | "completed"; sharedReferences: number; artifactsDeleted: number }
 }
 
 const states = new Map<string, FixtureState>()
@@ -62,6 +66,7 @@ const server = Bun.serve({
     if (url.pathname === "/__fixture/remove-member" && request.method === "POST") return changeAccess(request, "groupMember")
     if (url.pathname === "/__fixture/move-department" && request.method === "POST") return changeAccess(request, "sameDepartment")
     if (url.pathname.startsWith("/__fixture/bump/") && request.method === "POST") return bump(request, url)
+    if (url.pathname.startsWith("/__fixture/lifecycle/")) return lifecycleFixture(request, url)
     if (url.pathname === "/v1/auth/login" && request.method === "GET") return login(request, url)
     if (url.pathname === "/v1/auth/session" && request.method === "GET") return session(request)
     if (url.pathname === "/v1/auth/session" && request.method === "DELETE") return logout(request)
@@ -157,6 +162,92 @@ function changeAccess(request: Request, key: keyof FixtureState["access"]) {
   if (!context.state) return problem(request, 404, "not-found", "测试会话不存在")
   context.state.access[key] = false
   return json(request, { ok: true })
+}
+
+async function lifecycleFixture(request: Request, url: URL) {
+  const context = fixtureContext(request)
+  if (!context.state) return problem(request, 404, "not-found", "测试会话不存在")
+  const state = context.state
+  const action = url.pathname.slice("/__fixture/lifecycle/".length)
+  if (request.method === "GET") {
+    const trash = state.trash.get(action)
+    const submission = state.submissions.get(action)
+    if (!submission && !trash) return problem(request, 404, "not-found", "投稿不存在")
+    return json(request, {
+      hidden: Boolean(trash),
+      purged: trash?.purged ?? false,
+      status: submission?.status,
+      artifactWrites: state.scanner.artifactWrites,
+      statusEvents: state.scanner.statusEvents,
+      cleanup: state.delist.cleanup,
+      artifactsDeleted: state.delist.artifactsDeleted,
+    })
+  }
+  if (request.method !== "POST") return problem(request, 404, "not-found", "接口不存在")
+  const input = await request.json().catch(() => undefined)
+  const submissionID = input && typeof input === "object" && "submissionID" in input && typeof input.submissionID === "string"
+    ? input.submissionID
+    : undefined
+  if (action === "set-time" && input && typeof input === "object" && "now" in input && typeof input.now === "string") {
+    const value = Date.parse(input.now)
+    if (Number.isNaN(value)) return problem(request, 400, "invalid-request", "时间无效")
+    state.clock = value
+    return json(request, { ok: true })
+  }
+  if (action === "delete-personal" && submissionID === "sub_personal01") {
+    state.trash.set(submissionID, { purgeAfter: state.clock + 7 * 24 * 60 * 60 * 1000, purged: false })
+    return json(request, { ok: true })
+  }
+  if (action === "restore-personal" && submissionID === "sub_personal01") {
+    const trash = state.trash.get(submissionID)
+    if (!trash || trash.purged || state.clock >= trash.purgeAfter) return conflict(request)
+    state.trash.delete(submissionID)
+    return json(request, { ok: true })
+  }
+  if (action === "purge-expired") {
+    state.trash.forEach((trash) => {
+      if (state.clock >= trash.purgeAfter) trash.purged = true
+    })
+    return json(request, { ok: true })
+  }
+  if (action === "hold-scanner-lease") {
+    state.scanner.leaseHeld = true
+    return json(request, { ok: true })
+  }
+  if (action === "withdraw" && submissionID === "sub_scanner01") {
+    const current = state.submissions.get(submissionID)!
+    state.submissions.set(submissionID, { ...current, status: "withdrawn", version: current.version + 1 })
+    return json(request, { ok: true })
+  }
+  if (action === "complete-scanner" && submissionID === "sub_scanner01") {
+    const current = state.submissions.get(submissionID)!
+    if (state.scanner.leaseHeld && current.status === "validating") {
+      state.scanner.artifactWrites += 1
+      state.scanner.statusEvents += 1
+    }
+    return json(request, { ok: true })
+  }
+  if (action === "approve-delist" && submissionID === "sub_published01") {
+    const current = state.submissions.get(submissionID)!
+    state.submissions.set(submissionID, {
+      ...current,
+      publicSkill: { ...current.publicSkill!, status: "delisted", rowVersion: current.publicSkill!.rowVersion + 1 },
+    })
+    state.delist.cleanup = "pending"
+    return json(request, { ok: true })
+  }
+  if (action === "set-shared-references" && input && typeof input === "object" && "count" in input && typeof input.count === "number") {
+    state.delist.sharedReferences = input.count
+    return json(request, { ok: true })
+  }
+  if (action === "cleanup-delisted") {
+    if (state.delist.sharedReferences === 0) {
+      state.delist.cleanup = "completed"
+      state.delist.artifactsDeleted = 1
+    }
+    return json(request, { ok: true })
+  }
+  return problem(request, 400, "invalid-request", "生命周期操作无效")
 }
 
 function login(request: Request, url: URL) {
@@ -264,14 +355,7 @@ function catalogRecord(request: Request, url: URL, context: ReturnType<typeof fi
     return json(request, communityDetail)
   }
   const skillID = decodeURIComponent(key.replace(/^community\//, ""))
-  if (skillID === publishedCommunity.skillID) {
-    const record = publicDetail(publishedCommunity)
-    if (download)
-      return json(request, { url: record.package.url, sha256: record.package.sha256, size: record.package.size })
-    if (versions) return json(request, record.versions)
-    return json(request, record)
-  }
-  const published = [...(context.state?.submissions.values() ?? [])].find(
+  const published = [...(context.state?.submissions.values() ?? [publishedCommunity])].find(
     (item) => item.publicSkill?.id === skillID && item.publicSkill.status === "published",
   )
   if (!published) return problem(request, 404, "not-found", "Skill 不存在")
@@ -296,6 +380,7 @@ function submissionList(
   const page = Number(url.searchParams.get("page") ?? 1)
   const limit = Number(url.searchParams.get("limit") ?? 30)
   const items = [...state.submissions.values()]
+    .filter((item) => !state.trash.has(item.id))
     .filter((item) => admin || item.owner.employeeID === user.employeeID)
     .filter((item) => !status || item.status === status)
     .filter((item) => !target || item.target === target)
@@ -605,6 +690,21 @@ function initialState(): FixtureState {
       status: "rejected",
       reviews: [review(users.reviewer, "reject", "包用途不明确")],
     }),
+    makeSubmission({
+      id: "sub_personal01",
+      skillID: "personal-lifecycle-skill",
+      owner: users.submitter,
+      target: "personal",
+      metadata: metadata("Personal Lifecycle Skill", "1.0.0"),
+      status: "published",
+    }),
+    makeSubmission({
+      id: "sub_scanner01",
+      skillID: "scanner-lifecycle-skill",
+      owner: users.submitter,
+      metadata: metadata("Scanner Lifecycle Skill", "1.0.0"),
+      status: "validating",
+    }),
     publishedCommunity,
     makeSubmission({
       id: "sub_reviewrisk1",
@@ -676,6 +776,10 @@ function initialState(): FixtureState {
     },
     nextSubmission: 1,
     access: { groupEnabled: true, groupMember: true, sameDepartment: true },
+    clock: Date.parse(now),
+    trash: new Map(),
+    scanner: { leaseHeld: false, artifactWrites: 0, statusEvents: 0 },
+    delist: { cleanup: "pending", sharedReferences: 1, artifactsDeleted: 0 },
   }
 }
 

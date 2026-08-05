@@ -278,6 +278,44 @@ test("lets Admin retry publishing, moderate visibility, manage roles and filter 
   await expect(page.locator(".audit-event pre")).not.toContainText(/csrf|secret|token/i)
 })
 
+test("keeps lifecycle visibility ahead of purge and artifact cleanup", async ({ page }, testInfo) => {
+  desktopControlOnly(testInfo)
+  await resetFixture(page, "submitter")
+  const request = page.context().request
+  const lifecycle = (action: string, data?: Record<string, unknown>) =>
+    request.post(`${fixtureApi}/__fixture/lifecycle/${action}`, { data })
+  const state = async (submissionID: string) => {
+    const response = await request.get(`${fixtureApi}/__fixture/lifecycle/${submissionID}`)
+    expect(response.ok()).toBe(true)
+    return response.json()
+  }
+
+  expect((await lifecycle("delete-personal", { submissionID: "sub_personal01" })).ok()).toBe(true)
+  expect((await state("sub_personal01")).hidden).toBe(true)
+  expect((await lifecycle("restore-personal", { submissionID: "sub_personal01" })).ok()).toBe(true)
+  expect((await state("sub_personal01")).hidden).toBe(false)
+
+  await lifecycle("delete-personal", { submissionID: "sub_personal01" })
+  await lifecycle("set-time", { now: "2026-07-22T08:00:00.000Z" })
+  await lifecycle("purge-expired")
+  expect((await state("sub_personal01")).purged).toBe(true)
+  expect((await lifecycle("restore-personal", { submissionID: "sub_personal01" })).status()).toBe(409)
+
+  await lifecycle("hold-scanner-lease")
+  await lifecycle("withdraw", { submissionID: "sub_scanner01" })
+  await lifecycle("complete-scanner", { submissionID: "sub_scanner01" })
+  expect(await state("sub_scanner01")).toMatchObject({ status: "withdrawn", artifactWrites: 0, statusEvents: 0 })
+
+  await lifecycle("approve-delist", { submissionID: "sub_published01" })
+  expect((await request.get(`${fixtureApi}/v1/catalog/skills/community/published-community-skill`)).status()).toBe(404)
+  expect(await state("sub_published01")).toMatchObject({ cleanup: "pending", artifactsDeleted: 0 })
+  await lifecycle("cleanup-delisted")
+  expect(await state("sub_published01")).toMatchObject({ cleanup: "pending", artifactsDeleted: 0 })
+  await lifecycle("set-shared-references", { count: 0 })
+  await lifecycle("cleanup-delisted")
+  expect(await state("sub_published01")).toMatchObject({ cleanup: "completed", artifactsDeleted: 1 })
+})
+
 test("keeps workspace pages and the upload form inside the mobile viewport", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-light", "Responsive layout check runs on the mobile project")
   await resetFixture(page, "submitter")

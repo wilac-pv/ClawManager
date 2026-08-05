@@ -61,6 +61,7 @@ describe("control-plane database", () => {
       [
         "audit_events",
         "announcements",
+        "artifact_cleanup_jobs",
         "community_skills",
         "departments",
         "delist_requests",

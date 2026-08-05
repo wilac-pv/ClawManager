@@ -67,9 +67,67 @@ function verifyDatabase(path: string) {
     if (database.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").get())
       throw new Error("backup foreign key check failed")
     verifyScopedSharingSchema(database)
+    verifyLifecycleSchema(database)
   } finally {
     database.close()
   }
+}
+
+function verifyLifecycleSchema(database: Database) {
+  const version = database.query<{ user_version: number }, []>("PRAGMA user_version").get()!.user_version
+  if (version < 12) return
+  const objects = new Set(
+    database
+      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
+      .all()
+      .map((row) => row.name),
+  )
+  const columns = (table: string) =>
+    new Set(database.query<{ name: string }, []>(`SELECT name FROM pragma_table_info('${table}')`).all().map((row) => row.name))
+  const hasColumns = (table: string, required: string[]) => required.every((name) => columns(table).has(name))
+  const schema = (table: string) =>
+    database
+      .query<{ sql: string | null }, [string]>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(table)
+      ?.sql?.replace(/\s+/g, " ")
+      .toLowerCase() ?? ""
+  const valid =
+    ["delist_requests", "artifact_cleanup_jobs", "submissions_personal_trash", "delist_requests_pending_submission", "artifact_cleanup_jobs_queue"].every(
+      (name) => objects.has(name),
+    ) &&
+    hasColumns("submissions", [
+      "deleted_at",
+      "purge_after",
+      "artifacts_purge_token",
+      "artifacts_purge_claimed_at",
+      "artifacts_purged_at",
+    ]) &&
+    hasColumns("delist_requests", [
+      "submission_id",
+      "requested_by_employee_id",
+      "reason",
+      "status",
+      "version",
+      "created_at",
+      "decided_by_employee_id",
+      "decided_at",
+    ]) &&
+    hasColumns("artifact_cleanup_jobs", [
+      "delist_request_id",
+      "submission_id",
+      "status",
+      "lease_token",
+      "lease_expires_at",
+      "attempts",
+      "created_at",
+      "updated_at",
+      "completed_at",
+    ]) &&
+    schema("delist_requests").includes("check (status in ('pending', 'approved', 'rejected'))") &&
+    schema("delist_requests").includes("decided_by_employee_id is null") &&
+    schema("artifact_cleanup_jobs").includes("check (status in ('pending', 'running', 'completed'))") &&
+    schema("artifact_cleanup_jobs").includes("lease_token is null")
+  if (!valid) throw new Error("lifecycle backup schema is incomplete")
 }
 
 function verifyScopedSharingSchema(database: Database) {

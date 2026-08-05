@@ -114,9 +114,39 @@ describe("database backup", () => {
       }),
     ).resolves.toMatchObject({ userVersion: 10 })
   })
+
+  test("requires the complete lifecycle schema for v12 backups without exposing artifact identities", async () => {
+    const directory = await temporaryDirectory()
+    const completePath = join(directory, "complete-v12.db")
+    const complete = createWalDatabase(completePath, 12, true, true)
+    complete.close()
+
+    await expect(
+      backupDatabase({
+        databasePath: completePath,
+        backupDirectory: join(directory, "complete-backups"),
+        privatePrefix: "private-test",
+        store: memoryStore().client,
+      }),
+    ).resolves.toMatchObject({ userVersion: 12 })
+
+    const partialPath = join(directory, "partial-v12.db")
+    const partial = createWalDatabase(partialPath, 12)
+    partial.close()
+    const error = await backupDatabase({
+      databasePath: partialPath,
+      backupDirectory: join(directory, "partial-backups"),
+      privatePrefix: "private-test",
+      store: memoryStore().client,
+    }).then(() => "", String)
+
+    expect(error).toContain("lifecycle backup schema is incomplete")
+    expect(error).not.toContain("private-test")
+    expect(error).not.toContain("sha256")
+  })
 })
 
-function createWalDatabase(path: string, userVersion: number, scoped = true) {
+function createWalDatabase(path: string, userVersion: number, scoped = true, lifecycle = false) {
   const database = new Database(path, { create: true, readwrite: true })
   database.exec(`
     PRAGMA journal_mode = WAL;
@@ -152,6 +182,41 @@ function createWalDatabase(path: string, userVersion: number, scoped = true) {
     CREATE TRIGGER submission_group_targets_no_update BEFORE UPDATE ON submission_group_targets BEGIN SELECT 1; END;
     CREATE TRIGGER submission_group_targets_no_delete BEFORE DELETE ON submission_group_targets BEGIN SELECT 1; END;
     CREATE TRIGGER submissions_audience_valid_transition BEFORE UPDATE ON submissions BEGIN SELECT 1; END;
+    ` : ""}
+    ${lifecycle ? `
+    ALTER TABLE submissions ADD COLUMN deleted_at INTEGER;
+    ALTER TABLE submissions ADD COLUMN purge_after INTEGER;
+    ALTER TABLE submissions ADD COLUMN artifacts_purge_token TEXT;
+    ALTER TABLE submissions ADD COLUMN artifacts_purge_claimed_at INTEGER;
+    ALTER TABLE submissions ADD COLUMN artifacts_purged_at INTEGER;
+    CREATE INDEX submissions_personal_trash ON submissions(id);
+    CREATE TABLE delist_requests (
+      id TEXT PRIMARY KEY,
+      submission_id TEXT NOT NULL REFERENCES submissions(id),
+      requested_by_employee_id TEXT NOT NULL,
+      reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 2000),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+      version INTEGER NOT NULL CHECK (version >= 1),
+      created_at INTEGER NOT NULL,
+      decided_by_employee_id TEXT,
+      decided_at INTEGER,
+      CHECK ((status = 'pending' AND decided_by_employee_id IS NULL AND decided_at IS NULL) OR (status IN ('approved', 'rejected') AND decided_by_employee_id IS NOT NULL AND decided_at IS NOT NULL))
+    );
+    CREATE UNIQUE INDEX delist_requests_pending_submission ON delist_requests(submission_id) WHERE status = 'pending';
+    CREATE TABLE artifact_cleanup_jobs (
+      id TEXT PRIMARY KEY,
+      delist_request_id TEXT NOT NULL UNIQUE REFERENCES delist_requests(id),
+      submission_id TEXT NOT NULL REFERENCES submissions(id),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed')),
+      lease_token TEXT,
+      lease_expires_at INTEGER,
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      CHECK ((status = 'pending' AND lease_token IS NULL AND lease_expires_at IS NULL AND completed_at IS NULL) OR (status = 'running' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL AND completed_at IS NULL) OR (status = 'completed' AND lease_token IS NULL AND lease_expires_at IS NULL AND completed_at IS NOT NULL))
+    );
+    CREATE INDEX artifact_cleanup_jobs_queue ON artifact_cleanup_jobs(status, lease_expires_at, created_at, id);
     ` : ""}
   `)
   return database
