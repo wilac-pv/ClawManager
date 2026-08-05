@@ -52,6 +52,7 @@ export function createAuth(options: AuthOptions) {
       const callback = new URL(`/v1/auth/callback/${attemptID}`, options.apiPublicUrl)
       const authorization = new URL(options.ssoLoginUrl)
       authorization.searchParams.set("mode", "TOKEN")
+      authorization.searchParams.set("logout", "1")
       authorization.searchParams.set("redirect_url", callback.href)
       return { attemptID, authorizationUrl: authorization.href }
     },

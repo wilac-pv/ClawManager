@@ -37,6 +37,7 @@ describe("SSO authentication", () => {
     const authorization = new URL(login.authorizationUrl)
     expect(authorization.origin).toBe("https://sso.example.com")
     expect(authorization.searchParams.get("mode")).toBe("TOKEN")
+    expect(authorization.searchParams.get("logout")).toBe("1")
     expect(authorization.searchParams.get("redirect_url")).toBe(
       `http://127.0.0.1:4210/v1/auth/callback/${login.attemptID}`,
     )
