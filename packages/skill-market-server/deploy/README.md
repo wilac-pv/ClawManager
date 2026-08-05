@@ -236,11 +236,11 @@ Before the migration, run a verified backup and ensure it contains `market_group
 
 ### v11/v12 backup and rollback gate
 
-Before applying `011_scoped_sharing.sql`, take and verify a v11 backup. Before
-applying `012_lifecycle_actions.sql`, repeat the same procedure while the
-database is still v11; after v12 is live, verify the scheduled backup and
-restore drill report v12. Run each command through the service identity and do
-not print the environment or backup contents:
+Before applying `011_scoped_sharing.sql`, take and verify a coherent v10
+backup. After `011_scoped_sharing.sql` and before `012_lifecycle_actions.sql`,
+take and verify a v11 backup. After v12 is live, verify the scheduled backup
+and restore drill report v12. Run each command through the service identity and
+do not print the environment or backup contents:
 
 ```bash
 sudo -u ruying-market /bin/bash -c '
@@ -259,10 +259,11 @@ sudo -u ruying-market /bin/bash -c '
 '
 ```
 
-For a v11 rollback, stop writers, restore only the verified v11 backup to a
-new path, run the v11 restore drill and SQLite integrity/foreign-key checks,
-then atomically switch to the compatible v11 release. For a v12 rollback,
-use the same sequence with a verified v12 backup. Reject a partial v12 backup:
+For a v10 rollback, stop writers, restore only the verified v10 backup to a
+new path, run the v10 restore drill and SQLite integrity/foreign-key checks,
+then atomically switch to the compatible pre-011 release. For a v11 rollback,
+use a verified post-011/pre-012 v11 backup and the compatible v11 release. For
+a v12 rollback, use the same sequence with a verified v12 backup. Reject a partial v12 backup:
 it must include lifecycle columns, `delist_requests`, `artifact_cleanup_jobs`,
 and their lifecycle indexes and constraints. Never restore over the only live
 database or expose private object keys, hashes, grants, or credentials.

@@ -83,18 +83,33 @@ function verifyLifecycleSchema(database: Database) {
       .map((row) => row.name),
   )
   const columns = (table: string) =>
-    new Set(database.query<{ name: string }, []>(`SELECT name FROM pragma_table_info('${table}')`).all().map((row) => row.name))
-  const hasColumns = (table: string, required: string[]) => required.every((name) => columns(table).has(name))
+    new Map(
+      database
+        .query<{ name: string; type: string }, []>(`SELECT name, type FROM pragma_table_info('${table}')`)
+        .all()
+        .map((row) => [row.name, row.type] as const),
+    )
+  const hasColumns = (table: string, required: string[]) => required.every((name) => columns(table).get(name) === "INTEGER" || columns(table).get(name) === "TEXT")
   const schema = (table: string) =>
     database
-      .query<{ sql: string | null }, [string]>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .query<{ sql: string | null }, [string]>("SELECT sql FROM sqlite_master WHERE name = ?")
       .get(table)
       ?.sql?.replace(/\s+/g, " ")
       .toLowerCase() ?? ""
+  const strict = new Set(
+    database
+      .query<{ name: string; strict: number }, []>("SELECT name, strict FROM pragma_table_list")
+      .all()
+      .filter((row) => row.strict === 1)
+      .map((row) => row.name),
+  )
+  const foreignKeys = (table: string) =>
+    new Set(database.query<{ table: string }, []>(`SELECT \"table\" FROM pragma_foreign_key_list('${table}')`).all().map((row) => row.table))
   const valid =
     ["delist_requests", "artifact_cleanup_jobs", "submissions_personal_trash", "delist_requests_pending_submission", "artifact_cleanup_jobs_queue"].every(
       (name) => objects.has(name),
     ) &&
+    ["submissions", "delist_requests", "artifact_cleanup_jobs"].every((name) => strict.has(name)) &&
     hasColumns("submissions", [
       "deleted_at",
       "purge_after",
@@ -123,10 +138,22 @@ function verifyLifecycleSchema(database: Database) {
       "updated_at",
       "completed_at",
     ]) &&
+    schema("submissions").includes("target_scope = 'personal' and deleted_at is not null and purge_after is not null and purge_after > deleted_at") &&
+    schema("submissions").includes("artifacts_purged_at is null or artifacts_purged_at >= purge_after") &&
     schema("delist_requests").includes("check (status in ('pending', 'approved', 'rejected'))") &&
-    schema("delist_requests").includes("decided_by_employee_id is null") &&
+    schema("delist_requests").includes("status = 'pending' and decided_by_employee_id is null and decided_at is null") &&
+    schema("delist_requests").includes("status in ('approved', 'rejected') and decided_by_employee_id is not null and decided_at is not null") &&
     schema("artifact_cleanup_jobs").includes("check (status in ('pending', 'running', 'completed'))") &&
-    schema("artifact_cleanup_jobs").includes("lease_token is null")
+    schema("artifact_cleanup_jobs").includes("status = 'pending' and lease_token is null and lease_expires_at is null and completed_at is null") &&
+    schema("artifact_cleanup_jobs").includes("status = 'running' and lease_token is not null and lease_expires_at is not null and completed_at is null") &&
+    schema("artifact_cleanup_jobs").includes("status = 'completed' and lease_token is null and lease_expires_at is null and completed_at is not null") &&
+    foreignKeys("delist_requests").has("submissions") &&
+    foreignKeys("delist_requests").has("users") &&
+    foreignKeys("artifact_cleanup_jobs").has("delist_requests") &&
+    foreignKeys("artifact_cleanup_jobs").has("submissions") &&
+    schema("submissions_personal_trash").includes("on submissions(owner_employee_id, purge_after, id) where target_scope = 'personal' and deleted_at is not null") &&
+    schema("delist_requests_pending_submission").includes("on delist_requests(submission_id) where status = 'pending'") &&
+    schema("artifact_cleanup_jobs_queue").includes("on artifact_cleanup_jobs(status, lease_expires_at, created_at, id)")
   if (!valid) throw new Error("lifecycle backup schema is incomplete")
 }
 

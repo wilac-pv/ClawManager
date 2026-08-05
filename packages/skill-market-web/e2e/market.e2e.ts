@@ -1,6 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test"
 
 const fixtureApi = "http://127.0.0.1:4210"
+const csrfToken = "c".repeat(43)
 
 test("aligns focus rings with composite and standalone controls", async ({ page }) => {
   await page.goto("/skills")
@@ -282,38 +283,41 @@ test("keeps lifecycle visibility ahead of purge and artifact cleanup", async ({ 
   desktopControlOnly(testInfo)
   await resetFixture(page, "submitter")
   const request = page.context().request
-  const lifecycle = (action: string, data?: Record<string, unknown>) =>
-    request.post(`${fixtureApi}/__fixture/lifecycle/${action}`, { data })
-  const state = async (submissionID: string) => {
-    const response = await request.get(`${fixtureApi}/__fixture/lifecycle/${submissionID}`)
-    expect(response.ok()).toBe(true)
-    return response.json()
-  }
+  const write = (method: "post" | "delete", path: string, data?: Record<string, unknown>) =>
+    request[method](`${fixtureApi}${path}`, {
+      data,
+      headers: { Origin: "http://127.0.0.1:4211", "X-CSRF-Token": csrfToken, "Idempotency-Key": crypto.randomUUID() },
+    })
 
-  expect((await lifecycle("delete-personal", { submissionID: "sub_personal01" })).ok()).toBe(true)
-  expect((await state("sub_personal01")).hidden).toBe(true)
-  expect((await lifecycle("restore-personal", { submissionID: "sub_personal01" })).ok()).toBe(true)
-  expect((await state("sub_personal01")).hidden).toBe(false)
+  expect((await write("delete", "/v1/submissions/sub_personal01/personal", { expectedVersion: 1 })).ok()).toBe(true)
+  expect(await (await request.get(`${fixtureApi}/v1/submissions?target=personal`)).json()).toMatchObject({ total: 0 })
+  expect(await (await request.get(`${fixtureApi}/v1/personal-trash`)).json()).toHaveLength(1)
+  expect((await write("post", "/v1/personal-trash/sub_personal01/restore", { expectedVersion: 2 })).ok()).toBe(true)
+  expect(await (await request.get(`${fixtureApi}/v1/submissions?target=personal`)).json()).toMatchObject({ total: 1 })
 
-  await lifecycle("delete-personal", { submissionID: "sub_personal01" })
-  await lifecycle("set-time", { now: "2026-07-22T08:00:00.000Z" })
-  await lifecycle("purge-expired")
-  expect((await state("sub_personal01")).purged).toBe(true)
-  expect((await lifecycle("restore-personal", { submissionID: "sub_personal01" })).status()).toBe(409)
+  await write("delete", "/v1/submissions/sub_personal01/personal", { expectedVersion: 3 })
+  await request.post(`${fixtureApi}/__fixture/clock`, { data: { now: "2026-07-22T08:00:00.000Z" } })
+  await request.post(`${fixtureApi}/__fixture/worker/cleanup`)
+  expect((await write("post", "/v1/personal-trash/sub_personal01/restore", { expectedVersion: 4 })).status()).toBe(409)
 
-  await lifecycle("hold-scanner-lease")
-  await lifecycle("withdraw", { submissionID: "sub_scanner01" })
-  await lifecycle("complete-scanner", { submissionID: "sub_scanner01" })
-  expect(await state("sub_scanner01")).toMatchObject({ status: "withdrawn", artifactWrites: 0, statusEvents: 0 })
+  await request.post(`${fixtureApi}/__fixture/worker/scanner-lease`, { data: { submissionID: "sub_scanner01" } })
+  expect((await write("post", "/v1/submissions/sub_scanner01/withdraw", { expectedVersion: 1 })).ok()).toBe(true)
+  await request.post(`${fixtureApi}/__fixture/worker/scanner-complete`, { data: { submissionID: "sub_scanner01" } })
+  expect(await (await request.get(`${fixtureApi}/v1/submissions/sub_scanner01`)).json()).toMatchObject({ status: "withdrawn" })
 
-  await lifecycle("approve-delist", { submissionID: "sub_published01" })
+  const delist = await write("post", "/v1/submissions/sub_published01/delist-requests", {
+    expectedVersion: 1,
+    reason: "No longer maintained",
+  })
+  expect(delist.ok()).toBe(true)
+  const requestID = (await delist.json()).id
+  await request.get(`${fixtureApi}/v1/auth/login?persona=admin`)
+  expect((await write("post", `/v1/admin/delist-requests/${requestID}/approve`, { expectedVersion: 1 })).ok()).toBe(true)
   expect((await request.get(`${fixtureApi}/v1/catalog/skills/community/published-community-skill`)).status()).toBe(404)
-  expect(await state("sub_published01")).toMatchObject({ cleanup: "pending", artifactsDeleted: 0 })
-  await lifecycle("cleanup-delisted")
-  expect(await state("sub_published01")).toMatchObject({ cleanup: "pending", artifactsDeleted: 0 })
-  await lifecycle("set-shared-references", { count: 0 })
-  await lifecycle("cleanup-delisted")
-  expect(await state("sub_published01")).toMatchObject({ cleanup: "completed", artifactsDeleted: 1 })
+  expect(await (await request.get(`${fixtureApi}/v1/admin/submissions/sub_published01/delist-requests`)).json()).toMatchObject([
+    { id: requestID, status: "approved" },
+  ])
+  expect(await (await request.post(`${fixtureApi}/__fixture/worker/cleanup`)).json()).toMatchObject({ deleted: [] })
 })
 
 test("keeps workspace pages and the upload form inside the mobile viewport", async ({ page }, testInfo) => {

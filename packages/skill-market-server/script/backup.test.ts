@@ -4,6 +4,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { backupDatabase } from "./backup"
+import { migrateDatabase } from "./migrate"
 
 const directories: string[] = []
 
@@ -118,8 +119,7 @@ describe("database backup", () => {
   test("requires the complete lifecycle schema for v12 backups without exposing artifact identities", async () => {
     const directory = await temporaryDirectory()
     const completePath = join(directory, "complete-v12.db")
-    const complete = createWalDatabase(completePath, 12, true, true)
-    complete.close()
+    await migrateDatabase({ databasePath: completePath, migrationBackupDirectory: join(directory, "migration-backups") })
 
     await expect(
       backupDatabase({
@@ -143,6 +143,54 @@ describe("database backup", () => {
     expect(error).toContain("lifecycle backup schema is incomplete")
     expect(error).not.toContain("private-test")
     expect(error).not.toContain("sha256")
+  })
+
+  test("rejects malformed v12 lifecycle strict, foreign-key, check, and index invariants", async () => {
+    const directory = await temporaryDirectory()
+    const cases = [
+      ["strict", "DROP TABLE artifact_cleanup_jobs"],
+      ["foreign-key", "DROP TABLE delist_requests"],
+      ["decision-check", "DROP TABLE delist_requests"],
+      ["personal-scope", "DROP INDEX submissions_personal_trash"],
+    ] as const
+    for (const [name, statement] of cases) {
+      const databasePath = join(directory, `${name}.db`)
+      await migrateDatabase({ databasePath, migrationBackupDirectory: join(directory, `${name}-migration-backups`) })
+      const database = new Database(databasePath, { create: false, readwrite: true })
+      database.exec(statement)
+      database.close()
+      await expect(
+        backupDatabase({
+          databasePath,
+          backupDirectory: join(directory, `${name}-backups`),
+          privatePrefix: "private-test",
+          store: memoryStore().client,
+        }),
+      ).rejects.toThrow("lifecycle backup schema is incomplete")
+    }
+  })
+
+  test("rejects v12 snapshots missing lifecycle columns or critical indexes", async () => {
+    const directory = await temporaryDirectory()
+    const cases = [
+      ["column", "DROP INDEX submissions_personal_trash"],
+      ["index", "DROP INDEX artifact_cleanup_jobs_queue"],
+    ] as const
+    for (const [name, statement] of cases) {
+      const databasePath = join(directory, `${name}.db`)
+      await migrateDatabase({ databasePath, migrationBackupDirectory: join(directory, `${name}-migration-backups`) })
+      const database = new Database(databasePath, { create: false, readwrite: true })
+      database.exec(statement)
+      database.close()
+      await expect(
+        backupDatabase({
+          databasePath,
+          backupDirectory: join(directory, `${name}-backups`),
+          privatePrefix: "private-test",
+          store: memoryStore().client,
+        }),
+      ).rejects.toThrow("lifecycle backup schema is incomplete")
+    }
   })
 })
 

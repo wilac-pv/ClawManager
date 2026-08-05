@@ -33,7 +33,12 @@ type FixtureState = {
   clock: number
   trash: Map<string, { purgeAfter: number; purged: boolean }>
   scanner: { leaseHeld: boolean; artifactWrites: number; statusEvents: number }
-  delist: { cleanup: "pending" | "completed"; sharedReferences: number; artifactsDeleted: number }
+  delist: {
+    requests: Map<string, SkillMarketControl.DelistRequest>
+    cleanup: "pending" | "completed"
+    sharedReferences: number
+    artifactsDeleted: number
+  }
 }
 
 const states = new Map<string, FixtureState>()
@@ -66,7 +71,8 @@ const server = Bun.serve({
     if (url.pathname === "/__fixture/remove-member" && request.method === "POST") return changeAccess(request, "groupMember")
     if (url.pathname === "/__fixture/move-department" && request.method === "POST") return changeAccess(request, "sameDepartment")
     if (url.pathname.startsWith("/__fixture/bump/") && request.method === "POST") return bump(request, url)
-    if (url.pathname.startsWith("/__fixture/lifecycle/")) return lifecycleFixture(request, url)
+    if (url.pathname === "/__fixture/clock" && request.method === "POST") return fixtureClock(request)
+    if (url.pathname.startsWith("/__fixture/worker/")) return fixtureWorker(request, url)
     if (url.pathname === "/v1/auth/login" && request.method === "GET") return login(request, url)
     if (url.pathname === "/v1/auth/session" && request.method === "GET") return session(request)
     if (url.pathname === "/v1/auth/session" && request.method === "DELETE") return logout(request)
@@ -90,6 +96,8 @@ const server = Bun.serve({
     if (url.pathname === "/v1/submissions" && request.method === "POST") {
       return createSubmission(request, context.state, context.user)
     }
+    if (url.pathname === "/v1/personal-trash" && request.method === "GET") return personalTrash(request, context.state, context.user)
+    if (url.pathname.startsWith("/v1/personal-trash/")) return restorePersonal(request, url, context.state, context.user)
     if (url.pathname.startsWith("/v1/submissions/")) {
       return ownSubmission(request, url, context.state, context.user)
     }
@@ -99,7 +107,13 @@ const server = Bun.serve({
     }
     if (url.pathname.startsWith("/v1/admin/submissions/")) {
       if (!reviewer(context.persona)) return problem(request, 403, "forbidden", "没有 Reviewer 权限")
+      if (url.pathname.endsWith("/delist-requests") && request.method === "GET")
+        return json(request, [...context.state.delist.requests.values()].filter((item) => item.submissionID === url.pathname.split("/")[4]))
       return moderation(request, url, context.state, context.user)
+    }
+    if (url.pathname.startsWith("/v1/admin/delist-requests/") && url.pathname.endsWith("/approve")) {
+      if (context.persona !== "admin") return problem(request, 403, "forbidden", "没有 Admin 权限")
+      return approveDelist(request, url, context.state, context.user)
     }
     if (url.pathname.startsWith("/v1/admin/community-skills/")) {
       if (context.persona !== "admin") return problem(request, 403, "forbidden", "没有 Admin 权限")
@@ -162,6 +176,44 @@ function changeAccess(request: Request, key: keyof FixtureState["access"]) {
   if (!context.state) return problem(request, 404, "not-found", "测试会话不存在")
   context.state.access[key] = false
   return json(request, { ok: true })
+}
+
+async function fixtureClock(request: Request) {
+  const context = fixtureContext(request)
+  if (!context.state) return problem(request, 404, "not-found", "测试会话不存在")
+  const input = await request.json().catch(() => undefined)
+  if (!input || typeof input !== "object" || !("now" in input) || typeof input.now !== "string")
+    return problem(request, 400, "invalid-request", "时间无效")
+  const value = Date.parse(input.now)
+  if (Number.isNaN(value)) return problem(request, 400, "invalid-request", "时间无效")
+  context.state.clock = value
+  return json(request, { ok: true })
+}
+
+async function fixtureWorker(request: Request, url: URL) {
+  const context = fixtureContext(request)
+  if (!context.state) return problem(request, 404, "not-found", "测试会话不存在")
+  const action = url.pathname.slice("/__fixture/worker/".length)
+  const input = await request.json().catch(() => undefined)
+  if (action === "scanner-lease" && input && typeof input === "object" && input.submissionID === "sub_scanner01") {
+    context.state.scanner.leaseHeld = true
+    return json(request, { ok: true })
+  }
+  if (action === "scanner-complete" && input && typeof input === "object" && input.submissionID === "sub_scanner01") {
+    const submission = context.state.submissions.get("sub_scanner01")
+    if (context.state.scanner.leaseHeld && submission?.status === "validating") {
+      context.state.scanner.artifactWrites += 1
+      context.state.scanner.statusEvents += 1
+    }
+    return json(request, { ok: true })
+  }
+  if (action === "cleanup") {
+    context.state.trash.forEach((item) => {
+      if (context.state && context.state.clock >= item.purgeAfter) item.purged = true
+    })
+    return json(request, { deleted: context.state.delist.sharedReferences === 0 ? ["artifact"] : [] })
+  }
+  return problem(request, 400, "invalid-request", "worker 操作无效")
 }
 
 async function lifecycleFixture(request: Request, url: URL) {
@@ -255,7 +307,7 @@ function login(request: Request, url: URL) {
   const tenant = context.tenant ?? crypto.randomUUID().replaceAll("-", "")
   if (!states.has(tenant)) states.set(tenant, initialState())
   const returnTo = safeReturnTo(url.searchParams.get("returnTo"))
-  const headers = cookieHeaders(tenant, "submitter")
+  const headers = cookieHeaders(tenant, parsePersona(url.searchParams.get("persona")) === "anonymous" ? "submitter" : parsePersona(url.searchParams.get("persona")))
   headers.set("location", `${webOrigin}${returnTo}`)
   return new Response(null, { status: 302, headers })
 }
@@ -426,31 +478,59 @@ async function createSubmission(request: Request, state: FixtureState, user: Ski
 
 async function ownSubmission(request: Request, url: URL, state: FixtureState, user: SkillMarketControl.User) {
   const suffix = url.pathname.slice("/v1/submissions/".length)
-  const revision = suffix.endsWith("/revisions")
-  const id = decodeURIComponent(suffix.replace(/\/revisions$/, ""))
+  const operation = suffix.match(/\/(revisions|personal|withdraw|delist-requests)$/)?.[1]
+  const id = decodeURIComponent(suffix.replace(/\/(?:revisions|personal|withdraw|delist-requests)$/, ""))
   const current = state.submissions.get(id)
   if (!current) return problem(request, 404, "not-found", "投稿不存在")
   if (current.owner.employeeID !== user.employeeID) return problem(request, 403, "forbidden", "只能读取自己的投稿")
-  if (request.method === "GET" && !revision) return json(request, current)
-  if (request.method !== "POST" || !revision) return problem(request, 404, "not-found", "接口不存在")
+  if (request.method === "GET" && !operation) return json(request, current)
+  const input = await request.json().catch(() => undefined)
+  if (operation === "personal" && request.method === "DELETE") {
+    if (!input || typeof input !== "object" || input.expectedVersion !== current.version || current.target !== "personal") return conflict(request)
+    state.trash.set(id, { purgeAfter: state.clock + 7 * 24 * 60 * 60 * 1000, purged: false })
+    state.submissions.set(id, { ...current, version: current.version + 1 })
+    return json(request, { ...submissionSummary(current), deletedAt: new Date(state.clock).toISOString(), purgeAfter: new Date(state.clock + 7 * 24 * 60 * 60 * 1000).toISOString() })
+  }
+  if (operation === "withdraw" && request.method === "POST") {
+    if (!input || typeof input !== "object" || input.expectedVersion !== current.version) return conflict(request)
+    const withdrawn = { ...current, status: "withdrawn" as const, version: current.version + 1 }
+    state.submissions.set(id, withdrawn)
+    return json(request, withdrawn)
+  }
+  if (operation === "delist-requests" && request.method === "POST") {
+    if (!input || typeof input !== "object" || input.expectedVersion !== current.version || typeof input.reason !== "string") return conflict(request)
+    const requestID = `dlr_${crypto.randomUUID().replaceAll("-", "")}`
+    const value = {
+      id: requestID,
+      submissionID: id,
+      requestedByEmployeeID: user.employeeID,
+      reason: input.reason,
+      status: "pending" as const,
+      version: 1,
+      createdAt: new Date(state.clock).toISOString(),
+    } satisfies SkillMarketControl.DelistRequest
+    state.delist.requests.set(requestID, value)
+    return json(request, value)
+  }
+  if (request.method !== "POST" || operation !== "revisions") return problem(request, 404, "not-found", "接口不存在")
   const cacheKey = idempotencyCacheKey(request)
   if (!cacheKey) return problem(request, 400, "invalid-request", "Idempotency-Key 无效")
   const cached = state.idempotency.get(cacheKey)
   if (cached) return json(request, cached)
-  const input = await revisionInput(request)
-  if (input instanceof Response) return input
-  if (input.expectedVersion !== current.version) return conflict(request)
+  const revisionInputValue = await revisionInput(request)
+  if (revisionInputValue instanceof Response) return revisionInputValue
+  if (revisionInputValue.expectedVersion !== current.version) return conflict(request)
   const nextRevision = current.currentRevision + 1
-  const next = makeRevision(nextRevision, input.metadata, [])
+  const next = makeRevision(nextRevision, revisionInputValue.metadata, [])
   const updated: SkillMarketControl.SubmissionDetail = {
     ...current,
-    targetVersion: input.metadata.version,
+    targetVersion: revisionInputValue.metadata.version,
     status: "pending_review",
     currentRevision: nextRevision,
     version: current.version + 1,
     risk: "safe",
     updatedAt: later,
-    metadata: input.metadata,
+    metadata: revisionInputValue.metadata,
     revisions: [...current.revisions, next],
     timeline: [...current.timeline, { status: "pending_review", at: later, actor: user, message: "修订已提交审核" }],
   }
@@ -459,6 +539,43 @@ async function ownSubmission(request: Request, url: URL, state: FixtureState, us
   const accepted = { submission: submissionSummary(updated) } satisfies SkillMarketControl.AcceptedSubmission
   state.idempotency.set(cacheKey, accepted)
   return json(request, accepted)
+}
+
+function personalTrash(request: Request, state: FixtureState, user: SkillMarketControl.User) {
+  return json(
+    request,
+    [...state.trash.entries()].flatMap(([id, item]) => {
+      const submission = state.submissions.get(id)
+      if (!submission || submission.owner.employeeID !== user.employeeID) return []
+      return [{ ...submissionSummary(submission), deletedAt: new Date(state.clock).toISOString(), purgeAfter: new Date(item.purgeAfter).toISOString() }]
+    }),
+  )
+}
+
+async function restorePersonal(request: Request, url: URL, state: FixtureState, user: SkillMarketControl.User) {
+  const id = decodeURIComponent(url.pathname.slice("/v1/personal-trash/".length).replace(/\/restore$/, ""))
+  const submission = state.submissions.get(id)
+  const item = state.trash.get(id)
+  const input = await request.json().catch(() => undefined)
+  if (!submission || submission.owner.employeeID !== user.employeeID || !item || item.purged || state.clock >= item.purgeAfter || !input || typeof input !== "object" || input.expectedVersion !== submission.version)
+    return conflict(request)
+  state.trash.delete(id)
+  const restored = { ...submission, version: submission.version + 1 }
+  state.submissions.set(id, restored)
+  return json(request, submissionSummary(restored))
+}
+
+async function approveDelist(request: Request, url: URL, state: FixtureState, actor: SkillMarketControl.User) {
+  const id = decodeURIComponent(url.pathname.slice("/v1/admin/delist-requests/".length).replace(/\/approve$/, ""))
+  const value = state.delist.requests.get(id)
+  const input = await request.json().catch(() => undefined)
+  if (!value || value.status !== "pending" || !input || typeof input !== "object" || input.expectedVersion !== value.version)
+    return conflict(request)
+  const approved = { ...value, status: "approved" as const, version: value.version + 1, decidedByEmployeeID: actor.employeeID, decidedAt: new Date(state.clock).toISOString() }
+  state.delist.requests.set(id, approved)
+  const submission = state.submissions.get(value.submissionID)!
+  state.submissions.set(submission.id, { ...submission, publicSkill: { ...submission.publicSkill!, status: "delisted", rowVersion: submission.publicSkill!.rowVersion + 1 } })
+  return json(request, approved)
 }
 
 async function moderation(request: Request, url: URL, state: FixtureState, actor: SkillMarketControl.User) {
@@ -779,7 +896,7 @@ function initialState(): FixtureState {
     clock: Date.parse(now),
     trash: new Map(),
     scanner: { leaseHeld: false, artifactWrites: 0, statusEvents: 0 },
-    delist: { cleanup: "pending", sharedReferences: 1, artifactsDeleted: 0 },
+    delist: { requests: new Map(), cleanup: "pending", sharedReferences: 1, artifactsDeleted: 0 },
   }
 }
 

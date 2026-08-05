@@ -41,3 +41,18 @@
 - The local shell did not expose Bun by default. Gates used
   `/Users/gwm/.bun/bin/bun` or prepended that directory to `PATH`; no repository
   configuration was changed.
+
+## Follow-up hardening
+
+- Lifecycle E2E now sends the real personal delete/restore, withdraw, delist
+  request, and admin approval requests through `/v1` routes. Fixture controls
+  only set time or run a worker after those product actions.
+- The v12 verifier additionally requires STRICT lifecycle tables, lifecycle
+  foreign keys, discriminated decision/lease checks, the personal-trash scope
+  and ordering constraint, and exact lifecycle index definitions. Focused
+  malformed-v12 coverage passes for table, FK/check, scope, and index classes.
+- Rollback instructions now identify pre-011 as v10, post-011/pre-012 as v11,
+  and post-012 as v12.
+
+- Follow-up focused gates: lifecycle E2E 1 pass / 2 skipped;
+  backup/systemd 15 pass / 0 fail.
