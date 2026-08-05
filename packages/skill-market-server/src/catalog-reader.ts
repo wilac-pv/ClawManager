@@ -1,7 +1,6 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createCatalogIndex, type CatalogIndex, key, queryCatalogIndex } from "./catalog"
 import { loadCatalogDetail, loadCatalogIndex, type ObjectStore } from "./oss"
-import type { RestrictedCatalog } from "./restricted-catalog"
 import type { Principal } from "./security"
 
 export function createCatalogReader(options: {
@@ -9,7 +8,7 @@ export function createCatalogReader(options: {
   readonly prefix: string
   readonly ttlMilliseconds?: number
   readonly now?: () => number
-  readonly restrictedCatalog?: Pick<RestrictedCatalog, "list">
+  readonly restrictedCatalog?: { readonly list: (principal: Principal) => ReadonlyArray<SkillMarket.Summary> }
 }): CatalogReader {
   const ttlMilliseconds = options.ttlMilliseconds ?? 60_000
   const now = options.now ?? Date.now
@@ -79,7 +78,10 @@ export function createCatalogReader(options: {
   return authorizeCatalogReader(reader, options.restrictedCatalog)
 }
 
-export function authorizeCatalogReader(catalog: CatalogReader, restrictedCatalog: Pick<RestrictedCatalog, "list">) {
+export function authorizeCatalogReader(
+  catalog: CatalogReader,
+  restrictedCatalog: { readonly list: (principal: Principal) => ReadonlyArray<SkillMarket.Summary> },
+) {
   return {
     ...catalog,
     async list(query: SkillMarket.PageQuery, current?: CatalogIndex, principal?: Principal) {

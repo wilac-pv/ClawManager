@@ -11,7 +11,13 @@ declare module "effect" {
   }
 }
 
-export const Source = Schema.Literals(["skillhub", "enterprise", "community"])
+export const PublicSource = Schema.Literals(["skillhub", "enterprise", "community"])
+export type PublicSource = typeof PublicSource.Type
+
+export const RestrictedSource = Schema.Literal("restricted")
+export type RestrictedSource = typeof RestrictedSource.Type
+
+export const Source = Schema.Union([PublicSource, RestrictedSource])
 export type Source = typeof Source.Type
 
 export const RestrictedVisibility = Schema.Literals(["personal", "groups", "department"])
@@ -225,6 +231,12 @@ export const Summary = Schema.Struct({
 })
 export type Summary = typeof Summary.Type
 
+export const RestrictedSummary = Schema.Struct({
+  ...Summary.fields,
+  source: RestrictedSource,
+})
+export type RestrictedSummary = typeof RestrictedSummary.Type
+
 export const Detail = Schema.Struct({
   ...Summary.fields,
   readme: Schema.String,
@@ -237,6 +249,12 @@ export const Detail = Schema.Struct({
   publicDetailUrl: MarketPageUrl,
 })
 export type Detail = typeof Detail.Type
+
+export const RestrictedDetail = Schema.Struct({
+  ...Detail.fields,
+  source: RestrictedSource,
+})
+export type RestrictedDetail = typeof RestrictedDetail.Type
 
 export const PageQuery = Schema.Struct({
   query: Schema.String.pipe(optional),

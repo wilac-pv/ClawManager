@@ -88,7 +88,7 @@ export type SkillMarketRestrictedRestrictedDetailInput = {
 
 export type SkillMarketRestrictedRestrictedDetailOutput = {
   readonly id: string
-  readonly source: "skillhub" | "enterprise" | "community"
+  readonly source: "restricted"
   readonly sourceUrl: string
   readonly name: string
   readonly description: string

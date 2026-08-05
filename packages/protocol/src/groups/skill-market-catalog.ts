@@ -13,7 +13,7 @@ import {
   SkillMarketWriteOpenApi,
 } from "../skill-market-middleware"
 
-const Key = { source: SkillMarket.Source, id: Schema.String }
+const Key = { source: SkillMarket.PublicSource, id: Schema.String }
 
 export const SkillMarketCatalogQuery = Schema.Struct({
   query: Schema.String.pipe(Schema.optional),
@@ -128,7 +128,7 @@ export const SkillMarketCatalogPrivateGroup = HttpApiGroup.make("skillMarket.cat
   .add(
     HttpApiEndpoint.get("skillMarket.catalog.restrictedDetail", "/v1/restricted-skills/:publicationID", {
       params: { publicationID: SkillMarketControl.PublicationID },
-      success: SkillMarket.Detail,
+      success: SkillMarket.RestrictedDetail,
       error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
     }),
   )

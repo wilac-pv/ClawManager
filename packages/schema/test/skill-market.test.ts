@@ -44,8 +44,10 @@ describe("SkillMarket", () => {
     ).toThrow()
   })
 
-  test("accepts community as a public source", () => {
-    expect(Schema.decodeUnknownSync(SkillMarket.Source)("community")).toBe("community")
+  test("keeps restricted identities distinct from public sources", () => {
+    expect(Schema.decodeUnknownSync(SkillMarket.PublicSource)("community")).toBe("community")
+    expect(Schema.decodeUnknownSync(SkillMarket.Source)("restricted")).toBe("restricted")
+    expect(() => Schema.decodeUnknownSync(SkillMarket.PublicSource)("restricted")).toThrow()
   })
 
   test("decodes complete TRACE evaluation scores", () => {

@@ -64,6 +64,8 @@ test("generated clients expose callable scoped sharing operations", async () => 
     target: "groups",
     audience: { scope: "groups", groupIDs: ["grp_abcdefgh"] },
   })
+  await client.skillMarketRestricted.restrictedDetail({ publicationID: "pub_abcdefgh" })
+  await client.skillMarketRestricted.restrictedVersions({ publicationID: "pub_abcdefgh" })
   await client.skillMarketRestricted.privateInstallGrant({ publicationID: "pub_abcdefgh" })
 
   expect(requests).toEqual([
@@ -85,6 +87,16 @@ test("generated clients expose callable scoped sharing operations", async () => 
         target: "groups",
         audience: { scope: "groups", groupIDs: ["grp_abcdefgh"] },
       },
+    },
+    {
+      url: "https://skill-market.example/v1/restricted-skills/pub_abcdefgh",
+      method: "GET",
+      body: undefined,
+    },
+    {
+      url: "https://skill-market.example/v1/restricted-skills/pub_abcdefgh/versions",
+      method: "GET",
+      body: undefined,
     },
     {
       url: "https://skill-market.example/v1/restricted-skills/pub_abcdefgh/install-grants",
@@ -134,7 +146,7 @@ test("generated clients expose callable scoped sharing operations", async () => 
     yield* effectClient.skillMarketRestricted.privateInstallGrant({ publicationID: "pub_abcdefgh" })
   }).pipe(Effect.provideService(HttpClient.HttpClient, effectHttpClient), Effect.runPromise)
 
-  expect(effectRequests).toEqual(requests)
+  expect(effectRequests).toEqual(requests.filter((request) => request.method === "POST"))
 })
 
 const marketGroup = {

@@ -29,6 +29,11 @@ export type CatalogDetail = {
   readonly ref: CatalogDetailRef
   readonly detail: SkillMarket.Detail
 }
+type CatalogEntry = {
+  readonly summary: SkillMarket.Summary
+  readonly ref: CatalogDetailRef
+}
+
 export function key(source: SkillMarket.Source, id: string) {
   return `${source}:${id}`
 }
@@ -75,7 +80,7 @@ export function contentAddressDetail(detail: SkillMarket.Detail): CatalogDetail 
 }
 
 export function createCatalogIndex(input: {
-  readonly entries: ReadonlyMap<string, Pick<CatalogDetail, "summary" | "ref">>
+  readonly entries: ReadonlyMap<string, CatalogEntry>
   readonly sourceStatus: SkillMarket.SourceStatus
   readonly createdAt?: string
 }): CatalogIndex {
@@ -94,7 +99,7 @@ export function createCatalogIndex(input: {
 
 export function patchCatalogIndex(input: {
   readonly index: CatalogIndex
-  readonly replacements: ReadonlyMap<string, Pick<CatalogDetail, "summary" | "ref">>
+  readonly replacements: ReadonlyMap<string, CatalogEntry>
   readonly sourceStatus: SkillMarket.SourceStatus
   readonly createdAt?: string
 }): CatalogIndex {
@@ -258,7 +263,7 @@ function buildFacets(
 }
 
 function revisionForEntries(
-  entries: ReadonlyArray<readonly [string, Pick<CatalogDetail, "summary" | "ref">]>,
+  entries: ReadonlyArray<readonly [string, CatalogEntry]>,
   sourceStatus: SkillMarket.SourceStatus,
 ) {
   const hash = new Bun.CryptoHasher("sha256").update('{"entries":[')

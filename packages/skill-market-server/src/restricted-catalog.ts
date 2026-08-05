@@ -170,12 +170,12 @@ function requireRow(connection: Database, publicationID: string) {
   return row
 }
 
-function summary(row: RestrictedPublicationRow, apiPublicUrl: string): SkillMarket.Summary {
+function summary(row: RestrictedPublicationRow, apiPublicUrl: string): SkillMarket.RestrictedSummary {
   const metadata = decodeJson(SkillMarketControl.SubmissionMetadata, row.metadata_json)
   const scan = row.scan_json ? decodeJson(SkillMarketControl.ScanReport, row.scan_json) : undefined
   return {
     id: row.id,
-    source: "community",
+    source: "restricted",
     sourceUrl: new URL(`/v1/restricted-skills/${row.id}`, apiPublicUrl).href,
     name: metadata.displayName,
     description: metadata.description,
@@ -202,7 +202,7 @@ function detail(
   row: RestrictedPublicationRow,
   versions: ReadonlyArray<SkillMarket.Version>,
   apiPublicUrl: string,
-): SkillMarket.Detail {
+): SkillMarket.RestrictedDetail {
   const metadata = decodeJson(SkillMarketControl.SubmissionMetadata, row.metadata_json)
   const manifest = row.manifest_json ? decodeJson(SkillMarketControl.Manifest, row.manifest_json) : undefined
   const scan = row.scan_json ? decodeJson(SkillMarketControl.ScanReport, row.scan_json) : undefined

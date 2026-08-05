@@ -228,7 +228,7 @@ describe("skill market control HTTP", () => {
   })
 
   test("merges only current restricted access and delivers private packages through bounded grants", async () => {
-    await using fixture = await marketFixture()
+    await using fixture = await marketFixture({ publicCommunityID: "pub_httpgroup01" })
     const body = new TextEncoder().encode("restricted package body")
     const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
     const users = fixture.database.transaction((connection) => {
@@ -304,17 +304,21 @@ describe("skill market control HTTP", () => {
     ].forEach((key) => fixture.objects.set(key, body))
 
     const anonymous = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`)
-    expect(Schema.decodeUnknownSync(SkillMarket.Page)(await anonymous.json()).items.map((item) => item.id)).not.toContain(
-      "pub_httpgroup01",
-    )
+    expect(
+      Schema.decodeUnknownSync(SkillMarket.Page)(await anonymous.json()).items
+        .filter((item) => item.id === "pub_httpgroup01")
+        .map((item) => item.source),
+    ).toEqual(["community"])
     expect(anonymous.headers.get("cache-control")).toBe("public, max-age=60")
     const invalidSession = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`, {
       headers: { cookie: "ruying_market_session=invalid; ruying_market_csrf=invalid" },
     })
     expect(invalidSession.status).toBe(200)
     expect(
-      Schema.decodeUnknownSync(SkillMarket.Page)(await invalidSession.json()).items.map((item) => item.id),
-    ).not.toContain("pub_httpgroup01")
+      Schema.decodeUnknownSync(SkillMarket.Page)(await invalidSession.json()).items
+        .filter((item) => item.id === "pub_httpgroup01")
+        .map((item) => item.source),
+    ).toEqual(["community"])
     expect(invalidSession.headers.get("cache-control")).toBe("public, max-age=60")
 
     const groupList = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`, {
@@ -324,12 +328,24 @@ describe("skill market control HTTP", () => {
     expect(Schema.decodeUnknownSync(SkillMarket.Page)(await groupList.json()).items).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "pub_httpgroup01", visibility: "groups" })]),
     )
+    const groupCatalog = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`, {
+      headers: { cookie: users.group.cookie },
+    })
+    expect(
+      Schema.decodeUnknownSync(SkillMarket.Page)(await groupCatalog.json()).items
+        .filter((item) => item.id === "pub_httpgroup01")
+        .map((item) => item.source)
+        .toSorted(),
+    ).toEqual(["community", "restricted"])
+    expect((await fetch(`${fixture.url}/v1/catalog/skills/restricted/pub_httpgroup01`)).status).toBe(400)
     const outsiderList = await fetch(`${fixture.url}/v1/catalog/skills?page=1&limit=30`, {
       headers: { cookie: users.outsider.cookie },
     })
     expect(
-      Schema.decodeUnknownSync(SkillMarket.Page)(await outsiderList.json()).items.map((item) => item.id),
-    ).not.toContain("pub_httpgroup01")
+      Schema.decodeUnknownSync(SkillMarket.Page)(await outsiderList.json()).items
+        .filter((item) => item.id === "pub_httpgroup01")
+        .map((item) => item.source),
+    ).toEqual(["community"])
 
     const anonymousDetail = await fetch(`${fixture.url}/v1/restricted-skills/pub_httpgroup01`)
     expect(anonymousDetail.status).toBe(404)
@@ -1523,6 +1539,7 @@ async function marketFixture(
     packageID?: string
     packageVersion?: string
     icon?: boolean
+    publicCommunityID?: string
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-control-http-"))
@@ -1648,6 +1665,16 @@ async function marketFixture(
     }),
   )
   if (options.packageDetail === "absent") baseSnapshot.details.delete(`skillhub:${options.packageID ?? "code-review"}`)
+  if (options.publicCommunityID) {
+    const publicCommunity = sampleDetail({
+      id: options.publicCommunityID,
+      source: "community",
+      sourceUrl: `https://market.example/skills/community/${options.publicCommunityID}`,
+      publicDetailUrl: `https://market.example/skills/community/${options.publicCommunityID}`,
+    })
+    baseSnapshot.items.push(publicCommunity)
+    baseSnapshot.details.set(`community:${options.publicCommunityID}`, publicCommunity)
+  }
   const snapshot = options.icon
     ? {
         ...baseSnapshot,

@@ -49,3 +49,11 @@ Complete. Authorized restricted publications now merge into optional-session cat
 ## Concerns
 
 - Local delivery remains process-local and reads the private object to verify integrity for both HEAD and GET, matching the existing verified-delivery security posture but potentially increasing object-store bandwidth for installer HEAD requests.
+
+## Restricted Identity Review Fix
+
+- Commit: `fix(skill-market): separate restricted identities`.
+- Files: schema and Protocol catalog source/detail contracts; restricted projection and merged catalog types; regenerated Promise client types; catalog, restricted, HTTP, schema, Protocol, and client coverage.
+- RED evidence: `bun test test/control-http.test.ts --test-name-pattern 'merges only current restricted access'` failed with expected `["community", "restricted"]` but received two `"community"` identities for the colliding raw ID.
+- GREEN commands/results: focused server catalog/restricted/HTTP tests passed (41); server, Schema, Protocol, and Client typechecks passed; Schema tests passed (9); Protocol tests passed (18); Client tests passed (2); `bun run generate` regenerated clients successfully.
+- Self-review: restricted entries now have `source: "restricted"`; public catalog routes accept only `PublicSource`, so restricted detail, version, and grant resolution remains exclusively on typed `/v1/restricted-skills/:publicationID` routes. Auth, cache, and grant behavior remains covered by the existing focused HTTP regression.
