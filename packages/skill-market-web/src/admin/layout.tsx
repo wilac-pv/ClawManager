@@ -11,6 +11,7 @@ export function AdminLayout(props: ParentProps) {
     { href: "/admin/audit", label: "审计日志", visible: current.admin() },
     { href: "/admin/skillhub", label: "SkillHub 同步", visible: current.admin() },
     { href: "/admin/announcements", label: "公告发布", visible: current.admin() },
+    { href: "/admin/groups", label: "小组管理", visible: current.admin() },
   ]
 
   return (

@@ -94,6 +94,55 @@ describe("submission form", () => {
     expect(calls[0]?.target).toBe("personal")
   })
 
+  test("submits a reviewed multi-group audience from managed active groups", async () => {
+    const calls: Array<Parameters<SubmissionWriter["create"]>[0]> = []
+    const source = writer((input) => {
+      calls.push(input)
+      return Promise.resolve({ submission: { ...summary, target: "groups", status: "validating" } })
+    })
+    const fixture = renderInRouter(() => (
+      <SubmissionForm
+        source={source}
+        groups={{
+          list: () =>
+            Promise.resolve({
+              managed: [
+                group("grp_aurora1", "Project Aurora"),
+                group("grp_atlas01", "Project Atlas"),
+                group("grp_disabled1", "Disabled", "disabled"),
+              ],
+              joined: [group("grp_joined01", "Joined only")],
+            }),
+        }}
+        department={{ id: "dep_platform", name: "Platform" }}
+        onAccepted={() => undefined}
+      />
+    ))
+    fireEvent.click(fixture.getByRole("radio", { name: /指定小组/ }))
+    fireEvent.click(await fixture.findByRole("checkbox", { name: "Project Aurora" }))
+    fireEvent.click(fixture.getByRole("checkbox", { name: "Project Atlas" }))
+    expect(fixture.queryByRole("checkbox", { name: "Disabled" })).toBeNull()
+    expect(fixture.queryByRole("checkbox", { name: "Joined only" })).toBeNull()
+    fillMetadata(fixture)
+    fireEvent.change(fixture.getByLabelText("Skill ZIP 包"), {
+      target: { files: [new File(["zip"], "groups.zip", { type: "application/zip" })] },
+    })
+    fireEvent.click(fixture.getByRole("button", { name: "提交审核" }))
+
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0]).toMatchObject({
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora1", "grp_atlas01"] },
+    })
+  })
+
+  test("disables department sharing when the session has no department", () => {
+    const view = renderInRouter(() => <SubmissionForm source={writer()} onAccepted={() => undefined} />)
+
+    expect(view.getByRole("radio", { name: /本部门/ }).hasAttribute("disabled")).toBe(true)
+    expect(view.getByText("当前账号没有部门信息，无法选择本部门。")).toBeTruthy()
+  })
+
   test("keeps the personal-space cancel link under the configured base path", () => {
     const basePath = "/ai-coding/ruying-code/skill-market/"
     const view = renderInRouter(
@@ -287,4 +336,20 @@ function sizedFile(name: string, size: number, type: string) {
   const file = new File(["content"], name, { type })
   Object.defineProperty(file, "size", { value: size })
   return file
+}
+
+function group(
+  id: SkillMarketControl.GroupID,
+  name: string,
+  status: SkillMarketControl.MarketGroup["status"] = "active",
+): SkillMarketControl.MarketGroup {
+  return {
+    id,
+    name,
+    ownerEmployeeID: "E000001",
+    status,
+    version: 1,
+    createdAt: "2026-07-16T00:00:00.000Z",
+    updatedAt: "2026-07-16T00:00:00.000Z",
+  }
 }

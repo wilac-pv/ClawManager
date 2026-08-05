@@ -132,7 +132,8 @@ export function safeReturnTo(value: string, basePath = "/") {
     /^\/favorites$/,
     /^\/submissions(?:\/new|\/sub_[a-zA-Z0-9_-]{8,64})?$/,
     /^\/personal$/,
-    /^\/admin(?:\/submissions\/sub_[a-zA-Z0-9_-]{8,64}|\/roles|\/audit|\/skillhub|\/announcements)?$/,
+    /^\/groups(?:\/grp_[a-zA-Z0-9_-]{8,64})?$/,
+    /^\/admin(?:\/submissions\/sub_[a-zA-Z0-9_-]{8,64}|\/roles|\/audit|\/skillhub|\/announcements|\/groups)?$/,
   ]
   if (!known.some((pattern) => pattern.test(pathname))) return "/skills"
   return `${pathname}${url.search}`

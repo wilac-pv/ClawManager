@@ -313,13 +313,15 @@ function WebDetailActions(props: {
         <button type="button" disabled={copyState() === "copying"} onClick={() => void copy()}>
           {copyState() === "copying" ? "正在复制…" : copyState() === "copied" ? "已复制" : "复制安装 Prompt"}
         </button>
-        <button
-          type="button"
-          class="ruying-skill-market__primary-action"
-          onClick={() => props.actions.kind === "web" && void props.actions.download(props.detail)}
-        >
-          下载 ZIP
-        </button>
+        <Show when={props.detail.source !== "restricted"}>
+          <button
+            type="button"
+            class="ruying-skill-market__primary-action"
+            onClick={() => props.actions.kind === "web" && void props.actions.download(props.detail)}
+          >
+            下载 ZIP
+          </button>
+        </Show>
         <Show when={props.favorite}>
           {(favorite) => (
             <button
@@ -381,6 +383,7 @@ function riskLabel(risk: SkillMarket.Risk) {
 }
 
 function sourceLabel(source: SkillMarket.Source) {
+  if (source === "restricted") return "受限分享"
   if (source === "enterprise") return "企业精选"
   if (source === "community") return "用户投稿"
   return "SkillHub"

@@ -29,6 +29,7 @@ describe("admin layout", () => {
     expect(view.getByRole("link", { name: "审计日志" })).toBeTruthy()
     expect(view.getByRole("link", { name: "SkillHub 同步" })).toBeTruthy()
     expect(view.getByRole("link", { name: "公告发布" })).toBeTruthy()
+    expect(view.getByRole("link", { name: "小组管理" })).toBeTruthy()
     expect(view.getByText("管理员")).toBeTruthy()
   })
 

@@ -61,6 +61,7 @@ export function createDesktopSkillMarket(client: OpencodeClient) {
           market.list(
             {
               ...query,
+              source: query.source === undefined ? undefined : requirePublicSource(query.source),
               requiresApiKey: booleanQuery(query.requiresApiKey),
               featured: booleanQuery(query.featured),
               enterprise: booleanQuery(query.enterprise),
@@ -71,18 +72,23 @@ export function createDesktopSkillMarket(client: OpencodeClient) {
           ),
         ),
       facets: (signal?: AbortSignal) => data<SkillMarket.Facets>(market.facets({ signal })),
-      detail: (key, signal?: AbortSignal) => data<SkillMarket.Detail>(market.detail(key, { signal })),
+      detail: (key, signal?: AbortSignal) =>
+        data<SkillMarket.Detail>(market.detail({ ...key, source: requirePublicSource(key.source) }, { signal })),
       versions: (key, signal?: AbortSignal) =>
-        data<SkillMarket.Detail>(market.detail(key, { signal })).then((detail) => detail.versions),
+        data<SkillMarket.Detail>(
+          market.detail({ ...key, source: requirePublicSource(key.source) }, { signal }),
+        ).then((detail) => detail.versions),
       installed: (signal?: AbortSignal) => data<readonly SkillMarket.Installed[]>(market.installed({ signal })),
       updates: (signal?: AbortSignal) => data<readonly SkillMarket.Installed[]>(market.updates({ signal })),
     } satisfies SkillMarketDataSource,
     actions: {
       kind: "desktop",
-      install: (input) => data<SkillMarket.OperationResult>(market.install(input)),
-      update: (input) => data<SkillMarket.OperationResult>(market.update(input)),
-      uninstall: (key) => done(market.uninstall(key)),
-      refresh: (key) => done(market.refresh(key)),
+      install: (input) =>
+        data<SkillMarket.OperationResult>(market.install({ ...input, source: requirePublicSource(input.source) })),
+      update: (input) =>
+        data<SkillMarket.OperationResult>(market.update({ ...input, source: requirePublicSource(input.source) })),
+      uninstall: (key) => done(market.uninstall({ ...key, source: requirePublicSource(key.source) })),
+      refresh: (key) => done(market.refresh({ ...key, source: requirePublicSource(key.source) })),
     } satisfies SkillMarketActions,
   }
 }
@@ -90,6 +96,11 @@ export function createDesktopSkillMarket(client: OpencodeClient) {
 function booleanQuery(value?: boolean) {
   if (value === undefined) return
   return value ? ("true" as const) : ("false" as const)
+}
+
+function requirePublicSource(source: SkillMarket.Source): SkillMarket.PublicSource {
+  if (source === "restricted") throw new MarketLocalError("market-unavailable", "Restricted Skills require Web access")
+  return source
 }
 
 function isMarketError(error: unknown): error is { code: MarketLocalErrorCode; message: string } {

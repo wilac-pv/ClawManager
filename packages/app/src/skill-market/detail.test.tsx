@@ -128,6 +128,20 @@ test("sanitizes markdown and exposes only web copy and download actions", async 
   expect(view.queryByRole("button", { name: "安装" })).toBeNull()
 })
 
+test("keeps restricted installs grant-driven without a direct ZIP action", async () => {
+  const restricted = { ...detail, id: "pub_abcdefgh", source: "restricted", visibility: "groups" } satisfies SkillMarket.Detail
+  const view = renderDetail(source(restricted), {
+    kind: "web",
+    prompt: () => "restricted-install:pub_abcdefgh",
+    copyPrompt: async () => undefined,
+    download: async () => undefined,
+  })
+
+  expect(await view.findByText("受限分享")).toBeTruthy()
+  expect(view.getByRole("button", { name: "复制安装 Prompt" })).toBeTruthy()
+  expect(view.queryByRole("button", { name: "下载 ZIP" })).toBeNull()
+})
+
 test("toggles the authenticated favorite from the detail actions", async () => {
   const toggled: SkillMarket.SkillKey[] = []
   const view = renderDetail(

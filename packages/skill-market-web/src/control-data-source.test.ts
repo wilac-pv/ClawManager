@@ -291,6 +291,56 @@ describe("skill market control data source", () => {
     expect(requests[1]?.body).toBe(JSON.stringify({ command: "pause" }))
   })
 
+  test("uses dedicated group, sharing, and restricted catalog boundaries", async () => {
+    const group = {
+      id: "grp_aurora123",
+      name: "Project Aurora",
+      ownerEmployeeID: "E000001",
+      status: "active",
+      version: 1,
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:00.000Z",
+    } satisfies SkillMarketControl.MarketGroup
+    const requests: Array<{ method: string; path: string; csrf: string | null; key: string | null; body: string }> = []
+    const server = serve(async (request) => {
+      requests.push({
+        method: request.method,
+        path: new URL(request.url).pathname,
+        csrf: request.headers.get("x-csrf-token"),
+        key: request.headers.get("idempotency-key"),
+        body: request.body ? await request.text() : "",
+      })
+      const path = new URL(request.url).pathname
+      if (path === "/v1/groups") return Response.json(request.method === "GET" ? { managed: [group], joined: [] } : group)
+      if (path.endsWith("/members"))
+        return Response.json({ groupID: group.id, employeeID: "E000002", createdByEmployeeID: "E000001", createdAt: group.createdAt })
+      if (path.endsWith("/install-grants"))
+        return Response.json({ url: "https://market.example/grants/token", expiresAt: "2026-07-16T00:05:00.000Z" })
+      return Response.json(path.endsWith("/versions") ? [] : path.startsWith("/v1/restricted-skills/") ? restrictedDetail() : { submission: summary })
+    })
+    const source = createSkillMarketControlDataSource(server.url, { csrfToken: () => csrfToken })
+
+    await source.groups.list()
+    await source.groups.create({ name: "Project Aurora" })
+    await source.groups.addMember(group.id, { expectedVersion: 1, employeeID: "E000002" })
+    await source.submissions.promote(summary.id, { expectedVersion: 1, target: "department", audience: { scope: "department" } }, "promotion-key")
+    await source.restricted.detail("pub_abcdefgh")
+    await source.restricted.versions("pub_abcdefgh")
+    await source.restricted.installGrant("pub_abcdefgh")
+
+    expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
+      "GET /v1/groups",
+      "POST /v1/groups",
+      `POST /v1/groups/${group.id}/members`,
+      `POST /v1/submissions/${summary.id}/promotions`,
+      "GET /v1/restricted-skills/pub_abcdefgh",
+      "GET /v1/restricted-skills/pub_abcdefgh/versions",
+      "POST /v1/restricted-skills/pub_abcdefgh/install-grants",
+    ])
+    expect(requests[3]).toMatchObject({ csrf: csrfToken, key: "promotion-key" })
+    expect(requests[6]).toMatchObject({ csrf: csrfToken })
+  })
+
   test("reads TRACE evaluation progress through its independent admin endpoint", async () => {
     const evaluation = {
       total: 100,
@@ -421,4 +471,33 @@ function serve(fetch: (request: Request) => Response | Promise<Response>) {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch })
   servers.push(server)
   return { url: `http://127.0.0.1:${server.port}` }
+}
+
+function restrictedDetail() {
+  return {
+    id: "pub_abcdefgh",
+    source: "restricted",
+    sourceUrl: "https://market.example/v1/restricted-skills/pub_abcdefgh",
+    name: "Restricted Skill",
+    description: "Private package",
+    categories: ["Internal"],
+    tags: [],
+    requiresApiKey: false,
+    risk: "safe",
+    version: "1.0.0",
+    updatedAt: "2026-07-16T00:00:00.000Z",
+    downloads: 0,
+    favorites: 0,
+    score: 0,
+    featured: false,
+    enterprise: false,
+    visibility: "groups",
+    delisted: false,
+    readme: "# Restricted",
+    author: { name: "Contributor" },
+    versions: [],
+    securityReports: [],
+    package: { url: "https://market.example/private", sha256: "a".repeat(64), size: 3, files: [] },
+    publicDetailUrl: "https://market.example/v1/restricted-skills/pub_abcdefgh",
+  }
 }

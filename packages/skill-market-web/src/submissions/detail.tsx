@@ -8,12 +8,14 @@ import { SubmissionStatusTimeline, submissionPollInterval } from "./status"
 
 export type SubmissionDetailSource = Pick<
   SkillMarketControlDataSource["submissions"],
-  "detail" | "create" | "packageUrl" | "revise"
+  "detail" | "create" | "packageUrl" | "revise" | "promote"
 >
 
 interface SubmissionDetailProps {
   readonly submissionID: string
   readonly source: SubmissionDetailSource
+  readonly groups?: Pick<SkillMarketControlDataSource["groups"], "list">
+  readonly department?: SkillMarketControl.Department
 }
 
 export function SubmissionDetail(props: SubmissionDetailProps) {
@@ -64,6 +66,7 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
                   expectedVersion: detail().version,
                   initial: detail().metadata,
                   target: detail().target,
+                  audience: detail().audience,
                 }}
                 onAccepted={() => {
                   setParams({ revise: undefined }, { replace: true })
@@ -84,7 +87,14 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
                     {detail().skillID} · 目标版本 {detail().targetVersion}
                   </p>
                 </div>
-                <SubmissionActions detail={detail()} packageUrl={props.source.packageUrl(detail().id)} />
+                <SubmissionActions
+                  detail={detail()}
+                  packageUrl={props.source.packageUrl(detail().id)}
+                  source={props.source}
+                  groups={props.groups}
+                  department={props.department}
+                  onPromoted={() => void submission.refetch()}
+                />
               </header>
 
               <SubmissionStatusTimeline status={detail().status} target={detail().target} timeline={detail().timeline} />
@@ -177,7 +187,15 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
   )
 }
 
-function SubmissionActions(props: { detail: SkillMarketControl.SubmissionDetail; packageUrl: string }) {
+function SubmissionActions(props: {
+  detail: SkillMarketControl.SubmissionDetail
+  packageUrl: string
+  source: SubmissionDetailSource
+  groups?: Pick<SkillMarketControlDataSource["groups"], "list">
+  department?: SkillMarketControl.Department
+  onPromoted: () => void
+}) {
+  const [sharing, setSharing] = createSignal(false)
   return (
     <div class="submission-detail__actions">
       <Show when={props.detail.status === "validation_failed" || props.detail.status === "changes_requested"}>
@@ -203,9 +221,78 @@ function SubmissionActions(props: { detail: SkillMarketControl.SubmissionDetail;
           }
         >
           <a href={props.packageUrl}>下载个人 Skill</a>
+          <button type="button" onClick={() => setSharing((value) => !value)}>发布给其他人</button>
         </Show>
       </Show>
+      <Show when={sharing()}>
+        <PromotionForm
+          detail={props.detail}
+          source={props.source}
+          groups={props.groups}
+          department={props.department}
+          onPromoted={props.onPromoted}
+        />
+      </Show>
     </div>
+  )
+}
+
+function PromotionForm(props: {
+  detail: SkillMarketControl.SubmissionDetail
+  source: SubmissionDetailSource
+  groups?: Pick<SkillMarketControlDataSource["groups"], "list">
+  department?: SkillMarketControl.Department
+  onPromoted: () => void
+}) {
+  const [target, setTarget] = createSignal<"groups" | "department" | "company">("company")
+  const [groupIDs, setGroupIDs] = createSignal<SkillMarketControl.GroupID[]>([])
+  const [pending, setPending] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+  const groups = createQuery(() => ({
+    queryKey: ["skill-market", "groups", "promotion"] as const,
+    queryFn: ({ signal }) => props.groups?.list(signal) ?? Promise.resolve({ managed: [], joined: [] }),
+    enabled: target() === "groups" && Boolean(props.groups),
+  }))
+  const submit = (event: SubmitEvent) => {
+    event.preventDefault()
+    if (pending()) return
+    if (target() === "groups" && groupIDs().length === 0) return setError("请至少选择一个小组。")
+    const audience =
+      target() === "groups"
+        ? { scope: "groups" as const, groupIDs: groupIDs() }
+        : target() === "department"
+          ? { scope: "department" as const }
+          : undefined
+    setPending(true)
+    setError(undefined)
+    void props.source
+      .promote(
+        props.detail.id,
+        { expectedVersion: props.detail.version, target: target(), ...(audience ? { audience } : {}) },
+        createIdempotencyKey(),
+      )
+      .then(props.onPromoted)
+      .catch(() => setError("发布申请提交失败，请稍后重试。"))
+      .finally(() => setPending(false))
+  }
+  return (
+    <form class="submission-promotion" aria-label="发布给其他人" onSubmit={submit}>
+      <fieldset>
+        <legend>选择新的可见范围</legend>
+        <label><input type="radio" name="promotion-target" checked={target() === "groups"} onChange={() => setTarget("groups")} />指定小组</label>
+        <label><input type="radio" name="promotion-target" disabled={!props.department} checked={target() === "department"} onChange={() => setTarget("department")} />本部门</label>
+        <label><input type="radio" name="promotion-target" checked={target() === "company"} onChange={() => setTarget("company")} />全公司</label>
+      </fieldset>
+      <Show when={target() === "groups"}>
+        <div class="submission-promotion__groups">
+          <For each={groups.data?.managed.filter((group) => group.status === "active") ?? []}>
+            {(group) => <label><input type="checkbox" checked={groupIDs().includes(group.id)} onChange={(event) => setGroupIDs((current) => event.currentTarget.checked ? [...current, group.id] : current.filter((id) => id !== group.id))} />{group.name}</label>}
+          </For>
+        </div>
+      </Show>
+      <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
+      <button type="submit" class="market-primary-action" disabled={pending()}>{pending() ? "正在提交…" : "提交审核"}</button>
+    </form>
   )
 }
 
@@ -297,4 +384,13 @@ function formatBytes(value: number) {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
   return `${(value / 1024 / 1024).toFixed(1)} MiB`
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80
+  const value = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
 }

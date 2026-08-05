@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { cleanup, render } from "@solidjs/testing-library"
+import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library"
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { MemoryRouter, Route, createMemoryHistory } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
@@ -74,6 +74,24 @@ describe("submission detail", () => {
     )
   })
 
+  test("promotes a published personal Skill with a fresh reviewed audience", async () => {
+    const calls: unknown[][] = []
+    const value = { ...detail("published"), target: "personal" as const }
+    const fixture = renderDetail(value, {
+      promote: (...input) => {
+        calls.push(input)
+        return Promise.resolve({ submission: { ...value, target: "department", audience: { scope: "department", department: { id: "dep_platform", name: "Platform" } } } })
+      },
+    })
+    fireEvent.click(await fixture.findByRole("button", { name: "发布给其他人" }))
+    fireEvent.click(fixture.getByRole("radio", { name: /本部门/ }))
+    fireEvent.click(fixture.getByRole("button", { name: "提交审核" }))
+
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0]?.[1]).toEqual({ expectedVersion: 3, target: "department", audience: { scope: "department" } })
+    expect(calls[0]?.[2]).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
   test("polls only working states and stops after the bounded request count", () => {
     expect(submissionPollInterval("validating", 1)).toBe(2_000)
     expect(submissionPollInterval("publishing", 19)).toBe(2_000)
@@ -83,12 +101,14 @@ describe("submission detail", () => {
   })
 })
 
-function renderDetail(value: SkillMarketControl.SubmissionDetail) {
+function renderDetail(value: SkillMarketControl.SubmissionDetail, overrides: Partial<SubmissionDetailSource> = {}) {
   const source: SubmissionDetailSource = {
     detail: () => Promise.resolve(value),
     create: () => Promise.resolve({ submission: value }),
     packageUrl: (submissionID) => `http://127.0.0.1:4210/v1/submissions/${submissionID}/package`,
     revise: () => Promise.resolve({ submission: value }),
+    promote: () => Promise.resolve({ submission: value }),
+    ...overrides,
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   const history = createMemoryHistory()
@@ -96,7 +116,7 @@ function renderDetail(value: SkillMarketControl.SubmissionDetail) {
   return render(() => (
     <QueryClientProvider client={client}>
       <MemoryRouter history={history}>
-        <Route path="*" component={() => <SubmissionDetail submissionID={value.id} source={source} />} />
+        <Route path="*" component={() => <SubmissionDetail submissionID={value.id} source={source} department={{ id: "dep_platform", name: "Platform" }} />} />
       </MemoryRouter>
     </QueryClientProvider>
   ))

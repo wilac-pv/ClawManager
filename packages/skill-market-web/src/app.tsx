@@ -11,6 +11,7 @@ import { Navigate, Route, Router, useNavigate, useParams, useSearchParams } from
 import { createQuery } from "@tanstack/solid-query"
 import { Match, Show, Switch, createSignal, type ParentProps } from "solid-js"
 import { AnnouncementAdministration } from "./admin/announcements"
+import { GroupAdministration } from "./admin/groups"
 import { AuditLog } from "./admin/audit"
 import { AdminLayout } from "./admin/layout"
 import { ModerationQueue } from "./admin/queue"
@@ -26,6 +27,8 @@ import { createRemoteSkillMarketDataSource } from "./data-source"
 import { ExpertPackageDetail } from "./expert-packages/detail"
 import { ExpertPackageList } from "./expert-packages/list"
 import { FavoritesPage, useFavoriteActions } from "./favorites"
+import { GroupDetail } from "./groups/detail"
+import { GroupList } from "./groups/list"
 import {
   RequireAdmin,
   RequireReviewer,
@@ -47,25 +50,38 @@ export function App() {
     window.location.origin,
     import.meta.env.VITE_SKILL_MARKET_ALLOW_INSECURE_HTTP,
   )
-  const source = createRemoteSkillMarketDataSource(runtime.apiBaseUrl, {
+  const publicSource = createRemoteSkillMarketDataSource(runtime.apiBaseUrl, {
     allowInsecurePrivateHttp: runtime.allowInsecurePrivateHttp,
   })
   const control = createSkillMarketControlDataSource(runtime.apiBaseUrl, {
     allowInsecurePrivateHttp: runtime.allowInsecurePrivateHttp,
     csrfToken,
   })
+  const source = {
+    ...publicSource,
+    detail: (key: SkillKey, signal?: AbortSignal) =>
+      key.source === "restricted" ? control.restricted.detail(key.id, signal) : publicSource.detail(key, signal),
+    versions: (key: SkillKey, signal?: AbortSignal) =>
+      key.source === "restricted" ? control.restricted.versions(key.id, signal) : publicSource.versions(key, signal),
+  }
   const actions: SkillMarketActions = {
     kind: "web",
     prompt: (detail) =>
-      installPrompt(detail, {
-        detailUrl: skillDetailUrl(window.location.origin, import.meta.env.BASE_URL, detail),
-        downloadUrl: skillPackageUrl(runtime.apiBaseUrl, detail),
-      }),
+      detail.source === "restricted"
+        ? `restricted-install:${detail.id}`
+        : installPrompt(detail, {
+            detailUrl: skillDetailUrl(window.location.origin, import.meta.env.BASE_URL, detail),
+            downloadUrl: skillPackageUrl(runtime.apiBaseUrl, detail),
+          }),
     copyPrompt: async (value) => {
-      if (await copyText(value)) return
+      const prompt = value.startsWith("restricted-install:")
+        ? await restrictedInstallPrompt(value.slice("restricted-install:".length), control)
+        : value
+      if (await copyText(prompt)) return
       throw new Error("Skill market install prompt could not be copied")
     },
     download: async (detail) => {
+      if (detail.source === "restricted") return
       window.location.assign(skillPackageUrl(runtime.apiBaseUrl, detail))
     },
   }
@@ -137,12 +153,15 @@ export function App() {
       <Route path="/personal" component={() => <PersonalSpaceRoute source={control} />} />
       <Route path="/submissions/new" component={() => <SubmissionFormRoute source={control} />} />
       <Route path="/submissions/:id" component={() => <SubmissionDetailRoute source={control} />} />
+      <Route path="/groups" component={() => <GroupListRoute source={control} />} />
+      <Route path="/groups/:id" component={() => <GroupDetailRoute source={control} />} />
       <Route path="/admin" component={() => <ReviewQueueRoute source={control} />} />
       <Route path="/admin/submissions/:id" component={() => <ReviewDetailRoute source={control} />} />
       <Route path="/admin/roles" component={() => <RoleAdministrationRoute source={control} />} />
       <Route path="/admin/audit" component={() => <AuditRoute source={control} />} />
       <Route path="/admin/skillhub" component={() => <SkillHubImportRoute source={control} />} />
       <Route path="/admin/announcements" component={() => <AnnouncementAdministrationRoute source={control} />} />
+      <Route path="/admin/groups" component={() => <GroupAdministrationRoute source={control} />} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
     </Router>
   )
@@ -170,6 +189,7 @@ function PersonalSpaceRoute(props: { source: SkillMarketControlDataSource }) {
 
 function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
   const navigate = useNavigate()
+  const session = useSkillMarketSession()
   const [params] = useSearchParams()
   const previousID = () => {
     const value = params.from
@@ -186,7 +206,8 @@ function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
     },
   }))
   const accepted = (submissionID: string) => navigate(`/submissions/${submissionID}`)
-  const target = () => (params.target === "personal" ? "personal" : "company") as SkillMarketControl.PublicationTarget
+  const target = () =>
+    (["personal", "groups", "department", "company"] as const).find((value) => value === params.target) ?? "company"
   return (
     <RequireSession>
       <MySpaceLayout>
@@ -195,6 +216,8 @@ function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
           fallback={
             <SubmissionForm
               source={props.source.submissions}
+              groups={props.source.groups}
+              department={session.session()?.user.department}
               mode={{ kind: "create", target: target() }}
               onAccepted={accepted}
             />
@@ -211,10 +234,12 @@ function SubmissionFormRoute(props: { source: SkillMarketControlDataSource }) {
               {(detail) => (
                 <SubmissionForm
                   source={props.source.submissions}
+                  groups={props.source.groups}
+                  department={session.session()?.user.department}
                   mode={
                     detail().status === "published"
-                      ? { kind: "version", initial: detail().metadata, target: detail().target }
-                      : { kind: "create", initial: detail().metadata, target: detail().target }
+                      ? { kind: "version", initial: detail().metadata, target: detail().target, audience: detail().audience }
+                      : { kind: "create", initial: detail().metadata, target: detail().target, audience: detail().audience }
                   }
                   onAccepted={accepted}
                 />
@@ -232,7 +257,39 @@ function SubmissionDetailRoute(props: { source: SkillMarketControlDataSource }) 
   return (
     <RequireSession>
       <MySpaceLayout>
-        <SubmissionDetail submissionID={params.id} source={props.source.submissions} />
+        <SubmissionDetail
+          submissionID={params.id}
+          source={props.source.submissions}
+          groups={props.source.groups}
+          department={useSkillMarketSession().session()?.user.department}
+        />
+      </MySpaceLayout>
+    </RequireSession>
+  )
+}
+
+function GroupListRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireSession>
+      <MySpaceLayout>
+        <GroupList source={props.source.groups} />
+      </MySpaceLayout>
+    </RequireSession>
+  )
+}
+
+function GroupDetailRoute(props: { source: SkillMarketControlDataSource }) {
+  const params = useParams<{ id: string }>()
+  const session = useSkillMarketSession()
+  return (
+    <RequireSession>
+      <MySpaceLayout>
+        <GroupDetail
+          groupID={params.id}
+          source={props.source.groups}
+          actor={session.session()?.user.employeeID ?? ""}
+          admin={session.admin()}
+        />
       </MySpaceLayout>
     </RequireSession>
   )
@@ -314,6 +371,16 @@ function AnnouncementAdministrationRoute(props: { source: SkillMarketControlData
   )
 }
 
+function GroupAdministrationRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireAdmin>
+      <AdminLayout>
+        <GroupAdministration source={props.source.groups} />
+      </AdminLayout>
+    </RequireAdmin>
+  )
+}
+
 function ProtectedPlaceholder(props: { title: string; description: string }) {
   return (
     <main class="market-placeholder">
@@ -358,11 +425,26 @@ function SkillDetailRoute(props: { source: SkillMarketControlDataSource }) {
       </main>
     )
   }
-  return <SkillMarketDetail skill={key} onBack={() => navigate("/skills")} favorite={favorite} />
+  const detail = <SkillMarketDetail skill={key} onBack={() => navigate("/skills")} favorite={favorite} />
+  if (key.source === "restricted") return <RequireSession>{detail}</RequireSession>
+  return detail
 }
 
 function parseSkillKey(source: string, id: string): SkillKey | undefined {
-  if (source !== "skillhub" && source !== "enterprise" && source !== "community") return undefined
+  if (source !== "skillhub" && source !== "enterprise" && source !== "community" && source !== "restricted")
+    return undefined
   if (!id.trim()) return undefined
   return { source, id }
+}
+
+async function restrictedInstallPrompt(publicationID: string, source: SkillMarketControlDataSource) {
+  const [detail, grant] = await Promise.all([
+    source.restricted.detail(publicationID),
+    source.restricted.installGrant(publicationID),
+  ])
+  if (new Date(grant.expiresAt).getTime() <= Date.now()) throw new Error("Skill market install grant expired")
+  return installPrompt(detail, {
+    detailUrl: skillDetailUrl(window.location.origin, import.meta.env.BASE_URL, detail),
+    downloadUrl: grant.url,
+  })
 }

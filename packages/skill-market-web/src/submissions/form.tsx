@@ -1,7 +1,7 @@
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { A } from "@solidjs/router"
 import { createStore } from "solid-js/store"
-import { For, Show, createSignal, type JSX } from "solid-js"
+import { For, Show, createEffect, createSignal, type JSX } from "solid-js"
 import { MarketControlError, type SkillMarketControlDataSource } from "../control-data-source"
 
 export type SubmissionWriter = Pick<SkillMarketControlDataSource["submissions"], "create" | "revise">
@@ -11,11 +11,13 @@ export type SubmissionFormMode =
       readonly kind: "create"
       readonly initial?: SkillMarketControl.SubmissionMetadata
       readonly target?: SkillMarketControl.PublicationTarget
+      readonly audience?: SkillMarketControl.AudienceTarget
     }
   | {
       readonly kind: "version"
       readonly initial: SkillMarketControl.SubmissionMetadata
       readonly target?: SkillMarketControl.PublicationTarget
+      readonly audience?: SkillMarketControl.AudienceTarget
     }
   | {
       readonly kind: "revision"
@@ -23,10 +25,13 @@ export type SubmissionFormMode =
       readonly expectedVersion: number
       readonly initial: SkillMarketControl.SubmissionMetadata
       readonly target?: SkillMarketControl.PublicationTarget
+      readonly audience?: SkillMarketControl.AudienceTarget
     }
 
 interface SubmissionFormProps {
   readonly source: SubmissionWriter
+  readonly groups?: Pick<SkillMarketControlDataSource["groups"], "list">
+  readonly department?: SkillMarketControl.Department
   readonly mode?: SubmissionFormMode
   readonly onAccepted: (submissionID: string) => void
   readonly onConflict?: () => void
@@ -53,10 +58,26 @@ export function SubmissionForm(props: SubmissionFormProps) {
     iconFile: undefined as File | undefined,
   })
   const [validationErrors, setValidationErrors] = createSignal<Record<string, string>>({})
+  const [groupIDs, setGroupIDs] = createSignal<SkillMarketControl.GroupID[]>(
+    props.mode?.audience?.scope === "groups" ? [...props.mode.audience.groupIDs] : [],
+  )
+  const [availableGroups, setAvailableGroups] = createSignal<SkillMarketControl.MarketGroup[]>([])
+  const [groupsPending, setGroupsPending] = createSignal(false)
   const [requestError, setRequestError] = createSignal<string>()
   const [pending, setPending] = createSignal(false)
   const [idempotencyKey, setIdempotencyKey] = createSignal(createIdempotencyKey())
   const [errorSummary, setErrorSummary] = createSignal<HTMLDivElement>()
+  const loadGroups = () => {
+    if (!props.groups || groupsPending() || availableGroups().length > 0) return
+    setGroupsPending(true)
+    void props.groups
+      .list()
+      .then((page) => setAvailableGroups(page.managed.filter((group) => group.status === "active")))
+      .finally(() => setGroupsPending(false))
+  }
+  createEffect(() => {
+    if (fields.target === "groups") loadGroups()
+  })
   const mode = () => props.mode?.kind ?? "create"
   const markEdited = () => {
     setIdempotencyKey(createIdempotencyKey())
@@ -66,13 +87,15 @@ export function SubmissionForm(props: SubmissionFormProps) {
   const submit = (event: SubmitEvent) => {
     event.preventDefault()
     if (pending()) return
-    const errors = validate(fields)
+    const errors = validate(fields, groupIDs(), props.department, mode() !== "revision")
     setValidationErrors(errors)
     setRequestError(undefined)
     if (Object.keys(errors).length > 0) return focusError()
     const metadata = createMetadata(fields)
     const input = {
       target: fields.target,
+      ...(fields.target === "groups" ? { audience: { scope: "groups" as const, groupIDs: groupIDs() } } : {}),
+      ...(fields.target === "department" ? { audience: { scope: "department" as const } } : {}),
       metadata,
       package: fields.packageFile!,
       ...(fields.iconFile ? { icon: fields.iconFile } : {}),
@@ -150,7 +173,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
                   <strong>个人空间</strong>
                   <small class="submission-target-card__badge">立即可用</small>
                 </span>
-                <small>扫描通过后直接保存，仅你本人可以查看和下载。</small>
+                <small>扫描通过立即可用，仅本人可见。</small>
               </span>
               <input
                 class="submission-target-card__input"
@@ -159,6 +182,66 @@ export function SubmissionForm(props: SubmissionFormProps) {
                 value="personal"
                 checked={fields.target === "personal"}
                 onChange={() => setFields("target", "personal")}
+              />
+            </label>
+            <label
+              class="submission-target-card"
+              classList={{ "submission-target-card--selected": fields.target === "groups" }}
+            >
+              <span class="submission-target-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="8" cy="8" r="3" />
+                  <circle cx="16" cy="9" r="3" />
+                  <path d="M3 20c0-4 2-6 5-6s5 2 5 6M13 15c4-1 7 1 8 5" />
+                </svg>
+              </span>
+              <span class="submission-target-card__body">
+                <span class="submission-target-card__title">
+                  <strong>指定小组</strong>
+                  <small class="submission-target-card__badge submission-target-card__badge--review">人工审核</small>
+                </span>
+                <small>扫描后人工审核，可选择你管理的多个启用小组。</small>
+              </span>
+              <input
+                class="submission-target-card__input"
+                type="radio"
+                name="target"
+                value="groups"
+                checked={fields.target === "groups"}
+                onChange={() => {
+                  setFields("target", "groups")
+                  loadGroups()
+                }}
+              />
+            </label>
+            <label
+              class="submission-target-card"
+              classList={{ "submission-target-card--selected": fields.target === "department" }}
+            >
+              <span class="submission-target-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 20h16M6 20V6h8v14M14 10h4v10M9 10h2m-2 4h2" />
+                </svg>
+              </span>
+              <span class="submission-target-card__body">
+                <span class="submission-target-card__title">
+                  <strong>本部门</strong>
+                  <small class="submission-target-card__badge submission-target-card__badge--review">人工审核</small>
+                </span>
+                <small>
+                  {props.department
+                    ? `扫描后人工审核，仅 ${props.department.name} 可见。`
+                    : "当前账号没有部门信息，无法选择本部门。"}
+                </small>
+              </span>
+              <input
+                class="submission-target-card__input"
+                type="radio"
+                name="target"
+                value="department"
+                disabled={!props.department}
+                checked={fields.target === "department"}
+                onChange={() => setFields("target", "department")}
               />
             </label>
             <label
@@ -175,7 +258,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
                   <strong>全公司</strong>
                   <small class="submission-target-card__badge submission-target-card__badge--review">人工审核</small>
                 </span>
-                <small>扫描通过后进入审核，批准后发布到公司市场。</small>
+                <small>扫描后人工审核，全公司可见。</small>
               </span>
               <input
                 class="submission-target-card__input"
@@ -187,12 +270,49 @@ export function SubmissionForm(props: SubmissionFormProps) {
               />
             </label>
           </fieldset>
+          <Show when={fields.target === "groups"}>
+            <fieldset class="submission-group-picker">
+              <legend>选择小组</legend>
+              <Show when={!groupsPending()} fallback={<p role="status">正在加载可选小组…</p>}>
+                <Show when={availableGroups().length > 0} fallback={<p>你当前没有可用于分享的启用小组。</p>}>
+                  <For each={availableGroups()}>
+                    {(group) => (
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label={group.name}
+                          checked={groupIDs().includes(group.id)}
+                          onChange={(event) =>
+                            setGroupIDs((current) =>
+                              event.currentTarget.checked
+                                ? [...current, group.id]
+                                : current.filter((groupID) => groupID !== group.id),
+                            )
+                          }
+                        />
+                        <span>{group.name}</span>
+                      </label>
+                    )}
+                  </For>
+                </Show>
+              </Show>
+              <Show when={validationErrors().audience}>
+                {(error) => <small class="submission-form__field-error">{error()}</small>}
+              </Show>
+            </fieldset>
+          </Show>
         </section>
 
         <section class="submission-form__section">
           <div>
             <h2>基本信息</h2>
-            <p>{fields.target === "personal" ? "这些信息仅在你的个人空间展示。" : "这些信息会在审核通过后展示在公开市场。"}</p>
+            <p>
+              {fields.target === "personal"
+                ? "这些信息仅在你的个人空间展示。"
+                : fields.target === "company"
+                  ? "这些信息会在审核通过后展示在公司市场。"
+                  : "这些信息会在审核通过后展示给选定范围。"}
+            </p>
           </div>
           <div class="submission-form__fields">
             <Field label="版本号" description="使用 SemVer，例如 1.2.0。" error={validationErrors().version}>
@@ -345,6 +465,7 @@ function createIdempotencyKey() {
 }
 
 function validate(fields: {
+  target: SkillMarketControl.PublicationTarget
   version: string
   displayName: string
   description: string
@@ -354,7 +475,7 @@ function validate(fields: {
   changeNotes: string
   packageFile?: File
   iconFile?: File
-}) {
+}, groupIDs: ReadonlyArray<SkillMarketControl.GroupID>, department?: SkillMarketControl.Department, validateAudience = true) {
   const errors: Record<string, string> = {}
   if (!fields.version.trim()) errors.version = "版本号不能为空"
   if (fields.version.trim() && !semver.test(fields.version.trim())) errors.version = "请输入有效的 SemVer 版本号"
@@ -374,6 +495,8 @@ function validate(fields: {
     errors.packageFile = "请选择 .zip 文件"
   if (fields.packageFile && fields.packageFile.size > packageLimit) errors.packageFile = "ZIP 包不能超过 50 MiB"
   if (fields.iconFile && fields.iconFile.size > iconLimit) errors.iconFile = "图标不能超过 1 MiB"
+  if (validateAudience && fields.target === "groups" && groupIDs.length === 0) errors.audience = "请至少选择一个小组"
+  if (validateAudience && fields.target === "department" && !department) errors.audience = "当前账号没有部门信息"
   return errors
 }
 

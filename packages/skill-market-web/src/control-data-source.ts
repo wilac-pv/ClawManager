@@ -12,6 +12,7 @@ interface ControlDataSourceOptions {
 
 interface SubmissionUpload {
   readonly target?: SkillMarketControl.PublicationTarget
+  readonly audience?: SkillMarketControl.AudienceInput
   readonly metadata: SkillMarketControl.SubmissionMetadata
   readonly package: File
   readonly icon?: File
@@ -81,7 +82,11 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
       JSON.stringify(
         "expectedVersion" in input
           ? { expectedVersion: input.expectedVersion, metadata: input.metadata }
-          : { target: input.target ?? "company", metadata: input.metadata },
+          : {
+              target: input.target ?? "company",
+              ...(input.audience ? { audience: input.audience } : {}),
+              metadata: input.metadata,
+            },
       ),
     )
     form.set("package", input.package)
@@ -100,6 +105,29 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
       ).json(),
     )
   }
+  const mutate = async <S extends Schema.Decoder<unknown>>(
+    method: "POST" | "PATCH" | "DELETE",
+    path: string,
+    schema: S,
+    input: unknown,
+    request: { readonly idempotencyKey?: string; readonly signal?: AbortSignal } = {},
+  ) =>
+    Schema.decodeUnknownPromise(schema)(
+      await (
+        await send(path, {
+          method,
+          signal: request.signal,
+          headers: {
+            "content-type": "application/json",
+            "x-csrf-token": requireCsrf(options.csrfToken),
+            ...(request.idempotencyKey
+              ? { "idempotency-key": requireIdempotencyKey(request.idempotencyKey) }
+              : {}),
+          },
+          body: JSON.stringify(input),
+        })
+      ).json(),
+    )
 
   return {
     auth: {
@@ -160,6 +188,106 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         new URL(`/v1/submissions/${encodeURIComponent(submissionID)}/package`, base).href,
       revise: (submissionID: string, input: RevisionUpload, idempotencyKey: string, signal?: AbortSignal) =>
         upload(`/v1/submissions/${encodeURIComponent(submissionID)}/revisions`, input, idempotencyKey, signal),
+      promote: (
+        submissionID: string,
+        input: SkillMarketControl.PromotionInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "POST",
+          `/v1/submissions/${encodeURIComponent(submissionID)}/promotions`,
+          SkillMarketControl.AcceptedSubmission,
+          input,
+          { idempotencyKey, signal },
+        ),
+      changeAudience: (
+        submissionID: string,
+        input: SkillMarketControl.AudienceChangeInput,
+        idempotencyKey: string,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "POST",
+          `/v1/submissions/${encodeURIComponent(submissionID)}/audience-changes`,
+          SkillMarketControl.AcceptedSubmission,
+          input,
+          { idempotencyKey, signal },
+        ),
+    },
+    groups: {
+      list: (signal?: AbortSignal) => read("/v1/groups", SkillMarketControl.GroupPage, signal),
+      create: (input: SkillMarketControl.GroupCreateInput, signal?: AbortSignal) =>
+        mutate("POST", "/v1/groups", SkillMarketControl.MarketGroup, input, { signal }),
+      detail: (groupID: string, signal?: AbortSignal) =>
+        read(`/v1/groups/${encodeURIComponent(groupID)}`, SkillMarketControl.MarketGroup, signal),
+      update: (groupID: string, input: SkillMarketControl.GroupUpdateInput, signal?: AbortSignal) =>
+        mutate("PATCH", `/v1/groups/${encodeURIComponent(groupID)}`, SkillMarketControl.MarketGroup, input, { signal }),
+      transfer: (groupID: string, input: SkillMarketControl.GroupOwnerInput, signal?: AbortSignal) =>
+        mutate(
+          "POST",
+          `/v1/groups/${encodeURIComponent(groupID)}/ownership`,
+          SkillMarketControl.MarketGroup,
+          input,
+          { signal },
+        ),
+      setStatus: (groupID: string, input: SkillMarketControl.GroupStatusInput, signal?: AbortSignal) =>
+        mutate(
+          "POST",
+          `/v1/groups/${encodeURIComponent(groupID)}/status`,
+          SkillMarketControl.MarketGroup,
+          input,
+          { signal },
+        ),
+      members: (groupID: string, signal?: AbortSignal) =>
+        read(
+          `/v1/groups/${encodeURIComponent(groupID)}/members`,
+          Schema.Array(SkillMarketControl.MarketGroupMember),
+          signal,
+        ),
+      addMember: (groupID: string, input: SkillMarketControl.GroupMemberInput, signal?: AbortSignal) =>
+        mutate(
+          "POST",
+          `/v1/groups/${encodeURIComponent(groupID)}/members`,
+          SkillMarketControl.MarketGroupMember,
+          input,
+          { signal },
+        ),
+      removeMember: (
+        groupID: string,
+        employeeID: string,
+        input: SkillMarketControl.GroupMemberRemoveInput,
+        signal?: AbortSignal,
+      ) =>
+        mutate(
+          "DELETE",
+          `/v1/groups/${encodeURIComponent(groupID)}/members/${encodeURIComponent(employeeID)}`,
+          SkillMarketControl.MarketGroup,
+          input,
+          { signal },
+        ),
+    },
+    restricted: {
+      detail: (publicationID: string, signal?: AbortSignal) =>
+        read(
+          `/v1/restricted-skills/${encodeURIComponent(publicationID)}`,
+          SkillMarket.RestrictedDetail,
+          signal,
+        ),
+      versions: (publicationID: string, signal?: AbortSignal) =>
+        read(
+          `/v1/restricted-skills/${encodeURIComponent(publicationID)}/versions`,
+          Schema.Array(SkillMarket.Version),
+          signal,
+        ),
+      installGrant: (publicationID: string, signal?: AbortSignal) =>
+        mutate(
+          "POST",
+          `/v1/restricted-skills/${encodeURIComponent(publicationID)}/install-grants`,
+          SkillMarket.PrivateInstallGrant,
+          {},
+          { signal },
+        ),
     },
     moderation: {
       list: (query: SkillMarketControl.AdminSubmissionQuery, signal?: AbortSignal) =>
