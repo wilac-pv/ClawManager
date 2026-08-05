@@ -116,7 +116,7 @@ describe("database backup", () => {
     ).resolves.toMatchObject({ userVersion: 10 })
   })
 
-  test("requires the complete lifecycle schema for v12 backups without exposing artifact identities", async () => {
+  test("requires the complete lifecycle schema for current backups without exposing artifact identities", async () => {
     const directory = await temporaryDirectory()
     const completePath = join(directory, "complete-v12.db")
     await migrateDatabase({ databasePath: completePath, migrationBackupDirectory: join(directory, "migration-backups") })
@@ -128,7 +128,7 @@ describe("database backup", () => {
         privatePrefix: "private-test",
         store: memoryStore().client,
       }),
-    ).resolves.toMatchObject({ userVersion: 12 })
+    ).resolves.toMatchObject({ userVersion: 13 })
 
     const partialPath = join(directory, "partial-v12.db")
     const partial = createWalDatabase(partialPath, 12)
