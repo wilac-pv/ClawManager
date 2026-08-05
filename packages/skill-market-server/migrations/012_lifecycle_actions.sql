@@ -51,7 +51,10 @@ CREATE TABLE submissions_v12 (
   deleted_at INTEGER,
   purge_after INTEGER,
   CHECK (updated_at >= created_at),
-  CHECK ((deleted_at IS NULL) = (purge_after IS NULL))
+  CHECK (
+    (deleted_at IS NULL AND purge_after IS NULL) OR
+    (target_scope = 'personal' AND deleted_at IS NOT NULL AND purge_after IS NOT NULL AND purge_after > deleted_at)
+  )
 ) STRICT;
 
 INSERT INTO submissions_v12 (
@@ -193,7 +196,10 @@ CREATE TABLE delist_requests (
   created_at INTEGER NOT NULL,
   decided_by_employee_id TEXT REFERENCES users(employee_id),
   decided_at INTEGER,
-  CHECK ((decided_by_employee_id IS NULL) = (decided_at IS NULL))
+  CHECK (
+    (status = 'pending' AND decided_by_employee_id IS NULL AND decided_at IS NULL) OR
+    (status IN ('approved', 'rejected') AND decided_by_employee_id IS NOT NULL AND decided_at IS NOT NULL)
+  )
 ) STRICT;
 
 CREATE UNIQUE INDEX delist_requests_pending_submission

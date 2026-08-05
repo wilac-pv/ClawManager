@@ -730,48 +730,84 @@ export type SkillMarketSubmissionLifecycleRequestDelistInput = {
   readonly reason: { readonly expectedVersion: number; readonly reason: string }["reason"]
 }
 
-export type SkillMarketSubmissionLifecycleRequestDelistOutput = {
-  readonly id: string
-  readonly submissionID: string
-  readonly requestedByEmployeeID: string
-  readonly reason: string
-  readonly status: "pending" | "approved" | "rejected"
-  readonly version: number
-  readonly createdAt: string
-  readonly decidedByEmployeeID?: string
-  readonly decidedAt?: string
-}
+export type SkillMarketSubmissionLifecycleRequestDelistOutput =
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "pending"
+      readonly decidedByEmployeeID?: never
+      readonly decidedAt?: never
+    }
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "approved" | "rejected"
+      readonly decidedByEmployeeID: string
+      readonly decidedAt: string
+    }
 
 export type SkillMarketAdminLifecycleApproveDelistInput = {
   readonly requestID: { readonly requestID: string }["requestID"]
   readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
 }
 
-export type SkillMarketAdminLifecycleApproveDelistOutput = {
-  readonly id: string
-  readonly submissionID: string
-  readonly requestedByEmployeeID: string
-  readonly reason: string
-  readonly status: "pending" | "approved" | "rejected"
-  readonly version: number
-  readonly createdAt: string
-  readonly decidedByEmployeeID?: string
-  readonly decidedAt?: string
-}
+export type SkillMarketAdminLifecycleApproveDelistOutput =
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "pending"
+      readonly decidedByEmployeeID?: never
+      readonly decidedAt?: never
+    }
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "approved" | "rejected"
+      readonly decidedByEmployeeID: string
+      readonly decidedAt: string
+    }
 
 export type SkillMarketAdminLifecycleRejectDelistInput = {
   readonly requestID: { readonly requestID: string }["requestID"]
   readonly expectedVersion: { readonly expectedVersion: number }["expectedVersion"]
 }
 
-export type SkillMarketAdminLifecycleRejectDelistOutput = {
-  readonly id: string
-  readonly submissionID: string
-  readonly requestedByEmployeeID: string
-  readonly reason: string
-  readonly status: "pending" | "approved" | "rejected"
-  readonly version: number
-  readonly createdAt: string
-  readonly decidedByEmployeeID?: string
-  readonly decidedAt?: string
-}
+export type SkillMarketAdminLifecycleRejectDelistOutput =
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "pending"
+      readonly decidedByEmployeeID?: never
+      readonly decidedAt?: never
+    }
+  | {
+      readonly id: string
+      readonly submissionID: string
+      readonly requestedByEmployeeID: string
+      readonly reason: string
+      readonly version: number
+      readonly createdAt: string
+      readonly status: "approved" | "rejected"
+      readonly decidedByEmployeeID: string
+      readonly decidedAt: string
+    }

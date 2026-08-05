@@ -64,7 +64,28 @@ describe("SkillMarketControl", () => {
 
     expect(trash.purgeAfter).toBe("2026-08-11T00:00:00.000Z")
     expect(request.decidedByEmployeeID).toBe("admin")
+    expect(
+      Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({
+        id: "dlr_pending1",
+        submissionID: submission.id,
+        requestedByEmployeeID: "owner",
+        reason: "This Skill is no longer maintained.",
+        status: "pending",
+        version: 1,
+        createdAt: "2026-08-04T00:00:00.000Z",
+      }),
+    ).toMatchObject({ status: "pending" })
     expect(() => Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({ ...request, version: 0 })).toThrow()
+    expect(() =>
+      Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({
+        ...request,
+        status: "pending",
+      }),
+    ).toThrow()
+    expect(() => {
+      const { decidedAt: _decidedAt, decidedByEmployeeID: _decidedByEmployeeID, ...pending } = request
+      return Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)(pending)
+    }).toThrow()
     expect(() =>
       Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({
         ...request,

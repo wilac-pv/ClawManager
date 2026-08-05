@@ -148,6 +148,46 @@ describe("control-plane database", () => {
       ]),
     ).toThrow()
 
+    const insertSubmission = (id: string, scope: string, deletedAt: number | null, purgeAfter: number | null) =>
+      database.connection.run(
+        `INSERT INTO submissions
+          (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at, deleted_at, purge_after)
+         VALUES (?, ?, 'E000001', '1.0.0', ?, 'published', 1, 1, 1, 1, ?, ?)`,
+        [id, `skill-${id}`, scope, deletedAt, purgeAfter],
+      )
+
+    insertSubmission("sub_trashgood", "personal", 10, 11)
+    expect(() => insertSubmission("sub_trashscope", "company", 10, 11)).toThrow()
+    expect(() => insertSubmission("sub_trashpartial", "personal", 10, null)).toThrow()
+    expect(() => insertSubmission("sub_trashequal", "personal", 10, 10)).toThrow()
+    expect(() => insertSubmission("sub_trashearlier", "personal", 10, 9)).toThrow()
+
+    insertSubmission("sub_delistok", "company", null, null)
+    database.connection.run(
+      `INSERT INTO delist_requests
+        (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
+       VALUES ('dlr_pending1', 'sub_delistok', 'E000001', 'No longer maintained', 'pending', 1, 1)`,
+    )
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO delist_requests
+          (id, submission_id, requested_by_employee_id, reason, status, version, created_at, decided_by_employee_id, decided_at)
+         VALUES ('dlr_pending2', 'sub_delistok', 'E000001', 'No longer maintained', 'pending', 1, 1, 'E000001', 2)`,
+      ),
+    ).toThrow()
+    expect(() =>
+      database.connection.run(
+        `INSERT INTO delist_requests
+          (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
+         VALUES ('dlr_approved', 'sub_delistok', 'E000001', 'No longer maintained', 'approved', 1, 1)`,
+      ),
+    ).toThrow()
+    database.connection.run(
+      `INSERT INTO delist_requests
+        (id, submission_id, requested_by_employee_id, reason, status, version, created_at, decided_by_employee_id, decided_at)
+       VALUES ('dlr_rejected', 'sub_delistok', 'E000001', 'No longer maintained', 'rejected', 1, 1, 'E000001', 2)`,
+    )
+
     database.connection.run(
       `INSERT INTO market_groups
         (id, name, owner_employee_id, status, version, created_at, updated_at)

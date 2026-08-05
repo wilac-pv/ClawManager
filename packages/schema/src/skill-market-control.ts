@@ -407,25 +407,30 @@ export const PersonalTrashItem = Schema.Struct({
 export const DelistRequestStatus = Schema.Literals(["pending", "approved", "rejected"])
 export type DelistRequestStatus = typeof DelistRequestStatus.Type
 
-export interface DelistRequest extends Schema.Schema.Type<typeof DelistRequest> {}
-export const DelistRequest = Schema.Struct({
+const DelistRequestFields = {
   id: DelistRequestID,
   submissionID: SubmissionID,
   requestedByEmployeeID: EmployeeID,
   reason: bounded(1, 2_000),
-  status: DelistRequestStatus,
   version: Positive,
   createdAt: SkillMarket.Timestamp,
-  decidedByEmployeeID: EmployeeID.pipe(optional),
-  decidedAt: SkillMarket.Timestamp.pipe(optional),
+}
+const PendingDelistRequest = Schema.Struct({
+  ...DelistRequestFields,
+  status: Schema.Literal("pending"),
+  decidedByEmployeeID: Schema.Never.pipe(optional),
+  decidedAt: Schema.Never.pipe(optional),
 })
-  .check(
-    Schema.makeFilter(
-      (value) => (value.decidedByEmployeeID === undefined) === (value.decidedAt === undefined),
-      { expected: "both a decision actor and decision time, or neither" },
-    ),
-  )
-  .annotate({ identifier: "SkillMarketControl.DelistRequest" })
+const DecidedDelistRequest = Schema.Struct({
+  ...DelistRequestFields,
+  status: Schema.Literals(["approved", "rejected"]),
+  decidedByEmployeeID: EmployeeID,
+  decidedAt: SkillMarket.Timestamp,
+})
+export const DelistRequest = Schema.Union([PendingDelistRequest, DecidedDelistRequest]).annotate({
+  identifier: "SkillMarketControl.DelistRequest",
+})
+export type DelistRequest = typeof DelistRequest.Type
 
 export interface AcceptedSubmission extends Schema.Schema.Type<typeof AcceptedSubmission> {}
 export const AcceptedSubmission = Schema.Struct({
