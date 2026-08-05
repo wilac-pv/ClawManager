@@ -62,18 +62,21 @@ export function SubmissionForm(props: SubmissionFormProps) {
     props.mode?.audience?.scope === "groups" ? [...props.mode.audience.groupIDs] : [],
   )
   const [availableGroups, setAvailableGroups] = createSignal<SkillMarketControl.MarketGroup[]>([])
-  const [groupsPending, setGroupsPending] = createSignal(false)
+  const [groupLoadState, setGroupLoadState] = createSignal<"idle" | "pending" | "loaded" | "error">("idle")
   const [requestError, setRequestError] = createSignal<string>()
   const [pending, setPending] = createSignal(false)
   const [idempotencyKey, setIdempotencyKey] = createSignal(createIdempotencyKey())
   const [errorSummary, setErrorSummary] = createSignal<HTMLDivElement>()
   const loadGroups = () => {
-    if (!props.groups || groupsPending() || availableGroups().length > 0) return
-    setGroupsPending(true)
+    if (!props.groups || groupLoadState() !== "idle") return
+    setGroupLoadState("pending")
     void props.groups
       .list()
-      .then((page) => setAvailableGroups(page.managed.filter((group) => group.status === "active")))
-      .finally(() => setGroupsPending(false))
+      .then((page) => {
+        setAvailableGroups(page.managed.filter((group) => group.status === "active"))
+        setGroupLoadState("loaded")
+      })
+      .catch(() => setGroupLoadState("error"))
   }
   createEffect(() => {
     if (fields.target === "groups") loadGroups()
@@ -273,7 +276,25 @@ export function SubmissionForm(props: SubmissionFormProps) {
           <Show when={fields.target === "groups"}>
             <fieldset class="submission-group-picker">
               <legend>选择小组</legend>
-              <Show when={!groupsPending()} fallback={<p role="status">正在加载可选小组…</p>}>
+              <Show
+                when={groupLoadState() === "loaded"}
+                fallback={
+                  <Show when={groupLoadState() === "error"} fallback={<p role="status">正在加载可选小组…</p>}>
+                    <p role="alert">
+                      可选小组加载失败，请重试。
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGroupLoadState("idle")
+                          loadGroups()
+                        }}
+                      >
+                        重新加载
+                      </button>
+                    </p>
+                  </Show>
+                }
+              >
                 <Show when={availableGroups().length > 0} fallback={<p>你当前没有可用于分享的启用小组。</p>}>
                   <For each={availableGroups()}>
                     {(group) => (

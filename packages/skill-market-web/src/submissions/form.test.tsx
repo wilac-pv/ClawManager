@@ -145,6 +145,36 @@ describe("submission form", () => {
     })
   })
 
+  test("loads an empty managed group list only once", async () => {
+    const calls = { value: 0 }
+    let resolveFirst:
+      | ((page: { managed: SkillMarketControl.MarketGroup[]; joined: SkillMarketControl.MarketGroup[] }) => void)
+      | undefined
+    const first = new Promise<{ managed: SkillMarketControl.MarketGroup[]; joined: SkillMarketControl.MarketGroup[] }>(
+      (resolve) => (resolveFirst = resolve),
+    )
+    const view = renderInRouter(() => (
+      <SubmissionForm
+        source={writer()}
+        groups={{
+          list: () => {
+            calls.value += 1
+            if (calls.value === 1) return first
+            return new Promise(() => undefined)
+          },
+        }}
+        onAccepted={() => undefined}
+      />
+    ))
+
+    fireEvent.click(view.getByRole("radio", { name: /指定小组/ }))
+    resolveFirst?.({ managed: [], joined: [] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(calls.value).toBe(1)
+    expect(view.getByText("你当前没有可用于分享的启用小组。")).toBeTruthy()
+  })
+
   test("disables department sharing when the session has no department", () => {
     const view = renderInRouter(() => <SubmissionForm source={writer()} onAccepted={() => undefined} />)
 
