@@ -40,6 +40,8 @@ describe("submission detail", () => {
 
     expect(await fixture.findByRole("heading", { name: "Safe Skill" })).toBeTruthy()
     expect(fixture.getByRole("heading", { name: "Safe Skill", level: 1 }).classList).toContain("type-page-title")
+    expect([...fixture.container.querySelectorAll(".submission-detail__facts dt")].every((item) => item.classList.contains("type-label"))).toBe(true)
+    expect([...fixture.container.querySelectorAll(".submission-detail__facts dd")].every((item) => item.classList.contains("type-body"))).toBe(true)
     expect(fixture.getByText("missing-skill-md")).toBeTruthy()
     expect(fixture.getByText("必须包含 SKILL.md")).toBeTruthy()
     expect(fixture.getByText("secret-pattern")).toBeTruthy()

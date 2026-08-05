@@ -119,24 +119,24 @@ export function SubmissionDetail(props: SubmissionDetailProps) {
                     <dd class="type-body">{detail().metadata.category}</dd>
                   </div>
                   <div>
-                    <dt>风险等级</dt>
-                    <dd>{riskLabel(detail().risk)}</dd>
+                    <dt class="type-label">风险等级</dt>
+                    <dd class="type-body">{riskLabel(detail().risk)}</dd>
                   </div>
                   <div>
-                    <dt>当前修订</dt>
-                    <dd>{detail().currentRevision}</dd>
+                    <dt class="type-label">当前修订</dt>
+                    <dd class="type-body">{detail().currentRevision}</dd>
                   </div>
                   <div>
-                    <dt>许可证</dt>
-                    <dd>{detail().metadata.license ?? "未声明"}</dd>
+                    <dt class="type-label">许可证</dt>
+                    <dd class="type-body">{detail().metadata.license ?? "未声明"}</dd>
                   </div>
                   <div>
-                    <dt>API Key</dt>
-                    <dd>{detail().metadata.requiresApiKey ? "需要" : "不需要"}</dd>
+                    <dt class="type-label">API Key</dt>
+                    <dd class="type-body">{detail().metadata.requiresApiKey ? "需要" : "不需要"}</dd>
                   </div>
                   <div>
-                    <dt>标签</dt>
-                    <dd>{detail().metadata.tags.join("、") || "无"}</dd>
+                    <dt class="type-label">标签</dt>
+                    <dd class="type-body">{detail().metadata.tags.join("、") || "无"}</dd>
                   </div>
                 </dl>
                 <h3 class="type-card-title">变更说明</h3>

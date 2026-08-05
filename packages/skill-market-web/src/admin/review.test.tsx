@@ -15,6 +15,10 @@ describe("moderation review", () => {
 
     expect(await view.findByText("不能审核自己的投稿")).toBeTruthy()
     expect(view.getByRole("heading", { name: "审核 Safe Skill", level: 1 }).classList).toContain("type-page-title")
+    expect([...view.container.querySelectorAll(".moderation-review__overview dt")].every((item) => item.classList.contains("type-label"))).toBe(true)
+    expect([...view.container.querySelectorAll(".moderation-review__overview dd")].every((item) => item.classList.contains("type-body"))).toBe(true)
+    expect(view.getAllByText("safe-skill").every((item) => item.classList.contains("machine-id"))).toBe(true)
+    expect(view.getByText("E000001").classList).toContain("machine-id")
     expect(view.getByRole("button", { name: "提交审核决定" }).hasAttribute("disabled")).toBe(true)
   })
 
@@ -27,7 +31,8 @@ describe("moderation review", () => {
     const view = renderReview(source(fixture))
 
     expect(await view.findByText("发布范围")).toBeTruthy()
-    expect(view.getByText("部门 · 平台研发部（department-platform）")).toBeTruthy()
+    expect(view.getByText("发布范围").parentElement?.querySelector("dd")?.textContent).toBe("部门 · 平台研发部（department-platform）")
+    expect(view.getByText("department-platform").classList).toContain("machine-id")
     expect(view.queryByText(/private\//i)).toBeNull()
   })
 

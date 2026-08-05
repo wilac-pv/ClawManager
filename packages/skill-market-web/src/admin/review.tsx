@@ -121,7 +121,7 @@ export function ModerationReview(props: ModerationReviewProps) {
                   <A href="/admin">← 返回审核队列</A>
                   <h1 class="type-page-title">审核 {detail().metadata.displayName}</h1>
                   <p class="type-secondary">
-                    {detail().skillID} · 投稿人 {detail().owner.displayName}（{detail().owner.employeeID}）
+                    <span class="machine-id">{detail().skillID}</span> · 投稿人 {detail().owner.displayName}（<span class="machine-id">{detail().owner.employeeID}</span>）
                   </p>
                 </div>
                 <span class={`moderation-risk type-badge moderation-risk--${detail().risk}`}>{riskLabel(detail().risk)}</span>
@@ -157,32 +157,32 @@ export function ModerationReview(props: ModerationReviewProps) {
                 <p class="type-body">{detail().metadata.description}</p>
                 <dl class="submission-detail__facts">
                   <div>
-                    <dt>目标版本</dt>
-                    <dd>{detail().targetVersion}</dd>
+                    <dt class="type-label">目标版本</dt>
+                    <dd class="type-body">{detail().targetVersion}</dd>
                   </div>
                   <div>
-                    <dt>发布范围</dt>
-                    <dd>{audienceLabel(detail())}</dd>
+                    <dt class="type-label">发布范围</dt>
+                    <dd class="type-body">{audienceLabel(detail())}</dd>
                   </div>
                   <div>
-                    <dt>并发版本</dt>
-                    <dd>{detail().version}</dd>
+                    <dt class="type-label">并发版本</dt>
+                    <dd class="type-body">{detail().version}</dd>
                   </div>
                   <div>
-                    <dt>当前修订</dt>
-                    <dd>{detail().currentRevision}</dd>
+                    <dt class="type-label">当前修订</dt>
+                    <dd class="type-body">{detail().currentRevision}</dd>
                   </div>
                   <div>
-                    <dt>分类</dt>
-                    <dd>{detail().metadata.category}</dd>
+                    <dt class="type-label">分类</dt>
+                    <dd class="type-body">{detail().metadata.category}</dd>
                   </div>
                   <div>
-                    <dt>API Key</dt>
-                    <dd>{detail().metadata.requiresApiKey ? "需要" : "不需要"}</dd>
+                    <dt class="type-label">API Key</dt>
+                    <dd class="type-body">{detail().metadata.requiresApiKey ? "需要" : "不需要"}</dd>
                   </div>
                   <div>
-                    <dt>变更说明</dt>
-                    <dd>{detail().metadata.changeNotes}</dd>
+                    <dt class="type-label">变更说明</dt>
+                    <dd class="type-body">{detail().metadata.changeNotes}</dd>
                   </div>
                 </dl>
               </section>
@@ -320,7 +320,7 @@ export function ModerationReview(props: ModerationReviewProps) {
                     <label class="submission-form__field moderation-decision__confirmation">
                       <span>输入 Skill ID 以确认</span>
                       <small>
-                        当前风险为{riskLabel(detail().risk)}。请输入 <strong>{detail().skillID}</strong>{" "}
+                        当前风险为{riskLabel(detail().risk)}。请输入 <strong class="machine-id">{detail().skillID}</strong>{" "}
                         确认已检查风险摘要。
                       </small>
                       <input
@@ -410,7 +410,7 @@ function AdminDelistDecision(props: {
         {(kind) => (
           <div role="dialog" aria-modal="true" aria-labelledby="delist-decision-title" onKeyDown={(event) => { if (event.key === "Escape") close() }}>
             <h3 id="delist-decision-title">{kind() === "approve" ? "批准下架" : "拒绝下架"}</h3>
-            <p>确认{kind() === "approve" ? "批准" : "拒绝"} {request().submissionID} 的下架申请？</p>
+            <p>确认{kind() === "approve" ? "批准" : "拒绝"} <span class="machine-id">{request().submissionID}</span> 的下架申请？</p>
             <div>
               <button type="button" disabled={pending()} ref={(element) => queueMicrotask(() => element.focus())} onClick={close}>取消</button>
               <button type="button" class="market-primary-action" disabled={pending()} onClick={decide}>
@@ -585,9 +585,14 @@ function riskLabel(risk: SkillMarketControl.SubmissionSummary["risk"]) {
 }
 
 function audienceLabel(detail: SkillMarketControl.SubmissionDetail) {
-  if (detail.target === "groups" && detail.audience?.scope === "groups") return `群组 · ${detail.audience.groupIDs.join("、")}`
+  if (detail.target === "groups" && detail.audience?.scope === "groups") {
+    const groupIDs = detail.audience.groupIDs
+    return <>
+      群组 · <For each={groupIDs}>{(id, index) => <><span class="machine-id">{id}</span>{index() < groupIDs.length - 1 ? "、" : ""}</>}</For>
+    </>
+  }
   if (detail.target === "department" && detail.audience?.scope === "department")
-    return `部门 · ${detail.audience.department.name}（${detail.audience.department.id}）`
+    return <>部门 · {detail.audience.department.name}（<span class="machine-id">{detail.audience.department.id}</span>）</>
   if (detail.target === "personal") return "个人"
   return "全公司"
 }

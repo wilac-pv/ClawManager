@@ -165,11 +165,11 @@ export function ModerationQueue(props: ModerationQueueProps) {
                       {(item) => (
                         <tr>
                           <td>
-                            <strong>{item.skillID}</strong>
-                            <small>{item.targetVersion}</small>
+                            <strong class="type-card-title">{item.skillID}</strong>
+                            <small class="type-secondary">{item.targetVersion}</small>
                           </td>
                           <td>
-                            <strong>{item.owner.displayName}</strong>
+                            <strong class="type-card-title">{item.owner.displayName}</strong>
                             <small class="type-secondary machine-id">{item.owner.employeeID}</small>
                           </td>
                           <td>

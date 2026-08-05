@@ -26,3 +26,7 @@ Replaced incidental English eyebrows: `Saved skills` with `收藏内容`; remove
 ## Commit
 
 `fix(skill-market): apply Chinese type hierarchy`
+
+## Follow-up fixes
+
+Removed the eyebrow typography override; applied label/body classes to every submission and review overview fact; marked review machine identifiers; and applied card-title/secondary classes to all moderation queue row titles and owner metadata. Focused browser tests passed 20/20 and `bun typecheck` passed.
