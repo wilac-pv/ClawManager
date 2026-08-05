@@ -72,7 +72,7 @@ export function SubmissionList(props: SubmissionListProps) {
   return (
     <main class="submission-page space-page">
       <SpacePageHeader
-        eyebrow={props.target === "personal" ? "Private skills" : "Company publishing"}
+        eyebrow={props.target === "personal" ? "私有 Skill" : "公司投稿"}
         title={props.target === "personal" ? "个人 Skill" : "我的投稿"}
         description={
           props.target === "personal"

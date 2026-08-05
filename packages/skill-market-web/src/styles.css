@@ -16,8 +16,24 @@
   --skillhub-radius-md: 12px;
   --skillhub-radius-lg: 16px;
   --skillhub-shadow-card: 0 10px 30px rgba(32, 43, 56, 0.06);
-  --skillhub-font-sans: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --text-page: 2rem;
+  --text-section: 1.25rem;
+  --text-card: 1.0625rem;
+  --text-body: 0.875rem;
+  --text-small: 0.8125rem;
+  --leading-title: 1.25;
+  --leading-body: 1.65;
+  --weight-medium: 500;
+  --weight-semibold: 650;
+  --weight-bold: 700;
   background: var(--skillhub-bg);
+}
+
+html,
+body {
+  font-family: var(--font-ui);
 }
 
 html,
@@ -32,7 +48,6 @@ body {
   min-height: 100vh;
   background: var(--skillhub-bg);
   color: var(--skillhub-text);
-  font-family: var(--skillhub-font-sans);
 }
 
 *,
@@ -43,8 +58,18 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+}
+
+code,
+pre,
+kbd,
+samp,
+.machine-id,
+.hash {
+  font-family: var(--font-mono);
 }
 
 button,

@@ -29,7 +29,7 @@ export function MySpaceLayout(props: ParentProps) {
     <div class="my-space">
       <div class="my-space__header">
         <div>
-          <p>Personal workspace</p>
+          <p>个人空间</p>
           <strong>我的空间</strong>
         </div>
         <span>当前账号专属</span>

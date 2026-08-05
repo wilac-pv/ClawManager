@@ -18,7 +18,7 @@ export function AdminLayout(props: ParentProps) {
     <div class="admin-workspace">
       <div class="admin-workspace__header">
         <div>
-          <p>Ruying SkillHub administration</p>
+          <p>如影 SkillHub 管理</p>
           <strong>管理后台</strong>
         </div>
         <span>{current.admin() ? "管理员" : "审核员"}</span>

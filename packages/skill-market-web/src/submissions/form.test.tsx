@@ -10,6 +10,15 @@ import { SubmissionForm } from "./form"
 afterEach(() => cleanup())
 
 describe("submission form", () => {
+  test("uses Chinese context labels for submission sections", () => {
+    const fixture = renderForm(writer())
+
+    expect(fixture.view.container.textContent).not.toContain("Skill package")
+    expect(fixture.view.container.textContent).not.toContain("Publication scope")
+    expect(fixture.view.container.textContent).toContain("Skill 包")
+    expect(fixture.view.container.textContent).toContain("发布范围")
+  })
+
   test("exposes accessible fields and focuses a complete validation summary", async () => {
     const fixture = renderForm(writer())
 

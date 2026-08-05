@@ -128,7 +128,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
     <main class="submission-page submission-form-page">
       <header class="submission-page__heading">
         <div>
-          <p class="submission-page__eyebrow">Skill package</p>
+          <p class="submission-page__eyebrow">Skill 包</p>
           <h1>{mode() === "revision" ? "提交修订" : mode() === "version" ? "提交新版本" : "投稿 Skill"}</h1>
           <p>
             {fields.target === "personal"
@@ -151,7 +151,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
 
         <section class="submission-form__section submission-form__section--target">
           <div>
-            <span class="submission-targets__eyebrow">Publication scope</span>
+            <span class="submission-targets__eyebrow">发布范围</span>
             <h2>保存位置</h2>
             <p>选择 Skill 扫描通过后的可见范围，后续版本会沿用这个位置。</p>
           </div>

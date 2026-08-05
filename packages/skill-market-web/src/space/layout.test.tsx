@@ -18,6 +18,13 @@ describe("my space layout", () => {
     expect(view.queryByRole("banner")).toBeNull()
   })
 
+  test("uses Chinese context for the personal-space eyebrow", () => {
+    const view = renderLayout("/personal")
+
+    expect(view.container.textContent).not.toContain("Personal workspace")
+    expect(view.container.textContent).toContain("个人空间")
+  })
+
   test("marks group list and detail routes active", () => {
     const view = renderLayout("/groups/grp_aurora1")
     expect(view.getByRole("link", { name: "我的小组" }).getAttribute("aria-current")).toBe("page")

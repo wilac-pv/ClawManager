@@ -53,7 +53,7 @@ export function ExpertPackageList(props: { source: ExpertPackageSource }) {
   return (
     <main class="expert-packages">
       <header class="market-section-hero expert-packages__hero">
-        <span>EXPERT WORKFLOWS</span>
+        <span>专家工作流</span>
         <h1>专家包</h1>
         <p>
           快速发现专家能力组合，让 AI 从单点技能走向完整工作流

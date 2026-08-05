@@ -11,3 +11,11 @@ test("registers the SkillHub import and announcement admin routes", async () => 
     '<Route path="/admin/announcements" component={() => <AnnouncementAdministrationRoute source={control} />} />',
   )
 })
+
+test("defines shared typography tokens and form control inheritance", async () => {
+  const styles = await Bun.file(new URL("./styles.css", import.meta.url)).text()
+
+  expect(styles).toContain('--font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;')
+  expect(styles).toContain('--font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;')
+  expect(styles).toMatch(/button,\s*input,\s*select,\s*textarea[\s\S]*font: inherit/)
+})
