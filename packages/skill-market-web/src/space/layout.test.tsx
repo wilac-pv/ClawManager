@@ -6,23 +6,18 @@ import { MySpaceLayout } from "./layout"
 afterEach(() => cleanup())
 
 describe("my space layout", () => {
-  test("shows one space with personal, submission, and favorite sections", () => {
+  test("shows only the personal-space sections without a duplicate workspace header", () => {
     const view = renderLayout("/personal")
 
-    expect(view.getByText("我的空间")).toBeTruthy()
     expect(view.getByRole("link", { name: "个人 Skill" }).getAttribute("aria-current")).toBe("page")
     expect(view.getByRole("link", { name: "我的投稿" })).toBeTruthy()
     expect(view.getByRole("link", { name: "我的收藏" })).toBeTruthy()
     expect(view.getByRole("link", { name: "回收站" })).toBeTruthy()
     expect(view.getByRole("link", { name: "我的小组" })).toBeTruthy()
+    expect(view.queryByText("我的空间")).toBeNull()
+    expect(view.queryByText("个人空间")).toBeNull()
+    expect(view.queryByText("当前账号专属")).toBeNull()
     expect(view.queryByRole("banner")).toBeNull()
-  })
-
-  test("uses Chinese context for the personal-space eyebrow", () => {
-    const view = renderLayout("/personal")
-
-    expect(view.container.textContent).not.toContain("Personal workspace")
-    expect(view.container.textContent).toContain("个人空间")
   })
 
   test("marks group list and detail routes active", () => {

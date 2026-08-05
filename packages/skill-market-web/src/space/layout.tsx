@@ -27,13 +27,6 @@ export function MySpaceLayout(props: ParentProps) {
 
   return (
     <div class="my-space">
-      <div class="my-space__header">
-        <div>
-          <p>个人空间</p>
-          <strong>我的空间</strong>
-        </div>
-        <span>当前账号专属</span>
-      </div>
       <nav class="my-space__nav" aria-label="我的空间子菜单">
         <For each={links}>
           {(link) => (

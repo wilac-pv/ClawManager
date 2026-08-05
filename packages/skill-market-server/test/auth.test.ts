@@ -238,7 +238,7 @@ describe("SSO authentication", () => {
       port: 0,
       fetch: (request) =>
         new URL(request.url).pathname === "/authenticate/check_token"
-          ? Response.json({ key: "S_0000", result: { user_code: "E000001", user_name: "Test User" } })
+          ? Response.json({ key: "S_0000", result: { user_code: "e000001", user_name: "Test User" } })
           : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin)

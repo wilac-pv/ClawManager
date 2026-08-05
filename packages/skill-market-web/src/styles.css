@@ -1881,45 +1881,6 @@ a {
   min-height: calc(100vh - 64px);
 }
 
-.my-space__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  min-height: 76px;
-  padding: 0 max(24px, calc((100% - var(--skillhub-content-width)) / 2));
-  border-bottom: 1px solid #e4e8ee;
-  background: #fff;
-}
-
-.my-space__header > div {
-  display: grid;
-  gap: 3px;
-}
-
-.my-space__header p {
-  margin: 0;
-  color: var(--skillhub-muted);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.my-space__header strong {
-  color: #202b38;
-  font-size: 20px;
-}
-
-.my-space__header > span {
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: #eef7f2;
-  color: #23734b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .my-space__nav {
   display: flex;
   gap: 4px;

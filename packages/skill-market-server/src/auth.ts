@@ -186,7 +186,7 @@ async function verifyIdentity(options: AuthOptions, token: string) {
     throw identityFailure(options, "sso-rejected", "unauthenticated", "SSO token was rejected")
   if (!record(body.result))
     throw identityFailure(options, "sso-response", "dependency-unavailable", "SSO validation response is malformed")
-  const employeeID = typeof body.result.user_code === "string" ? body.result.user_code.trim() : ""
+  const employeeID = typeof body.result.user_code === "string" ? body.result.user_code.trim().toUpperCase() : ""
   const displayName = typeof body.result.user_name === "string" ? body.result.user_name.trim() : ""
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(employeeID) || displayName.length < 1 || displayName.length > 100)
     throw identityFailure(options, "sso-identity", "dependency-unavailable", "SSO identity is malformed")
