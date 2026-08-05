@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">如影 SkillHub</title>
+  <defs>
+    <linearGradient id="surface" x1="8" y1="6" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1677ff"/>
+      <stop offset="1" stop-color="#0b4fc7"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="16" y1="14" x2="49" y2="51" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#bde3ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="58" height="58" rx="17" fill="url(#surface)"/>
+  <path
+    d="M16 19c7-7 21-7 30 0 5 4 4 10-3 13-4 2-9 2-15 3-7 1-10 5-7 9 5 7 19 7 27-1"
+    fill="none"
+    stroke="url(#flow)"
+    stroke-width="5.5"
+    stroke-linecap="round"
+  />
+  <circle cx="16" cy="19" r="4.5" fill="#fff"/>
+  <circle cx="32" cy="34" r="5.5" fill="#73d5ff" stroke="#fff" stroke-width="2.5"/>
+  <circle cx="48" cy="43" r="4.5" fill="#fff"/>
+</svg>
