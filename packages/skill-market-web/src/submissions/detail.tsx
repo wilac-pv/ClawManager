@@ -406,7 +406,13 @@ function PromotionForm(props: {
       </fieldset>
       <Show when={target() === "groups"}>
         <div class="submission-promotion__groups">
-          <For each={groups.data?.managed.filter((group) => group.status === "active") ?? []}>
+          <For
+            each={
+              [...(groups.data?.managed ?? []), ...(groups.data?.joined ?? [])].filter(
+                (group) => group.status === "active",
+              )
+            }
+          >
             {(group) => <label><input type="checkbox" checked={groupIDs().includes(group.id)} onChange={(event) => setGroupIDs((current) => event.currentTarget.checked ? [...current, group.id] : current.filter((id) => id !== group.id))} />{group.name}</label>}
           </For>
         </div>

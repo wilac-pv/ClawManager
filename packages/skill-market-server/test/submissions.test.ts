@@ -572,7 +572,7 @@ describe("submission lifecycle", () => {
     fixture.database.close()
   })
 
-  test("captures trusted department and owned active group audiences", async () => {
+  test("captures trusted department and active group member audiences", async () => {
     const fixture = await submissionFixture()
     seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice", "bob"])
     seedGroup(fixture, "grp_atlas1234", "alice", "active", ["alice"])
@@ -609,16 +609,16 @@ describe("submission lifecycle", () => {
       submissions.completeValidation(validation(departmentUpload, department.submission.id, 1)).submission.status,
     ).toBe("pending_review")
 
-    await expectCode(
-      () =>
-        submissions.create(fixture.bob, {
-          ...upload("member-blocked", "1.0.0"),
-          idempotencyKey: "member-blocked",
-          target: "groups",
-          audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
-        }),
-      "forbidden",
-    )
+    const member = await submissions.create(fixture.bob, {
+      ...upload("member-share", "1.0.0"),
+      idempotencyKey: "member-share",
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+    })
+    expect(member.submission).toMatchObject({
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+    })
     await expectCode(
       () =>
         submissions.create(fixture.alice, {

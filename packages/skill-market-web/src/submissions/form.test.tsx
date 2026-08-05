@@ -103,7 +103,7 @@ describe("submission form", () => {
     expect(calls[0]?.target).toBe("personal")
   })
 
-  test("submits a reviewed multi-group audience from managed active groups", async () => {
+  test("submits a reviewed multi-group audience from joined and managed active groups", async () => {
     const calls: Array<Parameters<SubmissionWriter["create"]>[0]> = []
     const source = writer((input) => {
       calls.push(input)
@@ -130,8 +130,8 @@ describe("submission form", () => {
     fireEvent.click(fixture.getByRole("radio", { name: /指定小组/ }))
     fireEvent.click(await fixture.findByRole("checkbox", { name: "Project Aurora" }))
     fireEvent.click(fixture.getByRole("checkbox", { name: "Project Atlas" }))
+    fireEvent.click(fixture.getByRole("checkbox", { name: "Joined only" }))
     expect(fixture.queryByRole("checkbox", { name: "Disabled" })).toBeNull()
-    expect(fixture.queryByRole("checkbox", { name: "Joined only" })).toBeNull()
     fillMetadata(fixture)
     fireEvent.change(fixture.getByLabelText("Skill ZIP 包"), {
       target: { files: [new File(["zip"], "groups.zip", { type: "application/zip" })] },
@@ -141,7 +141,7 @@ describe("submission form", () => {
     await waitFor(() => expect(calls).toHaveLength(1))
     expect(calls[0]).toMatchObject({
       target: "groups",
-      audience: { scope: "groups", groupIDs: ["grp_aurora1", "grp_atlas01"] },
+      audience: { scope: "groups", groupIDs: ["grp_aurora1", "grp_atlas01", "grp_joined01"] },
     })
   })
 

@@ -73,7 +73,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
     void props.groups
       .list()
       .then((page) => {
-        setAvailableGroups(page.managed.filter((group) => group.status === "active"))
+        setAvailableGroups([...page.managed, ...page.joined].filter((group) => group.status === "active"))
         setGroupLoadState("loaded")
       })
       .catch(() => setGroupLoadState("error"))
@@ -203,7 +203,7 @@ export function SubmissionForm(props: SubmissionFormProps) {
                   <strong>指定小组</strong>
                   <small class="submission-target-card__badge submission-target-card__badge--review">人工审核</small>
                 </span>
-                <small>扫描后人工审核，可选择你管理的多个启用小组。</small>
+                <small>扫描后人工审核，可选择你管理或加入的多个启用小组。</small>
               </span>
               <input
                 class="submission-target-card__input"

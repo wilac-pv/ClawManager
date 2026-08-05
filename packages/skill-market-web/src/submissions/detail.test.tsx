@@ -95,6 +95,39 @@ describe("submission detail", () => {
     expect(calls[0]?.[2]).toMatch(/^[0-9a-f-]{36}$/)
   })
 
+  test("offers joined groups when sharing a personal Skill", async () => {
+    const calls: unknown[][] = []
+    const value = { ...detail("published"), target: "personal" as const }
+    const fixture = renderDetail(
+      value,
+      {
+        promote: (...input) => {
+          calls.push(input)
+          return Promise.resolve({ submission: value })
+        },
+      },
+      {
+        list: () =>
+          Promise.resolve({
+            managed: [],
+            joined: [group("grp_joined01", "Joined group")],
+          }),
+      },
+    )
+
+    fireEvent.click(await fixture.findByRole("button", { name: "发布给其他人" }))
+    fireEvent.click(fixture.getByRole("radio", { name: /指定小组/ }))
+    fireEvent.click(await fixture.findByRole("checkbox", { name: "Joined group" }))
+    fireEvent.click(fixture.getByRole("button", { name: "提交审核" }))
+
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0]?.[1]).toEqual({
+      expectedVersion: 3,
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_joined01"] },
+    })
+  })
+
   test("polls only working states and stops after the bounded request count", () => {
     expect(submissionPollInterval("validating", 1)).toBe(2_000)
     expect(submissionPollInterval("publishing", 19)).toBe(2_000)
@@ -144,7 +177,11 @@ describe("submission detail", () => {
   })
 })
 
-function renderDetail(value: SkillMarketControl.SubmissionDetail, overrides: Partial<SubmissionDetailSource> = {}) {
+function renderDetail(
+  value: SkillMarketControl.SubmissionDetail,
+  overrides: Partial<SubmissionDetailSource> = {},
+  groups?: Parameters<typeof SubmissionDetail>[0]["groups"],
+) {
   const source: SubmissionDetailSource = {
     detail: () => Promise.resolve(value),
     create: () => Promise.resolve({ submission: value }),
@@ -161,10 +198,22 @@ function renderDetail(value: SkillMarketControl.SubmissionDetail, overrides: Par
   return render(() => (
     <QueryClientProvider client={client}>
       <MemoryRouter history={history}>
-        <Route path="*" component={() => <SubmissionDetail submissionID={value.id} source={source} department={{ id: "dep_platform", name: "Platform" }} />} />
+        <Route path="*" component={() => <SubmissionDetail submissionID={value.id} source={source} groups={groups} department={{ id: "dep_platform", name: "Platform" }} />} />
       </MemoryRouter>
     </QueryClientProvider>
   ))
+}
+
+function group(id: SkillMarketControl.GroupID, name: string): SkillMarketControl.MarketGroup {
+  return {
+    id,
+    name,
+    ownerEmployeeID: "E000002",
+    status: "active",
+    version: 1,
+    createdAt: "2026-07-16T00:00:00.000Z",
+    updatedAt: "2026-07-16T00:00:00.000Z",
+  }
 }
 
 function detail(status: SkillMarketControl.SubmissionStatus): SkillMarketControl.SubmissionDetail {

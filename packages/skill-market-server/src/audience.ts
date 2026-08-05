@@ -55,13 +55,24 @@ export function requireAudienceTarget(
     )
     .all(...groupIDs)
   const groups = new Map(rows.map((row) => [row.id, row]))
+  const memberships = new Set(
+    connection
+      .query<{ group_id: string }, string[]>(
+        `SELECT group_id FROM market_group_members
+         WHERE employee_id = ? AND group_id IN (${groupIDs.map(() => "?").join(", ")})`,
+      )
+      .all(principal.session.user.employeeID, ...groupIDs)
+      .map((row) => row.group_id),
+  )
   if (
     groupIDs.some((groupID) => {
       const group = groups.get(groupID)
       return (
         !group ||
         group.status !== "active" ||
-        (group.owner_employee_id !== principal.session.user.employeeID && !principal.session.roles.includes("admin"))
+        (group.owner_employee_id !== principal.session.user.employeeID &&
+          !memberships.has(groupID) &&
+          !principal.session.roles.includes("admin"))
       )
     })
   )
