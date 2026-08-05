@@ -455,6 +455,41 @@ describe("submission moderation", () => {
         >("SELECT group_id FROM submission_group_targets WHERE submission_id = ? ORDER BY group_id")
         .all(groups),
     ).toEqual([{ group_id: "grp_atlas1234" }, { group_id: "grp_aurora123" }])
+    expect(
+      fixture.database.connection
+        .query<
+          {
+            approved_package_key: string | null
+            approved_package_sha256: string | null
+            approved_package_size: number | null
+            approved_metadata_json: string | null
+          },
+          [string]
+        >(
+          `SELECT approved_package_key, approved_package_sha256, approved_package_size, approved_metadata_json
+           FROM reviews WHERE submission_id = ? AND decision = 'approve'`,
+        )
+        .get(groups),
+    ).toEqual(
+      fixture.database.connection
+        .query<
+          {
+            approved_package_key: string
+            approved_package_sha256: string
+            approved_package_size: number
+            approved_metadata_json: string
+          },
+          [string]
+        >(
+          `SELECT
+            private_package_key AS approved_package_key,
+            package_sha256 AS approved_package_sha256,
+            package_size AS approved_package_size,
+            metadata_json AS approved_metadata_json
+           FROM submission_revisions WHERE submission_id = ? AND revision_number = 1`,
+        )
+        .get(groups),
+    )
     expect(jobCount(fixture, "publish", "pending", groups)).toBe(1)
 
     fixture.database.close()

@@ -25,6 +25,10 @@ interface SubmissionRow {
   readonly current_revision: number
   readonly version: number
   readonly scan_json: string | null
+  readonly private_package_key: string
+  readonly package_sha256: string
+  readonly package_size: number
+  readonly metadata_json: string
 }
 
 interface RoleRow {
@@ -185,7 +189,11 @@ export class Moderation {
             submissions.status,
             submissions.current_revision,
             submissions.version,
-            submission_revisions.scan_json
+            submission_revisions.scan_json,
+            submission_revisions.private_package_key,
+            submission_revisions.package_sha256,
+            submission_revisions.package_size,
+            submission_revisions.metadata_json
            FROM submissions
            INNER JOIN submission_revisions
              ON submission_revisions.submission_id = submissions.id
@@ -217,8 +225,9 @@ export class Moderation {
 
       connection.run(
         `INSERT INTO reviews
-          (id, submission_id, revision_number, reviewer_employee_id, decision, comment, accepted_risk_summary, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, submission_id, revision_number, reviewer_employee_id, decision, comment, accepted_risk_summary,
+           approved_package_key, approved_package_sha256, approved_package_size, approved_metadata_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           `rev_${randomSecret()}`,
           submissionID,
@@ -227,6 +236,10 @@ export class Moderation {
           decoded.value.decision,
           decoded.value.comment ?? null,
           decoded.value.acceptedRiskSummary ?? null,
+          decoded.value.decision === "approve" ? submission.private_package_key : null,
+          decoded.value.decision === "approve" ? submission.package_sha256 : null,
+          decoded.value.decision === "approve" ? submission.package_size : null,
+          decoded.value.decision === "approve" ? submission.metadata_json : null,
           now,
         ],
       )

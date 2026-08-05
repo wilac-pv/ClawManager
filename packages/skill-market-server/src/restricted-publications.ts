@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import { Schema } from "effect"
+import { Option, Schema } from "effect"
 import { randomSecret } from "./security"
 
 interface RestrictedSubmissionRow {
@@ -127,6 +127,7 @@ export function publishRestrictedSubmission(connection: Database, submissionID: 
   )
     throw new Error("restricted submission revision is not verified")
   requireApprovedRevision(connection, submission.id, submission.current_revision)
+  if (!submission.source_publication_id) requireApprovedArtifact(connection, submission)
   requireAudienceChangeArtifact(connection, submission.id)
   if (submission.private_package_key.includes("://"))
     throw new Error("restricted submission package must remain in private storage")
@@ -363,4 +364,38 @@ function requireApprovedRevision(connection: Database, submissionID: string, rev
     )
     .get(submissionID, revision)!.count
   if (approved < 1) throw new Error("restricted submission is not approved")
+}
+
+function requireApprovedArtifact(connection: Database, submission: RestrictedSubmissionRow) {
+  const approved = connection
+    .query<{ count: number }, [string, number, string, string, number, string]>(
+      `SELECT count(*) AS count FROM reviews
+       WHERE submission_id = ? AND revision_number = ? AND decision = 'approve'
+         AND approved_package_key = ?
+         AND approved_package_sha256 = ?
+         AND approved_package_size = ?
+         AND approved_metadata_json = ?`,
+    )
+    .get(
+      submission.id,
+      submission.current_revision,
+      submission.private_package_key,
+      submission.package_sha256,
+      submission.package_size,
+      submission.metadata_json,
+    )!.count
+  if (approved < 1) throw new Error("restricted submission approved artifact identity no longer matches")
+
+  const json = submission.manifest_json
+    ? Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(submission.manifest_json)
+    : Option.none()
+  const manifest = Option.isSome(json)
+    ? Schema.decodeUnknownOption(SkillMarketControl.Manifest)(json.value)
+    : Option.none()
+  if (
+    Option.isNone(manifest) ||
+    manifest.value.packageSha256 !== submission.package_sha256 ||
+    manifest.value.packageSize !== submission.package_size
+  )
+    throw new Error("restricted submission validated manifest no longer matches")
 }

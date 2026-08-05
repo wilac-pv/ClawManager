@@ -538,6 +538,78 @@ describe("submission lifecycle", () => {
     fixture.database.close()
   })
 
+  test("requires an audience change instead of a duplicate restricted upload", async () => {
+    const fixture = await submissionFixture()
+    seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice"])
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const uploaded = upload("live-restricted-upload", "1.0.0")
+    const source = await submissions.create(fixture.alice, {
+      ...uploaded,
+      idempotencyKey: "live-restricted-source",
+      target: "groups",
+      audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+    })
+    submissions.completeValidation(validation(uploaded, source.submission.id, 1))
+    seedRestrictedPublication(fixture, source.submission.id, "pub_liveupload1")
+    const duplicate = {
+      ...upload("live-restricted-upload", "1.0.0", "duplicate"),
+      idempotencyKey: "live-restricted-duplicate",
+      target: "department" as const,
+      audience: { scope: "department" as const },
+    }
+
+    await expectCode(
+      () => submissions.create(fixture.alice, duplicate),
+      "submission-conflict",
+      "published restricted Skill version must use audience change",
+    )
+    fixture.database.connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = ?", [
+      "pub_liveupload1",
+    ])
+    expect((await submissions.create(fixture.alice, duplicate)).submission).toMatchObject({
+      target: "department",
+      status: "validating",
+    })
+
+    fixture.database.close()
+  })
+
+  test("requires an audience change instead of promoting over a live restricted version", async () => {
+    const fixture = await submissionFixture()
+    seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice"])
+    const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
+    const restrictedUpload = upload("live-restricted-promotion", "1.0.0")
+    const restricted = await submissions.create(fixture.alice, {
+      ...restrictedUpload,
+      idempotencyKey: "live-restricted-promotion-source",
+      target: "department",
+      audience: { scope: "department" },
+    })
+    submissions.completeValidation(validation(restrictedUpload, restricted.submission.id, 1))
+    seedRestrictedPublication(fixture, restricted.submission.id, "pub_livepromote1")
+    const personalUpload = upload("live-restricted-promotion", "1.0.0", "personal")
+    const personal = await submissions.create(fixture.alice, {
+      ...personalUpload,
+      idempotencyKey: "live-restricted-personal-source",
+      target: "personal",
+    })
+    const ready = submissions.completeValidation(validation(personalUpload, personal.submission.id, 1))
+
+    await expectCode(
+      () =>
+        submissions.promote(fixture.alice, personal.submission.id, {
+          idempotencyKey: "live-restricted-promotion-duplicate",
+          expectedVersion: ready.submission.version,
+          target: "groups",
+          audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
+        }),
+      "submission-conflict",
+      "published restricted Skill version must use audience change",
+    )
+
+    fixture.database.close()
+  })
+
   test("versions audience changes without mutating the reviewed source snapshot", async () => {
     const fixture = await submissionFixture()
     seedGroup(fixture, "grp_aurora123", "alice", "active", ["alice"])
@@ -591,19 +663,57 @@ describe("submission lifecycle", () => {
     })
     submissions.completeValidation(validation(racedUpload, racedSource.submission.id, 1))
     seedRestrictedPublication(fixture, racedSource.submission.id, "pub_audiencerace")
-    await submissions.changeAudience(fixture.alice, racedSource.submission.id, {
-      idempotencyKey: "audience-race-personal",
-      expectedVersion: 3,
-      target: "personal",
-    })
-    await expect(
-      submissions.changeAudience(fixture.alice, racedSource.submission.id, {
-        idempotencyKey: "audience-race-department",
-        expectedVersion: 3,
-        target: "department",
-        audience: { scope: "department" },
-      }),
-    ).rejects.toThrow("audience change is already active")
+    const barrier = join(fixture.directory, "audience-change-barrier")
+    const worker = join(import.meta.dir, "audience-change-race-worker.ts")
+    const personal = Bun.spawn(
+      [
+        process.execPath,
+        worker,
+        fixture.databasePath,
+        racedSource.submission.id,
+        "3",
+        "personal",
+        "audience-race-personal",
+        barrier,
+      ],
+      { stdout: "pipe" },
+    )
+    const department = Bun.spawn(
+      [
+        process.execPath,
+        worker,
+        fixture.databasePath,
+        racedSource.submission.id,
+        "3",
+        "department",
+        "audience-race-department",
+        barrier,
+      ],
+      { stdout: "pipe" },
+    )
+    await Bun.write(barrier, "go")
+    const [personalResult, departmentResult, personalExit, departmentExit] = await Promise.all([
+      new Response(personal.stdout).json() as Promise<{ status: string; code?: string }>,
+      new Response(department.stdout).json() as Promise<{ status: string; code?: string }>,
+      personal.exited,
+      department.exited,
+    ])
+
+    expect([personalExit, departmentExit]).toEqual([0, 0])
+    expect([personalResult, departmentResult].filter((result) => result.status === "fulfilled")).toHaveLength(1)
+    expect([personalResult, departmentResult].filter((result) => result.code === "submission-conflict")).toHaveLength(1)
+    expect(
+      fixture.database.connection
+        .query<
+          { count: number },
+          [string]
+        >(
+          `SELECT count(*) AS count FROM submissions
+           WHERE source_publication_id = ?
+             AND status IN ('validating', 'validation_failed', 'pending_review', 'changes_requested', 'publishing', 'publish_failed')`,
+        )
+        .get("pub_audiencerace")!.count,
+    ).toBe(1)
 
     fixture.database.close()
   })
@@ -691,8 +801,9 @@ describe("submission lifecycle", () => {
 async function submissionFixture() {
   const directory = await mkdtemp(join(tmpdir(), "ruying-skill-market-submissions-"))
   directories.push(directory)
+  const databasePath = join(directory, "market.db")
   const database = await openDatabase({
-    databasePath: join(directory, "market.db"),
+    databasePath,
     migrationBackupDirectory: join(directory, "backups"),
   })
   const clock = { value: Date.parse("2026-07-15T00:00:00.000Z") }
@@ -719,6 +830,8 @@ async function submissionFixture() {
   })
   return {
     database,
+    databasePath,
+    directory,
     clock,
     alice: principal("alice", { id: "engineering", name: "Engineering" }),
     bob: principal("bob", { id: "design", name: "Design" }),
@@ -907,7 +1020,7 @@ function rowCount(fixture: Awaited<ReturnType<typeof submissionFixture>>, table:
   return fixture.database.connection.query<{ count: number }, []>(`SELECT count(*) AS count FROM ${table}`).get()!.count
 }
 
-async function expectCode(operation: () => unknown, code: SkillMarketControl.ProblemCode) {
+async function expectCode(operation: () => unknown, code: SkillMarketControl.ProblemCode, message?: string) {
   const error = await Promise.resolve()
     .then(operation)
     .then(
@@ -917,4 +1030,5 @@ async function expectCode(operation: () => unknown, code: SkillMarketControl.Pro
   expect(error).toBeInstanceOf(SkillMarketSecurityError)
   if (!(error instanceof SkillMarketSecurityError)) throw error
   expect(error.code).toBe(code)
+  if (message) expect(error.message).toBe(message)
 }

@@ -661,7 +661,14 @@ export class Submissions {
       requireVerifiedSharingSource(source)
       requireAudienceChangeAllowance(connection, source.publication_id)
       const audience = requireAudienceTarget(connection, principal, decoded.value.target, decoded.value.audience)
-      requireOwnershipAndVersion(connection, principal, decoded.value.target, source.skill_id, source.target_version)
+      requireOwnershipAndVersion(
+        connection,
+        principal,
+        decoded.value.target,
+        source.skill_id,
+        source.target_version,
+        source.publication_id,
+      )
       if (decoded.value.target === "company")
         reserveCommunitySkill(connection, source.skill_id, source.owner_employee_id, now)
 
@@ -1006,6 +1013,7 @@ function requireOwnershipAndVersion(
   target: SkillMarketControl.PublicationTarget,
   skillID: string,
   targetVersion: string,
+  sourcePublicationID?: string,
 ) {
   if (target === "personal") {
     const prior = connection
@@ -1028,6 +1036,30 @@ function requireOwnershipAndVersion(
     .get(skillID)
   if (community && community.owner_employee_id !== principal.session.user.employeeID)
     throw new SkillMarketSecurityError("skill-owned-by-another-user", "Skill ID belongs to another employee")
+  const liveRestricted =
+    target === "groups" || target === "department"
+      ? connection
+          .query<
+            { count: number },
+            [string, string, string, string | null, string | null]
+          >(
+            `SELECT count(*) AS count FROM restricted_publications
+             WHERE owner_employee_id = ? AND skill_id = ? AND version = ? AND status = 'published'
+               AND (? IS NULL OR id != ?)`,
+          )
+          .get(
+            principal.session.user.employeeID,
+            skillID,
+            targetVersion,
+            sourcePublicationID ?? null,
+            sourcePublicationID ?? null,
+          )!.count
+      : 0
+  if (liveRestricted > 0)
+    throw new SkillMarketSecurityError(
+      "submission-conflict",
+      "published restricted Skill version must use audience change",
+    )
   const active = connection
     .query<{ count: number }, [string, string]>(
       `SELECT count(*) AS count FROM submissions

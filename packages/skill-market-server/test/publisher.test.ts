@@ -1102,6 +1102,61 @@ describe("community publisher", () => {
     fixture.database.close()
   })
 
+  ;[
+    {
+      name: "private package key",
+      update: `UPDATE submission_revisions
+        SET private_package_key = 'private/tampered/package.zip'
+        WHERE submission_id = 'sub_publish_12345678'`,
+      error: "restricted submission approved artifact identity no longer matches",
+    },
+    {
+      name: "package hash",
+      update: `UPDATE submission_revisions
+        SET package_sha256 = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+        WHERE submission_id = 'sub_publish_12345678'`,
+      error: "restricted submission approved artifact identity no longer matches",
+    },
+    {
+      name: "package size",
+      update: `UPDATE submission_revisions
+        SET package_size = package_size + 1
+        WHERE submission_id = 'sub_publish_12345678'`,
+      error: "restricted submission approved artifact identity no longer matches",
+    },
+    {
+      name: "metadata",
+      update: `UPDATE submission_revisions
+        SET metadata_json = json_set(metadata_json, '$.displayName', 'Tampered')
+        WHERE submission_id = 'sub_publish_12345678'`,
+      error: "restricted submission approved artifact identity no longer matches",
+    },
+    {
+      name: "validated manifest identity",
+      update: `UPDATE submission_revisions
+        SET manifest_json = json_set(manifest_json, '$.packageSize', package_size + 1)
+        WHERE submission_id = 'sub_publish_12345678'`,
+      error: "restricted submission validated manifest no longer matches",
+    },
+  ].forEach((mutation) =>
+    test(`rejects source-less restricted publication after approved ${mutation.name} tampering`, async () => {
+      const fixture = await publisherFixture("groups")
+      const publisher = createPublisher(publisherOptions(fixture))
+      fixture.database.connection.run(mutation.update)
+
+      const failure = await rejected(publisher.runOne(`worker-tampered-${mutation.name.replaceAll(" ", "-")}`))
+
+      expect(String(failure)).toContain(mutation.error)
+      expect(String(failure)).not.toContain("private/")
+      expect(
+        fixture.database.connection
+          .query<{ count: number }, []>("SELECT count(*) AS count FROM restricted_publications")
+          .get()?.count,
+      ).toBe(0)
+      fixture.database.close()
+    }),
+  )
+
   test("keeps the reviewed artifact immutable when changing to a personal audience", async () => {
     const fixture = await publisherFixture("groups")
     const publisher = createPublisher(publisherOptions(fixture))
@@ -1381,9 +1436,11 @@ async function publisherFixture(target: "company" | "groups" = "company") {
     )
     connection.run(
       `INSERT INTO reviews
-        (id, submission_id, revision_number, reviewer_employee_id, decision, created_at)
-       VALUES ('review_publish_12345678', 'sub_publish_12345678', 1, 'E123456', 'approve', ?)`,
-      [clock.value],
+        (id, submission_id, revision_number, reviewer_employee_id, decision, approved_package_key,
+         approved_package_sha256, approved_package_size, approved_metadata_json, created_at)
+       VALUES ('review_publish_12345678', 'sub_publish_12345678', 1, 'E123456', 'approve',
+               'private/sub_publish_12345678/package.zip', ?, ?, ?, ?)`,
+      [validation.manifest.packageSha256, archive.byteLength, JSON.stringify(metadata), clock.value],
     )
     if (target === "company")
       connection.run(

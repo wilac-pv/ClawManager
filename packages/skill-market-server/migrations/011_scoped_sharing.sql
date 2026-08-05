@@ -86,6 +86,9 @@ CREATE INDEX restricted_publications_owner
 CREATE INDEX restricted_publications_department
   ON restricted_publications(department_id, status, updated_at DESC, id)
   WHERE department_id IS NOT NULL;
+CREATE UNIQUE INDEX restricted_publications_live_owner_skill_version
+  ON restricted_publications(owner_employee_id, skill_id, version)
+  WHERE status = 'published';
 
 CREATE TABLE restricted_publication_groups (
   publication_id TEXT NOT NULL REFERENCES restricted_publications(id) ON DELETE CASCADE,
@@ -97,6 +100,14 @@ CREATE INDEX restricted_publication_groups_group
   ON restricted_publication_groups(group_id, publication_id);
 
 ALTER TABLE submissions ADD COLUMN source_publication_id TEXT REFERENCES restricted_publications(id);
+
+ALTER TABLE reviews ADD COLUMN approved_package_key TEXT;
+ALTER TABLE reviews ADD COLUMN approved_package_sha256 TEXT
+  CHECK (approved_package_sha256 IS NULL OR length(approved_package_sha256) = 64);
+ALTER TABLE reviews ADD COLUMN approved_package_size INTEGER
+  CHECK (approved_package_size IS NULL OR approved_package_size > 0);
+ALTER TABLE reviews ADD COLUMN approved_metadata_json TEXT
+  CHECK (approved_metadata_json IS NULL OR json_valid(approved_metadata_json));
 
 CREATE UNIQUE INDEX submissions_active_audience_change_source
   ON submissions(source_publication_id)

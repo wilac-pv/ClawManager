@@ -32,6 +32,19 @@ describe("control-plane database", () => {
         .all()
         .map((column) => column.name),
     ).toContain("private_icon_json")
+    expect(
+      database.connection
+        .query<{ name: string }, []>("PRAGMA table_info(reviews)")
+        .all()
+        .map((column) => column.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "approved_package_key",
+        "approved_package_sha256",
+        "approved_package_size",
+        "approved_metadata_json",
+      ]),
+    )
 
     const tables = database.connection
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
@@ -88,6 +101,7 @@ describe("control-plane database", () => {
     expect(indexes).toContain("market_group_members_employee")
     expect(indexes).toContain("restricted_publications_owner")
     expect(indexes).toContain("restricted_publications_department")
+    expect(indexes).toContain("restricted_publications_live_owner_skill_version")
     expect(indexes).toContain("restricted_publication_groups_group")
     expect(indexes).toContain("submissions_active_audience_change_source")
 
@@ -183,6 +197,28 @@ describe("control-plane database", () => {
     database.connection.run(
       "INSERT INTO restricted_publication_groups (publication_id, group_id) VALUES ('pub_abcdefgh', 'grp_abcdefgh')",
     )
+    database.connection.run(
+      `INSERT INTO submissions
+        (id, skill_id, owner_employee_id, target_version, target_scope,
+         status, current_revision, version, created_at, updated_at)
+       VALUES ('sub_scopeddup1', 'scoped-skill', 'E000001', '1.0.0', 'groups',
+               'published', 1, 1, 1, 1)`,
+    )
+    const insertDuplicateRestrictedPublication = () =>
+      database.connection.run(
+        `INSERT INTO restricted_publications
+          (id, submission_id, skill_id, owner_employee_id, version, scope, package_key, package_sha256,
+           package_size, metadata_json, status, row_version, created_at, updated_at)
+         VALUES ('pub_duplicate1', 'sub_scopeddup1', 'scoped-skill', 'E000001', '1.0.0', 'groups',
+                 'private/sub_scopeddup1/package.zip', ?, 100, '{}', 'published', 1, 1, 1)`,
+        ["a".repeat(64)],
+      )
+    expect(insertDuplicateRestrictedPublication).toThrow()
+    database.connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = 'pub_abcdefgh'")
+    insertDuplicateRestrictedPublication()
+    expect(() =>
+      database.connection.run("UPDATE restricted_publications SET status = 'published' WHERE id = 'pub_abcdefgh'"),
+    ).toThrow()
     database.connection.run(
       `INSERT INTO submissions
         (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
