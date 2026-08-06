@@ -289,40 +289,31 @@
   max-width: 100%;
   min-height: 140px;
   padding: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.08),
-    0 1px 2px rgba(0, 0, 0, 0.04),
-    inset 0 1px rgba(255, 255, 255, 0.9),
-    inset 0 -1px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  background: #ffffff;
   color: var(--market-text);
   text-align: left;
   cursor: pointer;
   gap: 16px;
   transition:
-    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .ruying-skill-market__card:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.12),
-    0 2px 4px rgba(0, 0, 0, 0.06),
-    inset 0 1px rgba(255, 255, 255, 0.9),
-    inset 0 -1px rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
 }
 
 .ruying-skill-market__card[data-view="card"] {
   align-items: flex-start;
   flex-direction: column;
-  height: 240px;
-  padding: 22px;
-  gap: 14px;
+  height: 182px;
+  padding: 24px 20px;
+  gap: 10px;
 }
 
 .ruying-skill-market__card[data-view="list"] {
@@ -471,7 +462,7 @@
 }
 
 .ruying-skill-market__card[data-view="card"] .ruying-skill-market__card-body p {
-  margin-bottom: 18px;
+  margin-bottom: 8px;
   -webkit-line-clamp: 2;
 }
 
@@ -556,7 +547,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .ruying-skill-market__tag {
