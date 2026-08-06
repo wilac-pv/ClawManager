@@ -542,12 +542,13 @@
   line-height: 1;
 }
 
-/* 分类/API Key 标签容器 */
+/* 分类/API Key 标签容器 — 缩进到标题位置(图标48px + gap 12px) */
 .ruying-skill-market__card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 2px;
+  margin-left: 60px;
 }
 
 .ruying-skill-market__tag {
