@@ -341,34 +341,36 @@ function SkillCard(props: {
         aria-label={`${props.item.name}，${props.item.description}`}
         onClick={() => props.onOpen(key())}
       />
-      <div class="ruying-skill-market__icon">
-        <Show
-          when={props.item.iconUrl && !state.iconFailed ? props.item.iconUrl : undefined}
-          fallback={
-            <span aria-label={`${props.item.name} 默认图标`}>
-              {props.item.name.trim().charAt(0).toUpperCase() || "S"}
-            </span>
-          }
-        >
-          {(url) => (
-            <img
-              src={url()}
-              alt={`${props.item.name} 图标`}
-              loading="lazy"
-              onError={() => setState("iconFailed", true)}
-            />
-          )}
-        </Show>
-      </div>
       <div class="ruying-skill-market__card-body">
-        <div class="ruying-skill-market__card-title">
-          <strong>{props.item.name}</strong>
-          <Show when={props.item.featured}>
-            <span class="ruying-skill-market__verified" aria-label="官方推荐">✓</span>
-          </Show>
-          <Show when={props.item.installedVersion}>
-            <span class="ruying-skill-market__installed-state">{props.item.updateAvailable ? "可更新" : "已安装"}</span>
-          </Show>
+        <div class="ruying-skill-market__card-top">
+          <div class="ruying-skill-market__icon">
+            <Show
+              when={props.item.iconUrl && !state.iconFailed ? props.item.iconUrl : undefined}
+              fallback={
+                <span aria-label={`${props.item.name} 默认图标`}>
+                  {props.item.name.trim().charAt(0).toUpperCase() || "S"}
+                </span>
+              }
+            >
+              {(url) => (
+                <img
+                  src={url()}
+                  alt={`${props.item.name} 图标`}
+                  loading="lazy"
+                  onError={() => setState("iconFailed", true)}
+                />
+              )}
+            </Show>
+          </div>
+          <div class="ruying-skill-market__card-title">
+            <strong>{props.item.name}</strong>
+            <Show when={props.item.featured}>
+              <span class="ruying-skill-market__verified" aria-label="官方推荐">✓</span>
+            </Show>
+            <Show when={props.item.installedVersion}>
+              <span class="ruying-skill-market__installed-state">{props.item.updateAvailable ? "可更新" : "已安装"}</span>
+            </Show>
+          </div>
         </div>
         <div class="ruying-skill-market__card-tags">
           <Show when={props.item.categories?.[0]}>

@@ -422,12 +422,23 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  height: 100%;
+}
+
+/* 图标+标题同行(对齐腾讯官网卡片) */
+.ruying-skill-market__card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
 }
 
 .ruying-skill-market__card-title {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  flex: 1;
 }
 
 .ruying-skill-market__card-title strong {
@@ -442,10 +453,10 @@
 }
 
 .ruying-skill-market__card[data-view="card"] .ruying-skill-market__card-title strong {
-  display: -webkit-box;
-  white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ruying-skill-market__card-body p {
