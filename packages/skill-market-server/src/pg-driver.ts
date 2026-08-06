@@ -52,6 +52,13 @@ function rewrite(sql: string, params: readonly unknown[]): { text: string; value
  */
 function translateSqliteToPg(sql: string): string {
   let out = sql
+  // COALESCE(json_extract(col, '$.path'), <number>) — json_extract 返回的值用于数值比较,
+  // 翻译后加 ::bigint 转型让 COALESCE 类型匹配(PG 不允许 text 和 int 混用)。
+  out = out.replace(
+    /COALESCE\(json_extract\(([^,()]+(?:\([^)]*\))?[^,]*),\s*'\$\.([^']+)'\),\s*(-?\d+)\)/g,
+    (_, col, path, fallback) =>
+      `COALESCE(((${col})::jsonb->>'${path}')::bigint, ${fallback})`,
+  )
   // json_extract(col, '$.path') → (col)::jsonb->>'path';嵌套路径 $.a.b → (col)::jsonb#>>'{a,b}'
   // 加 ::jsonb 转型因为 PG 迁移把 JSON 列建成了 text(未用 jsonb 类型)
   out = out.replace(/json_extract\(([^,()]+(?:\([^)]*\))?[^,]*),\s*'\$(?:\.([^']+))'\)/g, (_, col, path) => {
