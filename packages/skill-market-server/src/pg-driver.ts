@@ -46,10 +46,72 @@ function rewrite(sql: string, params: readonly unknown[]): { text: string; value
  * - json_group_array(x)             → json_agg(x)
  * - json_set(col, '$.path', val)    → jsonb_set(col::jsonb, '{path}', val::jsonb)
  * - rowid                           → ctid(近似;PG 无直接等价,用 ctid 做排序近似)
+ * - ($n IS NULL OR col OP $n)       → 加显式类型 cast(详见下方注释)
  *
  * 注意: 这是尽力而为的转换。复杂 JSON 操作可能需要模块层调整,
  * 但覆盖了现有代码库的全部用法。
  */
+/**
+ * 把 SQL 文本中所有 `oldName(...)` 调用替换为 `newName(...)::text`,
+ * 用平衡括号扫描定位闭合,正确处理嵌套子查询。
+ * 用于 json_group_array → json_agg(...)::text 这种需要包裹整体结果的场景。
+ */
+function wrapFunctionCall(sql: string, oldName: string, newName: string): string {
+  const needle = oldName + "("
+  let out = ""
+  let i = 0
+  while (i < sql.length) {
+    const idx = findFunctionCall(sql, needle, i)
+    if (idx < 0) {
+      out += sql.slice(i)
+      break
+    }
+    out += sql.slice(i, idx) + newName + "("
+    const close = findMatchingParen(sql, idx + needle.length - 1)
+    if (close < 0) {
+      out += sql.slice(idx + needle.length)
+      break
+    }
+    out += sql.slice(idx + needle.length, close) + ")::text"
+    i = close + 1
+  }
+  return out
+}
+
+/** 从 from 位置开始查找下一个完整函数调用 `needle`(前面非标识符字符),返回 needle 起始位置。 */
+function findFunctionCall(sql: string, needle: string, from: number): number {
+  let start = from
+  while (true) {
+    const idx = sql.indexOf(needle, start)
+    if (idx < 0) return -1
+    if (idx === 0 || !/[a-zA-Z0-9_]/.test(sql[idx - 1])) return idx
+    start = idx + 1
+  }
+}
+
+/** 给定 sql 中某个 `(` 的位置(openIdx),返回对应 `)` 的位置;不匹配返回 -1。 */
+function findMatchingParen(sql: string, openIdx: number): number {
+  let depth = 0
+  let inQuote: string | null = null
+  for (let i = openIdx; i < sql.length; i++) {
+    const ch = sql[i]
+    if (inQuote) {
+      if (ch === inQuote && sql[i - 1] !== "\\") inQuote = null
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      inQuote = ch
+      continue
+    }
+    if (ch === "(") depth++
+    else if (ch === ")") {
+      depth--
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
 function translateSqliteToPg(sql: string): string {
   let out = sql
   // COALESCE(json_extract(col, '$.path'), <number>) — json_extract 返回的值用于数值比较,
@@ -66,8 +128,13 @@ function translateSqliteToPg(sql: string): string {
     if (parts.length === 1) return `(${col})::jsonb->>'${parts[0]}'`
     return `(${col})::jsonb#>>'{${parts.join(",")}}'`
   })
-  // json_group_array(x) → json_agg(x)
-  out = out.replace(/json_group_array\(/g, "json_agg(")
+  // json_group_array(x) → json_agg(x)::text
+  // 加 ::text 是因为代码层用 UnknownFromJsonString 把结果当 JSON 字符串解析。
+  // SQLite 的 json_group_array 返回文本 '["a","b"]',PG 的 json_agg 返回原生 json 类型,
+  // postgres.js 会把 json 自动解析成 JS 数组/对象,导致 UnknownFromJsonString(期望字符串)报错。
+  // ::text 让 PG 返回 JSON 字符串文本,保持与 SQLite 一致的字符串契约。
+  // 用平衡括号扫描定位闭合,正确处理嵌套子查询(如 json_group_array(SELECT ...))。
+  out = wrapFunctionCall(out, "json_group_array", "json_agg")
   // json_set(col, '$.path', val) → jsonb_set(col::jsonb, '{path}', val::jsonb)::text
   // 第一个参数可能是含括号/逗号的表达式(如 COALESCE),用非贪婪匹配到 ',$.path'
   out = out.replace(
@@ -77,6 +144,24 @@ function translateSqliteToPg(sql: string): string {
   // rowid(作为 ORDER BY 的次级排序键)→ ctid
   // 注意: ctid 在 PG 里是物理位置,语义不完全等同 rowid,但作为排序 tiebreaker 够用
   out = out.replace(/\browid\b/g, "ctid")
+
+  // PG 参数类型推断修复: 代码里大量使用 `(? IS NULL OR col = ?)` 模式做可选过滤,
+  // SQLite 不在意,但 PG 在参数传 null 且仅出现在 IS NULL 语境时无法推断类型,
+  // 报 "could not determine data type of parameter $n"。
+  //
+  // 修复策略:
+  // 1. `($n IS NULL` → `($n::text IS NULL`  — 给 IS NULL 的参数明确 text 类型
+  // 2. 范围比较语境的参数加 ::bigint:
+  //    `OP $n`(OP ∈ >=, <=, >, <)→ `OP $n::bigint`
+  //    因为步骤 1 把参数约束成 text,数值/时间戳列(text 不行)需要显式转 bigint。
+  //    `=` / `!=` / `<>` 比较不加 cast — 列本身的类型让 PG 推断参数类型,
+  //    且这些操作符既用于文本又用于数值,强制 bigint 会破坏文本列的比较。
+  //    lookbehind/lookahead 断言排除 `<>`、`!=` 以及已被分支消费的 `>=`/`<=` 残留。
+  //
+  // PG 允许同一参数在不同 cast 下出现(`$1::text IS NULL OR col >= $1::bigint`),
+  // 这是 prepared statement 的合法用法。
+  out = out.replace(/\((\$\d+) IS NULL/g, "($1::text IS NULL")
+  out = out.replace(/(?<![<>!=>=<])(>=|<=|>|<)(?![<>=])\s*(\$\d+)\b/g, "$1 $2::bigint")
   return out
 }
 
