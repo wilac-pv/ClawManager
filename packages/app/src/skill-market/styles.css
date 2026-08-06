@@ -5,11 +5,11 @@
   --market-border: var(--skillhub-border, #e1e5eb);
   --market-text: var(--skillhub-text, #20242c);
   --market-muted: var(--skillhub-muted, #626b78);
-  --market-accent: var(--skillhub-brand, #6d5dfc);
-  --market-accent-soft: var(--skillhub-brand-soft, #efedff);
-  --market-accent-border: var(--skillhub-brand-border, #c7c2ff);
-  --market-focus-ring: var(--skillhub-focus-ring, rgba(109, 93, 252, 0.18));
-  --market-content-width: var(--skillhub-content-width, 1120px);
+  --market-accent: #007aff;
+  --market-accent-soft: rgba(0, 122, 255, 0.08);
+  --market-accent-border: rgba(0, 122, 255, 0.2);
+  --market-focus-ring: rgba(0, 122, 255, 0.18);
+  --market-content-width: 1280px;
   --market-danger: #b42318;
   --market-danger-soft: #fef3f2;
   --market-success: #027a48;
@@ -70,23 +70,23 @@
   align-items: flex-end;
   justify-content: space-between;
   max-width: var(--market-content-width);
-  margin: 0 auto 32px;
+  margin: 0 auto 24px;
   gap: 32px;
 }
 
 .ruying-skill-market__hero h1 {
-  margin: 8px 0 10px;
-  font-size: clamp(32px, 4vw, 44px);
-  line-height: 1.08;
-  letter-spacing: -0.04em;
+  margin: 8px 0 8px;
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
 }
 
 .ruying-skill-market__hero p {
   max-width: 620px;
   margin: 0;
   color: var(--market-muted);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .ruying-skill-market__eyebrow {
@@ -170,30 +170,33 @@
   margin: 0 auto;
   overflow-x: auto;
   gap: 8px;
-  padding-bottom: 4px;
+  padding: 4px 0 12px;
 }
 
 .ruying-skill-market__tab {
   flex: none;
-  padding: 8px 16px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--market-muted);
-  font-size: 13px;
+  padding: 6px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #fff;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 14px;
+  font-weight: 400;
   cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: all 0.2s;
 }
 
 .ruying-skill-market__tab:hover {
-  background: var(--market-neutral-soft);
-  color: var(--market-text);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.8);
 }
 
 .ruying-skill-market__tab--active {
-  border-color: var(--market-accent-border);
-  background: var(--market-accent-soft);
-  color: var(--market-accent);
-  font-weight: 600;
+  border-color: #000;
+  background: #000;
+  color: #fff;
+  font-weight: 500;
 }
 
 .ruying-skill-market__toolbar {
@@ -286,18 +289,32 @@
   max-width: 100%;
   min-height: 140px;
   padding: 20px;
-  border: 1px solid var(--market-border);
-  border-radius: 14px;
-  background: var(--market-surface);
-  box-shadow: 0 2px 4px rgba(17, 24, 39, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    inset 0 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px rgba(0, 0, 0, 0.04);
   color: var(--market-text);
   text-align: left;
   cursor: pointer;
   gap: 16px;
   transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.ruying-skill-market__card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.12),
+    0 2px 4px rgba(0, 0, 0, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px rgba(0, 0, 0, 0.04);
 }
 
 .ruying-skill-market__card[data-view="card"] {
