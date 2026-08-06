@@ -144,28 +144,6 @@ export function SkillMarketList(props: {
             </button>
           )}
         </For>
-        <button
-          type="button"
-          classList={{
-            "ruying-skill-market__tab": true,
-            "ruying-skill-market__tab--active": state.scope === "enterprise",
-          }}
-          aria-pressed={state.scope === "enterprise"}
-          onClick={() => selectSort("score", "enterprise")}
-        >
-          企业精选
-        </button>
-        <button
-          type="button"
-          classList={{
-            "ruying-skill-market__tab": true,
-            "ruying-skill-market__tab--active": state.scope === "community",
-          }}
-          aria-pressed={state.scope === "community"}
-          onClick={() => setState({ source: "community", sort: "score", scope: "community", page: 1 })}
-        >
-          用户投稿
-        </button>
         <Show when={market.source.installed}>
           <button
             type="button"
@@ -264,11 +242,6 @@ export function SkillMarketList(props: {
           </div>
         </section>
 
-        <Show when={isPartial(result.data?.sourceStatus)}>
-          <div class="ruying-skill-market__source-status" role="status">
-            部分来源数据暂不可用或不是最新版本，当前结果来自最近一次可信快照。
-          </div>
-        </Show>
         <Show when={result.isPending}>
           <div class="ruying-skill-market__state" role="status">
             正在加载 Skill…
@@ -368,23 +341,6 @@ function SkillCard(props: {
         aria-label={`${props.item.name}，${props.item.description}`}
         onClick={() => props.onOpen(key())}
       />
-      <Show when={props.favorite}>
-        {(favorite) => (
-          <button
-            type="button"
-            classList={{
-              "ruying-skill-market__favorite": true,
-              "ruying-skill-market__favorite--active": favorite().active(key()),
-            }}
-            aria-label={favorite().active(key()) ? `取消收藏 ${props.item.name}` : `收藏 ${props.item.name}`}
-            aria-pressed={favorite().active(key())}
-            disabled={favorite().pending(key())}
-            onClick={() => favorite().toggle(key())}
-          >
-            {favorite().active(key()) ? "★" : "☆"}
-          </button>
-        )}
-      </Show>
       <div class="ruying-skill-market__icon">
         <Show
           when={props.item.iconUrl && !state.iconFailed ? props.item.iconUrl : undefined}
@@ -429,9 +385,6 @@ function SkillCard(props: {
           <span>{sourceLabel(props.item.source)}</span>
         </div>
       </div>
-      <span class="ruying-skill-market__card-arrow" aria-hidden="true">
-        →
-      </span>
     </article>
   )
 }
@@ -529,11 +482,6 @@ function parsePage(value: string | null) {
   const page = Number(value)
   if (Number.isInteger(page) && page > 0) return page
   return 1
-}
-
-function isPartial(status?: SkillMarket.SourceStatus) {
-  if (!status) return false
-  return status.skillhub !== "fresh" || status.enterprise !== "fresh" || status.community !== "fresh"
 }
 
 function sourceLabel(source: SkillMarket.Source) {
