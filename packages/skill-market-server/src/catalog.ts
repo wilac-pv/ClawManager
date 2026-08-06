@@ -281,6 +281,8 @@ function comparator(sort: SkillMarket.Sort) {
   return (left: SkillMarket.Summary, right: SkillMarket.Summary) => {
     if (sort === "downloads")
       return number(left.downloads, right.downloads) || number(left.score, right.score) || stable(left, right)
+    if (sort === "favorites")
+      return number(left.favorites, right.favorites) || number(left.downloads, right.downloads) || stable(left, right)
     if (sort === "recent") return Date.parse(right.updatedAt) - Date.parse(left.updatedAt) || stable(left, right)
     if (sort === "featured")
       return Number(right.featured) - Number(left.featured) || number(left.score, right.score) || stable(left, right)

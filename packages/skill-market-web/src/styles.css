@@ -197,9 +197,12 @@ a {
   align-items: center;
   gap: var(--skillhub-space-6);
   min-height: 64px;
-  padding: 0 28px;
-  border-bottom: 1px solid var(--skillhub-border);
+  margin: 12px 24px 0;
+  padding: 0 20px;
+  border: 1px solid var(--skillhub-border-soft);
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 16px rgba(32, 43, 56, 0.06);
 }
 
 .market-shell__brand,
@@ -266,6 +269,32 @@ a {
   display: flex;
   align-items: center;
   gap: var(--skillhub-space-3);
+}
+
+.market-shell__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--skillhub-radius-sm);
+  background: #111827;
+  color: #fff;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.market-shell__submit:hover {
+  background: #1f2937;
+}
+
+.market-shell__submit span {
+  font-size: 18px;
+  line-height: 1;
 }
 
 .market-shell__identity {

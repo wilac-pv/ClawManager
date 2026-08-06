@@ -26,7 +26,7 @@ export type RestrictedVisibility = typeof RestrictedVisibility.Type
 export const Risk = Schema.Literals(["unknown", "safe", "warning", "danger"])
 export type Risk = typeof Risk.Type
 
-export const Sort = Schema.Literals(["score", "featured", "trending", "downloads", "recent"])
+export const Sort = Schema.Literals(["score", "featured", "trending", "downloads", "favorites", "recent"])
 export type Sort = typeof Sort.Type
 
 export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))

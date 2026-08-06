@@ -4,7 +4,6 @@ import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DesktopInstalledActions } from "./desktop-actions"
 import { useSkillMarket } from "./provider"
-import { scoreLabel } from "./score-label"
 import type { SkillFavoriteActions, SkillKey } from "./types"
 
 type MarketScope = "all" | "featured" | "enterprise" | "community" | "installed" | "updates"
@@ -16,6 +15,7 @@ const sortTabs = [
   { label: "推荐精选", sort: "featured", scope: "featured" },
   { label: "近期飙升", sort: "trending", scope: "all" },
   { label: "下载量", sort: "downloads", scope: "all" },
+  { label: "收藏量", sort: "favorites", scope: "all" },
   { label: "最近上新", sort: "recent", scope: "all" },
 ] as const
 
@@ -108,9 +108,11 @@ export function SkillMarketList(props: {
     <main class="ruying-skill-market">
       <header class="ruying-skill-market__hero">
         <div>
-          <span class="ruying-skill-market__eyebrow">RUYING CODE</span>
-          <h1>Skill 市场</h1>
-          <p>发现经过聚合与校验的开发技能，让如影 Code 更懂你的工作方式。</p>
+          <h1>全部技能</h1>
+          <p>
+            快速发现专家技能，让 AI 从通用走向专用
+            <Show when={result.data?.total}>{(total) => ` · 共 ${formatTotal(total())} 个技能`}</Show>
+          </p>
         </div>
         <div class="ruying-skill-market__hero-actions">
           <label class="ruying-skill-market__search">
@@ -337,6 +339,14 @@ export function SkillMarketList(props: {
       <Show when={state.scope === "updates"}>
         <UpdateSkills items={updates.data ?? []} pending={updates.isPending} onOpen={props.onOpen} />
       </Show>
+      <button
+        type="button"
+        class="ruying-skill-market__feedback"
+        aria-label="建议反馈"
+        onClick={() => window.open("mailto:skillhub@gwm.cn?subject=SkillHub 建议反馈", "_blank")}
+      >
+        建议反馈
+      </button>
     </main>
   )
 }
@@ -415,19 +425,26 @@ function SkillCard(props: {
       <div class="ruying-skill-market__card-body">
         <div class="ruying-skill-market__card-title">
           <strong>{props.item.name}</strong>
+          <Show when={props.item.featured}>
+            <span class="ruying-skill-market__verified" aria-label="官方推荐">✓</span>
+          </Show>
           <Show when={props.item.installedVersion}>
             <span class="ruying-skill-market__installed-state">{props.item.updateAvailable ? "可更新" : "已安装"}</span>
           </Show>
-          <span class={`ruying-skill-market__risk ruying-skill-market__risk--${props.item.risk}`}>
-            {riskLabel(props.item.risk)}
-          </span>
+        </div>
+        <div class="ruying-skill-market__card-tags">
+          <Show when={props.item.categories?.[0]}>
+            <span class="ruying-skill-market__tag ruying-skill-market__tag--category">{props.item.categories[0]}</span>
+          </Show>
+          <Show when={props.item.requiresApiKey}>
+            <span class="ruying-skill-market__tag ruying-skill-market__tag--apikey">需配置 API Key</span>
+          </Show>
         </div>
         <p>{props.item.description}</p>
         <div class="ruying-skill-market__card-meta">
+          <span aria-label="收藏数">⭐ {formatNumber(props.item.favorites)}</span>
+          <span aria-label="下载数">↓ {formatNumber(props.item.downloads)}</span>
           <span>{sourceLabel(props.item.source)}</span>
-          <span>v{props.item.version}</span>
-          <span>↓ {formatNumber(props.item.downloads)}</span>
-          <span>评分 {scoreLabel(props.item)}</span>
         </div>
       </div>
       <span class="ruying-skill-market__card-arrow" aria-hidden="true">
@@ -541,13 +558,6 @@ function sourceLabel(source: SkillMarket.Source) {
   if (source === "enterprise") return "企业精选"
   if (source === "community") return "用户投稿"
   return "SkillHub"
-}
-
-function riskLabel(risk: SkillMarket.Risk) {
-  if (risk === "safe") return "安全"
-  if (risk === "warning") return "注意"
-  if (risk === "danger") return "高风险"
-  return "待检测"
 }
 
 function formatNumber(value: number) {

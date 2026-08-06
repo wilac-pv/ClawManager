@@ -7,6 +7,7 @@
   --market-muted: var(--skillhub-muted, #626b78);
   --market-accent: var(--skillhub-brand, #6d5dfc);
   --market-accent-soft: var(--skillhub-brand-soft, #efedff);
+  --market-accent-border: var(--skillhub-brand-border, #c7c2ff);
   --market-focus-ring: var(--skillhub-focus-ring, rgba(109, 93, 252, 0.18));
   --market-content-width: var(--skillhub-content-width, 1120px);
   --market-danger: #b42318;
@@ -168,28 +169,31 @@
   max-width: var(--market-content-width);
   margin: 0 auto;
   overflow-x: auto;
-  border-bottom: 1px solid var(--market-border);
-  gap: 4px;
+  gap: 8px;
+  padding-bottom: 4px;
 }
 
 .ruying-skill-market__tab {
   flex: none;
-  padding: 12px 14px;
-  border: 0;
-  border-bottom: 2px solid transparent;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   background: transparent;
   color: var(--market-muted);
+  font-size: 13px;
   cursor: pointer;
 }
 
-.ruying-skill-market__tab:hover,
-.ruying-skill-market__tab--active {
-  border-bottom-color: var(--market-accent);
-  color: var(--market-accent);
+.ruying-skill-market__tab:hover {
+  background: var(--market-neutral-soft);
+  color: var(--market-text);
 }
 
 .ruying-skill-market__tab--active {
-  font-weight: 700;
+  border-color: var(--market-accent-border);
+  background: var(--market-accent-soft);
+  color: var(--market-accent);
+  font-weight: 600;
 }
 
 .ruying-skill-market__toolbar {
@@ -374,14 +378,14 @@
 
 .ruying-skill-market__icon {
   display: grid;
-  flex: 0 0 54px;
-  width: 54px;
-  height: 54px;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 12px;
   background: linear-gradient(145deg, #edeaff, #f8f7ff);
   color: var(--market-accent);
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 800;
   place-items: center;
 }
@@ -502,6 +506,75 @@
 .ruying-skill-market__risk--danger {
   background: var(--market-danger-soft);
   color: var(--market-danger);
+}
+
+/* 官方认证标记(蓝色√) */
+.ruying-skill-market__verified {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* 分类/API Key 标签容器 */
+.ruying-skill-market__card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ruying-skill-market__tag {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ruying-skill-market__tag--category {
+  background: var(--market-neutral-soft);
+  color: var(--market-neutral-text);
+}
+
+.ruying-skill-market__tag--apikey {
+  background: var(--market-warning-soft);
+  color: var(--market-warning);
+}
+
+/* 建议反馈浮动按钮(右侧竖排) */
+.ruying-skill-market__feedback {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  z-index: 30;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  padding: 14px 8px;
+  border: none;
+  border-radius: 8px 0 0 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  writing-mode: vertical-lr;
+  cursor: pointer;
+  box-shadow: -2px 0 8px rgba(37, 99, 235, 0.25);
+}
+
+.ruying-skill-market__feedback:hover {
+  background: #1d4ed8;
 }
 
 .ruying-skill-market__state,

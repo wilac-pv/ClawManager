@@ -7211,12 +7211,12 @@ export class SkillMarket extends HeyApiClient {
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
       query?: string
-      source?: "skillhub" | "enterprise" | "community"
+      source?: "skillhub" | "enterprise" | "community" | "restricted"
       category?: string
       requiresApiKey?: "true" | "false"
       featured?: "true" | "false"
       enterprise?: "true" | "false"
-      sort?: "score" | "featured" | "trending" | "downloads" | "recent"
+      sort?: "score" | "featured" | "trending" | "downloads" | "favorites" | "recent"
       page?: string
       limit?: string
     },
@@ -7306,7 +7306,7 @@ export class SkillMarket extends HeyApiClient {
 
   public install<ThrowOnError extends boolean = false>(
     parameters?: {
-      source?: "skillhub" | "enterprise" | "community"
+      source?: "skillhub" | "enterprise" | "community" | "restricted"
       id?: string
       version?: string
       sha256?: string
@@ -7346,7 +7346,7 @@ export class SkillMarket extends HeyApiClient {
 
   public update<ThrowOnError extends boolean = false>(
     parameters?: {
-      source?: "skillhub" | "enterprise" | "community"
+      source?: "skillhub" | "enterprise" | "community" | "restricted"
       id?: string
       version?: string
       sha256?: string

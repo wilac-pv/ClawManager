@@ -6,9 +6,9 @@ export function MarketShell(props: ParentProps) {
   const current = useSkillMarketSession()
   const location = useLocation()
   const links = () => [
-    { href: "/skills", label: "Skill 市场", visible: true },
-    { href: "/announcements", label: "公告", visible: true },
+    { href: "/skills", label: "全部技能", visible: true },
     { href: "/expert-packages", label: "专家包", visible: true },
+    { href: "/announcements", label: "公告", visible: true },
     { href: "/personal", label: "我的空间", visible: Boolean(current.session()) },
     { href: "/admin", label: "管理后台", visible: current.reviewer() },
   ]
@@ -16,7 +16,7 @@ export function MarketShell(props: ParentProps) {
   return (
     <div class="market-shell">
       <header class="market-shell__header">
-        <A class="market-shell__brand" href="/skills" aria-label="如影 SkillHub 首页">
+        <A class="market-shell__brand" href="/skills" aria-label="SkillHub 首页">
           <img
             class="market-shell__brand-mark"
             src={`${import.meta.env.BASE_URL ?? "/"}ruying-skillhub-mark.svg`}
@@ -24,7 +24,6 @@ export function MarketShell(props: ParentProps) {
             aria-hidden="true"
           />
           <span class="market-shell__wordmark">
-            <span>如影</span>
             <strong>SkillHub</strong>
           </span>
         </A>
@@ -59,12 +58,15 @@ export function MarketShell(props: ParentProps) {
           </For>
         </nav>
         <div class="market-shell__account">
+          <A class="market-shell__submit" href="/submissions/new">
+            <span aria-hidden="true">+</span> 发布 Skill
+          </A>
           <Show
             when={!current.loading() && current.session()}
             fallback={
               <Show when={!current.loading()}>
                 <button type="button" class="market-primary-action" onClick={() => current.login(location.pathname)}>
-                  使用 GWM SSO 登录
+                  登录
                 </button>
               </Show>
             }
