@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite"
 import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 
 const directories: string[] = []
@@ -20,26 +20,26 @@ describe("control-plane database", () => {
       databasePath: path,
       migrationBackupDirectory: join(directory, "backups"),
     })
+    const database_raw = (database as SqliteDatabase).connection
+    const raw = database_raw
 
-    expect(database.connection.query<{ journal_mode: string }, []>("PRAGMA journal_mode").get()?.journal_mode).toBe(
-      "wal",
-    )
-    expect(database.connection.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
-    expect(database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
+    expect(raw.query<{ journal_mode: string }, []>("PRAGMA journal_mode").get()?.journal_mode).toBe("wal")
+    expect(raw.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1)
+    expect(raw.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
     expect(
-      database.connection
+      raw
         .query<{ name: string }, []>("PRAGMA table_info(submissions)")
         .all()
         .map((column) => column.name),
     ).toEqual(expect.arrayContaining(["deleted_at", "purge_after"]))
     expect(
-      database.connection
+      raw
         .query<{ name: string }, []>("PRAGMA table_info(submission_revisions)")
         .all()
         .map((column) => column.name),
     ).toContain("private_icon_json")
     expect(
-      database.connection
+      database_raw
         .query<{ name: string }, []>("PRAGMA table_info(reviews)")
         .all()
         .map((column) => column.name),
@@ -52,7 +52,7 @@ describe("control-plane database", () => {
       ]),
     )
 
-    const tables = database.connection
+    const tables = raw
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
       .all()
       .map((row) => row.name)
@@ -88,7 +88,7 @@ describe("control-plane database", () => {
       ].sort(),
     )
 
-    const indexes = database.connection
+    const indexes = raw
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'")
       .all()
       .map((row) => row.name)
@@ -118,13 +118,13 @@ describe("control-plane database", () => {
     expect(indexes).toContain("delist_requests_pending_submission")
     expect(indexes).toContain("private_install_grants_expiry")
 
-    database.connection.run(
+    raw.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
       ["E000001", "Test User", 1, 1],
     )
     expect(() =>
-      database.transaction((connection) => {
-        connection.run("INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)", [
+      raw.transaction(() => {
+        raw.run("INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)", [
           "E000002",
           "Rolled Back",
           1,
@@ -133,16 +133,16 @@ describe("control-plane database", () => {
         throw new Error("rollback")
       }),
     ).toThrow("rollback")
-    expect(database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM users").get()?.count).toBe(1)
+    expect(raw.query<{ count: number }, []>("SELECT count(*) AS count FROM users").get()?.count).toBe(1)
     expect(() =>
-      database.connection.run("INSERT INTO role_assignments (employee_id, role, created_at) VALUES (?, ?, ?)", [
+      raw.run("INSERT INTO role_assignments (employee_id, role, created_at) VALUES (?, ?, ?)", [
         "E999999",
         "reviewer",
         1,
       ]),
     ).toThrow()
     expect(() =>
-      database.connection.run("INSERT INTO role_assignments (employee_id, role, created_at) VALUES (?, ?, ?)", [
+      raw.run("INSERT INTO role_assignments (employee_id, role, created_at) VALUES (?, ?, ?)", [
         "E000001",
         "owner",
         1,
@@ -150,7 +150,7 @@ describe("control-plane database", () => {
     ).toThrow()
 
     const insertSubmission = (id: string, scope: string, deletedAt: number | null, purgeAfter: number | null) =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO submissions
           (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at, deleted_at, purge_after)
          VALUES (?, ?, 'E000001', '1.0.0', ?, 'published', 1, 1, 1, 1, ?, ?)`,
@@ -164,82 +164,82 @@ describe("control-plane database", () => {
     expect(() => insertSubmission("sub_trashearlier", "personal", 10, 9)).toThrow()
 
     insertSubmission("sub_delistok", "company", null, null)
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO delist_requests
         (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
        VALUES ('dlr_pending1', 'sub_delistok', 'E000001', 'No longer maintained', 'pending', 1, 1)`,
     )
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO delist_requests
           (id, submission_id, requested_by_employee_id, reason, status, version, created_at, decided_by_employee_id, decided_at)
          VALUES ('dlr_pending2', 'sub_delistok', 'E000001', 'No longer maintained', 'pending', 1, 1, 'E000001', 2)`,
       ),
     ).toThrow()
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO delist_requests
           (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
          VALUES ('dlr_approved', 'sub_delistok', 'E000001', 'No longer maintained', 'approved', 1, 1)`,
       ),
     ).toThrow()
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO delist_requests
         (id, submission_id, requested_by_employee_id, reason, status, version, created_at, decided_by_employee_id, decided_at)
        VALUES ('dlr_rejected', 'sub_delistok', 'E000001', 'No longer maintained', 'rejected', 1, 1, 'E000001', 2)`,
     )
 
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO market_groups
         (id, name, owner_employee_id, status, version, created_at, updated_at)
        VALUES ('grp_abcdefgh', 'Project Aurora', 'E000001', 'active', 1, 1, 1)`,
     )
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
        VALUES ('grp_abcdefgh', 'E000001', 'E000001', 1)`,
     )
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO market_groups
           (id, name, owner_employee_id, status, version, created_at, updated_at)
          VALUES ('grp_bad_name', '', 'E000001', 'active', 1, 1, 1)`,
       ),
     ).toThrow()
     expect(() =>
-      database.connection.run("UPDATE market_groups SET status = 'deleted' WHERE id = 'grp_abcdefgh'"),
+      database_raw.run("UPDATE market_groups SET status = 'deleted' WHERE id = 'grp_abcdefgh'"),
     ).toThrow()
-    expect(() => database.connection.run("UPDATE market_groups SET version = 0 WHERE id = 'grp_abcdefgh'")).toThrow()
+    expect(() => database_raw.run("UPDATE market_groups SET version = 0 WHERE id = 'grp_abcdefgh'")).toThrow()
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
          VALUES ('grp_abcdefgh', 'E000001', 'E000001', 1)`,
       ),
     ).toThrow()
 
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO submissions
         (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at)
        VALUES ('sub_scoped1234', 'scoped-skill', 'E000001', '1.0.0', 'groups', 'validating', 1, 1, 1, 1)`,
     )
-    database.connection.run(
+    database_raw.run(
       "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_scoped1234', 'grp_abcdefgh')",
     )
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_scoped1234', 'grp_abcdefgh')",
       ),
     ).toThrow()
-    database.connection.run("UPDATE submissions SET status = 'pending_review' WHERE id = 'sub_scoped1234'")
+    database_raw.run("UPDATE submissions SET status = 'pending_review' WHERE id = 'sub_scoped1234'")
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         "INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_scoped1234', 'grp_missing1')",
       ),
     ).toThrow()
     expect(() =>
-      database.connection.run("UPDATE submissions SET target_scope = 'company' WHERE id = 'sub_scoped1234'"),
+      database_raw.run("UPDATE submissions SET target_scope = 'company' WHERE id = 'sub_scoped1234'"),
     ).toThrow("submission audience is immutable")
 
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO restricted_publications
         (id, submission_id, skill_id, owner_employee_id, version, scope, package_key, package_sha256,
          package_size, metadata_json, status, row_version, created_at, updated_at)
@@ -247,24 +247,24 @@ describe("control-plane database", () => {
                'private/sub_scoped1234/package.zip', ?, 100, '{}', 'published', 1, 1, 1)`,
       ["a".repeat(64)],
     )
-    database.connection.run(
+    database_raw.run(
       "INSERT INTO restricted_publication_groups (publication_id, group_id) VALUES ('pub_abcdefgh', 'grp_abcdefgh')",
     )
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO private_install_grants
         (token_hash, publication_id, employee_id, expires_at, created_at)
        VALUES (?, 'pub_abcdefgh', 'E000001', 600001, 1)`,
       ["a".repeat(64)],
     )
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO private_install_grants
           (token_hash, publication_id, employee_id, expires_at, created_at)
          VALUES (?, 'pub_abcdefgh', 'E000001', 600002, 1)`,
         ["b".repeat(64)],
       ),
     ).toThrow()
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO submissions
         (id, skill_id, owner_employee_id, target_version, target_scope,
          status, current_revision, version, created_at, updated_at)
@@ -272,7 +272,7 @@ describe("control-plane database", () => {
                'published', 1, 1, 1, 1)`,
     )
     const insertDuplicateRestrictedPublication = () =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO restricted_publications
           (id, submission_id, skill_id, owner_employee_id, version, scope, package_key, package_sha256,
            package_size, metadata_json, status, row_version, created_at, updated_at)
@@ -281,12 +281,12 @@ describe("control-plane database", () => {
         ["a".repeat(64)],
       )
     expect(insertDuplicateRestrictedPublication).toThrow()
-    database.connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = 'pub_abcdefgh'")
+    database_raw.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = 'pub_abcdefgh'")
     insertDuplicateRestrictedPublication()
     expect(() =>
-      database.connection.run("UPDATE restricted_publications SET status = 'published' WHERE id = 'pub_abcdefgh'"),
+      database_raw.run("UPDATE restricted_publications SET status = 'published' WHERE id = 'pub_abcdefgh'"),
     ).toThrow()
-    database.connection.run(
+    database_raw.run(
       `INSERT INTO submissions
         (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
          status, current_revision, version, created_at, updated_at)
@@ -294,7 +294,7 @@ describe("control-plane database", () => {
                'validating', 1, 1, 1, 1)`,
     )
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO submissions
           (id, skill_id, owner_employee_id, target_version, target_scope, source_publication_id,
            status, current_revision, version, created_at, updated_at)
@@ -303,7 +303,7 @@ describe("control-plane database", () => {
       ),
     ).toThrow()
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO restricted_publications
           (id, submission_id, skill_id, owner_employee_id, version, scope, department_id, package_key,
            package_sha256, package_size, metadata_json, status, row_version, created_at, updated_at)
@@ -313,32 +313,33 @@ describe("control-plane database", () => {
       ),
     ).toThrow()
     expect(() =>
-      database.connection.run(
+      database_raw.run(
         `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
          VALUES ('grp_missing1', 'future-user', 'E000001', 1)`,
       ),
     ).toThrow()
 
-    database.connection.run(
+    database_raw.run(
       "INSERT INTO audit_events (id, action, object_type, object_id, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
       ["audit-1", "submission.created", "submission", "submission-1", "request-1", 1],
     )
-    expect(() => database.connection.run("UPDATE audit_events SET action = 'changed' WHERE id = 'audit-1'")).toThrow(
+    expect(() => database_raw.run("UPDATE audit_events SET action = 'changed' WHERE id = 'audit-1'")).toThrow(
       "audit_events is append-only",
     )
-    expect(() => database.connection.run("DELETE FROM audit_events WHERE id = 'audit-1'")).toThrow(
+    expect(() => database_raw.run("DELETE FROM audit_events WHERE id = 'audit-1'")).toThrow(
       "audit_events is append-only",
     )
 
-    database.close()
+    await database.close()
 
     const reopened = await openDatabase({
       databasePath: path,
       migrationBackupDirectory: join(directory, "backups"),
     })
-    expect(reopened.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM users").get()?.count).toBe(1)
+    const reopened_raw = (reopened as SqliteDatabase).connection
+    expect(reopened_raw.query<{ count: number }, []>("SELECT count(*) AS count FROM users").get()?.count).toBe(1)
     expect(await readdir(join(directory, "backups"))).toEqual([])
-    reopened.close()
+    await reopened.close()
   })
 
   test("backs up an existing database and rolls back a failed migration", async () => {
@@ -354,8 +355,9 @@ describe("control-plane database", () => {
       migrationBackupDirectory: backups,
       migrationDirectory: migrations,
     })
-    initial.connection.run("INSERT INTO stable (id) VALUES ('preserved')")
-    initial.close()
+    const initial_raw = (initial as SqliteDatabase).connection
+    initial_raw.run("INSERT INTO stable (id) VALUES ('preserved')")
+    await initial.close()
 
     await Bun.write(
       join(migrations, "002_broken.sql"),
@@ -404,10 +406,11 @@ describe("control-plane database", () => {
     expect(
       databases.map(
         (database) =>
-          database.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version,
+          (database as SqliteDatabase).connection.query<{ user_version: number }, []>("PRAGMA user_version").get()
+            ?.user_version,
       ),
     ).toEqual([13, 13])
-    databases.forEach((database) => database.close())
+    for (const database of databases) await database.close()
   })
 
   test("upgrades v11 scoped submissions without losing foreign keys, indexes, or audience triggers", async () => {
@@ -424,43 +427,44 @@ describe("control-plane database", () => {
     )
 
     const v11 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
-    v11.connection.run(
+    const v11_raw = (v11 as SqliteDatabase).connection
+    v11_raw.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES ('E000001', 'Owner', 1, 1)",
     )
-    v11.connection.run(
+    v11_raw.run(
       "INSERT INTO market_groups (id, name, owner_employee_id, status, version, created_at, updated_at) VALUES ('grp_abcdefgh', 'Group', 'E000001', 'active', 1, 1, 1)",
     )
-    v11.connection.run(
+    v11_raw.run(
       `INSERT INTO submissions
         (id, skill_id, owner_employee_id, target_version, target_scope, status, current_revision, version, created_at, updated_at)
        VALUES ('sub_abcdefgh', 'scoped-skill', 'E000001', '1.0.0', 'groups', 'validating', 1, 3, 1, 2)`,
     )
-    v11.connection.run("INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_abcdefgh', 'grp_abcdefgh')")
-    v11.connection.run("UPDATE submissions SET status = 'pending_review' WHERE id = 'sub_abcdefgh'")
-    v11.close()
+    v11_raw.run("INSERT INTO submission_group_targets (submission_id, group_id) VALUES ('sub_abcdefgh', 'grp_abcdefgh')")
+    v11_raw.run("UPDATE submissions SET status = 'pending_review' WHERE id = 'sub_abcdefgh'")
+    await v11.close()
 
     await Bun.write(
       join(migrations, "012_lifecycle_actions.sql"),
       Bun.file(join(import.meta.dir, "../migrations/012_lifecycle_actions.sql")),
     )
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
-
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
+    const upgraded_raw = (upgraded as SqliteDatabase).connection
+    expect(upgraded_raw.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(12)
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<{ status: string; version: number; target_scope: string; deleted_at: number | null; purge_after: number | null }, [string]>(
           "SELECT status, version, target_scope, deleted_at, purge_after FROM submissions WHERE id = ?",
         )
         .get("sub_abcdefgh"),
     ).toEqual({ status: "pending_review", version: 3, target_scope: "groups", deleted_at: null, purge_after: null })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<{ count: number }, [string]>("SELECT count(*) AS count FROM submission_group_targets WHERE submission_id = ?")
         .get("sub_abcdefgh"),
     ).toEqual({ count: 1 })
-    expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
+    expect(upgraded_raw.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'index'")
         .all()
         .map((row) => row.name),
@@ -472,7 +476,7 @@ describe("control-plane database", () => {
       ]),
     )
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'trigger'")
         .all()
         .map((row) => row.name),
@@ -483,7 +487,7 @@ describe("control-plane database", () => {
         "submissions_audience_valid_transition",
       ]),
     )
-    upgraded.close()
+    await upgraded.close()
   })
 
   test("upgrades v12 favorites without data loss and accepts restricted sources", async () => {
@@ -499,13 +503,14 @@ describe("control-plane database", () => {
         .map(async (file) => Bun.write(join(migrations, file), Bun.file(join(import.meta.dir, "../migrations", file)))),
     )
     const v12 = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
-    v12.connection.run(
+    const v12_raw = (v12 as SqliteDatabase).connection
+    v12_raw.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES ('E000001', 'Owner', 1, 1)",
     )
-    v12.connection.run(
+    v12_raw.run(
       "INSERT INTO skill_favorites (employee_id, source, skill_id, created_at) VALUES ('E000001', 'skillhub', 'existing-skill', 1)",
     )
-    v12.close()
+    await v12.close()
     await Promise.all(
       migrationFiles
         .filter((file) => Number(file.slice(0, 3)) > 12)
@@ -513,26 +518,26 @@ describe("control-plane database", () => {
     )
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups, migrationDirectory: migrations })
-
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
+    const upgraded_raw = (upgraded as SqliteDatabase).connection
+    expect(upgraded_raw.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<{ source: string; skill_id: string }, []>("SELECT source, skill_id FROM skill_favorites")
         .all(),
     ).toEqual([{ source: "skillhub", skill_id: "existing-skill" }])
-    upgraded.connection.run(
+    upgraded_raw.run(
       "INSERT INTO skill_favorites (employee_id, source, skill_id, created_at) VALUES ('E000001', 'restricted', 'pub_restricted1', 2)",
     )
     expect(
-      upgraded.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM skill_favorites").get()?.count,
+      upgraded_raw.query<{ count: number }, []>("SELECT count(*) AS count FROM skill_favorites").get()?.count,
     ).toBe(2)
     expect(() =>
-      upgraded.connection.run(
+      upgraded_raw.run(
         "INSERT INTO skill_favorites (employee_id, source, skill_id, created_at) VALUES ('E000001', 'invalid', 'bad', 3)",
       ),
     ).toThrow()
-    expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
-    upgraded.close()
+    expect(upgraded_raw.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
+    await upgraded.close()
   })
 
   test("upgrades persisted v3 imports without losing lifecycle or queue data", async () => {
@@ -551,13 +556,14 @@ describe("control-plane database", () => {
       migrationBackupDirectory: backups,
       migrationDirectory: migrations,
     })
-    v3.connection.run("PRAGMA ignore_check_constraints = ON")
-    v3.connection.run(
+    const v3_raw = (v3 as SqliteDatabase).connection
+    v3_raw.run("PRAGMA ignore_check_constraints = ON")
+    v3_raw.run(
       "INSERT INTO skillhub_generations (id, state, upstream_total, discovery_page, sweep, new_in_sweep, last_published_count, last_published_at, uploaded_bytes, started_at, updated_at, completed_at) VALUES ('draining', 'running', 4, 5, 1, 0, 2, 8, 20, 1, 10, 5), ('other-active', 'paused', 1, 1, 0, 1, 3, 9, 5, 2, 9, NULL), ('complete', 'completed', 1, 1, 1, 0, 9, 19, 10, 3, 20, 20)",
     )
     const insertItem =
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, next_attempt_at, lease_owner, lease_expires_at, list_json, summary_json, detail_key, detail_sha256, error_code, error_summary, last_seen_generation, last_seen_sweep, created_at, updated_at) VALUES (?, ?, '1.0.0', 1, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, ?, 1, 1, ?)"
-    v3.connection.run(insertItem, [
+    v3_raw.run(insertItem, [
       "mirror",
       "complete",
       "mirrored",
@@ -572,7 +578,7 @@ describe("control-plane database", () => {
       "complete",
       20,
     ])
-    v3.connection.run(insertItem, [
+    v3_raw.run(insertItem, [
       "retry",
       "draining",
       "retry_wait",
@@ -587,7 +593,7 @@ describe("control-plane database", () => {
       "draining",
       11,
     ])
-    v3.connection.run(insertItem, [
+    v3_raw.run(insertItem, [
       "reject",
       "draining",
       "rejected",
@@ -602,7 +608,7 @@ describe("control-plane database", () => {
       "draining",
       12,
     ])
-    v3.connection.run(insertItem, [
+    v3_raw.run(insertItem, [
       "leased",
       "draining",
       "running",
@@ -617,7 +623,7 @@ describe("control-plane database", () => {
       "draining",
       13,
     ])
-    v3.connection.run(insertItem, [
+    v3_raw.run(insertItem, [
       "other-pending",
       "other-active",
       "pending",
@@ -632,13 +638,14 @@ describe("control-plane database", () => {
       "other-active",
       14,
     ])
-    v3.connection.run("PRAGMA ignore_check_constraints = OFF")
-    v3.close()
+    v3_raw.run("PRAGMA ignore_check_constraints = OFF")
+    await v3.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
+    const upgraded_raw = (upgraded as SqliteDatabase).connection
+    expect(upgraded_raw.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           {
             state: string
@@ -653,7 +660,7 @@ describe("control-plane database", () => {
         .get("other-active"),
     ).toEqual({ state: "running", discovery_completed_at: null, completed_at: null, last_published_count: 9 })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { discovery_completed_at: number; completed_at: number },
           [string]
@@ -661,7 +668,7 @@ describe("control-plane database", () => {
         .get("complete"),
     ).toEqual({ discovery_completed_at: 20, completed_at: 20 })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { state: string; mirrored_at: number },
           [string]
@@ -669,7 +676,7 @@ describe("control-plane database", () => {
         .get("mirror"),
     ).toEqual({ state: "mirrored", mirrored_at: 20 })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { next_attempt_at: number; error_code: string; error_summary: string },
           [string]
@@ -677,7 +684,7 @@ describe("control-plane database", () => {
         .get("retry"),
     ).toEqual({ next_attempt_at: 11, error_code: "upstream", error_summary: "Migrated SkillHub import error" })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { error_code: string; error_summary: string },
           [string]
@@ -685,7 +692,7 @@ describe("control-plane database", () => {
         .get("reject"),
     ).toEqual({ error_code: "upstream", error_summary: "Migrated SkillHub import error" })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { lease_owner: string; lease_expires_at: number },
           [string]
@@ -693,12 +700,12 @@ describe("control-plane database", () => {
         .get("leased"),
     ).toEqual({ lease_owner: "worker", lease_expires_at: 100 })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<{ state: string }, [string]>("SELECT state FROM skillhub_generations WHERE id = ?")
         .get("draining"),
     ).toEqual({ state: "failed" })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { generation_id: string; state: string },
           [string]
@@ -706,7 +713,7 @@ describe("control-plane database", () => {
         .get("other-pending"),
     ).toEqual({ generation_id: "other-active", state: "pending" })
     const store = createSkillHubImportStore({ database: upgraded, now: () => 30 })
-    expect(store.progress()).toMatchObject({
+    expect(await store.progress()).toMatchObject({
       state: "running",
       upstreamTotal: 1,
       pending: 1,
@@ -715,13 +722,13 @@ describe("control-plane database", () => {
       rejected: 1,
       lastPublishedAt: new Date(19).toISOString(),
     })
-    expect(store.publicationCheckpoint()).toEqual({
+    expect(await store.publicationCheckpoint()).toEqual({
       lastPublishedCount: 9,
       lastPublishedAt: new Date(19).toISOString(),
     })
-    expect(store.recordPublication(10)).toBe(true)
+    expect(await store.recordPublication(10)).toBe(true)
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { id: string; last_published_count: number },
           []
@@ -729,7 +736,7 @@ describe("control-plane database", () => {
         .get(),
     ).toEqual({ id: "other-active", last_published_count: 10 })
     expect(
-      store.seedLegacy([
+      await store.seedLegacy([
         {
           slug: "legacy-after-upgrade",
           summary: {
@@ -757,23 +764,23 @@ describe("control-plane database", () => {
       ]),
     ).toBe(1)
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<{ generation_id: string }, [string]>("SELECT generation_id FROM skillhub_import_items WHERE slug = ?")
         .get("legacy-after-upgrade"),
     ).toEqual({ generation_id: "other-active" })
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { last_published_count: number },
           [string]
         >("SELECT last_published_count FROM skillhub_generations WHERE id = ?")
         .get("draining"),
     ).toEqual({ last_published_count: 2 })
-    expect(upgraded.connection.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
+    expect(upgraded_raw.query<{ foreign_key_check: string }, []>("PRAGMA foreign_key_check").all()).toEqual([])
     expect(
-      upgraded.connection.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check,
+      upgraded_raw.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check,
     ).toBe("ok")
-    upgraded.close()
+    await upgraded.close()
   })
 
   test("upgrades persisted v4 imports into the evaluation queue", async () => {
@@ -795,18 +802,20 @@ describe("control-plane database", () => {
       migrationBackupDirectory: backups,
       migrationDirectory: migrations,
     })
-    v4.connection.run(
+    const v4_raw = (v4 as SqliteDatabase).connection
+    v4_raw.run(
       "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('complete', 'completed', 1, 1, 1, 1, 1)",
     )
-    v4.connection.run(
+    v4_raw.run(
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, summary_json, detail_key, detail_sha256, mirrored_at, last_seen_generation, created_at, updated_at) VALUES ('mirrored', 'complete', '1.0.0', 1, 'mirrored', '{}', '{\"score\":100000}', 'details/mirrored.json', ?, 1, 'complete', 1, 1), ('pending', 'complete', '1.0.0', 1, 'pending', '{}', NULL, NULL, NULL, NULL, 'complete', 1, 1)",
       ["a".repeat(64)],
     )
-    v4.close()
+    await v4.close()
 
     const upgraded = await openDatabase({ databasePath: path, migrationBackupDirectory: backups })
-    expect(upgraded.connection.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
-    const row = upgraded.connection
+    const upgraded_raw = (upgraded as SqliteDatabase).connection
+    expect(upgraded_raw.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(13)
+    const row = upgraded_raw
       .query<
         { evaluation_state: string; evaluation_score: number | null; summary_json: string },
         [string]
@@ -816,26 +825,26 @@ describe("control-plane database", () => {
     expect(row?.evaluation_score).toBeNull()
     expect(JSON.parse(row?.summary_json ?? "{}").evaluationScore).toBeUndefined()
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { evaluation_state: string },
           [string]
         >("SELECT evaluation_state FROM skillhub_import_items WHERE slug = ?")
         .get("pending"),
     ).toEqual({ evaluation_state: "waiting" })
-    upgraded.connection.run(
+    upgraded_raw.run(
       "INSERT INTO skillhub_deferred_import_items (slug, upstream_version, upstream_updated_at, list_json, deferred_at) VALUES (?, ?, ?, ?, ?)",
       ["mirrored", "1.0.1", 2, '{\"slug\":\"mirrored\"}', 2],
     )
     expect(
-      upgraded.connection
+      upgraded_raw
         .query<
           { upstream_version: string },
           [string]
         >("SELECT upstream_version FROM skillhub_deferred_import_items WHERE slug = ?")
         .get("mirrored"),
     ).toEqual({ upstream_version: "1.0.1" })
-    upgraded.close()
+    await upgraded.close()
   })
 })
 

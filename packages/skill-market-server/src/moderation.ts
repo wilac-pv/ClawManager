@@ -1,10 +1,9 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
-import type { MarketDatabase } from "./database"
 import { decideDelist, pendingDelist } from "./lifecycle"
 import type { MarketSecurity, Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
+import type { Connection, MarketDatabase } from "./store"
 import {
   readSubmissionDetail,
   submissionSummarySelect,
@@ -86,7 +85,7 @@ const DecisionAction = {
 export class Moderation {
   constructor(private readonly options: ModerationOptions) {}
 
-  listQueue(principal: Principal, query: SkillMarketControl.AdminSubmissionQuery) {
+  async listQueue(principal: Principal, query: SkillMarketControl.AdminSubmissionQuery) {
     this.options.security.requireReviewer(principal)
     const decoded = Schema.decodeUnknownOption(SkillMarketControl.AdminSubmissionQuery)(query)
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "review queue query is invalid")
@@ -99,7 +98,7 @@ export class Moderation {
       AND (? IS NULL OR submissions.owner_employee_id = ?)
       AND (? IS NULL OR submissions.created_at >= ?)
       AND (? IS NULL OR submissions.created_at <= ?)`
-    return this.options.database.read((connection) => {
+    return this.options.database.read(async (connection) => {
       const parameters = [
         decoded.value.status ?? null,
         decoded.value.status ?? null,
@@ -112,48 +111,21 @@ export class Moderation {
         createdTo,
         createdTo,
       ] as const
-      const total = connection
-        .query<
-          { count: number },
-          [
-            SkillMarketControl.SubmissionStatus | null,
-            SkillMarketControl.SubmissionStatus | null,
-            SkillMarketControl.ScanReport["risk"] | null,
-            SkillMarketControl.ScanReport["risk"] | null,
-            string | null,
-            string | null,
-            number | null,
-            number | null,
-            number | null,
-            number | null,
-          ]
-        >(
+      const total = (
+        await connection.get<{ count: number }>(
           `SELECT count(*) AS count FROM submissions
            INNER JOIN submission_revisions
              ON submission_revisions.submission_id = submissions.id
             AND submission_revisions.revision_number = submissions.current_revision${where}`,
+          parameters,
         )
-        .get(...parameters)!.count
-      const items = connection
-        .query<
-          SubmissionSummaryRow,
-          [
-            SkillMarketControl.SubmissionStatus | null,
-            SkillMarketControl.SubmissionStatus | null,
-            SkillMarketControl.ScanReport["risk"] | null,
-            SkillMarketControl.ScanReport["risk"] | null,
-            string | null,
-            string | null,
-            number | null,
-            number | null,
-            number | null,
-            number | null,
-            number,
-            number,
-          ]
-        >(`${submissionSummarySelect()}${where} ORDER BY submissions.updated_at DESC, submissions.id LIMIT ? OFFSET ?`)
-        .all(...parameters, decoded.value.limit, (decoded.value.page - 1) * decoded.value.limit)
-        .map(toSubmissionSummary)
+      )!.count
+      const items = (
+        await connection.all<SubmissionSummaryRow>(
+          `${submissionSummarySelect()}${where} ORDER BY submissions.updated_at DESC, submissions.id LIMIT ? OFFSET ?`,
+          [...parameters, decoded.value.limit, (decoded.value.page - 1) * decoded.value.limit],
+        )
+      ).map(toSubmissionSummary)
       return Schema.decodeUnknownSync(SkillMarketControl.SubmissionPage)({
         total,
         page: decoded.value.page,
@@ -163,29 +135,29 @@ export class Moderation {
     })
   }
 
-  get(principal: Principal, submissionID: string) {
+  async get(principal: Principal, submissionID: string) {
     this.options.security.requireReviewer(principal)
-    const detail = this.options.database.read((connection) => {
-      const visible = connection
-        .query<{ count: number }, [string]>(
+    const detail = await this.options.database.read(async (connection) => {
+      const visible = (
+        await connection.get<{ count: number }>(
           `SELECT count(*) AS count FROM submissions
            WHERE id = ? AND (target_scope != 'personal' OR source_publication_id IS NOT NULL)`,
+          [submissionID],
         )
-        .get(submissionID)!.count
+      )!.count
       return visible === 1 ? readSubmissionDetail(connection, submissionID) : undefined
     })
     if (detail) return detail
     throw new SkillMarketSecurityError("not-found", "submission was not found")
   }
 
-  decide(principal: Principal, submissionID: string, input: SkillMarketControl.DecisionInput) {
+  async decide(principal: Principal, submissionID: string, input: SkillMarketControl.DecisionInput) {
     const decoded = Schema.decodeUnknownOption(SkillMarketControl.DecisionInput)(input)
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "review decision is invalid")
     const now = this.options.now?.() ?? Date.now()
-    return this.options.database.transaction((connection) => {
-      const submission = connection
-        .query<SubmissionRow, [string]>(
-          `SELECT
+    return this.options.database.transaction(async (connection) => {
+      const submission = await connection.get<SubmissionRow>(
+        `SELECT
             submissions.id,
             submissions.owner_employee_id,
             submissions.status,
@@ -202,8 +174,8 @@ export class Moderation {
             AND submission_revisions.revision_number = submissions.current_revision
            WHERE submissions.id = ?
              AND (submissions.target_scope != 'personal' OR submissions.source_publication_id IS NOT NULL)`,
-        )
-        .get(submissionID)
+        [submissionID],
+      )
       if (!submission) throw new SkillMarketSecurityError("not-found", "submission was not found")
       this.options.security.requireReviewTarget(principal, submission.owner_employee_id)
       if (decoded.value.expectedVersion !== submission.version)
@@ -225,7 +197,7 @@ export class Moderation {
       const status = DecisionStatus[decoded.value.decision]
       assertSubmissionTransition(submission.status, status)
 
-      connection.run(
+      await connection.run(
         `INSERT INTO reviews
           (id, submission_id, revision_number, reviewer_employee_id, decision, comment, accepted_risk_summary,
            approved_package_key, approved_package_sha256, approved_package_size, approved_metadata_json, created_at)
@@ -245,17 +217,17 @@ export class Moderation {
           now,
         ],
       )
-      connection.run(
+      await connection.run(
         "UPDATE submissions SET status = ?, version = version + 1, user_message = ?, updated_at = ? WHERE id = ?",
         [status, decoded.value.decision === "approve" ? null : (decoded.value.comment ?? null), now, submissionID],
       )
       if (status === "publishing")
-        connection.run(
+        await connection.run(
           `INSERT INTO publish_jobs (id, submission_id, kind, status, attempts, created_at, updated_at)
            VALUES (?, ?, 'publish', 'pending', 0, ?, ?)`,
           [`job_${randomSecret()}`, submissionID, now, now],
         )
-      insertAudit(connection, {
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: DecisionAction[decoded.value.decision],
         objectType: "submission",
@@ -270,35 +242,33 @@ export class Moderation {
     })
   }
 
-  retryPublish(principal: Principal, submissionID: string, input: SkillMarketControl.ExpectedVersionInput) {
+  async retryPublish(principal: Principal, submissionID: string, input: SkillMarketControl.ExpectedVersionInput) {
     this.options.security.requireAdmin(principal)
     const decoded = Schema.decodeUnknownOption(SkillMarketControl.ExpectedVersionInput)(input)
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "publish retry is invalid")
     const now = this.options.now?.() ?? Date.now()
-    return this.options.database.transaction((connection) => {
-      const submission = connection
-        .query<RetryRow, [string]>("SELECT status, version FROM submissions WHERE id = ?")
-        .get(submissionID)
+    return this.options.database.transaction(async (connection) => {
+      const submission = await connection.get<RetryRow>("SELECT status, version FROM submissions WHERE id = ?", [
+        submissionID,
+      ])
       if (!submission) throw new SkillMarketSecurityError("not-found", "submission was not found")
       if (submission.version !== decoded.value.expectedVersion || submission.status !== "publish_failed")
         throw new SkillMarketSecurityError("submission-conflict", "submission cannot be retried from this version")
       assertSubmissionTransition(submission.status, "publishing")
-      const active = connection
-        .query<
-          { count: number },
-          [string]
-        >("SELECT count(*) AS count FROM publish_jobs WHERE submission_id = ? AND status IN ('pending', 'running')")
-        .get(submissionID)!.count
+      const active = (
+        await connection.get<{ count: number }>(
+          "SELECT count(*) AS count FROM publish_jobs WHERE submission_id = ? AND status IN ('pending', 'running')",
+          [submissionID],
+        )
+      )!.count
       if (active > 0)
         throw new SkillMarketSecurityError("submission-conflict", "submission already has an active publish job")
-      const failed = connection
-        .query<
-          { id: string },
-          [string]
-        >("SELECT id FROM publish_jobs WHERE submission_id = ? AND kind = 'publish' AND status = 'failed' ORDER BY updated_at DESC, id LIMIT 1")
-        .get(submissionID)
+      const failed = await connection.get<{ id: string }>(
+        "SELECT id FROM publish_jobs WHERE submission_id = ? AND kind = 'publish' AND status = 'failed' ORDER BY updated_at DESC, id LIMIT 1",
+        [submissionID],
+      )
       if (failed)
-        connection.run(
+        await connection.run(
           `UPDATE publish_jobs
            SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL,
                error_code = NULL, error_summary = NULL, updated_at = ?
@@ -306,16 +276,16 @@ export class Moderation {
           [now, failed.id],
         )
       if (!failed)
-        connection.run(
+        await connection.run(
           `INSERT INTO publish_jobs (id, submission_id, kind, status, attempts, created_at, updated_at)
            VALUES (?, ?, 'publish', 'pending', 0, ?, ?)`,
           [`job_${randomSecret()}`, submissionID, now, now],
         )
-      connection.run(
+      await connection.run(
         "UPDATE submissions SET status = 'publishing', version = version + 1, user_message = NULL, updated_at = ? WHERE id = ?",
         [now, submissionID],
       )
-      insertAudit(connection, {
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "publish-retried",
         objectType: "submission",
@@ -335,39 +305,39 @@ export class Moderation {
     return this.options.database.read(listRoles)
   }
 
-  assignRole(principal: Principal, input: SkillMarketControl.RoleInput) {
+  async assignRole(principal: Principal, input: SkillMarketControl.RoleInput) {
     this.options.security.requireAdmin(principal)
     const decoded = Schema.decodeUnknownOption(SkillMarketControl.RoleInput)(input)
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "role assignment is invalid")
     const now = this.options.now?.() ?? Date.now()
-    return this.options.database.transaction((connection) => {
-      connection.run(
+    return this.options.database.transaction(async (connection) => {
+      await connection.run(
         `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(employee_id) DO NOTHING`,
         [decoded.value.employeeID, decoded.value.employeeID, now, now],
       )
-      const target = connection
-        .query<
-          { employee_id: string; display_name: string; email: string | null; disabled_at: number | null },
-          [string]
-        >("SELECT employee_id, display_name, email, disabled_at FROM users WHERE employee_id = ?")
-        .get(decoded.value.employeeID)
-      if (!target) throw new Error("role target user is missing after provisioning")
-      const existing = connection
-        .query<
-          { count: number },
-          [string, SkillMarketControl.Role]
-        >("SELECT count(*) AS count FROM role_assignments WHERE employee_id = ? AND role = ?")
-        .get(decoded.value.employeeID, decoded.value.role)!.count
-      if (existing > 0) throw new SkillMarketSecurityError("invalid-request", "role is already assigned")
-      connection.run("INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)", [
+      const target = await connection.get<{
+        employee_id: string
+        display_name: string
+        email: string | null
+        disabled_at: number | null
+      }>("SELECT employee_id, display_name, email, disabled_at FROM users WHERE employee_id = ?", [
         decoded.value.employeeID,
-        decoded.value.role,
-        principal.session.user.employeeID,
-        now,
       ])
-      insertAudit(connection, {
+      if (!target) throw new Error("role target user is missing after provisioning")
+      const existing = (
+        await connection.get<{ count: number }>(
+          "SELECT count(*) AS count FROM role_assignments WHERE employee_id = ? AND role = ?",
+          [decoded.value.employeeID, decoded.value.role],
+        )
+      )!.count
+      if (existing > 0) throw new SkillMarketSecurityError("invalid-request", "role is already assigned")
+      await connection.run(
+        "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
+        [decoded.value.employeeID, decoded.value.role, principal.session.user.employeeID, now],
+      )
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "role-assigned",
         objectType: "role",
@@ -384,26 +354,28 @@ export class Moderation {
     })
   }
 
-  removeRole(principal: Principal, employeeID: string, role: SkillMarketControl.Role) {
+  async removeRole(principal: Principal, employeeID: string, role: SkillMarketControl.Role) {
     this.options.security.requireAdmin(principal)
     if (!Schema.is(SkillMarketControl.EmployeeID)(employeeID) || !Schema.is(SkillMarketControl.Role)(role))
       throw new SkillMarketSecurityError("invalid-request", "role removal is invalid")
     const now = this.options.now?.() ?? Date.now()
-    return this.options.database.transaction((connection) => {
-      const existing = connection
-        .query<
-          { count: number },
-          [string, SkillMarketControl.Role]
-        >("SELECT count(*) AS count FROM role_assignments WHERE employee_id = ? AND role = ?")
-        .get(employeeID, role)!.count
+    return this.options.database.transaction(async (connection) => {
+      const existing = (
+        await connection.get<{ count: number }>(
+          "SELECT count(*) AS count FROM role_assignments WHERE employee_id = ? AND role = ?",
+          [employeeID, role],
+        )
+      )!.count
       if (existing === 0) throw new SkillMarketSecurityError("not-found", "role assignment was not found")
-      const admins = connection
-        .query<{ count: number }, []>("SELECT count(*) AS count FROM role_assignments WHERE role = 'admin'")
-        .get()!.count
+      const admins = (
+        await connection.get<{ count: number }>(
+          "SELECT count(*) AS count FROM role_assignments WHERE role = 'admin'",
+        )
+      )!.count
       if (role === "admin" && admins === 1)
         throw new SkillMarketSecurityError("last-admin", "the last admin cannot be removed")
-      connection.run("DELETE FROM role_assignments WHERE employee_id = ? AND role = ?", [employeeID, role])
-      insertAudit(connection, {
+      await connection.run("DELETE FROM role_assignments WHERE employee_id = ? AND role = ?", [employeeID, role])
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "role-removed",
         objectType: "role",
@@ -415,7 +387,7 @@ export class Moderation {
     })
   }
 
-  listAudit(principal: Principal, query: SkillMarketControl.AuditQuery) {
+  async listAudit(principal: Principal, query: SkillMarketControl.AuditQuery) {
     this.options.security.requireAdmin(principal)
     const decoded = Schema.decodeUnknownOption(SkillMarketControl.AuditQuery)(query)
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "audit query is invalid")
@@ -427,7 +399,7 @@ export class Moderation {
       AND (? IS NULL OR audit_events.object_id = ?)
       AND (? IS NULL OR audit_events.created_at >= ?)
       AND (? IS NULL OR audit_events.created_at <= ?)`
-    return this.options.database.read((connection) => {
+    return this.options.database.read(async (connection) => {
       const parameters = [
         decoded.value.actor ?? null,
         decoded.value.actor ?? null,
@@ -442,45 +414,11 @@ export class Moderation {
         createdTo,
         createdTo,
       ] as const
-      const total = connection
-        .query<
-          { count: number },
-          [
-            string | null,
-            string | null,
-            SkillMarketControl.AuditAction | null,
-            SkillMarketControl.AuditAction | null,
-            SkillMarketControl.AuditObjectType | null,
-            SkillMarketControl.AuditObjectType | null,
-            string | null,
-            string | null,
-            number | null,
-            number | null,
-            number | null,
-            number | null,
-          ]
-        >(`SELECT count(*) AS count FROM audit_events${where}`)
-        .get(...parameters)!.count
-      const items = connection
-        .query<
-          AuditRow,
-          [
-            string | null,
-            string | null,
-            SkillMarketControl.AuditAction | null,
-            SkillMarketControl.AuditAction | null,
-            SkillMarketControl.AuditObjectType | null,
-            SkillMarketControl.AuditObjectType | null,
-            string | null,
-            string | null,
-            number | null,
-            number | null,
-            number | null,
-            number | null,
-            number,
-            number,
-          ]
-        >(
+      const total = (
+        await connection.get<{ count: number }>(`SELECT count(*) AS count FROM audit_events${where}`, parameters)
+      )!.count
+      const items = (
+        await connection.all<AuditRow>(
           `SELECT
              audit_events.id,
              audit_events.actor_employee_id,
@@ -498,9 +436,9 @@ export class Moderation {
            LEFT JOIN users ON users.employee_id = audit_events.actor_employee_id${where}
            ORDER BY audit_events.created_at DESC, audit_events.rowid DESC
            LIMIT ? OFFSET ?`,
+          [...parameters, decoded.value.limit, (decoded.value.page - 1) * decoded.value.limit],
         )
-        .all(...parameters, decoded.value.limit, (decoded.value.page - 1) * decoded.value.limit)
-        .map(auditEvent)
+      ).map(auditEvent)
       return Schema.decodeUnknownSync(SkillMarketControl.AuditPage)({
         total,
         page: decoded.value.page,
@@ -510,11 +448,11 @@ export class Moderation {
     })
   }
 
-  delist(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {
+  async delist(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {
     return this.setCommunityStatus(principal, skillID, input, "delisted")
   }
 
-  decideDelist(
+  async decideDelist(
     principal: Principal,
     requestID: string,
     input: SkillMarketControl.ExpectedVersionInput,
@@ -538,18 +476,18 @@ export class Moderation {
     )
   }
 
-  pendingDelist(principal: Principal, submissionID: string) {
+  async pendingDelist(principal: Principal, submissionID: string) {
     this.options.security.requireAdmin(principal)
     if (!Schema.is(SkillMarketControl.SubmissionID)(submissionID))
       throw new SkillMarketSecurityError("invalid-request", "submission ID is invalid")
     return this.options.database.transaction((connection) => pendingDelist(connection, submissionID))
   }
 
-  restore(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {
+  async restore(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {
     return this.setCommunityStatus(principal, skillID, input, "published")
   }
 
-  private setCommunityStatus(
+  private async setCommunityStatus(
     principal: Principal,
     skillID: string,
     input: SkillMarketControl.ReasonInput,
@@ -560,13 +498,11 @@ export class Moderation {
     if (Option.isNone(decoded) || !Schema.is(SkillMarketControl.SubmissionSummary.fields.skillID)(skillID))
       throw new SkillMarketSecurityError("invalid-request", "community status update is invalid")
     const now = this.options.now?.() ?? Date.now()
-    return this.options.database.transaction((connection) => {
-      const skill = connection
-        .query<
-          CommunityRow,
-          [string]
-        >("SELECT skill_id, current_version, public_status, version FROM community_skills WHERE skill_id = ?")
-        .get(skillID)
+    return this.options.database.transaction(async (connection) => {
+      const skill = await connection.get<CommunityRow>(
+        "SELECT skill_id, current_version, public_status, version FROM community_skills WHERE skill_id = ?",
+        [skillID],
+      )
       if (!skill?.current_version || !skill.public_status)
         throw new SkillMarketSecurityError("not-found", "published community skill was not found")
       if (skill.version !== decoded.value.expectedVersion)
@@ -574,12 +510,12 @@ export class Moderation {
       const expectedStatus = status === "delisted" ? "published" : "delisted"
       if (skill.public_status !== expectedStatus)
         throw new SkillMarketSecurityError("submission-conflict", "community skill cannot change to this status")
-      connection.run(
+      await connection.run(
         "UPDATE community_skills SET public_status = ?, delist_reason = ?, version = version + 1, updated_at = ? WHERE skill_id = ?",
         [status, status === "delisted" ? decoded.value.reason : null, now, skillID],
       )
-      enqueueCatalogRebuild(connection, now)
-      insertAudit(connection, {
+      await enqueueCatalogRebuild(connection, now)
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: status === "delisted" ? "community-delisted" : "community-restored",
         objectType: "community_skill",
@@ -603,8 +539,8 @@ export function createModeration(options: ModerationOptions) {
   return new Moderation(options)
 }
 
-function insertAudit(
-  connection: Database,
+async function insertAudit(
+  connection: Connection,
   event: {
     readonly actorEmployeeID: string
     readonly action: SkillMarketControl.AuditAction
@@ -615,7 +551,7 @@ function insertAudit(
     readonly now: number
   },
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, actor_employee_id, action, object_type, object_id, before_json, after_json, request_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -633,9 +569,9 @@ function insertAudit(
   )
 }
 
-function listRoles(connection: Database) {
-  return connection
-    .query<RoleRow, []>(
+async function listRoles(connection: Connection) {
+  return (
+    await connection.all<RoleRow>(
       `SELECT
         users.employee_id,
         users.display_name,
@@ -648,8 +584,7 @@ function listRoles(connection: Database) {
        INNER JOIN users ON users.employee_id = role_assignments.employee_id
        ORDER BY users.employee_id, role_assignments.role`,
     )
-    .all()
-    .map(roleAssignment)
+  ).map(roleAssignment)
 }
 
 function roleAssignment(row: RoleRow) {
@@ -693,15 +628,14 @@ function user(row: {
   }
 }
 
-function enqueueCatalogRebuild(connection: Database, now: number) {
-  const active = connection
-    .query<
-      { count: number },
-      []
-    >("SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'")
-    .get()!.count
+async function enqueueCatalogRebuild(connection: Connection, now: number) {
+  const active = (
+    await connection.get<{ count: number }>(
+      "SELECT count(*) AS count FROM publish_jobs WHERE kind = 'catalog_rebuild' AND status = 'pending'",
+    )
+  )!.count
   if (active > 0) return
-  connection.run(
+  await connection.run(
     `INSERT INTO publish_jobs (id, kind, status, attempts, created_at, updated_at)
      VALUES (?, 'catalog_rebuild', 'pending', 0, ?, ?)`,
     [`job_${randomSecret()}`, now, now],

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite"
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import { MarketDatabase } from "../src/database"
+import { SqliteDatabase } from "../src/database"
 import type { Principal } from "../src/security"
 import { SkillMarketSecurityError } from "../src/security"
 import { createSubmissions } from "../src/submissions"
@@ -12,9 +12,9 @@ if (target !== "personal" && target !== "department") throw new Error("invalid a
 
 while (!(await Bun.file(barrierPath).exists())) await Bun.sleep(1)
 
-const database = new MarketDatabase(new Database(databasePath, { readwrite: true }))
-database.connection.run("PRAGMA busy_timeout = 5000")
-database.connection.run("PRAGMA foreign_keys = ON")
+const database = new SqliteDatabase(new Database(databasePath, { readwrite: true }))
+await database.transaction(async (c) => c.run("PRAGMA busy_timeout = 5000"))
+await database.transaction(async (c) => c.run("PRAGMA foreign_keys = ON"))
 const principal = {
   session: {
     user: {
@@ -49,4 +49,4 @@ const result = await createSubmissions({ database }).changeAudience(principal, s
   },
 )
 console.log(JSON.stringify(result))
-database.close()
+await database.close()

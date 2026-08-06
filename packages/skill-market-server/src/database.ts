@@ -4,6 +4,15 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { MarketMetricEmitter } from "./metrics"
 
+// MarketDatabase 现在是 store.ts 的接口;SQLite 实现见 sqlite-driver.ts。
+// 保留从这个模块的导出,让现有 `import { MarketDatabase } from "./database"`
+// 不需要改 import 路径(只从值导出变为类型导出)。
+export type { MarketDatabase } from "./store"
+export { SqliteDatabase } from "./sqlite-driver"
+import { SqliteDatabase } from "./sqlite-driver"
+import { openPostgres } from "./pg-driver"
+import type { MarketDatabase } from "./store"
+
 export interface OpenDatabaseOptions {
   readonly databasePath: string
   readonly migrationBackupDirectory: string
@@ -11,23 +20,31 @@ export interface OpenDatabaseOptions {
   readonly emit?: MarketMetricEmitter
 }
 
-export class MarketDatabase {
-  constructor(readonly connection: Database) {}
-
-  read<T>(callback: (connection: Database) => T) {
-    return this.connection.transaction(() => callback(this.connection))()
-  }
-
-  transaction<T>(callback: (connection: Database) => T) {
-    return this.connection.transaction(() => callback(this.connection)).immediate()
-  }
-
-  close() {
-    this.connection.close()
-  }
+/** PG 分流选项;有 url 时走 PG,否则回退 SQLite。 */
+export interface MarketDatabaseOptions extends OpenDatabaseOptions {
+  readonly postgresUrl?: string
+  readonly postgresSchema?: string
 }
 
-export async function openDatabase(options: OpenDatabaseOptions) {
+/**
+ * 根据 postgresUrl 是否存在,分流到 PG 或 SQLite。
+ * 这是 server/worker/sync 等启动点应该调用的统一入口。
+ */
+export async function openMarketDatabase(options: MarketDatabaseOptions): Promise<MarketDatabase> {
+  if (options.postgresUrl) {
+    return openPostgres({
+      url: options.postgresUrl,
+      schema: options.postgresSchema,
+    })
+  }
+  return openDatabase(options)
+}
+
+/**
+ * 打开 SQLite 数据库、应用迁移,返回 MarketDatabase 接口。
+ * 运行时是 SqliteDatabase(bun:sqlite 实现)。
+ */
+export async function openDatabase(options: OpenDatabaseOptions): Promise<MarketDatabase> {
   const existed = await Bun.file(options.databasePath).exists()
   await Promise.all([
     mkdir(dirname(options.databasePath), { recursive: true }),
@@ -36,7 +53,7 @@ export async function openDatabase(options: OpenDatabaseOptions) {
 
   const connection = new Database(options.databasePath, { create: true, readwrite: true })
   return initialize(connection, options, existed).then(
-    () => new MarketDatabase(connection),
+    () => new SqliteDatabase(connection),
     (error) => {
       connection.close()
       throw error

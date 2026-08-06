@@ -1,8 +1,7 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import type { Database } from "bun:sqlite"
 import { Schema } from "effect"
-import type { MarketDatabase } from "./database"
+import type { Connection, MarketDatabase } from "./store"
 import type { SkillHubEvaluation } from "./skillhub-evaluation"
 
 const maximumClaimLimit = 2
@@ -32,12 +31,12 @@ export interface SkillHubEvaluationRetryPolicy {
 }
 
 export interface SkillHubEvaluationStore {
-  readonly claim: (workerID: string, limit: number, leaseMilliseconds: number) => ClaimedSkillHubEvaluation[]
-  readonly renew: (workerID: string, slug: string, leaseMilliseconds: number) => boolean
-  readonly complete: (workerID: string, slug: string, evaluation: SkillHubEvaluation) => boolean
-  readonly retry: (workerID: string, slug: string, summary: string, policy?: SkillHubEvaluationRetryPolicy) => boolean
-  readonly progress: () => SkillMarketControl.SkillHubEvaluationProgress
-  readonly markDue: (refreshMilliseconds?: number) => number
+  readonly claim: (workerID: string, limit: number, leaseMilliseconds: number) => Promise<ClaimedSkillHubEvaluation[]>
+  readonly renew: (workerID: string, slug: string, leaseMilliseconds: number) => Promise<boolean>
+  readonly complete: (workerID: string, slug: string, evaluation: SkillHubEvaluation) => Promise<boolean>
+  readonly retry: (workerID: string, slug: string, summary: string, policy?: SkillHubEvaluationRetryPolicy) => Promise<boolean>
+  readonly progress: () => Promise<SkillMarketControl.SkillHubEvaluationProgress>
+  readonly markDue: (refreshMilliseconds?: number) => Promise<number>
 }
 
 export function createSkillHubEvaluationStore(options: {
@@ -50,43 +49,43 @@ export function createSkillHubEvaluationStore(options: {
       requireWorkerID(workerID)
       requireClaimLimit(limit)
       requireLeaseMilliseconds(leaseMilliseconds)
-      return options.database.transaction((connection) => {
+      return options.database.transaction(async (connection) => {
         const timestamp = now()
-        const rows = connection
-          .query<ClaimRow, [number, number, number]>(
-            "SELECT slug, evaluation_attempts FROM skillhub_import_items WHERE state = 'mirrored' AND (evaluation_state = 'pending' OR (evaluation_state = 'retry_wait' AND evaluation_next_attempt_at <= ?) OR (evaluation_state = 'running' AND evaluation_lease_expires_at <= ?)) ORDER BY updated_at, slug LIMIT ?",
-          )
-          .all(timestamp, timestamp, limit)
-        rows.forEach((row) => {
-          connection.run(
+        const rows = await connection.all<ClaimRow>(
+          "SELECT slug, evaluation_attempts FROM skillhub_import_items WHERE state = 'mirrored' AND (evaluation_state = 'pending' OR (evaluation_state = 'retry_wait' AND evaluation_next_attempt_at <= ?) OR (evaluation_state = 'running' AND evaluation_lease_expires_at <= ?)) ORDER BY updated_at, slug LIMIT ?",
+          [timestamp, timestamp, limit],
+        )
+        for (const row of rows) {
+          await connection.run(
             "UPDATE skillhub_import_items SET evaluation_state = 'running', evaluation_attempts = evaluation_attempts + 1, evaluation_next_attempt_at = NULL, evaluation_lease_owner = ?, evaluation_lease_expires_at = ?, updated_at = ? WHERE slug = ?",
             [workerID, timestamp + leaseMilliseconds, timestamp, row.slug],
           )
-        })
+        }
         return rows.map((row) => ({ slug: row.slug, attempts: row.evaluation_attempts + 1 }))
       })
     },
     renew(workerID, slug, leaseMilliseconds) {
       requireWorkerID(workerID)
       requireLeaseMilliseconds(leaseMilliseconds)
-      return options.database.transaction((connection) => {
+      return options.database.transaction(async (connection) => {
         const timestamp = now()
-        return connection.run(
-          "UPDATE skillhub_import_items SET evaluation_lease_expires_at = ?, updated_at = ? WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
-          [timestamp + leaseMilliseconds, timestamp, slug, workerID, timestamp],
-        ).changes === 1
+        return (
+          await connection.run(
+            "UPDATE skillhub_import_items SET evaluation_lease_expires_at = ?, updated_at = ? WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
+            [timestamp + leaseMilliseconds, timestamp, slug, workerID, timestamp],
+          )
+        ) === 1
       })
     },
     complete(workerID, slug, evaluation) {
       requireWorkerID(workerID)
       const result = Schema.decodeUnknownSync(EvaluationResult)(evaluation)
-      return options.database.transaction((connection) => {
+      return options.database.transaction(async (connection) => {
         const timestamp = now()
-        const item = connection
-          .query<{ readonly summary_json: string | null }, [string, string, number]>(
-            "SELECT summary_json FROM skillhub_import_items WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
-          )
-          .get(slug, workerID, timestamp)
+        const item = await connection.get<{ readonly summary_json: string | null }>(
+          "SELECT summary_json FROM skillhub_import_items WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
+          [slug, workerID, timestamp],
+        )
         if (!item?.summary_json) return false
         const summary = Schema.decodeUnknownSync(Schema.fromJsonString(SkillMarket.Summary))(item.summary_json)
         const evaluatedAt = iso(timestamp)
@@ -102,23 +101,25 @@ export function createSkillHubEvaluationStore(options: {
             evaluatedAt,
           },
         }
-        return connection.run(
-          "UPDATE skillhub_import_items SET evaluation_state = 'completed', evaluation_next_attempt_at = NULL, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, evaluation_trust = ?, evaluation_reliability = ?, evaluation_adaptability = ?, evaluation_convention = ?, evaluation_effectiveness = ?, evaluation_score = ?, evaluation_checked_at = ?, evaluation_error_summary = NULL, summary_json = ?, updated_at = ? WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
-          [
-            result.trust,
-            result.reliability,
-            result.adaptability,
-            result.convention,
-            result.effectiveness,
-            result.score,
-            timestamp,
-            JSON.stringify(updated),
-            timestamp,
-            slug,
-            workerID,
-            timestamp,
-          ],
-        ).changes === 1
+        return (
+          await connection.run(
+            "UPDATE skillhub_import_items SET evaluation_state = 'completed', evaluation_next_attempt_at = NULL, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, evaluation_trust = ?, evaluation_reliability = ?, evaluation_adaptability = ?, evaluation_convention = ?, evaluation_effectiveness = ?, evaluation_score = ?, evaluation_checked_at = ?, evaluation_error_summary = NULL, summary_json = ?, updated_at = ? WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
+            [
+              result.trust,
+              result.reliability,
+              result.adaptability,
+              result.convention,
+              result.effectiveness,
+              result.score,
+              timestamp,
+              JSON.stringify(updated),
+              timestamp,
+              slug,
+              workerID,
+              timestamp,
+            ],
+          )
+        ) === 1
       })
     },
     retry(workerID, slug, summary, policy = {}) {
@@ -127,23 +128,24 @@ export function createSkillHubEvaluationStore(options: {
       const baseDelayMilliseconds = policy.baseDelayMilliseconds ?? defaultBaseDelayMilliseconds
       const maximumDelayMilliseconds = policy.maximumDelayMilliseconds ?? defaultMaximumDelayMilliseconds
       requireRetryPolicy(maximumAttempts, baseDelayMilliseconds, maximumDelayMilliseconds)
-      return options.database.transaction((connection) => {
+      return options.database.transaction(async (connection) => {
         const timestamp = now()
-        const item = connection
-          .query<{ readonly evaluation_attempts: number }, [string, string, number]>(
-            "SELECT evaluation_attempts FROM skillhub_import_items WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
-          )
-          .get(slug, workerID, timestamp)
+        const item = await connection.get<{ readonly evaluation_attempts: number }>(
+          "SELECT evaluation_attempts FROM skillhub_import_items WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
+          [slug, workerID, timestamp],
+        )
         if (!item) return false
         const error = boundedSummary(summary)
         const failed = item.evaluation_attempts >= maximumAttempts
         const nextAttemptAt = failed
           ? null
           : timestamp + Math.min(maximumDelayMilliseconds, baseDelayMilliseconds * 2 ** (item.evaluation_attempts - 1))
-        return connection.run(
-          "UPDATE skillhub_import_items SET evaluation_state = ?, evaluation_next_attempt_at = ?, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, evaluation_error_summary = ?, updated_at = ? WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
-          [failed ? "failed" : "retry_wait", nextAttemptAt, error, timestamp, slug, workerID, timestamp],
-        ).changes === 1
+        return (
+          await connection.run(
+            "UPDATE skillhub_import_items SET evaluation_state = ?, evaluation_next_attempt_at = ?, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, evaluation_error_summary = ?, updated_at = ? WHERE slug = ? AND state = 'mirrored' AND evaluation_state = 'running' AND evaluation_lease_owner = ? AND evaluation_lease_expires_at > ?",
+            [failed ? "failed" : "retry_wait", nextAttemptAt, error, timestamp, slug, workerID, timestamp],
+          )
+        ) === 1
       })
     },
     progress() {
@@ -152,12 +154,12 @@ export function createSkillHubEvaluationStore(options: {
     markDue(refreshMilliseconds = defaultRefreshMilliseconds) {
       if (!Number.isSafeInteger(refreshMilliseconds) || refreshMilliseconds < 1 || refreshMilliseconds > 366 * 24 * 60 * 60 * 1_000)
         throw new Error("SkillHub evaluation refresh must be between 1 millisecond and 366 days")
-      return options.database.transaction((connection) => {
+      return options.database.transaction(async (connection) => {
         const timestamp = now()
         return connection.run(
           "UPDATE skillhub_import_items SET evaluation_state = 'pending', evaluation_attempts = 0, evaluation_next_attempt_at = NULL, evaluation_lease_owner = NULL, evaluation_lease_expires_at = NULL, updated_at = ? WHERE state = 'mirrored' AND evaluation_state = 'completed' AND evaluation_checked_at <= ?",
           [timestamp, timestamp - refreshMilliseconds],
-        ).changes
+        )
       })
     },
   }
@@ -200,25 +202,24 @@ function boundedSummary(summary: string) {
   return summary.slice(0, 500) || "Unclassified SkillHub evaluation error"
 }
 
-function readProgress(connection: Database, timestamp: number) {
-  const counts = connection
-    .query<EvaluationCountRow, []>(
-      "SELECT evaluation_state, COUNT(*) AS count FROM skillhub_import_items WHERE state = 'mirrored' GROUP BY evaluation_state",
-    )
-    .all()
+async function readProgress(connection: Connection, timestamp: number) {
+  const counts = await connection.all<EvaluationCountRow>(
+    "SELECT evaluation_state, COUNT(*) AS count FROM skillhub_import_items WHERE state = 'mirrored' GROUP BY evaluation_state",
+  )
   const count = (state: string) => counts.find((row) => row.evaluation_state === state)?.count ?? 0
   const total = counts.reduce((result, row) => result + row.count, 0)
   const remaining = count("waiting") + count("pending") + count("running") + count("retry_wait")
-  const ratePerMinute = connection
-    .query<{ readonly count: number }, [number]>(
+  const ratePerMinute = (
+    await connection.get<{ readonly count: number }>(
       "SELECT COUNT(*) AS count FROM skillhub_import_items WHERE state = 'mirrored' AND evaluation_state = 'completed' AND evaluation_checked_at > ?",
+      [timestamp - 60_000],
     )
-    .get(timestamp - 60_000)!.count
-  const recentError = connection
-    .query<{ readonly evaluation_error_summary: string }, []>(
+  )?.count ?? 0
+  const recentError = (
+    await connection.get<{ readonly evaluation_error_summary: string }>(
       "SELECT evaluation_error_summary FROM skillhub_import_items WHERE state = 'mirrored' AND evaluation_error_summary IS NOT NULL ORDER BY updated_at DESC, slug DESC LIMIT 1",
     )
-    .get()?.evaluation_error_summary
+  )?.evaluation_error_summary
   const estimatedSecondsRemaining = ratePerMinute === 0 ? undefined : Math.ceil((remaining / ratePerMinute) * 60)
   return Schema.decodeUnknownSync(SkillMarketControl.SkillHubEvaluationProgress)({
     total,

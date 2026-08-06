@@ -31,7 +31,7 @@ export function createSecurityLayers(options: MiddlewareOptions) {
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest
           const cookies = readCookies(request.headers.cookie)
-          const principal = yield* Effect.try({
+          const principal = yield* Effect.tryPromise({
             try: () =>
               options.security.requireSession({
                 sessionToken: cookies.get(options.sessionCookieName) ?? "",
@@ -53,7 +53,7 @@ export function createSecurityLayers(options: MiddlewareOptions) {
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest
           const cookies = readCookies(request.headers.cookie)
-          const principal = yield* Effect.try({
+          const principal = yield* Effect.tryPromise({
             try: () =>
               options.security.requireSession({
                 sessionToken: cookies.get(options.sessionCookieName) ?? "",

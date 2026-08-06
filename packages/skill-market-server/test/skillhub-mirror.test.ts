@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { AdaptivePoolError } from "../src/adaptive-pool"
 import { loadCurrentSnapshot, publishSnapshot, type PrivateObjectStore } from "../src/oss"
 import { createPublisher } from "../src/publisher"
@@ -23,8 +23,8 @@ describe("SkillHub mirror", () => {
   test("publishes a real mirrored import through the relative detail reference", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(1)
-    imports.recordPage(generation.id, 1, [list("published")])
+    const generation = await imports.beginGeneration(1)
+    await imports.recordPage(generation.id, 1, [list("published")])
     const objects = memoryStore()
     await publishSnapshot(objects, { prefix: "skill-market" }, sampleSnapshot("before"))
     const mirror = createSkillHubMirror({
@@ -48,14 +48,14 @@ describe("SkillHub mirror", () => {
 
     const snapshot = await loadCurrentSnapshot(objects, { prefix: "skill-market" })
     expect(snapshot.details.get("skillhub:published")?.id).toBe("published")
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("keeps an upstream ranking weight private when materializing a new public detail", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(1)
-    imports.recordPage(generation.id, 1, [{ ...list("ranking-weight"), score: 100_000 }])
+    const generation = await imports.beginGeneration(1)
+    await imports.recordPage(generation.id, 1, [{ ...list("ranking-weight"), score: 100_000 }])
     const objects = memoryStore()
     const mirror = createSkillHubMirror({
       imports,
@@ -68,9 +68,9 @@ describe("SkillHub mirror", () => {
 
     expect(await mirror.runBatch("mirror-ranking-weight")).toEqual({ mirrored: 1, retryWait: 0, rejected: 0 })
 
-    const entry = imports.mirroredEntries()[0]!
+    const entry = (await imports.mirroredEntries())[0]!
     const detail = JSON.parse(new TextDecoder().decode(await objects.get(`skillhub/${entry.detailKey}`)))
-    const stored = fixture.database.connection
+    const stored = (fixture.database as SqliteDatabase).connection
       .query<{ readonly record_json: string }, [string]>("SELECT record_json FROM skillhub_import_items WHERE slug = ?")
       .get("ranking-weight")!
 
@@ -79,14 +79,14 @@ describe("SkillHub mirror", () => {
     expect(entry.summary).toMatchObject({ score: 0 })
     expect(entry.summary.evaluationScore).toBeUndefined()
     expect(JSON.parse(stored.record_json).score).toBe(100_000)
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("handles one bounded claim per batch and retains publicly addressable object keys", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(3)
-    imports.recordPage(generation.id, 1, [list("one"), list("two"), list("three")])
+    const generation = await imports.beginGeneration(3)
+    await imports.recordPage(generation.id, 1, [list("one"), list("two"), list("three")])
     const objects = memoryStore()
     const mirror = createSkillHubMirror({
       imports,
@@ -100,19 +100,19 @@ describe("SkillHub mirror", () => {
     })
 
     expect(await mirror.runBatch("mirror-a")).toEqual({ mirrored: 2, retryWait: 0, rejected: 0 })
-    expect(imports.progress()).toMatchObject({ mirrored: 2, pending: 1 })
+    expect(await imports.progress()).toMatchObject({ mirrored: 2, pending: 1 })
     const detail = JSON.parse(new TextDecoder().decode(await objects.get(objects.keys().find((key) => key.includes("/details/"))!)))
     expect(detail.package.url).toContain("/public-catalog/packages/")
     expect(objects.keys()).toContain(`public-catalog/packages/${detail.package.sha256}.zip`)
-    expect(imports.mirroredEntries()[0]?.detailKey).toMatch(/^details\/[a-f0-9]{64}\.json$/)
-    fixture.database.close()
+    expect((await imports.mirroredEntries())[0]?.detailKey).toMatch(/^details\/[a-f0-9]{64}\.json$/)
+    await fixture.database.close()
   })
 
   test("overwrites same-size corrupt content-addressed objects with verified immutable objects", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(1)
-    imports.recordPage(generation.id, 1, [list("corrupt")])
+    const generation = await imports.beginGeneration(1)
+    await imports.recordPage(generation.id, 1, [list("corrupt")])
     const body = packageZip("corrupt")
     const normalized = normalizeSkillHubArchive(body, record("corrupt")).body
     const packageSha256 = new Bun.CryptoHasher("sha256").update(normalized).digest("hex")
@@ -132,15 +132,15 @@ describe("SkillHub mirror", () => {
     expect(await mirror.runBatch("mirror-a")).toEqual({ mirrored: 1, retryWait: 0, rejected: 0 })
     expect(await objects.get(`public-catalog/packages/${packageSha256}.zip`)).not.toEqual(new Uint8Array(normalized.byteLength).fill(7))
     expect(objects.cacheControls()).toContain("public, max-age=31536000, immutable")
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("content-addresses normalized packages, retries 429s, and rejects malware and traversal archives", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(6)
+    const generation = await imports.beginGeneration(6)
     const slugs = ["duplicate-a", "duplicate-b", "throttled", "malware", "traversal", "normal"]
-    imports.recordPage(generation.id, 1, slugs.map((slug) => list(slug)))
+    await imports.recordPage(generation.id, 1, slugs.map((slug) => list(slug)))
     const objects = memoryStore()
     let throttled = false
     const mirror = createSkillHubMirror({
@@ -171,22 +171,22 @@ describe("SkillHub mirror", () => {
 
     expect(result).toEqual({ mirrored: 4, retryWait: 0, rejected: 2 })
     expect(objects.keys().filter((key) => key.includes("/packages/")).length).toBe(3)
-    expect(imports.progress().packageConcurrency).toBeLessThanOrEqual(6)
+    expect((await imports.progress()).packageConcurrency).toBeLessThanOrEqual(6)
     expect(state(fixture.database, "malware")).toBe("rejected")
     expect(state(fixture.database, "traversal")).toBe("rejected")
 
     const puts = objects.puts()
     expect(await mirror.runBatch("mirror-restarted")).toEqual({ mirrored: 0, retryWait: 0, rejected: 0 })
     expect(objects.puts()).toBe(puts)
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("leaves transient OSS failures retryable and stops claiming after the memory soft limit", async () => {
     const fixture = await databaseFixture()
     const clock = { value: 1_752_537_600_000 }
     const imports = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
-    const generation = imports.beginGeneration(1)
-    imports.recordPage(generation.id, 1, [list("oss-retry")])
+    const generation = await imports.beginGeneration(1)
+    await imports.recordPage(generation.id, 1, [list("oss-retry")])
     const objects = memoryStore({ failPut: true })
     const retry = createSkillHubMirror({
       imports,
@@ -216,12 +216,12 @@ describe("SkillHub mirror", () => {
       random: () => 0,
     })
     expect(await recovered.runBatch("mirror-b")).toEqual({ mirrored: 1, retryWait: 0, rejected: 0 })
-    fixture.database.close()
+    await fixture.database.close()
 
     const memoryFixture = await databaseFixture()
     const memoryImports = createSkillHubImportStore({ database: memoryFixture.database })
-    const memoryGeneration = memoryImports.beginGeneration(3)
-    memoryImports.recordPage(memoryGeneration.id, 1, [list("memory-a"), list("memory-b"), list("memory-c")])
+    const memoryGeneration = await memoryImports.beginGeneration(3)
+    await memoryImports.recordPage(memoryGeneration.id, 1, [list("memory-a"), list("memory-b"), list("memory-c")])
     const memory = createSkillHubMirror({
       imports: memoryImports,
       store: memoryStore(),
@@ -238,15 +238,15 @@ describe("SkillHub mirror", () => {
     })
 
     expect(await memory.runBatch("mirror-b")).toEqual({ mirrored: 2, retryWait: 0, rejected: 0 })
-    expect(memoryImports.progress()).toMatchObject({ mirrored: 2, pending: 1 })
-    memoryFixture.database.close()
+    expect(await memoryImports.progress()).toMatchObject({ mirrored: 2, pending: 1 })
+    await memoryFixture.database.close()
   })
 
   test("rejects permanent metadata failures but keeps transport failures retryable", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(2)
-    imports.recordPage(generation.id, 1, [list("gone"), list("network")])
+    const generation = await imports.beginGeneration(2)
+    await imports.recordPage(generation.id, 1, [list("gone"), list("network")])
     const mirror = createSkillHubMirror({
       imports,
       store: memoryStore(),
@@ -265,17 +265,17 @@ describe("SkillHub mirror", () => {
     expect(await mirror.runBatch("metadata-errors")).toEqual({ mirrored: 0, retryWait: 1, rejected: 1 })
     expect(state(fixture.database, "gone")).toBe("rejected")
     expect(state(fixture.database, "network")).toBe("retry_wait")
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("converges a completed discovery generation after an upstream 404 rejection", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(1)
-    imports.recordPage(generation.id, 1, [list("gone")])
-    imports.completeSweep(generation.id)
-    imports.recordPage(generation.id, 1, [list("gone")])
-    expect(imports.completeSweep(generation.id)).toEqual({ stable: true })
+    const generation = await imports.beginGeneration(1)
+    await imports.recordPage(generation.id, 1, [list("gone")])
+    await imports.completeSweep(generation.id)
+    await imports.recordPage(generation.id, 1, [list("gone")])
+    expect(await imports.completeSweep(generation.id)).toEqual({ stable: true })
     const mirror = createSkillHubMirror({
       imports,
       store: memoryStore(),
@@ -288,15 +288,15 @@ describe("SkillHub mirror", () => {
     })
 
     expect(await mirror.runBatch("upstream-404")).toEqual({ mirrored: 0, retryWait: 0, rejected: 1 })
-    expect(imports.progress()).toMatchObject({ state: "completed", sourceStatus: "fresh", rejected: 1 })
-    fixture.database.close()
+    expect(await imports.progress()).toMatchObject({ state: "completed", sourceStatus: "fresh", rejected: 1 })
+    await fixture.database.close()
   })
 
   test("omits permanently unavailable icons while mirroring their packages", async () => {
     const fixture = await databaseFixture()
     const imports = createSkillHubImportStore({ database: fixture.database })
-    const generation = imports.beginGeneration(3)
-    imports.recordPage(generation.id, 1, [list("disallowed"), list("missing"), list("text")])
+    const generation = await imports.beginGeneration(3)
+    await imports.recordPage(generation.id, 1, [list("disallowed"), list("missing"), list("text")])
     const objects = memoryStore()
     const mirror = createSkillHubMirror({
       imports,
@@ -321,12 +321,12 @@ describe("SkillHub mirror", () => {
     })
 
     expect(await mirror.runBatch("icon-errors")).toEqual({ mirrored: 3, retryWait: 0, rejected: 0 })
-    expect(imports.progress().mirrored).toBe(3)
+    expect((await imports.progress()).mirrored).toBe(3)
     const details = await Promise.all(
       objects.keys().filter((key) => key.includes("/details/")).map(async (key) => JSON.parse(new TextDecoder().decode(await objects.get(key)))),
     )
     expect(details.every((detail) => detail.iconUrl === undefined)).toBe(true)
-    fixture.database.close()
+    await fixture.database.close()
   })
 })
 
@@ -412,7 +412,7 @@ function memoryStore(options: { readonly failPut?: boolean; readonly initial?: M
 }
 
 function state(database: Awaited<ReturnType<typeof openDatabase>>, slug: string) {
-  return database.connection.query<{ state: string }, [string]>("SELECT state FROM skillhub_import_items WHERE slug = ?").get(slug)?.state
+  return (database as SqliteDatabase).connection.query<{ state: string }, [string]>("SELECT state FROM skillhub_import_items WHERE slug = ?").get(slug)?.state
 }
 
 async function databaseFixture() {

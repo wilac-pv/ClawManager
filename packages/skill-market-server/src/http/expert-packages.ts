@@ -8,7 +8,7 @@ export function createExpertPackagesHttp(expertPackages: ExpertPackages) {
   return HttpApiBuilder.group(SkillMarketApi, "skillMarket.expertPackages", (handlers) =>
     handlers
       .handle("skillMarket.expertPackages.list", (context) =>
-        Effect.sync(() =>
+        Effect.promise(() =>
           expertPackages.list({
             query: context.query.query,
             scene: context.query.scene,
@@ -17,11 +17,12 @@ export function createExpertPackagesHttp(expertPackages: ExpertPackages) {
           }),
         ),
       )
-      .handle("skillMarket.expertPackages.detail", (context) => {
-        const detail = expertPackages.detail(context.params.slug)
-        return detail
-          ? Effect.succeed(detail)
-          : Effect.fail(new SkillMarketExpertPackageNotFound({ slug: context.params.slug }))
-      }),
+      .handle("skillMarket.expertPackages.detail", (context) =>
+        Effect.gen(function* () {
+          const detail = yield* Effect.promise(() => expertPackages.detail(context.params.slug))
+          if (!detail) return yield* Effect.fail(new SkillMarketExpertPackageNotFound({ slug: context.params.slug }))
+          return detail
+        }),
+      ),
   )
 }

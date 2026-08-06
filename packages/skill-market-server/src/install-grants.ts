@@ -1,4 +1,4 @@
-import type { MarketDatabase } from "./database"
+import type { MarketDatabase } from "./store"
 import type { RestrictedCatalog } from "./restricted-catalog"
 import type { Principal } from "./security"
 import { hashSecret, randomSecret, SkillMarketSecurityError } from "./security"
@@ -14,12 +14,12 @@ interface InstallGrantOptions {
 
 export function createInstallGrants(options: InstallGrantOptions) {
   return {
-    issue(principal: Principal, publicationID: string) {
+    async issue(principal: Principal, publicationID: string) {
       options.restrictedCatalog.require(principal, publicationID)
       const token = randomSecret()
       const now = options.now?.() ?? Date.now()
       const expiresAt = now + GrantLifetimeMilliseconds
-      options.database.transaction((connection) =>
+      await options.database.transaction((connection) =>
         connection.run(
           `INSERT INTO private_install_grants
             (token_hash, publication_id, employee_id, expires_at, created_at)
@@ -33,16 +33,17 @@ export function createInstallGrants(options: InstallGrantOptions) {
       }
     },
 
-    resolve(token: string) {
+    async resolve(token: string) {
       if (!/^[a-zA-Z0-9_-]{43}$/.test(token)) return undefined
       const now = options.now?.() ?? Date.now()
-      const grant = options.database.connection
-        .query<{ publication_id: string; employee_id: string }, [string, number]>(
+      const grant = await options.database.read(async (c) =>
+        c.get<{ publication_id: string; employee_id: string }>(
           `SELECT publication_id, employee_id
            FROM private_install_grants
            WHERE token_hash = ? AND expires_at > ?`,
-        )
-        .get(hashSecret(token), now)
+          [hashSecret(token), now],
+        ),
+      )
       if (!grant) return undefined
       try {
         return options.restrictedCatalog.requireEmployee(grant.employee_id, grant.publication_id)

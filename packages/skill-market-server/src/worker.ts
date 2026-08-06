@@ -2,7 +2,7 @@ import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
 import { loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
-import { openDatabase } from "./database"
+import { openMarketDatabase } from "./database"
 import { requireLifecycleFence } from "./lifecycle"
 import { emitMarketMetric, type MarketMetricEmitter } from "./metrics"
 import { makeS3ObjectStore, type PrivateObjectStore } from "./oss"
@@ -54,7 +54,7 @@ export class Worker {
 
   async runOne(workerID: string) {
     requireWorkerID(workerID)
-    const validation = this.claimValidation(workerID)
+    const validation = await this.claimValidation(workerID)
     if (validation) return this.validate(workerID, validation)
     if (!this.options.publisher) return undefined
     const started = performance.now()
@@ -89,15 +89,15 @@ export class Worker {
     return active
   }
 
-  cleanup() {
+  async cleanup() {
     const now = this.now()
-    const result = this.options.database.transaction((connection) => ({
-      loginAttempts: connection.run("DELETE FROM login_attempts WHERE expires_at <= ?", [now]).changes,
-      sessions: connection.run("DELETE FROM sessions WHERE absolute_expires_at <= ? OR last_activity_at <= ?", [
+    const result = await this.options.database.transaction(async (connection) => ({
+      loginAttempts: await connection.run("DELETE FROM login_attempts WHERE expires_at <= ?", [now]),
+      sessions: await connection.run("DELETE FROM sessions WHERE absolute_expires_at <= ? OR last_activity_at <= ?", [
         now,
         now - (this.options.sessionIdleMilliseconds ?? 2 * 60 * 60 * 1_000),
-      ]).changes,
-      idempotencyKeys: connection.run("DELETE FROM idempotency_keys WHERE expires_at <= ?", [now]).changes,
+      ]),
+      idempotencyKeys: await connection.run("DELETE FROM idempotency_keys WHERE expires_at <= ?", [now]),
     }))
     this.emit({ skill_market_cleanup_result: result })
     return result
@@ -105,10 +105,9 @@ export class Worker {
 
   private claimValidation(workerID: string) {
     const now = this.now()
-    return this.options.database.transaction((connection) => {
-      const candidate = connection
-        .query<ValidationRow, [number]>(
-          `${validationSelect()}
+    return this.options.database.transaction(async (connection) => {
+      const candidate = await connection.get<ValidationRow>(
+        `${validationSelect()}
            WHERE submissions.status = 'validating'
              AND submissions.current_revision = submission_revisions.revision_number
              AND submission_revisions.validation_completed_at IS NULL
@@ -118,10 +117,10 @@ export class Worker {
              )
            ORDER BY submission_revisions.created_at, submissions.id
            LIMIT 1`,
-        )
-        .get(now)
+        [now],
+      )
       if (!candidate) return undefined
-      const claimed = connection.run(
+      const claimed = await connection.run(
         `UPDATE submission_revisions
          SET validation_lease_owner = ?, validation_lease_expires_at = ?
          WHERE submission_id = ? AND revision_number = ?
@@ -134,7 +133,7 @@ export class Worker {
           candidate.revision_number,
           now,
         ],
-      ).changes
+      )
       return claimed === 1 ? candidate : undefined
     })
   }
@@ -143,7 +142,7 @@ export class Worker {
     const started = performance.now()
     const body = await settled(this.options.store.get(row.private_package_key))
     if (!body.ok) {
-      this.release(workerID, row)
+      await this.release(workerID, row)
       this.emitValidation(started, "retry")
       return { kind: "validation" as const, result: "retry" as const }
     }
@@ -168,7 +167,7 @@ export class Worker {
       ),
     )
     if (!fence.ok) {
-      this.release(workerID, row)
+      await this.release(workerID, row)
       this.emitValidation(started, "stale")
       return { kind: "validation" as const, result: "stale" as const }
     }
@@ -193,14 +192,14 @@ export class Worker {
           }),
         ),
       )
-      if (!completed.ok) this.release(workerID, row)
+      if (!completed.ok) await this.release(workerID, row)
       const result = completed.ok ? "failure" : completionResult(completed.error)
       this.emitValidation(started, result)
       return { kind: "validation" as const, result }
     }
     const persisted = await settled(persistQuarantinedValidation(received, this.options.store, validation.value))
     if (!persisted.ok) {
-      this.release(workerID, row)
+      await this.release(workerID, row)
       this.emitValidation(started, "retry")
       return { kind: "validation" as const, result: "retry" as const }
     }
@@ -228,7 +227,7 @@ export class Worker {
   }
 
   private release(workerID: string, row: ValidationRow) {
-    this.options.database.transaction((connection) =>
+    return this.options.database.transaction(async (connection) =>
       connection.run(
         `UPDATE submission_revisions
          SET validation_lease_owner = NULL, validation_lease_expires_at = NULL
@@ -315,9 +314,11 @@ async function production() {
   if (!process.argv.includes("--once")) throw new Error("worker requires --once")
   const config = loadConfig()
   const store = makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket })
-  const database = await openDatabase({
+  const database = await openMarketDatabase({
     databasePath: config.databasePath,
     migrationBackupDirectory: config.migrationBackupDirectory,
+    postgresUrl: config.postgresUrl,
+    postgresSchema: config.postgresSchema,
     emit: emitMarketMetric,
   })
   const worker = createWorker({

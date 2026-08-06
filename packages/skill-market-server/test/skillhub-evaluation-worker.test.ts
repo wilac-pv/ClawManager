@@ -29,9 +29,9 @@ describe("SkillHub evaluation worker", () => {
   test("routes completed evaluation publication through the delta publisher", async () => {
     let calls = 0
     const imports: Pick<SkillHubImportStore, "completedEvaluations" | "progress" | "replaceCompletedEvaluationDetails"> = {
-      completedEvaluations: () => [],
-      progress: () => ({ sourceStatus: "fresh" } as ReturnType<SkillHubImportStore["progress"]>),
-      replaceCompletedEvaluationDetails: () => [],
+      completedEvaluations: async () => [],
+      progress: async () => ({ sourceStatus: "fresh" } as Awaited<ReturnType<SkillHubImportStore["progress"]>>),
+      replaceCompletedEvaluationDetails: async () => [],
     }
     const publication = evaluationPublication(
       imports,
@@ -198,7 +198,7 @@ describe("SkillHub evaluation worker", () => {
       now: () => 0,
       wait: async () => undefined,
       publication: {
-        pending: () => ({ count: queue.unpublished, oldestCheckedAt: 0 }),
+        pending: async () => ({ count: queue.unpublished, oldestCheckedAt: 0 }),
         publish: async () => {
           published += 1
           queue.unpublished = 2
@@ -238,7 +238,7 @@ describe("SkillHub evaluation worker", () => {
       now: () => 30 * 60 * 1_000,
       wait: async () => undefined,
       publication: {
-        pending: () => ({ count: 1, oldestCheckedAt: 0 }),
+        pending: async () => ({ count: 1, oldestCheckedAt: 0 }),
         publish: async () => {
           published += 1
         },
@@ -257,7 +257,7 @@ describe("SkillHub evaluation worker", () => {
       now: () => 0,
       wait: async () => undefined,
       publication: {
-        pending: () => ({ count: 1, oldestCheckedAt: 0 }),
+        pending: async () => ({ count: 1, oldestCheckedAt: 0 }),
         publish: async (request) => {
           expect(request.signal.aborted).toBe(false)
         },
@@ -286,7 +286,7 @@ describe("SkillHub evaluation worker", () => {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
       publication: {
-        pending: () => ({ count: 1, oldestCheckedAt: 0 }),
+        pending: async () => ({ count: 1, oldestCheckedAt: 0 }),
         publish: async (request) => {
           signal = request.signal
           await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => {
@@ -324,7 +324,7 @@ describe("SkillHub evaluation worker", () => {
       now: () => clock.value,
       wait: async () => undefined,
       publication: {
-        pending: () => {
+        pending: async () => {
           clock.value = 1_000
           return { count: 1, oldestCheckedAt: 0 }
         },
@@ -376,7 +376,7 @@ function createQueue(clock: { readonly value: number }, initial: readonly string
     retrying: [] as string[],
     retryPolicies: [] as Array<{ readonly maximumAttempts?: number } | undefined>,
     unpublished: 0,
-    claim(_workerID: string, limit: number) {
+    async claim(_workerID: string, limit: number) {
       const ready = pending.splice(0, limit)
       const retried = Array.from(retry)
         .filter(([, at]) => at <= clock.value)
@@ -387,16 +387,16 @@ function createQueue(clock: { readonly value: number }, initial: readonly string
       claimed.forEach((slug) => running.add(slug))
       return claimed.map((slug) => ({ slug, attempts: 1 }))
     },
-    renew(_workerID: string, slug: string) {
+    async renew(_workerID: string, slug: string) {
       return running.has(slug)
     },
-    complete(_workerID: string, slug: string) {
+    async complete(_workerID: string, slug: string) {
       if (!running.delete(slug)) return false
       queue.completed.push(slug)
       queue.unpublished += 1
       return true
     },
-    retry(_workerID: string, slug: string, _summary: string, policy?: { readonly maximumAttempts?: number }) {
+    async retry(_workerID: string, slug: string, _summary: string, policy?: { readonly maximumAttempts?: number }) {
       if (!running.delete(slug)) return false
       queue.retrying.push(slug)
       queue.retryPolicies.push(policy)
@@ -404,7 +404,7 @@ function createQueue(clock: { readonly value: number }, initial: readonly string
       retry.set(slug, clock.value + 1_000)
       return true
     },
-    markDue() {
+    async markDue() {
       return 0
     },
   }

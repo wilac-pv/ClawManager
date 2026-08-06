@@ -1,5 +1,5 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import { MarketDatabase } from "./database"
+import type { MarketDatabase } from "./store"
 import type { MarketMetricEmitter } from "./metrics"
 import { hashSecret, MarketSecurity, randomSecret, SkillMarketSecurityError } from "./security"
 
@@ -42,11 +42,11 @@ export function createAuth(options: AuthOptions) {
   const sessionCookieMaxAgeSeconds = Math.floor(options.sessionAbsoluteMilliseconds / 1_000)
 
   return {
-    begin(returnTo: string) {
+    async begin(returnTo: string) {
       if (!allowedReturnTo(returnTo)) throw new SkillMarketSecurityError("invalid-request", "returnTo is not allowed")
       const attemptID = `login_${randomSecret()}`
       const now = options.now?.() ?? Date.now()
-      options.database.transaction((connection) =>
+      await options.database.transaction((connection) =>
         connection.run(
           "INSERT INTO login_attempts (attempt_hash, return_to, created_at, expires_at) VALUES (?, ?, ?, ?)",
           [hashSecret(attemptID), returnTo, now, now + options.loginAttemptMilliseconds],
@@ -62,19 +62,17 @@ export function createAuth(options: AuthOptions) {
 
     async complete(attemptID: string, token: string) {
       const now = options.now?.() ?? Date.now()
-      const returnTo = options.database.transaction((connection) => {
-        const attempt = connection
-          .query<
-            AttemptRow,
-            [string]
-          >("SELECT return_to, expires_at, consumed_at FROM login_attempts WHERE attempt_hash = ?")
-          .get(hashSecret(attemptID))
+      const returnTo = await options.database.transaction(async (connection) => {
+        const attempt = await connection.get<AttemptRow>(
+          "SELECT return_to, expires_at, consumed_at FROM login_attempts WHERE attempt_hash = ?",
+          [hashSecret(attemptID)],
+        )
         if (!attempt || attempt.consumed_at !== null || now >= attempt.expires_at) return undefined
-        const consumed = connection.run(
+        const consumed = await connection.run(
           "UPDATE login_attempts SET consumed_at = ? WHERE attempt_hash = ? AND consumed_at IS NULL",
           [now, hashSecret(attemptID)],
         )
-        if (consumed.changes !== 1) return undefined
+        if (consumed !== 1) return undefined
         return attempt.return_to
       })
       if (!returnTo) throw new SkillMarketSecurityError("unauthenticated", "login attempt is not active")
@@ -82,13 +80,13 @@ export function createAuth(options: AuthOptions) {
       const identity = await verifyIdentity(options, token)
       const sessionToken = randomSecret()
       const csrfToken = randomSecret()
-      const created = options.database.transaction((connection) => {
-        const user = connection
-          .query<UserRow, [string]>("SELECT disabled_at FROM users WHERE employee_id = ?")
-          .get(identity.employeeID)
+      const created = await options.database.transaction(async (connection) => {
+        const user = await connection.get<UserRow>("SELECT disabled_at FROM users WHERE employee_id = ?", [
+          identity.employeeID,
+        ])
         if (user?.disabled_at !== null && user?.disabled_at !== undefined) return false
         if (identity.department)
-          connection.run(
+          await connection.run(
             `INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at)
              VALUES (?, ?, ?, ?)
              ON CONFLICT(department_id) DO UPDATE SET
@@ -96,7 +94,7 @@ export function createAuth(options: AuthOptions) {
                last_seen_at = excluded.last_seen_at`,
             [identity.department.id, identity.department.name, now, now],
           )
-        connection.run(
+        await connection.run(
           `INSERT INTO users (employee_id, display_name, department_id, created_at, last_login_at)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(employee_id) DO UPDATE SET
@@ -105,7 +103,7 @@ export function createAuth(options: AuthOptions) {
              last_login_at = excluded.last_login_at`,
           [identity.employeeID, identity.displayName, identity.department?.id ?? null, now, now],
         )
-        connection.run(
+        await connection.run(
           `INSERT INTO sessions
             (session_hash, employee_id, csrf_hash, created_at, last_activity_at, absolute_expires_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
@@ -126,7 +124,7 @@ export function createAuth(options: AuthOptions) {
         returnTo,
         sessionToken,
         csrfToken,
-        session: options.security.requireSession({ sessionToken, csrfToken }).session,
+        session: (await options.security.requireSession({ sessionToken, csrfToken })).session,
         setCookies: [
           cookie(options.sessionCookieName, sessionToken, true, options.cookieSecure, sessionCookieMaxAgeSeconds),
           cookie(csrfCookieName, csrfToken, false, options.cookieSecure, sessionCookieMaxAgeSeconds),
@@ -134,12 +132,12 @@ export function createAuth(options: AuthOptions) {
       }
     },
 
-    session(sessionToken: string, csrfToken: string) {
-      return options.security.requireSession({ sessionToken, csrfToken }).session
+    async session(sessionToken: string, csrfToken: string) {
+      return (await options.security.requireSession({ sessionToken, csrfToken })).session
     },
 
-    logout(sessionToken: string) {
-      options.database.transaction((connection) =>
+    async logout(sessionToken: string) {
+      await options.database.transaction((connection) =>
         connection.run("DELETE FROM sessions WHERE session_hash = ?", [hashSecret(sessionToken)]),
       )
       return {

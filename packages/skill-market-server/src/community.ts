@@ -1,8 +1,7 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
-import type { MarketDatabase } from "./database"
+import type { Connection, MarketDatabase } from "./store"
 import type { ObjectStore, PrivateObjectStore } from "./oss"
 import { validateSubmissionArchive } from "./submission-archive"
 
@@ -61,9 +60,9 @@ const StoredIcon = Schema.Struct({
 })
 
 export async function listPublishedCommunity(database: MarketDatabase, options: CommunityOptions) {
-  const rows = database.read((connection) => ({
-    current: readCurrent(connection),
-    versions: readVersions(connection),
+  const rows = await database.read(async (connection) => ({
+    current: await readCurrent(connection),
+    versions: await readVersions(connection),
   }))
   const versions = Map.groupBy(rows.versions, (version) => version.skill_id)
   return Promise.all(rows.current.map((row) => materialize(row, versions.get(row.skill_id) ?? [], options)))
@@ -74,14 +73,12 @@ export async function materializeCommunitySubmission(
   options: CommunityOptions,
   submissionID: string,
 ) {
-  const rows = database.read((connection) => ({
-    current: connection
-      .query<
-        CurrentRow,
-        [string]
-      >(`${currentSelect()} WHERE submissions.id = ? AND submissions.status IN ('publishing', 'published')`)
-      .get(submissionID),
-    versions: readVersions(connection),
+  const rows = await database.read(async (connection) => ({
+    current: await connection.get<CurrentRow>(
+      `${currentSelect()} WHERE submissions.id = ? AND submissions.status IN ('publishing', 'published')`,
+      [submissionID],
+    ),
+    versions: await readVersions(connection),
   }))
   const current = rows.current
   if (!current) throw new Error("community publication submission is not materializable")
@@ -102,25 +99,27 @@ export async function materializePublishedCommunitySkill(
   options: CommunityOptions,
   skillID: string,
 ) {
-  const rows = database.read((connection) => ({
-    current: connection.query<CurrentRow, [string]>(`${currentSelect()}
+  const rows = await database.read(async (connection) => ({
+    current: await connection.get<CurrentRow>(
+      `${currentSelect()}
       INNER JOIN community_skills
         ON community_skills.current_submission_id = submissions.id
        AND community_skills.current_version = submissions.target_version
       WHERE submissions.skill_id = ?
         AND submissions.status = 'published'
-        AND community_skills.public_status = 'published'`).get(skillID),
-    versions: readVersions(connection),
+        AND community_skills.public_status = 'published'`,
+      [skillID],
+    ),
+    versions: await readVersions(connection),
   }))
   if (!rows.current) return undefined
   return materialize(rows.current, rows.versions.filter((version) => version.skill_id === skillID), options)
 }
 
 export async function publishCommunityObjects(database: MarketDatabase, options: PublishOptions, submissionID: string) {
-  const candidate = database.read((connection) =>
-    connection
-      .query<CandidateRow, [string]>(
-        `SELECT
+  const candidate = await database.read((connection) =>
+    connection.get<CandidateRow>(
+      `SELECT
           submissions.skill_id,
           submissions.target_version,
           submissions.status,
@@ -135,8 +134,8 @@ export async function publishCommunityObjects(database: MarketDatabase, options:
            ON submission_revisions.submission_id = submissions.id
           AND submission_revisions.revision_number = submissions.current_revision
          WHERE submissions.id = ?`,
-      )
-      .get(submissionID),
+      [submissionID],
+    ),
   )
   if (!candidate) throw new Error("community publication submission was not found")
   if (candidate.status !== "publishing" && candidate.status !== "published")
@@ -196,17 +195,15 @@ export function communityIconKey(prefix: string, iconSha256: string, mime: typeo
   return objectKey(prefix, `assets/icons/${iconSha256}.${extension}`)
 }
 
-function readCurrent(connection: Database) {
-  return connection
-    .query<CurrentRow, []>(
-      `${currentSelect()}
+async function readCurrent(connection: Connection) {
+  return connection.all<CurrentRow>(
+    `${currentSelect()}
        INNER JOIN community_skills
          ON community_skills.current_submission_id = submissions.id
         AND community_skills.current_version = submissions.target_version
        WHERE submissions.status = 'published' AND community_skills.public_status = 'published'
        ORDER BY submissions.skill_id`,
-    )
-    .all()
+  )
 }
 
 function currentSelect() {
@@ -240,10 +237,9 @@ function currentSelect() {
      )`
 }
 
-function readVersions(connection: Database) {
-  return connection
-    .query<VersionRow, []>(
-      `SELECT
+async function readVersions(connection: Connection) {
+  return connection.all<VersionRow>(
+    `SELECT
         submissions.skill_id,
         submissions.target_version,
         submission_revisions.package_sha256,
@@ -256,8 +252,7 @@ function readVersions(connection: Database) {
         AND submission_revisions.revision_number = submissions.current_revision
        WHERE submissions.status = 'published'
        ORDER BY submissions.skill_id, submissions.updated_at, submissions.id`,
-    )
-    .all()
+  )
 }
 
 async function materialize(row: CurrentRow, versions: ReadonlyArray<VersionRow>, options: CommunityOptions) {

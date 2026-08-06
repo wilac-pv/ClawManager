@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { AdaptivePoolError, createAdaptivePool } from "../src/adaptive-pool"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { discoverSkillHub } from "../src/skillhub-discovery"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { loadSkillHubPage, type SkillHubListRecord } from "../src/skillhub"
@@ -36,8 +36,8 @@ describe("SkillHub discovery", () => {
 
     expect(result).toMatchObject({ discovered: 801, completed: true })
     expect(state.maximumActive).toBeLessThanOrEqual(4)
-    expect(imports.generationCheckpoint()?.discoveryCompleted).toBe(true)
-    database.close()
+    expect((await imports.generationCheckpoint())?.discoveryCompleted).toBe(true)
+    await database.close()
   })
 
   test("keeps the cursor behind a failed page and resumes that gap after reopen", async () => {
@@ -60,8 +60,8 @@ describe("SkillHub discovery", () => {
         pageConcurrency: 4,
       }),
     ).rejects.toThrow("400")
-    expect(first.activeGeneration()?.discoveryPage).toBe(1)
-    fixture.database.close()
+    expect((await first.activeGeneration())?.discoveryPage).toBe(1)
+    await fixture.database.close()
 
     const resumedDatabase = await reopenDatabase(fixture)
     const resumed = createSkillHubImportStore({ database: resumedDatabase })
@@ -76,8 +76,8 @@ describe("SkillHub discovery", () => {
     })
 
     expect(result).toMatchObject({ discovered: 301, completed: true })
-    expect(resumed.activeGeneration()).toBeUndefined()
-    resumedDatabase.close()
+    expect(await resumed.activeGeneration()).toBeUndefined()
+    await resumedDatabase.close()
   })
 
   test("backs off after throttling then recovers one stable p95 slot per minute", async () => {
@@ -256,7 +256,7 @@ describe("SkillHub discovery", () => {
     expect(result).toMatchObject({ completed: true, pageConcurrency: 2 })
     expect(calls).toBe(3)
     expect(waits).toEqual([1_000])
-    database.close()
+    await database.close()
   })
 
   test("does not retry permanent response or schema failures", async () => {
@@ -341,7 +341,7 @@ describe("SkillHub discovery", () => {
       fetcher: async (input) => {
         const page = Number(new URL(String(input)).searchParams.get("page"))
         calls.push(page)
-        if (page === 2) imports.command({ command: "pause" })
+        if (page === 2) await imports.command({ command: "pause" })
         return pageResponse(pageRecordsOf100(page), 900)
       },
       baseUrl: "https://api.skillhub.cn",
@@ -350,8 +350,8 @@ describe("SkillHub discovery", () => {
     })
 
     expect(calls).toEqual([1, 2, 3, 4, 5])
-    expect(imports.generationCheckpoint()).toMatchObject({ state: "paused", discoveryPage: 5 })
-    database.close()
+    expect(await imports.generationCheckpoint()).toMatchObject({ state: "paused", discoveryPage: 5 })
+    await database.close()
   })
 
   test("expands a sweep for late higher totals without lowering persisted coverage", async () => {
@@ -377,8 +377,8 @@ describe("SkillHub discovery", () => {
     expect(result).toMatchObject({ discovered: 500, completed: true })
     expect(calls).toContain(4)
     expect(calls).toContain(5)
-    expect(imports.generationCheckpoint()).toMatchObject({ upstreamTotal: 500, discoveryCompleted: true })
-    database.close()
+    expect(await imports.generationCheckpoint()).toMatchObject({ upstreamTotal: 500, discoveryCompleted: true })
+    await database.close()
   })
 
   test("does not retry schema decoding failures from the page adapter", async () => {
@@ -396,8 +396,8 @@ describe("SkillHub discovery", () => {
   test("does no upstream work while paused or after discovery completes", async () => {
     const database = await temporaryDatabase()
     const imports = createSkillHubImportStore({ database })
-    const generation = imports.beginGeneration(1)
-    imports.command({ command: "pause" })
+    const generation = await imports.beginGeneration(1)
+    await imports.command({ command: "pause" })
     let calls = 0
     await expect(
       discoverSkillHub({
@@ -410,11 +410,11 @@ describe("SkillHub discovery", () => {
       }),
     ).resolves.toMatchObject({ discovered: 0, completed: false })
     expect(calls).toBe(0)
-    imports.command({ command: "resume" })
-    imports.recordPage(generation.id, 1, [listRecord("done")])
-    imports.completeSweep(generation.id)
-    imports.recordPage(generation.id, 1, [listRecord("done")])
-    imports.completeSweep(generation.id)
+    await imports.command({ command: "resume" })
+    await imports.recordPage(generation.id, 1, [listRecord("done")])
+    await imports.completeSweep(generation.id)
+    await imports.recordPage(generation.id, 1, [listRecord("done")])
+    await imports.completeSweep(generation.id)
     await discoverSkillHub({
       fetcher: async () => {
         calls += 1
@@ -424,7 +424,7 @@ describe("SkillHub discovery", () => {
       imports,
     })
     expect(calls).toBe(0)
-    database.close()
+    await database.close()
   })
 
   test("uses a configured limit as the effective total, then refreshes a completed canary into the full upstream total", async () => {
@@ -439,10 +439,10 @@ describe("SkillHub discovery", () => {
     })
 
     expect(first).toMatchObject({ discovered: 1, completed: true })
-    expect(imports.progress()).toMatchObject({ upstreamTotal: 1, pending: 1 })
-    imports.claim("canary-worker", 1, 60_000)
-    imports.reject("canary-worker", "canary", "validation", "canary complete")
-    expect(imports.progress().state).toBe("completed")
+    expect(await imports.progress()).toMatchObject({ upstreamTotal: 1, pending: 1 })
+    await imports.claim("canary-worker", 1, 60_000)
+    await imports.reject("canary-worker", "canary", "validation", "canary complete")
+    expect((await imports.progress()).state).toBe("completed")
 
     const full = await discoverSkillHub({
       fetcher: async () => pageResponse(records, records.length),
@@ -452,8 +452,8 @@ describe("SkillHub discovery", () => {
     })
 
     expect(full).toMatchObject({ discovered: 2, completed: true })
-    expect(imports.progress()).toMatchObject({ upstreamTotal: 2, pending: 1 })
-    database.close()
+    expect(await imports.progress()).toMatchObject({ upstreamTotal: 2, pending: 1 })
+    await database.close()
   })
 
   test("expands a completed generation when the configured canary limit increases", async () => {
@@ -466,8 +466,8 @@ describe("SkillHub discovery", () => {
       imports,
       limit: 1,
     })
-    imports.claim("first-worker", 1, 60_000)
-    imports.reject("first-worker", "first", "validation", "first canary complete")
+    await imports.claim("first-worker", 1, 60_000)
+    await imports.reject("first-worker", "first", "validation", "first canary complete")
 
     const expanded = await discoverSkillHub({
       fetcher: async () => pageResponse(records, records.length),
@@ -477,8 +477,8 @@ describe("SkillHub discovery", () => {
     })
 
     expect(expanded).toMatchObject({ discovered: 2, completed: true })
-    expect(imports.progress()).toMatchObject({ upstreamTotal: 2, pending: 1 })
-    database.close()
+    expect(await imports.progress()).toMatchObject({ upstreamTotal: 2, pending: 1 })
+    await database.close()
   })
 
   test("only refreshes a completed generation when the effective upstream total changes", async () => {
@@ -486,20 +486,19 @@ describe("SkillHub discovery", () => {
     const imports = createSkillHubImportStore({ database, packageConcurrency: 200 })
     const records = Array.from({ length: 200 }, (_, index) => listRecord(`skill-${index}`))
     const generations = () =>
-      database.connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_generations").get()!.count
+      (database as SqliteDatabase).connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_generations").get()!.count
     const fetcher = async (input: string | URL | Request) => {
       const page = Number(new URL(String(input)).searchParams.get("page"))
       return pageResponse(records.slice((page - 1) * 100, page * 100), records.length)
     }
 
     await discoverSkillHub({ fetcher, baseUrl: "https://api.skillhub.cn", imports, limit: 100 })
-    imports.claim("canary-worker", 100, 60_000).forEach((item) =>
-      imports.reject("canary-worker", item.slug, "validation", "canary complete"),
-    )
-    database.connection.run("PRAGMA ignore_check_constraints = ON")
-    database.connection.run("UPDATE skillhub_import_items SET state = 'mirrored'")
-    database.connection.run("PRAGMA ignore_check_constraints = OFF")
-    expect(imports.progress().state).toBe("completed")
+    for (const item of await imports.claim("canary-worker", 100, 60_000))
+      await imports.reject("canary-worker", item.slug, "validation", "canary complete")
+    ;(database as SqliteDatabase).connection.run("PRAGMA ignore_check_constraints = ON")
+    ;(database as SqliteDatabase).connection.run("UPDATE skillhub_import_items SET state = 'mirrored'")
+    ;(database as SqliteDatabase).connection.run("PRAGMA ignore_check_constraints = OFF")
+    expect((await imports.progress()).state).toBe("completed")
     expect(generations()).toBe(1)
 
     let pages: number[] = []
@@ -529,13 +528,12 @@ describe("SkillHub discovery", () => {
 
     await discoverSkillHub({ fetcher, baseUrl: "https://api.skillhub.cn", imports, refresh: true })
     expect(generations()).toBe(2)
-    expect(imports.progress()).toMatchObject({ upstreamTotal: 200, pending: 100 })
-    imports.claim("full-worker", 100, 60_000).forEach((item) =>
-      imports.reject("full-worker", item.slug, "validation", "full complete"),
-    )
-    expect(imports.progress().state).toBe("completed")
+    expect(await imports.progress()).toMatchObject({ upstreamTotal: 200, pending: 100 })
+    for (const item of await imports.claim("full-worker", 100, 60_000))
+      await imports.reject("full-worker", item.slug, "validation", "full complete")
+    expect((await imports.progress()).state).toBe("completed")
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ state: string }, []>("SELECT state FROM skillhub_import_items WHERE slug IN ('skill-0', 'skill-99')")
         .all()
         .map((item) => item.state),
@@ -566,8 +564,8 @@ describe("SkillHub discovery", () => {
       refresh: true,
     })
     expect(generations()).toBe(3)
-    expect(imports.progress().upstreamTotal).toBe(150)
-    database.close()
+    expect((await imports.progress()).upstreamTotal).toBe(150)
+    await database.close()
   })
 
   test("finishes after one moving verification sweep instead of rescanning forever", async () => {
@@ -584,9 +582,9 @@ describe("SkillHub discovery", () => {
     })
 
     expect(result).toMatchObject({ discovered: 2, completed: true, stale: false })
-    expect(imports.activeGeneration()).toBeUndefined()
-    expect(imports.progress()).toMatchObject({ discovered: 2, sweep: 1, discoveryPage: 1 })
-    database.close()
+    expect(await imports.activeGeneration()).toBeUndefined()
+    expect(await imports.progress()).toMatchObject({ discovered: 2, sweep: 1, discoveryPage: 1 })
+    await database.close()
   })
 })
 

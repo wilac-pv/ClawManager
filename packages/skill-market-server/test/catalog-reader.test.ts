@@ -133,7 +133,7 @@ test("merges authorized restricted summaries before deterministic filtering, ord
     store: store.client,
     prefix: config.prefix,
     restrictedCatalog: {
-      list: () => restricted,
+      list: async () => restricted,
     },
   })
 

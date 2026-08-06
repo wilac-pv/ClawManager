@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import { MarketDatabase } from "./database"
+import type { Connection, MarketDatabase } from "./store"
 
 interface SecurityOptions {
   readonly database: MarketDatabase
@@ -55,34 +55,33 @@ export class MarketSecurity {
 
   requireSession(credentials: SessionCredentials) {
     const now = this.options.now?.() ?? Date.now()
-    const state = this.options.database.transaction((connection) => {
-      const row = connection
-        .query<SessionRow, [string]>(
-          `SELECT
-            sessions.session_hash,
-            sessions.csrf_hash,
-            sessions.employee_id,
-            users.display_name,
-            users.email,
-            users.department_id,
-            departments.display_name AS department_name,
-            users.disabled_at,
-            sessions.created_at,
-            sessions.last_activity_at,
-            sessions.absolute_expires_at
-          FROM sessions
-          INNER JOIN users ON users.employee_id = sessions.employee_id
-          LEFT JOIN departments ON departments.department_id = users.department_id
-          WHERE sessions.session_hash = ?`,
-        )
-        .get(hashSecret(credentials.sessionToken))
+    return this.options.database.transaction(async (connection) => {
+      const row = await connection.get<SessionRow>(
+        `SELECT
+          sessions.session_hash,
+          sessions.csrf_hash,
+          sessions.employee_id,
+          users.display_name,
+          users.email,
+          users.department_id,
+          departments.display_name AS department_name,
+          users.disabled_at,
+          sessions.created_at,
+          sessions.last_activity_at,
+          sessions.absolute_expires_at
+        FROM sessions
+        INNER JOIN users ON users.employee_id = sessions.employee_id
+        LEFT JOIN departments ON departments.department_id = users.department_id
+        WHERE sessions.session_hash = ?`,
+        [hashSecret(credentials.sessionToken)],
+      )
       if (!row) return { kind: "inactive" } as const
       if (
         row.disabled_at !== null ||
         now >= row.absolute_expires_at ||
         now - row.last_activity_at >= this.options.sessionIdleMilliseconds
       ) {
-        connection.run("DELETE FROM sessions WHERE session_hash = ?", [row.session_hash])
+        await connection.run("DELETE FROM sessions WHERE session_hash = ?", [row.session_hash])
         return { kind: "inactive" } as const
       }
       if (!safeSecretMatches(credentials.csrfToken, row.csrf_hash)) return { kind: "inactive" } as const
@@ -92,16 +91,15 @@ export class MarketSecurity {
           ? now
           : row.last_activity_at
       if (lastActivityAt !== row.last_activity_at)
-        connection.run("UPDATE sessions SET last_activity_at = ? WHERE session_hash = ?", [
+        await connection.run("UPDATE sessions SET last_activity_at = ? WHERE session_hash = ?", [
           lastActivityAt,
           row.session_hash,
         ])
-      const roles = connection
-        .query<{ role: SkillMarketControl.Role }, [string]>(
-          "SELECT role FROM role_assignments WHERE employee_id = ? ORDER BY role",
-        )
-        .all(row.employee_id)
-        .map((entry) => entry.role)
+      const roleRows = await connection.all<{ role: SkillMarketControl.Role }>(
+        "SELECT role FROM role_assignments WHERE employee_id = ? ORDER BY role",
+        [row.employee_id],
+      )
+      const roles = roleRows.map((entry) => entry.role)
       const user = {
         employeeID: row.employee_id,
         displayName: row.display_name,
@@ -126,9 +124,10 @@ export class MarketSecurity {
           csrfHash: row.csrf_hash,
         } satisfies Principal,
       } as const
+    }).then((state) => {
+      if (state.kind === "active") return state.principal
+      throw new SkillMarketSecurityError("unauthenticated", "session is not active")
     })
-    if (state.kind === "active") return state.principal
-    throw new SkillMarketSecurityError("unauthenticated", "session is not active")
   }
 
   requireOwner(principal: Principal, ownerEmployeeID: string) {
@@ -161,20 +160,20 @@ export class MarketSecurity {
     return principal
   }
 
-  requireRoleRemoval(principal: Principal, employeeID: string, role: SkillMarketControl.Role) {
+  async requireRoleRemoval(principal: Principal, employeeID: string, role: SkillMarketControl.Role) {
     this.requireAdmin(principal)
     if (role !== "admin") return principal
-    const admins = this.options.database.connection
-      .query<{ count: number }, []>("SELECT count(*) AS count FROM role_assignments WHERE role = 'admin'")
-      .get()!.count
-    if (admins > 1) return principal
-    const targetIsAdmin = this.options.database.connection
-      .query<
-        { count: number },
-        [string]
-      >("SELECT count(*) AS count FROM role_assignments WHERE employee_id = ? AND role = 'admin'")
-      .get(employeeID)!.count
-    if (targetIsAdmin === 0) return principal
+    const admins = await this.options.database.read(async (c) =>
+      c.get<{ count: number }>("SELECT count(*) AS count FROM role_assignments WHERE role = 'admin'"),
+    )
+    if ((admins?.count ?? 0) > 1) return principal
+    const targetIsAdmin = await this.options.database.read(async (c) =>
+      c.get<{ count: number }>(
+        "SELECT count(*) AS count FROM role_assignments WHERE employee_id = ? AND role = 'admin'",
+        [employeeID],
+      ),
+    )
+    if ((targetIsAdmin?.count ?? 0) === 0) return principal
     throw new SkillMarketSecurityError("last-admin", "the last admin cannot be removed")
   }
 }
@@ -183,33 +182,33 @@ export function createSecurity(options: SecurityOptions) {
   return new MarketSecurity(options)
 }
 
-export function bootstrapAdmins(database: MarketDatabase, employeeIDs: ReadonlyArray<string>, now = Date.now()) {
-  return database.transaction((connection) => {
-    const admins = connection
-      .query<{ count: number }, []>("SELECT count(*) AS count FROM role_assignments WHERE role = 'admin'")
-      .get()!.count
-    if (admins > 0) return 0
+export async function bootstrapAdmins(database: MarketDatabase, employeeIDs: ReadonlyArray<string>, now = Date.now()) {
+  return database.transaction(async (connection) => {
+    const admins = await connection.get<{ count: number }>(
+      "SELECT count(*) AS count FROM role_assignments WHERE role = 'admin'",
+    )
+    if ((admins?.count ?? 0) > 0) return 0
     const unique = [...new Set(employeeIDs)]
-    unique.forEach((employeeID) => {
+    for (const employeeID of unique) {
       if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(employeeID))
         throw new SkillMarketSecurityError("invalid-request", "bootstrap admin employee ID is invalid")
-      connection.run(
+      await connection.run(
         `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(employee_id) DO NOTHING`,
         [employeeID, employeeID, now, now],
       )
-      connection.run(
+      await connection.run(
         "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'admin', ?, ?)",
         [employeeID, employeeID, now],
       )
-      connection.run(
+      await connection.run(
         `INSERT INTO audit_events
           (id, action, object_type, object_id, after_json, request_id, created_at)
          VALUES (?, 'bootstrap-admin', 'role', ?, ?, ?, ?)`,
         [`aud_${randomSecret()}`, employeeID, JSON.stringify({ role: "admin" }), `req_${randomSecret()}`, now],
       )
-    })
+    }
     return unique.length
   })
 }

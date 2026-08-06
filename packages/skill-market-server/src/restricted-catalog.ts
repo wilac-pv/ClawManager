@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
@@ -8,7 +7,7 @@ import {
   RestrictedReadConditionSql,
   restrictedReadParameters,
 } from "./audience"
-import type { MarketDatabase } from "./database"
+import type { Connection, MarketDatabase } from "./store"
 import type { Principal } from "./security"
 import { SkillMarketSecurityError } from "./security"
 
@@ -50,44 +49,44 @@ export class RestrictedCatalog {
   constructor(private readonly options: RestrictedCatalogOptions) {}
 
   list(principal: Principal) {
-    return this.options.database.read((connection) =>
-      connection
-        .query<RestrictedPublicationRow, [number, string, string, string]>(
+    return this.options.database.read(async (connection) =>
+      (
+        await connection.all<RestrictedPublicationRow>(
           `${publicationSql()}
            WHERE restricted_publications.status = 'published'
              AND ${RestrictedReadConditionSql}
            ORDER BY restricted_publications.id`,
+          restrictedReadParameters(principal),
         )
-        .all(...restrictedReadParameters(principal))
-        .map((row) => summary(row, this.options.apiPublicUrl)),
+      ).map((row) => summary(row, this.options.apiPublicUrl)),
     )
   }
 
   require(principal: Principal, publicationID: string) {
-    return this.options.database.read((connection) => {
-      if (!canReadRestricted(connection, principal, publicationID)) throw notFound()
+    return this.options.database.read(async (connection) => {
+      if (!(await canReadRestricted(connection, principal, publicationID))) throw notFound()
       return requireRow(connection, publicationID)
     })
   }
 
-  detail(principal: Principal, publicationID: string) {
-    const publication = this.require(principal, publicationID)
+  async detail(principal: Principal, publicationID: string) {
+    const publication = await this.require(principal, publicationID)
     return detail(
       publication,
-      this.versionsFor(principal, publication.owner_employee_id, publication.skill_id),
+      await this.versionsFor(principal, publication.owner_employee_id, publication.skill_id),
       this.options.apiPublicUrl,
     )
   }
 
-  versions(principal: Principal, publicationID: string) {
-    const publication = this.require(principal, publicationID)
+  async versions(principal: Principal, publicationID: string) {
+    const publication = await this.require(principal, publicationID)
     return this.versionsFor(principal, publication.owner_employee_id, publication.skill_id)
   }
 
-  requireEmployee(employeeID: string, publicationID: string): RestrictedPackageIdentity {
-    return this.options.database.read((connection) => {
-      if (!canEmployeeReadRestricted(connection, employeeID, publicationID)) throw notFound()
-      const publication = requireRow(connection, publicationID)
+  requireEmployee(employeeID: string, publicationID: string): Promise<RestrictedPackageIdentity> {
+    return this.options.database.read(async (connection) => {
+      if (!(await canEmployeeReadRestricted(connection, employeeID, publicationID))) throw notFound()
+      const publication = await requireRow(connection, publicationID)
       return {
         publicationID: publication.id,
         employeeID,
@@ -101,11 +100,10 @@ export class RestrictedCatalog {
   }
 
   private versionsFor(principal: Principal, ownerEmployeeID: string, skillID: string) {
-    return this.options.database.read((connection) =>
-      connection
-        .query<
-          Pick<RestrictedPublicationRow, "version" | "package_sha256" | "package_size" | "created_at">,
-          [string, string, number, string, string, string]
+    return this.options.database.read(async (connection) =>
+      (
+        await connection.all<
+          Pick<RestrictedPublicationRow, "version" | "package_sha256" | "package_size" | "created_at">
         >(
           `SELECT
              restricted_publications.version,
@@ -118,9 +116,9 @@ export class RestrictedCatalog {
              AND restricted_publications.status = 'published'
              AND ${RestrictedReadConditionSql}
            ORDER BY restricted_publications.created_at DESC, restricted_publications.id DESC`,
+          [ownerEmployeeID, skillID, ...restrictedReadParameters(principal)],
         )
-        .all(ownerEmployeeID, skillID, ...restrictedReadParameters(principal))
-        .map(version),
+      ).map(version),
     )
   }
 }
@@ -159,13 +157,12 @@ function publicationSql() {
     AND submission_revisions.revision_number = submissions.current_revision`
 }
 
-function requireRow(connection: Database, publicationID: string) {
-  const row = connection
-    .query<RestrictedPublicationRow, [string]>(
-      `${publicationSql()}
+async function requireRow(connection: Connection, publicationID: string) {
+  const row = await connection.get<RestrictedPublicationRow>(
+    `${publicationSql()}
        WHERE restricted_publications.id = ? AND restricted_publications.status = 'published'`,
-    )
-    .get(publicationID)
+    [publicationID],
+  )
   if (!row) throw notFound()
   return row
 }

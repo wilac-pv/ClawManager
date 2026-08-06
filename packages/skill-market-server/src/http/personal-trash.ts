@@ -23,7 +23,7 @@ export function createPersonalTrashHttp(options: PersonalTrashHttpOptions) {
       .handle("skillMarket.submissions.personalTrash", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.personalTrash.list(principal),
             catch: dependencyProblem,
           })
@@ -32,7 +32,7 @@ export function createPersonalTrashHttp(options: PersonalTrashHttpOptions) {
       .handle("skillMarket.submissions.personalDelete", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.personalTrash.deletePersonal(
                 principal,
@@ -46,7 +46,7 @@ export function createPersonalTrashHttp(options: PersonalTrashHttpOptions) {
       .handle("skillMarket.submissions.personalRestore", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.personalTrash.restorePersonal(
                 principal,

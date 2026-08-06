@@ -41,19 +41,19 @@ describe("expert packages", () => {
     })
 
     expect(await packages.refresh()).toBe(2)
-    expect(packages.list({ query: "测试", page: 1, limit: 30 }).items.map((entry) => entry.slug)).toEqual([
+    expect((await packages.list({ query: "测试", page: 1, limit: 30 })).items.map((entry) => entry.slug)).toEqual([
       "tech-test-automation",
     ])
-    expect(packages.list({ scene: "finance", page: 1, limit: 30 }).total).toBe(1)
-    expect(packages.detail("tech-test-automation")).toMatchObject({
+    expect((await packages.list({ scene: "finance", page: 1, limit: 30 })).total).toBe(1)
+    expect(await packages.detail("tech-test-automation")).toMatchObject({
       slug: "tech-test-automation",
       content: "# 自动化测试工作流\n",
       skillSlugs: ["tdd", "e2e"],
     })
 
     expect(await packages.refresh()).toBe(1)
-    expect(packages.detail("tech-test-automation")).toBeUndefined()
-    database.close()
+    expect(await packages.detail("tech-test-automation")).toBeUndefined()
+    await database.close()
   })
 })
 

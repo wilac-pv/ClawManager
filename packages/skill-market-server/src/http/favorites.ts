@@ -14,18 +14,19 @@ export function createFavoritesHttp(favorites: Favorites) {
       .handle("skillMarket.favorites.list", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({ try: () => favorites.list(principal), catch: dependencyProblem })
+          return yield* Effect.tryPromise({ try: () => favorites.list(principal), catch: dependencyProblem })
         }),
       )
       .handle("skillMarket.favorites.add", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({ try: () => favorites.add(principal, context.params), catch: favoriteProblem })
+          return yield* Effect.tryPromise({ try: () => favorites.add(principal, context.params), catch: favoriteProblem })
         }),
       )
       .handle("skillMarket.favorites.remove", (context) =>
         Effect.gen(function* () {
-          favorites.remove(principalFromSession(yield* SkillMarketPrincipal), context.params)
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          yield* Effect.tryPromise({ try: () => favorites.remove(principal, context.params), catch: favoriteProblem })
           return HttpServerResponse.empty()
         }),
       ),

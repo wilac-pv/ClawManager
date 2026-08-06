@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { createSecurity, type Principal } from "../src/security"
 import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
@@ -21,25 +21,25 @@ describe("SkillHub import administration", () => {
     expect(() => fixture.admin.status(principal([]))).toThrow("admin role")
     expect(() => fixture.admin.command(principal(["reviewer"]), { command: "pause" })).toThrow("admin role")
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("audits all queue commands with pre-transition rejected errors", async () => {
     const fixture = await adminFixture()
-    const generation = fixture.imports.beginGeneration(2)
-    fixture.imports.recordPage(generation.id, 1, [listRecord("retry"), listRecord("rejected")])
-    fixture.imports.claim("worker", 2, 60_000)
-    fixture.imports.retry("worker", "retry", "download", "retry later", fixture.clock.value + 60_000)
-    fixture.imports.reject("worker", "rejected", "validation", "unsafe package")
+    const generation = await fixture.imports.beginGeneration(2)
+    await fixture.imports.recordPage(generation.id, 1, [listRecord("retry"), listRecord("rejected")])
+    await fixture.imports.claim("worker", 2, 60_000)
+    await fixture.imports.retry("worker", "retry", "download", "retry later", fixture.clock.value + 60_000)
+    await fixture.imports.reject("worker", "rejected", "validation", "unsafe package")
 
-    expect(fixture.admin.command(principal(["admin"]), { command: "pause" }).state).toBe("paused")
-    expect(fixture.admin.command(principal(["admin"]), { command: "resume" }).state).toBe("running")
-    expect(fixture.admin.command(principal(["admin"]), { command: "retry-wait" }).pending).toBe(1)
+    expect((await fixture.admin.command(principal(["admin"]), { command: "pause" })).state).toBe("paused")
+    expect((await fixture.admin.command(principal(["admin"]), { command: "resume" })).state).toBe("running")
+    expect((await fixture.admin.command(principal(["admin"]), { command: "retry-wait" })).pending).toBe(1)
     expect(
-      fixture.admin.command(principal(["admin"]), { command: "retry-rejected", slugs: ["rejected"] }).rejected,
+      (await fixture.admin.command(principal(["admin"]), { command: "retry-rejected", slugs: ["rejected"] })).rejected,
     ).toBe(0)
 
-    const audit = fixture.database.connection
+    const audit = (fixture.database as SqliteDatabase).connection
       .query<
         {
           action: string
@@ -72,7 +72,7 @@ describe("SkillHub import administration", () => {
       { slug: "rejected", code: "validation", summary: "unsafe package" },
     ])
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { error_code: string | null; error_summary: string | null },
           [string]
@@ -80,13 +80,13 @@ describe("SkillHub import administration", () => {
         .get("rejected"),
     ).toEqual({ error_code: null, error_summary: null })
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("rolls queue updates back when the append-only audit insert fails", async () => {
     const fixture = await adminFixture()
-    fixture.imports.beginGeneration(1)
-    fixture.database.connection.exec(`
+    await fixture.imports.beginGeneration(1)
+    ;(fixture.database as SqliteDatabase).connection.exec(`
       CREATE TRIGGER reject_skillhub_audit
       BEFORE INSERT ON audit_events
       WHEN NEW.action = 'skillhub-import-paused'
@@ -95,16 +95,16 @@ describe("SkillHub import administration", () => {
       END;
     `)
 
-    expect(() => fixture.admin.command(principal(["admin"]), { command: "pause" })).toThrow("audit unavailable")
-    expect(fixture.imports.progress().state).toBe("running")
+    await expect(fixture.admin.command(principal(["admin"]), { command: "pause" })).rejects.toThrow("audit unavailable")
+    expect((await fixture.imports.progress()).state).toBe("running")
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("rejects untargeted commands without auditing a completed generation", async () => {
     const fixture = await adminFixture()
-    const generation = fixture.imports.beginGeneration(1)
-    fixture.database.connection.run(
+    const generation = await fixture.imports.beginGeneration(1)
+    ;(fixture.database as SqliteDatabase).connection.run(
       "UPDATE skillhub_generations SET state = 'completed', discovery_completed_at = ?, completed_at = ? WHERE id = ?",
       [fixture.clock.value, fixture.clock.value, generation.id],
     )
@@ -112,53 +112,53 @@ describe("SkillHub import administration", () => {
     for (const input of [{ command: "pause" }, { command: "resume" }, { command: "retry-wait" }] as const)
       expect(() => fixture.admin.command(principal(["admin"]), input)).toThrow("invalid")
     expect(
-      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM audit_events").get()
+      (fixture.database as SqliteDatabase).connection.query<{ count: number }, []>("SELECT count(*) AS count FROM audit_events").get()
         ?.count,
     ).toBe(0)
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("audits a selected retry against the generation reopened from completed", async () => {
     const fixture = await adminFixture()
-    const generation = fixture.imports.beginGeneration(1)
-    fixture.imports.recordPage(generation.id, 1, [listRecord("rejected")])
-    fixture.imports.claim("worker", 1, 60_000)
-    fixture.imports.reject("worker", "rejected", "validation", "unsafe package")
-    fixture.database.connection.run(
+    const generation = await fixture.imports.beginGeneration(1)
+    await fixture.imports.recordPage(generation.id, 1, [listRecord("rejected")])
+    await fixture.imports.claim("worker", 1, 60_000)
+    await fixture.imports.reject("worker", "rejected", "validation", "unsafe package")
+    ;(fixture.database as SqliteDatabase).connection.run(
       "UPDATE skillhub_generations SET state = 'completed', discovery_completed_at = ?, completed_at = ? WHERE id = ?",
       [fixture.clock.value, fixture.clock.value, generation.id],
     )
 
-    expect(fixture.admin.command(principal(["admin"]), { command: "retry-rejected", slugs: ["rejected"] }).state).toBe(
+    expect((await fixture.admin.command(principal(["admin"]), { command: "retry-rejected", slugs: ["rejected"] })).state).toBe(
       "running",
     )
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<{ object_id: string }, []>("SELECT object_id FROM audit_events WHERE action = 'skillhub-import-retried'")
         .get(),
     ).toEqual({ object_id: generation.id })
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("rejects an unmatched selected retry without auditing a completed generation", async () => {
     const fixture = await adminFixture()
-    const generation = fixture.imports.beginGeneration(1)
-    fixture.database.connection.run(
+    const generation = await fixture.imports.beginGeneration(1)
+    ;(fixture.database as SqliteDatabase).connection.run(
       "UPDATE skillhub_generations SET state = 'completed', discovery_completed_at = ?, completed_at = ? WHERE id = ?",
       [fixture.clock.value, fixture.clock.value, generation.id],
     )
 
-    expect(() =>
+    await expect(
       fixture.admin.command(principal(["admin"]), { command: "retry-rejected", slugs: ["missing"] }),
-    ).toThrow("invalid")
+    ).rejects.toThrow("invalid")
     expect(
-      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM audit_events").get()
+      (fixture.database as SqliteDatabase).connection.query<{ count: number }, []>("SELECT count(*) AS count FROM audit_events").get()
         ?.count,
     ).toBe(0)
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 })
 
@@ -177,7 +177,7 @@ async function adminFixture() {
     sessionAbsoluteMilliseconds: 12 * 60 * 60 * 1_000,
     now: () => clock.value,
   })
-  database.connection.run(
+  ;(database as SqliteDatabase).connection.run(
     "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES ('admin', 'Operator', ?, ?)",
     [clock.value, clock.value],
   )

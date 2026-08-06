@@ -19,7 +19,7 @@ afterEach(async () => {
 describe("sharing groups", () => {
   test("persists owners and pending cross-department members without requiring a user row", async () => {
     const fixture = await groupsFixture()
-    const group = fixture.groups.create(fixture.alice, {
+    const group = await fixture.groups.create(fixture.alice, {
       name: "Project Aurora",
       description: "跨部门专项组",
     })
@@ -32,9 +32,9 @@ describe("sharing groups", () => {
       status: "active",
       version: 1,
     })
-    expect(fixture.groups.listMine(fixture.alice)).toEqual({ managed: [group], joined: [] })
-    expect(fixture.groups.listMine(fixture.bob)).toEqual({ managed: [], joined: [] })
-    expect(fixture.groups.members(fixture.alice, group.id)).toEqual([
+    expect(await fixture.groups.listMine(fixture.alice)).toEqual({ managed: [group], joined: [] })
+    expect(await fixture.groups.listMine(fixture.bob)).toEqual({ managed: [], joined: [] })
+    expect(await fixture.groups.members(fixture.alice, group.id)).toEqual([
       {
         groupID: group.id,
         employeeID: "alice",
@@ -43,59 +43,61 @@ describe("sharing groups", () => {
       },
     ])
 
-    fixture.groups.addMember(fixture.alice, group.id, { employeeID: "future-user", expectedVersion: 1 })
-    fixture.groups.addMember(fixture.alice, group.id, { employeeID: "bob", expectedVersion: 2 })
+    await fixture.groups.addMember(fixture.alice, group.id, { employeeID: "future-user", expectedVersion: 1 })
+    await fixture.groups.addMember(fixture.alice, group.id, { employeeID: "bob", expectedVersion: 2 })
     expect(
-      fixture.database.connection
-        .query<
-          { employee_id: string },
-          [string, string]
-        >("SELECT employee_id FROM market_group_members WHERE group_id = ? AND employee_id = ?")
-        .get(group.id, "future-user"),
+      await fixture.database.read(async (c) =>
+        c.get<{ employee_id: string }>(
+          "SELECT employee_id FROM market_group_members WHERE group_id = ? AND employee_id = ?",
+          [group.id, "future-user"],
+        ),
+      ),
     ).toEqual({ employee_id: "future-user" })
     expect(
-      fixture.database.connection
-        .query<{ count: number }, [string]>("SELECT count(*) AS count FROM users WHERE employee_id = ?")
-        .get("future-user")?.count,
+      (
+        await fixture.database.read(async (c) =>
+          c.get<{ count: number }>("SELECT count(*) AS count FROM users WHERE employee_id = ?", ["future-user"]),
+        )
+      )?.count,
     ).toBe(0)
-    expect(fixture.groups.listMine(principal("future-user"))).toMatchObject({
+    expect(await fixture.groups.listMine(principal("future-user"))).toMatchObject({
       managed: [],
       joined: [{ id: group.id, version: 3 }],
     })
-    expect(fixture.groups.listMine(fixture.bob)).toMatchObject({
+    expect(await fixture.groups.listMine(fixture.bob)).toMatchObject({
       managed: [],
       joined: [{ id: group.id, version: 3 }],
     })
-    expect(() =>
+    await expect(
       fixture.groups.update(fixture.bob, group.id, { expectedVersion: 3, name: "Member cannot rename" }),
-    ).toThrow("forbidden")
-    expect(fixture.groups.get(principal("future-user"), group.id)).toMatchObject({ id: group.id, version: 3 })
-    expect(() => fixture.groups.get(principal("outsider"), group.id)).toThrow("not found")
+    ).rejects.toThrow("forbidden")
+    expect(await fixture.groups.get(principal("future-user"), group.id)).toMatchObject({ id: group.id, version: 3 })
+    await expect(fixture.groups.get(principal("outsider"), group.id)).rejects.toThrow("not found")
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("enforces owner or admin mutations, optimistic versions, transfer invariants, and audit history", async () => {
     const fixture = await groupsFixture()
-    const created = fixture.groups.create(fixture.alice, { name: "Project Aurora", description: "专项组" })
+    const created = await fixture.groups.create(fixture.alice, { name: "Project Aurora", description: "专项组" })
 
-    expect(() =>
+    await expect(
       fixture.groups.addMember(fixture.bob, created.id, {
         employeeID: "future-user",
         expectedVersion: created.version,
       }),
-    ).toThrow("forbidden")
+    ).rejects.toThrow("forbidden")
 
-    const added = fixture.groups.addMember(fixture.alice, created.id, {
+    const added = await fixture.groups.addMember(fixture.alice, created.id, {
       employeeID: "future-user",
       expectedVersion: created.version,
     })
     expect(added).toMatchObject({ groupID: created.id, employeeID: "future-user", createdByEmployeeID: "alice" })
-    expect(() =>
+    await expect(
       fixture.groups.update(fixture.alice, created.id, { expectedVersion: created.version, name: "Stale" }),
-    ).toThrow("version conflict")
+    ).rejects.toThrow("version conflict")
 
-    const updated = fixture.groups.update(fixture.alice, created.id, {
+    const updated = await fixture.groups.update(fixture.alice, created.id, {
       expectedVersion: 2,
       name: "Aurora Team",
       description: null,
@@ -103,40 +105,45 @@ describe("sharing groups", () => {
     expect(updated).toMatchObject({ name: "Aurora Team", version: 3 })
     expect(updated).not.toHaveProperty("description")
 
-    const transferred = fixture.groups.transfer(fixture.admin, created.id, {
+    const transferred = await fixture.groups.transfer(fixture.admin, created.id, {
       expectedVersion: 3,
       ownerEmployeeID: "future-owner",
     })
     expect(transferred).toMatchObject({ ownerEmployeeID: "future-owner", version: 4 })
-    expect(fixture.groups.members(fixture.admin, created.id).map((member) => member.employeeID)).toEqual([
+    expect((await fixture.groups.members(fixture.admin, created.id)).map((member) => member.employeeID)).toEqual([
       "alice",
       "future-owner",
       "future-user",
     ])
-    expect(() =>
+    await expect(
       fixture.groups.removeMember(principal("future-owner"), created.id, "future-owner", { expectedVersion: 4 }),
-    ).toThrow("current owner")
+    ).rejects.toThrow("current owner")
 
-    const removed = fixture.groups.removeMember(fixture.admin, created.id, "alice", { expectedVersion: 4 })
+    const removed = await fixture.groups.removeMember(fixture.admin, created.id, "alice", { expectedVersion: 4 })
     expect(removed.version).toBe(5)
-    const disabled = fixture.groups.setStatus(fixture.admin, created.id, { expectedVersion: 5, status: "disabled" })
+    const disabled = await fixture.groups.setStatus(fixture.admin, created.id, {
+      expectedVersion: 5,
+      status: "disabled",
+    })
     expect(disabled).toMatchObject({ status: "disabled", version: 6 })
-    fixture.database.connection.run(
-      "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
-      ["future-owner", "Future Owner", now, now],
+    await fixture.database.transaction(async (c) =>
+      c.run(
+        "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+        ["future-owner", "Future Owner", now, now],
+      ),
     )
-    const restored = fixture.groups.setStatus(principal("future-owner"), created.id, {
+    const restored = await fixture.groups.setStatus(principal("future-owner"), created.id, {
       expectedVersion: 6,
       status: "active",
     })
     expect(restored).toMatchObject({ status: "active", version: 7 })
 
-    const audit = fixture.database.connection
-      .query<
-        { action: SkillMarketControl.AuditAction; object_type: SkillMarketControl.AuditObjectType },
-        [string]
-      >("SELECT action, object_type FROM audit_events WHERE object_id = ? ORDER BY rowid")
-      .all(created.id)
+    const audit = await fixture.database.read(async (c) =>
+      c.all<{ action: SkillMarketControl.AuditAction; object_type: SkillMarketControl.AuditObjectType }>(
+        "SELECT action, object_type FROM audit_events WHERE object_id = ? ORDER BY rowid",
+        [created.id],
+      ),
+    )
     expect(audit).toEqual([
       { action: "group-created", object_type: "group" },
       { action: "group-member-added", object_type: "group" },
@@ -148,7 +155,7 @@ describe("sharing groups", () => {
     ])
     expect(audit.every((event) => Schema.is(SkillMarketControl.AuditAction)(event.action))).toBeTrue()
     expect(audit.every((event) => Schema.is(SkillMarketControl.AuditObjectType)(event.object_type))).toBeTrue()
-    const page = createModeration({
+    const page = await createModeration({
       database: fixture.database,
       security: createSecurity({
         database: fixture.database,
@@ -162,20 +169,20 @@ describe("sharing groups", () => {
       audit.map((event) => event.action).toReversed(),
     )
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("lists every group once in the admin managed section", async () => {
     const fixture = await groupsFixture()
-    const created = fixture.groups.create(fixture.alice, { name: "Project Aurora" })
-    fixture.groups.addMember(fixture.alice, created.id, { employeeID: "admin", expectedVersion: 1 })
+    const created = await fixture.groups.create(fixture.alice, { name: "Project Aurora" })
+    await fixture.groups.addMember(fixture.alice, created.id, { employeeID: "admin", expectedVersion: 1 })
 
-    expect(fixture.groups.listMine(fixture.admin)).toMatchObject({
+    expect(await fixture.groups.listMine(fixture.admin)).toMatchObject({
       managed: [{ id: created.id, version: 2 }],
       joined: [],
     })
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 })
 
@@ -186,19 +193,21 @@ async function groupsFixture() {
     databasePath: join(directory, "market.db"),
     migrationBackupDirectory: join(directory, "backups"),
   })
-  database.connection.run(
-    `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
-     VALUES ('alice', 'Alice', ?, ?), ('bob', 'Bob', ?, ?), ('admin', 'Admin', ?, ?)`,
-    [now, now, now, now, now, now],
-  )
-  database.connection.run(
-    `INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at)
-     VALUES ('engineering', 'Engineering', ?, ?), ('design', 'Design', ?, ?)`,
-    [now, now, now, now],
-  )
-  database.connection.run(
-    "UPDATE users SET department_id = CASE employee_id WHEN 'alice' THEN 'engineering' WHEN 'bob' THEN 'design' END WHERE employee_id IN ('alice', 'bob')",
-  )
+  await database.transaction(async (c) => {
+    await c.run(
+      `INSERT INTO users (employee_id, display_name, created_at, last_login_at)
+       VALUES ('alice', 'Alice', ?, ?), ('bob', 'Bob', ?, ?), ('admin', 'Admin', ?, ?)`,
+      [now, now, now, now, now, now],
+    )
+    await c.run(
+      `INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at)
+       VALUES ('engineering', 'Engineering', ?, ?), ('design', 'Design', ?, ?)`,
+      [now, now, now, now],
+    )
+    await c.run(
+      "UPDATE users SET department_id = CASE employee_id WHEN 'alice' THEN 'engineering' WHEN 'bob' THEN 'design' END WHERE employee_id IN ('alice', 'bob')",
+    )
+  })
   return {
     database,
     groups: createGroups({ database, now: () => now }),

@@ -19,19 +19,19 @@ export function createGroupsHttp(groups: Groups) {
       .handle("skillMarket.groups.list", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({ try: () => groups.listMine(principal), catch: groupProblem })
+          return yield* Effect.tryPromise({ try: () => groups.listMine(principal), catch: groupProblem })
         }),
       )
       .handle("skillMarket.groups.create", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({ try: () => groups.create(principal, context.payload), catch: groupProblem })
+          return yield* Effect.tryPromise({ try: () => groups.create(principal, context.payload), catch: groupProblem })
         }),
       )
       .handle("skillMarket.groups.detail", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => groups.get(principal, context.params.groupID),
             catch: groupProblem,
           })
@@ -40,7 +40,7 @@ export function createGroupsHttp(groups: Groups) {
       .handle("skillMarket.groups.update", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => groups.update(principal, context.params.groupID, context.payload),
             catch: groupProblem,
           })
@@ -49,7 +49,7 @@ export function createGroupsHttp(groups: Groups) {
       .handle("skillMarket.groups.transfer", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => groups.transfer(principal, context.params.groupID, context.payload),
             catch: groupProblem,
           })
@@ -58,7 +58,7 @@ export function createGroupsHttp(groups: Groups) {
       .handle("skillMarket.groups.setStatus", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => groups.setStatus(principal, context.params.groupID, context.payload),
             catch: groupProblem,
           })
@@ -67,7 +67,7 @@ export function createGroupsHttp(groups: Groups) {
       .handle("skillMarket.groups.members", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => groups.members(principal, context.params.groupID),
             catch: groupProblem,
           })
@@ -76,7 +76,7 @@ export function createGroupsHttp(groups: Groups) {
       .handle("skillMarket.groups.addMember", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => groups.addMember(principal, context.params.groupID, context.payload),
             catch: groupProblem,
           })
@@ -85,7 +85,7 @@ export function createGroupsHttp(groups: Groups) {
       .handle("skillMarket.groups.removeMember", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               groups.removeMember(principal, context.params.groupID, context.params.employeeID, context.payload),
             catch: groupProblem,

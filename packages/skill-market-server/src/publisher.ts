@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Schema } from "effect"
 import {
@@ -10,7 +9,6 @@ import {
   key,
 } from "./catalog"
 import { listPublishedCommunity, materializeCommunitySubmission, publishCommunityObjects } from "./community"
-import type { MarketDatabase } from "./database"
 import {
   loadCatalogDetail,
   loadCatalogIndex,
@@ -32,6 +30,7 @@ import {
   requireAudienceChangeArtifact,
 } from "./restricted-publications"
 import type { CompletedSkillHubEvaluation, EvaluatedSkillHubEntry, SkillHubImportStore } from "./skillhub-import-store"
+import type { Connection, MarketDatabase } from "./store"
 
 export class CatalogPublicationBusyError extends Error {
   override readonly name = "CatalogPublicationBusyError"
@@ -90,17 +89,17 @@ export class Publisher {
   async runOne(workerID: string) {
     requireWorkerID(workerID)
     await this.recover()
-    const pending = this.pending()
+    const pending = await this.pending()
     const prepared =
       pending?.kind === "publish" && pending.target_scope === "company"
         ? await this.preparePublication(pending)
         : undefined
-    const job = this.claim(workerID, pending?.id)
+    const job = await this.claim(workerID, pending?.id)
     if (!job) return undefined
     if (prepared && prepared.jobID !== job.id) return undefined
     if (job.kind === "publish" && job.target_scope !== "company") return this.publishPrivate(job, workerID)
     if (job.target_revision && (await this.pointerRevision()) === job.target_revision) {
-      this.finalize(job)
+      await this.finalize(job)
       return { jobID: job.id, kind: job.kind, revision: job.target_revision }
     }
 
@@ -111,65 +110,61 @@ export class Publisher {
       publication.index,
       publication.changedDetails,
     )
-    this.persistTarget(job, workerID, publication.index.revision)
+    await this.persistTarget(job, workerID, publication.index.revision)
     await publishCatalogIndexPointer(this.options.store, { prefix: this.options.ossPrefix }, publication.index)
-    this.finalize({ ...job, target_revision: publication.index.revision })
+    await this.finalize({ ...job, target_revision: publication.index.revision })
     return { jobID: job.id, kind: job.kind, revision: publication.index.revision }
   }
 
   async recover(store = this.options.store) {
     const now = this.now()
-    const jobs = this.options.database.read((connection) =>
-      connection
-        .query<JobRow, [number]>(
-          `${jobSelect()} WHERE publish_jobs.status = 'running'
+    const jobs = await this.options.database.read((connection) =>
+      connection.all<JobRow>(
+        `${jobSelect()} WHERE publish_jobs.status = 'running'
           AND publish_jobs.lease_expires_at <= ? ORDER BY publish_jobs.created_at, publish_jobs.id`,
-        )
-        .all(now),
+        [now],
+      ),
     )
     if (jobs.length === 0) return 0
     const pointer = await this.pointerRevision(store)
     return jobs.reduce(
       (pending, job) =>
-        pending.then((count) => {
+        pending.then(async (count) => {
           if (job.kind === "publish" && job.target_scope !== "company") {
-            const reset = this.options.database.transaction(
-              (connection) =>
-                connection.run(
-                  `UPDATE publish_jobs
+            const reset = await this.options.database.transaction((connection) =>
+              connection.run(
+                `UPDATE publish_jobs
                    SET status = 'pending', target_revision = NULL, lease_owner = NULL,
                        lease_expires_at = NULL, updated_at = ?
                    WHERE id = ? AND status = 'running' AND lease_expires_at <= ?`,
-                  [now, job.id, now],
-                ).changes,
+                [now, job.id, now],
+              ),
             )
             return count + Number(reset > 0)
           }
           if (job.target_revision && job.target_revision === pointer) {
-            this.finalize(job, true)
+            await this.finalize(job, true)
             return count + 1
           }
           if (job.error_code === "catalog-delta") {
-            const retired = this.options.database.transaction(
-              (connection) =>
-                connection.run(
-                  `UPDATE publish_jobs
+            const retired = await this.options.database.transaction((connection) =>
+              connection.run(
+                `UPDATE publish_jobs
                    SET status = 'failed', lease_owner = NULL, lease_expires_at = NULL,
                        error_code = 'catalog-delta', error_summary = 'TRACE catalog publication interrupted', updated_at = ?
                    WHERE id = ? AND status = 'running' AND lease_expires_at <= ?`,
-                  [now, job.id, now],
-                ).changes,
+                [now, job.id, now],
+              ),
             )
             return count + Number(retired > 0)
           }
-          const reset = this.options.database.transaction(
-            (connection) =>
-              connection.run(
-                `UPDATE publish_jobs
+          const reset = await this.options.database.transaction((connection) =>
+            connection.run(
+              `UPDATE publish_jobs
              SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
              WHERE id = ? AND status = 'running' AND lease_expires_at <= ?`,
-                [now, job.id, now],
-              ).changes,
+              [now, job.id, now],
+            ),
           )
           return count + Number(reset > 0)
         }),
@@ -189,14 +184,16 @@ export class Publisher {
     await this.recover(store)
     throwIfAborted(signal)
     const now = this.now()
-    const job = this.options.database.transaction((connection) => {
-      const queued = connection
-        .query<{ count: number }, []>("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running'")
-        .get()!.count
+    const job = await this.options.database.transaction(async (connection) => {
+      const queued = (
+        await connection.get<{ count: number }>(
+          "SELECT count(*) AS count FROM publish_jobs WHERE status = 'running'",
+        )
+      )!.count
       if (queued > 0)
         throw new CatalogPublicationBusyError("catalog publication queue must be drained before synchronization")
       const jobID = `job_${randomSecret()}`
-      connection.run(
+      await connection.run(
         `INSERT INTO publish_jobs
           (id, kind, status, lease_owner, lease_expires_at, attempts, error_code, error_summary, created_at, updated_at)
          VALUES (?, 'catalog_rebuild', 'running', ?, ?, 1, ?, ?, ?, ?)`,
@@ -210,7 +207,7 @@ export class Publisher {
           now,
         ],
       )
-      return readJob(connection, jobID)!
+      return (await readJob(connection, jobID))!
     })
     const state: { revision?: string } = {}
     let pointerPublished = false
@@ -234,21 +231,21 @@ export class Publisher {
           )
         throwIfAborted(signal)
         const index = "delta" in publication ? publication.delta : publication.index
-        this.persistTarget(job, workerID, index.revision)
+        await this.persistTarget(job, workerID, index.revision)
         state.revision = index.revision
         await publishCatalogIndexPointer(store, { prefix: this.options.ossPrefix }, index)
         pointerPublished = true
       })
       throwIfAborted(signal)
-      this.finalize({ ...job, target_revision: state.revision ?? null })
+      await this.finalize({ ...job, target_revision: state.revision ?? null })
       return value
     } catch (error) {
       if (!state.revision) {
-        if (preTargetFailure === "fail") this.failCatalogLease(job, workerID)
-        else this.release(job, workerID)
+        if (preTargetFailure === "fail") await this.failCatalogLease(job, workerID)
+        else await this.release(job, workerID)
       }
       if (state.revision && !pointerPublished && !signal?.aborted && (await this.pointerRevision()) !== state.revision)
-        this.release(job, workerID)
+        await this.release(job, workerID)
       throw error
     }
   }
@@ -266,12 +263,12 @@ export class Publisher {
     const store = signal ? abortableStore(this.options.store, signal) : this.options.store
     throwIfAborted(signal)
     const evaluations = await Promise.all(
-      imports
-        .completedEvaluations(evaluationLimit)
-        .map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
+      (await imports.completedEvaluations(evaluationLimit)).map((evaluation) =>
+        this.materializeSkillHubEvaluation(evaluation, store),
+      ),
     )
     const base = await this.basePublication({ skipLegacySkillHub: true }, store)
-    const progress = imports.progress()
+    const progress = await imports.progress()
     const current = new Map(
       base.index.items
         .filter((summary) => summary.source === "skillhub")
@@ -287,7 +284,7 @@ export class Publisher {
             ? base
             : await this.basePublication({ skipLegacySkillHub: true }, store)
         const latestEntries = this.entries(publication.index, (summary) => summary.source !== "skillhub")
-        const mirrored = imports.mirroredEntries()
+        const mirrored = await imports.mirroredEntries()
         const evaluated = evaluations.filter((evaluation) =>
           mirrored.some(
             (entry) =>
@@ -332,7 +329,7 @@ export class Publisher {
         )
         await publish({ index, changedDetails })
         throwIfAborted(signal)
-        imports.replaceCompletedEvaluationDetails(evaluated)
+        await imports.replaceCompletedEvaluationDetails(evaluated)
       },
       store,
       signal,
@@ -351,16 +348,16 @@ export class Publisher {
     const store = signal ? abortableStore(this.options.store, signal) : this.options.store
     throwIfAborted(signal)
     const materialized = await Promise.all(
-      imports
-        .completedEvaluations(evaluationLimit)
-        .map((evaluation) => this.materializeSkillHubEvaluation(evaluation, store)),
+      (await imports.completedEvaluations(evaluationLimit)).map((evaluation) =>
+        this.materializeSkillHubEvaluation(evaluation, store),
+      ),
     )
     let revision: string | undefined
     await this.withCatalogLease(
       workerID,
       async (publish) => {
         const completed = new Map(
-          imports.completedEvaluations(evaluationLimit).map((evaluation) => [evaluation.slug, evaluation]),
+          (await imports.completedEvaluations(evaluationLimit)).map((evaluation) => [evaluation.slug, evaluation]),
         )
         const evaluated = materialized.filter((value) => {
           const current = completed.get(value.slug)
@@ -394,7 +391,7 @@ export class Publisher {
           store,
           { prefix: this.options.ossPrefix },
           replacements,
-          { skillhub: imports.progress().sourceStatus },
+          { skillhub: (await imports.progress()).sourceStatus },
           undefined,
           signal,
         )
@@ -406,22 +403,22 @@ export class Publisher {
           ),
         })
         throwIfAborted(signal)
-        imports.replaceCompletedEvaluationDetails(evaluated)
+        await imports.replaceCompletedEvaluationDetails(evaluated)
       },
       store,
       signal,
       "fail",
     )
-    return { revision, mirrored: imports.progress().mirrored }
+    return { revision, mirrored: (await imports.progress()).mirrored }
   }
 
   async seedLegacySkillHub(imports: Pick<SkillHubImportStore, "progress" | "seedLegacy">, workerID: string) {
-    if (imports.progress().discovered > 0) return 0
+    if ((await imports.progress()).discovered > 0) return 0
     const base = await this.basePublication()
     const legacy = Array.from(base.changedDetails.values())
       .filter((detail) => detail.source === "skillhub")
       .map((detail) => ({ slug: detail.aliases?.[0] ?? detail.id, ...contentAddressDetail(detail) }))
-    const seeded = imports.seedLegacy(
+    const seeded = await imports.seedLegacy(
       legacy.map(({ slug, summary, ref }) => ({ slug, summary, detailKey: ref.key, detailSha256: ref.sha256 })),
     )
     if (base.changedDetails.size === 0) return seeded
@@ -433,48 +430,43 @@ export class Publisher {
     return seeded
   }
 
-  private claim(workerID: string, preparedJobID?: string) {
+  private async claim(workerID: string, preparedJobID?: string) {
     const now = this.now()
-    return this.options.database.transaction((connection) => {
-      const active = connection
-        .query<
-          { count: number },
-          [number]
-        >("SELECT count(*) AS count FROM publish_jobs WHERE status = 'running' AND lease_expires_at > ?")
-        .get(now)!.count
+    return this.options.database.transaction(async (connection) => {
+      const active = (
+        await connection.get<{ count: number }>(
+          "SELECT count(*) AS count FROM publish_jobs WHERE status = 'running' AND lease_expires_at > ?",
+          [now],
+        )
+      )!.count
       if (active > 0) return undefined
       const candidate = preparedJobID
-        ? connection
-            .query<{ id: string }, [string]>("SELECT id FROM publish_jobs WHERE id = ? AND status = 'pending'")
-            .get(preparedJobID)
-        : connection
-            .query<
-              { id: string },
-              []
-            >("SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1")
-            .get()
+        ? await connection.get<{ id: string }>(
+            "SELECT id FROM publish_jobs WHERE id = ? AND status = 'pending'",
+            [preparedJobID],
+          )
+        : await connection.get<{ id: string }>(
+            "SELECT id FROM publish_jobs WHERE status = 'pending' ORDER BY created_at, id LIMIT 1",
+          )
       if (!candidate) return undefined
-      const claimed = connection.run(
+      const claimed = await connection.run(
         `UPDATE publish_jobs
          SET status = 'running', lease_owner = ?, lease_expires_at = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ? AND status = 'pending'`,
         [workerID, now + (this.options.leaseMilliseconds ?? 5 * 60 * 1_000), now, candidate.id],
-      ).changes
+      )
       if (claimed !== 1) return undefined
-      const job = readJob(connection, candidate.id)
-      if (job?.kind === "publish") insertPublishStarted(connection, job, now)
+      const job = await readJob(connection, candidate.id)
+      if (job?.kind === "publish") await insertPublishStarted(connection, job, now)
       return job
     })
   }
 
-  private pending() {
+  private async pending() {
     return this.options.database.read((connection) =>
-      connection
-        .query<
-          JobRow,
-          []
-        >(`${jobSelect()} WHERE publish_jobs.status = 'pending' ORDER BY publish_jobs.created_at, publish_jobs.id LIMIT 1`)
-        .get(),
+      connection.get<JobRow>(
+        `${jobSelect()} WHERE publish_jobs.status = 'pending' ORDER BY publish_jobs.created_at, publish_jobs.id LIMIT 1`,
+      ),
     )
   }
 
@@ -488,7 +480,9 @@ export class Publisher {
 
   private async preparePublicationObjects(job: JobRow) {
     if (!job.submission_id) throw new Error("publish job has no submission")
-    this.options.database.read((connection) => requireAudienceChangeArtifact(connection, job.submission_id!))
+    await this.options.database.read((connection) =>
+      requireAudienceChangeArtifact(connection, job.submission_id!),
+    )
     await publishCommunityObjects(
       this.options.database,
       { store: this.options.store, publicPrefix: this.options.ossPrefix },
@@ -502,19 +496,19 @@ export class Publisher {
     return { jobID: job.id, candidate }
   }
 
-  private publishPrivate(job: JobRow, workerID: string) {
+  private async publishPrivate(job: JobRow, workerID: string) {
     if (!job.submission_id) throw new Error("publish job has no submission")
     const now = this.now()
-    return this.options.database.transaction((connection) => {
-      const current = readJob(connection, job.id)
+    return this.options.database.transaction(async (connection) => {
+      const current = await readJob(connection, job.id)
       if (!current || current.status !== "running" || current.lease_owner !== workerID)
         throw new Error("restricted publish job lease was lost")
       const publication =
         job.target_scope === "personal"
-          ? publishPersonalAudienceChange(connection, job.submission_id!, now)
-          : publishRestrictedSubmission(connection, job.submission_id!, now)
+          ? await publishPersonalAudienceChange(connection, job.submission_id!, now)
+          : await publishRestrictedSubmission(connection, job.submission_id!, now)
       const revision = `restricted:${publication.publicationID}:${publication.publicationVersion}`
-      connection.run(
+      await connection.run(
         `UPDATE publish_jobs
          SET status = 'completed', target_revision = ?, lease_owner = NULL, lease_expires_at = NULL,
              error_code = NULL, error_summary = NULL, updated_at = ?
@@ -665,22 +659,22 @@ export class Publisher {
     )
   }
 
-  private persistTarget(job: JobRow, workerID: string, revision: string) {
+  private async persistTarget(job: JobRow, workerID: string, revision: string) {
     const now = this.now()
-    this.options.database.transaction((connection) => {
-      const updated = connection.run(
+    await this.options.database.transaction(async (connection) => {
+      const updated = await connection.run(
         `UPDATE publish_jobs
          SET target_revision = ?, lease_expires_at = ?, updated_at = ?
          WHERE id = ? AND status = 'running' AND lease_owner = ?`,
         [revision, now + (this.options.leaseMilliseconds ?? 5 * 60 * 1_000), now, job.id, workerID],
-      ).changes
+      )
       if (updated !== 1) throw new Error("publish job lease was lost before pointer update")
     })
   }
 
-  private release(job: JobRow, workerID: string) {
+  private async release(job: JobRow, workerID: string) {
     const now = this.now()
-    this.options.database.transaction((connection) =>
+    await this.options.database.transaction((connection) =>
       connection.run(
         "UPDATE publish_jobs SET status = 'pending', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_owner = ?",
         [now, job.id, workerID],
@@ -688,9 +682,9 @@ export class Publisher {
     )
   }
 
-  private failCatalogLease(job: JobRow, workerID: string) {
+  private async failCatalogLease(job: JobRow, workerID: string) {
     const now = this.now()
-    this.options.database.transaction((connection) =>
+    await this.options.database.transaction((connection) =>
       connection.run(
         `UPDATE publish_jobs
          SET status = 'failed', lease_owner = NULL, lease_expires_at = NULL,
@@ -706,16 +700,16 @@ export class Publisher {
     return index ?? createCatalogIndex({ entries: new Map(), sourceStatus: fallback })
   }
 
-  private finalize(job: JobRow, expired = false) {
+  private async finalize(job: JobRow, expired = false) {
     const now = this.now()
-    this.options.database.transaction((connection) => {
-      const current = readJob(connection, job.id)
+    await this.options.database.transaction(async (connection) => {
+      const current = await readJob(connection, job.id)
       if (!current || current.status !== "running" || current.target_revision !== job.target_revision)
         throw new Error("publish job cannot be finalized")
       if (expired && (current.lease_expires_at === null || current.lease_expires_at > now))
         throw new Error("publish job lease has not expired")
-      if (current.kind === "publish") finalizeSubmission(connection, current, now)
-      connection.run(
+      if (current.kind === "publish") await finalizeSubmission(connection, current, now)
+      await connection.run(
         `UPDATE publish_jobs
          SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL,
              error_code = NULL, error_summary = NULL, updated_at = ?
@@ -766,43 +760,42 @@ function jobSelect() {
    LEFT JOIN submissions ON submissions.id = publish_jobs.submission_id`
 }
 
-function readJob(connection: Database, jobID: string) {
-  return connection.query<JobRow, [string]>(`${jobSelect()} WHERE publish_jobs.id = ?`).get(jobID)
+async function readJob(connection: Connection, jobID: string) {
+  return connection.get<JobRow>(`${jobSelect()} WHERE publish_jobs.id = ?`, [jobID])
 }
 
-function finalizeSubmission(connection: Database, job: JobRow, now: number) {
+async function finalizeSubmission(connection: Connection, job: JobRow, now: number) {
   if (!job.submission_id || !job.skill_id || !job.target_version || !job.target_revision)
     throw new Error("publish job submission is missing")
-  const submission = connection
-    .query<SubmissionState, [string]>("SELECT status, version FROM submissions WHERE id = ?")
-    .get(job.submission_id)
+  const submission = await connection.get<SubmissionState>(
+    "SELECT status, version FROM submissions WHERE id = ?",
+    [job.submission_id],
+  )
   if (!submission || submission.status !== "publishing") throw new Error("submission is not awaiting publication")
-  connection.run(
+  await connection.run(
     "UPDATE submissions SET status = 'published', version = version + 1, user_message = NULL, updated_at = ? WHERE id = ?",
     [now, job.submission_id],
   )
-  const updated = connection.run(
+  const updated = await connection.run(
     `UPDATE community_skills
      SET current_version = ?, current_submission_id = ?, public_status = 'published', delist_reason = NULL,
          version = version + 1, updated_at = ?
      WHERE skill_id = ?`,
     [job.target_version, job.submission_id, now, job.skill_id],
-  ).changes
+  )
   if (updated !== 1) throw new Error("community skill reservation is missing")
-  const source = connection
-    .query<
-      { source_publication_id: string | null },
-      [string]
-    >("SELECT source_publication_id FROM submissions WHERE id = ?")
-    .get(job.submission_id)
+  const source = await connection.get<{ source_publication_id: string | null }>(
+    "SELECT source_publication_id FROM submissions WHERE id = ?",
+    [job.submission_id],
+  )
   if (source?.source_publication_id)
-    connection.run(
+    await connection.run(
       `UPDATE restricted_publications
        SET status = 'delisted', row_version = row_version + 1, updated_at = ?
        WHERE id = ? AND status = 'published'`,
       [now, source.source_publication_id],
     )
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, action, object_type, object_id, before_json, after_json, request_id, created_at)
      VALUES (?, 'publish-succeeded', 'submission', ?, ?, ?, ?, ?)`,
@@ -817,20 +810,21 @@ function finalizeSubmission(connection: Database, job: JobRow, now: number) {
   )
 }
 
-function insertPublishStarted(connection: Database, job: JobRow, now: number) {
+async function insertPublishStarted(connection: Connection, job: JobRow, now: number) {
   if (!job.submission_id) throw new Error("publish job submission is missing")
-  const existing = connection
-    .query<
-      { count: number },
-      [string]
-    >("SELECT count(*) AS count FROM audit_events WHERE action = 'publish-started' AND object_id = ?")
-    .get(job.submission_id)!.count
+  const existing = (
+    await connection.get<{ count: number }>(
+      "SELECT count(*) AS count FROM audit_events WHERE action = 'publish-started' AND object_id = ?",
+      [job.submission_id],
+    )
+  )!.count
   if (existing > 0) return
-  const submission = connection
-    .query<SubmissionState, [string]>("SELECT status, version FROM submissions WHERE id = ?")
-    .get(job.submission_id)
+  const submission = await connection.get<SubmissionState>(
+    "SELECT status, version FROM submissions WHERE id = ?",
+    [job.submission_id],
+  )
   if (!submission) throw new Error("publish job submission is missing")
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, action, object_type, object_id, after_json, request_id, created_at)
      VALUES (?, 'publish-started', 'submission', ?, ?, ?, ?)`,

@@ -32,7 +32,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.submissions.list", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.moderation.listQueue(principal, {
                 ...context.query,
@@ -46,8 +46,12 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.submissions.detail", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
-            try: () => options.moderation.get(principal, context.params.submissionID),
+          return yield* Effect.tryPromise({
+            try: async () => {
+              const detail = await options.moderation.get(principal, context.params.submissionID)
+              if (!detail) throw new Error("submission not found")
+              return detail
+            },
             catch: readProblem,
           })
         }),
@@ -55,11 +59,12 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.submissions.decision", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          const reviewed = yield* Effect.try({
-            try: () => {
-              const before = options.moderation.get(principal, context.params.submissionID)
-              const result = options.moderation.decide(principal, context.params.submissionID, context.payload)
-              const pending = before.timeline.findLast((event) => event.status === "pending_review")
+          const reviewed = yield* Effect.tryPromise({
+            try: async () => {
+              const before = await options.moderation.get(principal, context.params.submissionID)
+              const result = await options.moderation.decide(principal, context.params.submissionID, context.payload)
+              if (!result) throw new Error("review decision produced no result")
+              const pending = before?.timeline.findLast((event) => event.status === "pending_review")
               return {
                 result,
                 ...(pending ? { wait: Math.max(0, Date.parse(result.updatedAt) - Date.parse(pending.at)) } : {}),
@@ -78,8 +83,12 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.submissions.retry", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          const result = yield* Effect.try({
-            try: () => options.moderation.retryPublish(principal, context.params.submissionID, context.payload),
+          const result = yield* Effect.tryPromise({
+            try: async () => {
+              const detail = await options.moderation.retryPublish(principal, context.params.submissionID, context.payload)
+              if (!detail) throw new Error("retry publish produced no result")
+              return detail
+            },
             catch: reviewProblem,
           })
           options.onWorkReady?.()
@@ -89,7 +98,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.roles.list", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({ try: () => options.moderation.listRoles(principal), catch: dependencyProblem })
+          return yield* Effect.tryPromise({ try: () => options.moderation.listRoles(principal), catch: dependencyProblem })
         }),
       )
       .handle("skillMarket.admin.announcements.create", (context) =>
@@ -104,7 +113,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.roles.create", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.moderation.assignRole(principal, context.payload),
             catch: roleCreateProblem,
           })
@@ -113,7 +122,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.roles.delete", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.moderation.removeRole(principal, context.params.employeeID, context.params.role),
             catch: roleDeleteProblem,
           })
@@ -122,7 +131,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.audit.list", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.moderation.listAudit(principal, {
                 ...context.query,
@@ -136,7 +145,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.community.delist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          const result = yield* Effect.try({
+          const result = yield* Effect.tryPromise({
             try: () => options.moderation.delist(principal, context.params.skillID, context.payload),
             catch: reviewProblem,
           })
@@ -147,7 +156,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.community.restore", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          const result = yield* Effect.try({
+          const result = yield* Effect.tryPromise({
             try: () => options.moderation.restore(principal, context.params.skillID, context.payload),
             catch: reviewProblem,
           })
@@ -158,7 +167,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.skillhub.status", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.skillhubImportAdmin.status(principal),
             catch: dependencyProblem,
           })
@@ -167,7 +176,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.skillhub.command", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          const result = yield* Effect.try({
+          const result = yield* Effect.tryPromise({
             try: () => options.skillhubImportAdmin.command(principal, context.payload),
             catch: skillHubProblem,
           })
@@ -178,7 +187,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.skillhub.evaluation", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.skillhubImportAdmin.evaluation(principal),
             catch: dependencyProblem,
           })
@@ -190,7 +199,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.pendingDelist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.moderation.pendingDelist(principal, context.params.submissionID),
             catch: reviewProblem,
           })
@@ -199,7 +208,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.approveDelist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          const result = yield* Effect.try({
+          const result = yield* Effect.tryPromise({
             try: () =>
               options.moderation.decideDelist(principal, context.params.requestID, context.payload, "approved"),
             catch: reviewProblem,
@@ -211,7 +220,7 @@ export function createAdminHttp(options: AdminHttpOptions) {
       .handle("skillMarket.admin.rejectDelist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.moderation.decideDelist(principal, context.params.requestID, context.payload, "rejected"),
             catch: reviewProblem,

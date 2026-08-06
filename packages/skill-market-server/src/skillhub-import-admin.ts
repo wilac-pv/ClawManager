@@ -1,7 +1,6 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
-import type { Database } from "bun:sqlite"
 import { Option, Schema } from "effect"
-import type { MarketDatabase } from "./database"
+import type { Connection, MarketDatabase } from "./store"
 import { randomSecret, type MarketSecurity, type Principal, SkillMarketSecurityError } from "./security"
 import type { SkillHubImportStore } from "./skillhub-import-store"
 import type { SkillHubEvaluationStore } from "./skillhub-evaluation-store"
@@ -15,9 +14,9 @@ interface SkillHubImportAdminOptions {
 }
 
 export interface SkillHubImportAdmin {
-  readonly status: (principal: Principal) => SkillMarketControl.SkillHubImportProgress
-  readonly evaluation: (principal: Principal) => SkillMarketControl.SkillHubEvaluationProgress
-  readonly command: (principal: Principal, input: unknown) => SkillMarketControl.SkillHubImportProgress
+  readonly status: (principal: Principal) => Promise<SkillMarketControl.SkillHubImportProgress>
+  readonly evaluation: (principal: Principal) => Promise<SkillMarketControl.SkillHubEvaluationProgress>
+  readonly command: (principal: Principal, input: unknown) => Promise<SkillMarketControl.SkillHubImportProgress>
 }
 
 export function createSkillHubImportAdmin(options: SkillHubImportAdminOptions): SkillHubImportAdmin {
@@ -36,18 +35,18 @@ export function createSkillHubImportAdmin(options: SkillHubImportAdminOptions): 
       const decoded = Schema.decodeUnknownOption(SkillMarketControl.SkillHubImportCommandInput)(input)
       if (Option.isNone(decoded))
         throw new SkillMarketSecurityError("invalid-request", "SkillHub import command is invalid")
-      return options.database.transaction((connection) => {
-        const activeBefore = options.imports.activeGenerationIDInTransaction(connection)
+      return options.database.transaction(async (connection) => {
+        const activeBefore = await options.imports.activeGenerationIDInTransaction(connection)
         if (decoded.value.command !== "retry-rejected" && !activeBefore)
           throw new SkillMarketSecurityError("invalid-request", "invalid SkillHub import: no active generation")
-        const before = options.imports.progressInTransaction(connection)
-        const transition = options.imports.commandTransitionInTransaction(connection, decoded.value)
+        const before = await options.imports.progressInTransaction(connection)
+        const transition = await options.imports.commandTransitionInTransaction(connection, decoded.value)
         if (decoded.value.command === "retry-rejected" && transition.retriedRejected.length === 0)
           throw new SkillMarketSecurityError("invalid-request", "invalid SkillHub rejected-item retry")
-        const activeAfter = options.imports.activeGenerationIDInTransaction(connection)
+        const activeAfter = await options.imports.activeGenerationIDInTransaction(connection)
         if (!activeAfter)
           throw new SkillMarketSecurityError("invalid-request", "invalid SkillHub import: no active generation")
-        insertAudit(connection, {
+        await insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: auditAction(decoded.value.command),
           objectID: activeAfter,
@@ -83,8 +82,8 @@ function counts(progress: SkillMarketControl.SkillHubImportProgress) {
   }
 }
 
-function insertAudit(
-  connection: Database,
+async function insertAudit(
+  connection: Connection,
   event: {
     readonly actorEmployeeID: string
     readonly action: SkillMarketControl.AuditAction
@@ -94,7 +93,7 @@ function insertAudit(
     readonly now: number
   },
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, actor_employee_id, action, object_type, object_id, before_json, after_json, request_id, created_at)
      VALUES (?, ?, ?, 'skillhub_import', ?, ?, ?, ?, ?)`,

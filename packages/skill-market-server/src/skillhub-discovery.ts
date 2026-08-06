@@ -22,17 +22,18 @@ export interface SkillHubDiscoveryResult {
 }
 
 export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promise<SkillHubDiscoveryResult> {
-  const checkpoint = options.imports.generationCheckpoint()
-  const completed = options.imports.progress().state === "completed"
+  const progress = await options.imports.progress()
+  const checkpoint = await options.imports.generationCheckpoint()
+  const completed = progress.state === "completed"
   if (checkpoint?.discoveryCompleted)
-    return result(options.imports, true, false, options.pageConcurrency ?? 4)
-  if (checkpoint?.state === "paused") return result(options.imports, false, false, options.pageConcurrency ?? 4)
+    return await result(options.imports, true, false, options.pageConcurrency ?? 4)
+  if (checkpoint?.state === "paused") return await result(options.imports, false, false, options.pageConcurrency ?? 4)
   if (
     !options.refresh &&
     completed &&
-    (options.limit === undefined || options.limit <= options.imports.progress().upstreamTotal)
+    (options.limit === undefined || options.limit <= progress.upstreamTotal)
   )
-    return result(options.imports, true, false, options.pageConcurrency ?? 4)
+    return await result(options.imports, true, false, options.pageConcurrency ?? 4)
 
   const pool = createAdaptivePool({
     minimum: 1,
@@ -43,25 +44,28 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
   const [first] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
   let pageBatches = 0
   let upstreamTotal = effectiveTotal(first.data.total, options.limit)
-  if (completed && upstreamTotal === options.imports.progress().upstreamTotal)
-    return result(options.imports, true, false, pool.concurrency())
+  const progressAfterFirst = await options.imports.progress()
+  if (completed && upstreamTotal === progressAfterFirst.upstreamTotal)
+    return await result(options.imports, true, false, pool.concurrency())
   if (checkpoint && checkpoint.discoveryPage > 0) upstreamTotal = Math.max(checkpoint.upstreamTotal, upstreamTotal)
-  const generation = options.imports.beginGeneration(upstreamTotal)
-  const active = options.imports.activeGeneration()
-  if (!active) return result(options.imports, true, false, options.pageConcurrency ?? 4)
-  options.imports.recordPage(generation.id, 1, first.data.skills.slice(0, upstreamTotal), upstreamTotal)
+  const generation = await options.imports.beginGeneration(upstreamTotal)
+  const active = await options.imports.activeGeneration()
+  if (!active) return await result(options.imports, true, false, options.pageConcurrency ?? 4)
+  await options.imports.recordPage(generation.id, 1, first.data.skills.slice(0, upstreamTotal), upstreamTotal)
 
   for (let completedSweeps = 0; completedSweeps < 3; completedSweeps += 1) {
-    const current = options.imports.activeGeneration()
-    if (!current) return result(options.imports, true, false, pool.concurrency())
-    if (current.state === "paused") return result(options.imports, false, false, pool.concurrency())
+    const current = await options.imports.activeGeneration()
+    if (!current) return await result(options.imports, true, false, pool.concurrency())
+    if (current.state === "paused") return await result(options.imports, false, false, pool.concurrency())
     let page = Math.max(2, current.discoveryPage + 1)
     while (page <= Math.ceil(upstreamTotal / 100)) {
       if (options.maxPageBatches !== undefined && pageBatches >= options.maxPageBatches)
-        return result(options.imports, false, true, pool.concurrency())
-      const beforeBatch = options.imports.generationCheckpoint()
-      if (!beforeBatch || beforeBatch.discoveryCompleted) return result(options.imports, true, false, pool.concurrency())
-      if (beforeBatch.state === "paused") return result(options.imports, false, false, pool.concurrency())
+        return await result(options.imports, false, true, pool.concurrency())
+      const beforeBatch = await options.imports.generationCheckpoint()
+      if (!beforeBatch || beforeBatch.discoveryCompleted)
+        return await result(options.imports, true, false, pool.concurrency())
+      if (beforeBatch.state === "paused")
+        return await result(options.imports, false, false, pool.concurrency())
       const batch = Array.from(
         { length: Math.min(options.pageConcurrency ?? 4, Math.ceil(upstreamTotal / 100) - page + 1) },
         (_, index) => page + index,
@@ -71,32 +75,35 @@ export async function discoverSkillHub(options: SkillHubDiscoveryOptions): Promi
         upstreamTotal,
         ...loaded.map((page) => effectiveTotal(page.data.total, options.limit)),
       )
-      loaded.forEach((value, index) =>
-        options.imports.recordPage(
+      for (let index = 0; index < loaded.length; index++) {
+        await options.imports.recordPage(
           generation.id,
           batch[index]!,
-          value.data.skills.slice(0, upstreamTotal - (batch[index]! - 1) * 100),
+          loaded[index]!.data.skills.slice(0, upstreamTotal - (batch[index]! - 1) * 100),
           upstreamTotal,
-        ),
-      )
+        )
+      }
       pageBatches += 1
       page += batch.length
     }
-    const completion = options.imports.completeSweep(generation.id)
-    if (completion.stable) return result(options.imports, true, false, pool.concurrency())
-    if (completedSweeps === 2) return result(options.imports, false, true, pool.concurrency())
-    const beforeNextFirst = options.imports.generationCheckpoint()
-    if (!beforeNextFirst || beforeNextFirst.discoveryCompleted) return result(options.imports, true, false, pool.concurrency())
-    if (beforeNextFirst.state === "paused") return result(options.imports, false, false, pool.concurrency())
+    const completion = await options.imports.completeSweep(generation.id)
+    if (completion.stable) return await result(options.imports, true, false, pool.concurrency())
+    if (completedSweeps === 2) return await result(options.imports, false, true, pool.concurrency())
+    const beforeNextFirst = await options.imports.generationCheckpoint()
+    if (!beforeNextFirst || beforeNextFirst.discoveryCompleted)
+      return await result(options.imports, true, false, pool.concurrency())
+    if (beforeNextFirst.state === "paused")
+      return await result(options.imports, false, false, pool.concurrency())
     const [nextFirst] = await pool.map([1], (page) => loadSkillHubPage(options.fetcher, options.baseUrl, page))
     upstreamTotal = effectiveTotal(nextFirst.data.total, options.limit)
-    options.imports.recordPage(generation.id, 1, nextFirst.data.skills.slice(0, upstreamTotal), upstreamTotal)
+    await options.imports.recordPage(generation.id, 1, nextFirst.data.skills.slice(0, upstreamTotal), upstreamTotal)
   }
-  return result(options.imports, false, true, pool.concurrency())
+  return await result(options.imports, false, true, pool.concurrency())
 }
 
-function result(imports: SkillHubImportStore, completed: boolean, stale: boolean, pageConcurrency: number): SkillHubDiscoveryResult {
-  return { discovered: imports.progress().discovered, completed, stale, pageConcurrency }
+async function result(imports: SkillHubImportStore, completed: boolean, stale: boolean, pageConcurrency: number): Promise<SkillHubDiscoveryResult> {
+  const progress = await imports.progress()
+  return { discovered: progress.discovered, completed, stale, pageConcurrency }
 }
 
 function effectiveTotal(total: number, limit: number | undefined) {

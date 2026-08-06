@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAuth } from "../src/auth"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { createModeration } from "../src/moderation"
 import { bootstrapAdmins, type Principal, createSecurity, SkillMarketSecurityError } from "../src/security"
 
@@ -42,7 +42,7 @@ describe("SSO authentication", () => {
       ),
     })
 
-    const result = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "sso-sensitive-access-token")
+    const result = await fixture.auth.complete((await fixture.auth.begin("/skills")).attemptID, "sso-sensitive-access-token")
 
     expect(
       requests.map((url) => ({
@@ -73,7 +73,7 @@ describe("SSO authentication", () => {
       displayName: "武晓达",
       department: { id: "100200300", name: "研发一部" },
     })
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("consumes a TOKEN-mode login once and stores only identity and secret hashes", async () => {
@@ -98,7 +98,7 @@ describe("SSO authentication", () => {
     })
     const fixture = await authenticationFixture(server.url.origin)
 
-    const login = fixture.auth.begin("/submissions")
+    const login = await fixture.auth.begin("/submissions")
     const authorization = new URL(login.authorizationUrl)
     expect(authorization.origin).toBe("https://sso.example.com")
     expect(authorization.searchParams.get("mode")).toBe("TOKEN")
@@ -107,9 +107,11 @@ describe("SSO authentication", () => {
       `http://127.0.0.1:4210/v1/auth/callback/${login.attemptID}`,
     )
     expect(
-      fixture.database.connection
-        .query<{ attempt_hash: string; return_to: string }, []>("SELECT attempt_hash, return_to FROM login_attempts")
-        .get(),
+      await fixture.database.read(async (c) =>
+        c.get<{ attempt_hash: string; return_to: string }>(
+          "SELECT attempt_hash, return_to FROM login_attempts",
+        ),
+      ),
     ).toEqual({ attempt_hash: sha256(login.attemptID), return_to: "/submissions" })
 
     const result = await fixture.auth.complete(login.attemptID, "sso-sensitive-access-token")
@@ -129,24 +131,25 @@ describe("SSO authentication", () => {
       `ruying_market_csrf=${result.csrfToken}; Path=/; SameSite=Lax; Max-Age=43200`,
     ])
 
-    const stored = fixture.database.connection
-      .query<{ session_hash: string; csrf_hash: string }, []>("SELECT session_hash, csrf_hash FROM sessions")
-      .get()
+    const stored = await fixture.database.read(async (c) =>
+      c.get<{ session_hash: string; csrf_hash: string }>("SELECT session_hash, csrf_hash FROM sessions"),
+    )
     expect(stored).toEqual({ session_hash: sha256(result.sessionToken), csrf_hash: sha256(result.csrfToken) })
-    const bytes = new TextDecoder().decode(fixture.database.connection.serialize())
+    const bytes = new TextDecoder().decode((fixture.database as SqliteDatabase).connection.serialize())
     expect(bytes).not.toContain("sso-sensitive-access-token")
     expect(bytes).not.toContain(result.sessionToken)
     expect(bytes).not.toContain(result.csrfToken)
 
-    const logout = fixture.auth.logout(result.sessionToken)
+    const logout = await fixture.auth.logout(result.sessionToken)
     expect(logout.clearCookies).toEqual([
       "ruying_market_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
       "ruying_market_csrf=; Path=/; SameSite=Lax; Max-Age=0",
     ])
     expect(
-      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM sessions").get()?.count,
+      (await fixture.database.read(async (c) => c.get<{ count: number }>("SELECT count(*) AS count FROM sessions")))
+        ?.count,
     ).toBe(0)
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("updates trusted department names and employee transfers on login", async () => {
@@ -165,28 +168,28 @@ describe("SSO authentication", () => {
     })
     const fixture = await authenticationFixture(server.url.origin)
 
-    const first = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "first")
-    const renamed = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "renamed")
-    const transferred = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "transferred")
+    const first = await fixture.auth.complete((await fixture.auth.begin("/skills")).attemptID, "first")
+    const renamed = await fixture.auth.complete((await fixture.auth.begin("/skills")).attemptID, "renamed")
+    const transferred = await fixture.auth.complete((await fixture.auth.begin("/skills")).attemptID, "transferred")
 
     expect(first.session.user.department).toEqual({ id: "D-001", name: "研发一部" })
     expect(renamed.session.user.department).toEqual({ id: "D-001", name: "研发平台部" })
     expect(transferred.session.user.department).toEqual({ id: "D-002", name: "质量部" })
-    expect(fixture.auth.session(transferred.sessionToken, transferred.csrfToken).user.department).toEqual({
+    expect((await fixture.auth.session(transferred.sessionToken, transferred.csrfToken)).user.department).toEqual({
       id: "D-002",
       name: "质量部",
     })
     expect(
-      fixture.database.connection
-        .query<{ department_id: string; display_name: string }, []>(
+      await fixture.database.read(async (c) =>
+        c.all<{ department_id: string; display_name: string }>(
           "SELECT department_id, display_name FROM departments ORDER BY department_id",
-        )
-        .all(),
+        ),
+      ),
     ).toEqual([
       { department_id: "D-001", display_name: "研发平台部" },
       { department_id: "D-002", display_name: "质量部" },
     ])
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("treats an empty department lookup as absent during rollout", async () => {
@@ -200,15 +203,16 @@ describe("SSO authentication", () => {
     })
     const fixture = await authenticationFixture(server.url.origin)
 
-    const nullPair = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "null")
-    const blankPair = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "blank")
+    const nullPair = await fixture.auth.complete((await fixture.auth.begin("/skills")).attemptID, "null")
+    const blankPair = await fixture.auth.complete((await fixture.auth.begin("/skills")).attemptID, "blank")
 
     expect(nullPair.session.user.department).toBeUndefined()
     expect(blankPair.session.user.department).toBeUndefined()
     expect(
-      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM departments").get()?.count,
+      (await fixture.database.read(async (c) => c.get<{ count: number }>("SELECT count(*) AS count FROM departments")))
+        ?.count,
     ).toBe(0)
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("normalizes a safe numeric department ID from the department service", async () => {
@@ -226,10 +230,10 @@ describe("SSO authentication", () => {
     })
     const fixture = await authenticationFixture(server.url.origin)
 
-    const result = await fixture.auth.complete(fixture.auth.begin("/skills").attemptID, "numeric")
+    const result = await fixture.auth.complete((await fixture.auth.begin("/skills")).attemptID, "numeric")
 
     expect(result.session.user.department).toEqual({ id: "100200300", name: "研发部" })
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("hydrates a preassigned placeholder user on first SSO login and preserves the role", async () => {
@@ -242,24 +246,24 @@ describe("SSO authentication", () => {
           : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin)
-    bootstrapAdmins(fixture.database, ["ADMIN"], fixture.clock.value)
-    createModeration({
+    await bootstrapAdmins(fixture.database, ["ADMIN"], fixture.clock.value)
+    await createModeration({
       database: fixture.database,
       security: fixture.security,
       now: () => fixture.clock.value,
     }).assignRole(adminPrincipal(fixture.clock.value), { employeeID: "E000001", role: "reviewer" })
 
-    const login = fixture.auth.begin("/admin")
+    const login = await fixture.auth.begin("/admin")
     const result = await fixture.auth.complete(login.attemptID, "token")
 
     expect(result.session.user).toEqual({ employeeID: "E000001", displayName: "Test User" })
     expect(result.session.roles).toEqual(["reviewer"])
     expect(
-      fixture.database.connection
-        .query<{ display_name: string }, [string]>("SELECT display_name FROM users WHERE employee_id = ?")
-        .get("E000001"),
+      await fixture.database.read(async (c) =>
+        c.get<{ display_name: string }>("SELECT display_name FROM users WHERE employee_id = ?", ["E000001"]),
+      ),
     ).toEqual({ display_name: "Test User" })
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("allows only declared same-site return paths", async () => {
@@ -297,7 +301,7 @@ describe("SSO authentication", () => {
       "/submissions/../../admin",
     ].forEach((returnTo) => expect(() => fixture.auth.begin(returnTo)).toThrow("returnTo is not allowed"))
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("rejects unknown, expired, and replayed attempts before SSO validation", async () => {
@@ -318,18 +322,18 @@ describe("SSO authentication", () => {
     expect((await securityFailure(fixture.auth.complete(`login_${"x".repeat(43)}`, "token"))).code).toBe(
       "unauthenticated",
     )
-    const expired = fixture.auth.begin("/submissions")
+    const expired = await fixture.auth.begin("/submissions")
     fixture.clock.value += 5 * 60 * 1_000
     expect((await securityFailure(fixture.auth.complete(expired.attemptID, "token"))).code).toBe("unauthenticated")
     expect(calls).toBe(0)
 
-    const valid = fixture.auth.begin("/submissions")
+    const valid = await fixture.auth.begin("/submissions")
     const complete = await fixture.auth.complete(valid.attemptID, "token")
     expect(complete.session.user.employeeID).toBe("E000001")
     expect((await securityFailure(fixture.auth.complete(valid.attemptID, "token"))).code).toBe("unauthenticated")
     expect(calls).toBe(1)
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("consumes attempts on SSO rejection and refuses malformed trusted identity", async () => {
@@ -351,24 +355,25 @@ describe("SSO authentication", () => {
     })
     const fixture = await authenticationFixture(server.url.origin)
 
-    const rejected = fixture.auth.begin("/submissions")
+    const rejected = await fixture.auth.begin("/submissions")
     expect((await securityFailure(fixture.auth.complete(rejected.attemptID, "rejected"))).code).toBe("unauthenticated")
     expect((await securityFailure(fixture.auth.complete(rejected.attemptID, "rejected"))).code).toBe("unauthenticated")
     expect(calls).toBe(1)
 
-    const malformed = fixture.auth.begin("/submissions")
+    const malformed = await fixture.auth.begin("/submissions")
     expect((await securityFailure(fixture.auth.complete(malformed.attemptID, "malformed"))).code).toBe(
       "dependency-unavailable",
     )
-    const partial = fixture.auth.begin("/submissions")
+    const partial = await fixture.auth.begin("/submissions")
     expect((await securityFailure(fixture.auth.complete(partial.attemptID, "partial"))).code).toBe(
       "dependency-unavailable",
     )
     expect(
-      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM sessions").get()?.count,
+      (await fixture.database.read(async (c) => c.get<{ count: number }>("SELECT count(*) AS count FROM sessions")))
+        ?.count,
     ).toBe(0)
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("does not create a session for a disabled trusted user", async () => {
@@ -381,18 +386,21 @@ describe("SSO authentication", () => {
           : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin)
-    fixture.database.connection.run(
-      "INSERT INTO users (employee_id, display_name, created_at, last_login_at, disabled_at) VALUES (?, ?, ?, ?, ?)",
-      ["E000001", "Disabled User", fixture.clock.value, fixture.clock.value, fixture.clock.value],
+    await fixture.database.transaction(async (c) =>
+      c.run(
+        "INSERT INTO users (employee_id, display_name, created_at, last_login_at, disabled_at) VALUES (?, ?, ?, ?, ?)",
+        ["E000001", "Disabled User", fixture.clock.value, fixture.clock.value, fixture.clock.value],
+      ),
     )
 
-    const login = fixture.auth.begin("/submissions")
+    const login = await fixture.auth.begin("/submissions")
     expect((await securityFailure(fixture.auth.complete(login.attemptID, "token"))).code).toBe("unauthenticated")
     expect(
-      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM sessions").get()?.count,
+      (await fixture.database.read(async (c) => c.get<{ count: number }>("SELECT count(*) AS count FROM sessions")))
+        ?.count,
     ).toBe(0)
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("serializes production Secure cookies without weakening IP-test cookies", async () => {
@@ -405,14 +413,14 @@ describe("SSO authentication", () => {
           : Response.json({ data: [], errCode: 0, errMsg: "success" }),
     })
     const fixture = await authenticationFixture(server.url.origin, true)
-    const login = fixture.auth.begin("/admin")
+    const login = await fixture.auth.begin("/admin")
     const result = await fixture.auth.complete(login.attemptID, "token")
 
     expect(result.setCookies).toEqual([
       `__Host-ruying_market_session=${result.sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200`,
       `__Host-ruying_market_csrf=${result.csrfToken}; Path=/; Secure; SameSite=Lax; Max-Age=43200`,
     ])
-    fixture.database.close()
+    await fixture.database.close()
   })
 })
 

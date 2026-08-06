@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite"
 import { Option, Schema } from "effect"
 import { communityIconKey, communityPackageKey } from "../src/community"
-import { MarketDatabase } from "../src/database"
+import { SqliteDatabase } from "../src/database"
+import type { MarketDatabase } from "../src/store"
 import { createPersonalTrash } from "../src/personal-trash"
 import { randomSecret } from "../src/security"
 
@@ -27,7 +28,7 @@ export async function cleanupPrivateObjects(options: CleanupPrivateObjectsOption
   const cutoff = (options.now ?? new Date()).getTime() - positiveInteger(options.retentionDays ?? 30) * 86_400_000
   const withdrawnCutoff = (options.now ?? new Date()).getTime() - 7 * 86_400_000
   const database = new Database(options.databasePath, { create: false, readwrite: true, strict: true })
-  const marketDatabase = new MarketDatabase(database)
+  const marketDatabase = new SqliteDatabase(database)
   const delistPurged =
     !options.dryRun && hasTable(database, "artifact_cleanup_jobs")
       ? await purgeApprovedDelists(

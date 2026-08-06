@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { createSkillHubEvaluationStore } from "../src/skillhub-evaluation-store"
 import { sampleDetail } from "./fixture"
 
@@ -19,10 +19,10 @@ describe("SkillHub evaluation store", () => {
     seed(database, clock.value, ["a", "b", "c"])
     const store = createSkillHubEvaluationStore({ database, now: () => clock.value })
 
-    expect(store.claim("worker-a", 2, 60_000).map((item) => item.slug)).toEqual(["a", "b"])
-    expect(store.claim("worker-b", 2, 60_000).map((item) => item.slug)).toEqual(["c"])
+    expect((await store.claim("worker-a", 2, 60_000)).map((item) => item.slug)).toEqual(["a", "b"])
+    expect((await store.claim("worker-b", 2, 60_000)).map((item) => item.slug)).toEqual(["c"])
     expect(() => store.claim("worker-c", 3, 60_000)).toThrow("between 1 and 2")
-    database.close()
+    await database.close()
   })
 
   test("renews only an active worker lease and fences a stale worker", async () => {
@@ -30,15 +30,15 @@ describe("SkillHub evaluation store", () => {
     const database = await temporaryDatabase()
     seed(database, clock.value, ["a"])
     const store = createSkillHubEvaluationStore({ database, now: () => clock.value })
-    store.claim("worker-a", 1, 60_000)
+    await store.claim("worker-a", 1, 60_000)
 
-    expect(store.renew("worker-b", "a", 60_000)).toBe(false)
-    expect(store.renew("worker-a", "a", 60_000)).toBe(true)
+    expect(await store.renew("worker-b", "a", 60_000)).toBe(false)
+    expect(await store.renew("worker-a", "a", 60_000)).toBe(true)
     clock.value += 60_001
-    expect(store.claim("worker-b", 1, 60_000).map((item) => item.slug)).toEqual(["a"])
-    expect(store.complete("worker-a", "a", evaluation)).toBe(false)
-    expect(store.complete("worker-b", "a", evaluation)).toBe(true)
-    database.close()
+    expect((await store.claim("worker-b", 1, 60_000)).map((item) => item.slug)).toEqual(["a"])
+    expect(await store.complete("worker-a", "a", evaluation)).toBe(false)
+    expect(await store.complete("worker-b", "a", evaluation)).toBe(true)
+    await database.close()
   })
 
   test("completes an evaluation with all scores and preserves the decoded summary", async () => {
@@ -46,11 +46,11 @@ describe("SkillHub evaluation store", () => {
     const database = await temporaryDatabase()
     seed(database, clock.value, ["a"])
     const store = createSkillHubEvaluationStore({ database, now: () => clock.value })
-    store.claim("worker-a", 1, 60_000)
+    await store.claim("worker-a", 1, 60_000)
 
-    expect(store.complete("worker-a", "a", evaluation)).toBe(true)
+    expect(await store.complete("worker-a", "a", evaluation)).toBe(true)
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{
           readonly evaluation_state: string
           readonly evaluation_score: number
@@ -84,7 +84,7 @@ describe("SkillHub evaluation store", () => {
       evaluation_error_summary: null,
     })
     const summary = JSON.parse(
-      database.connection.query<{ readonly summary_json: string }, [string]>("SELECT summary_json FROM skillhub_import_items WHERE slug = ?").get("a")!
+      (database as SqliteDatabase).connection.query<{ readonly summary_json: string }, [string]>("SELECT summary_json FROM skillhub_import_items WHERE slug = ?").get("a")!
         .summary_json,
     )
     expect(summary).toMatchObject({
@@ -100,7 +100,7 @@ describe("SkillHub evaluation store", () => {
         evaluatedAt: new Date(clock.value).toISOString(),
       },
     })
-    database.close()
+    await database.close()
   })
 
   test("uses capped exponential retry and fails at the configured attempt limit", async () => {
@@ -108,28 +108,28 @@ describe("SkillHub evaluation store", () => {
     const database = await temporaryDatabase()
     seed(database, clock.value, ["a"])
     const store = createSkillHubEvaluationStore({ database, now: () => clock.value })
-    store.claim("worker-a", 1, 60_000)
+    await store.claim("worker-a", 1, 60_000)
 
-    expect(store.retry("worker-a", "a", "x".repeat(600), { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 })).toBe(true)
+    expect(await store.retry("worker-a", "a", "x".repeat(600), { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 })).toBe(true)
     expect(row(database, "a")).toMatchObject({
       evaluation_state: "retry_wait",
       evaluation_next_attempt_at: clock.value + 1_000,
       evaluation_error_summary: "x".repeat(500),
     })
     clock.value += 1_000
-    store.claim("worker-a", 1, 60_000)
-    expect(store.retry("worker-a", "a", "second", { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 })).toBe(true)
+    await store.claim("worker-a", 1, 60_000)
+    expect(await store.retry("worker-a", "a", "second", { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 })).toBe(true)
     expect(row(database, "a")).toMatchObject({ evaluation_state: "retry_wait", evaluation_next_attempt_at: clock.value + 2_000 })
     clock.value += 2_000
-    store.claim("worker-a", 1, 60_000)
-    expect(store.retry("worker-a", "a", "third", { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 })).toBe(true)
+    await store.claim("worker-a", 1, 60_000)
+    expect(await store.retry("worker-a", "a", "third", { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 })).toBe(true)
     expect(row(database, "a")).toMatchObject({
       evaluation_state: "failed",
       evaluation_next_attempt_at: null,
       evaluation_lease_owner: null,
       evaluation_error_summary: "third",
     })
-    database.close()
+    await database.close()
   })
 
   test("refreshes a completed evaluation with a fresh retry budget", async () => {
@@ -139,21 +139,21 @@ describe("SkillHub evaluation store", () => {
     const store = createSkillHubEvaluationStore({ database, now: () => clock.value })
     const policy = { maximumAttempts: 3, baseDelayMilliseconds: 1_000, maximumDelayMilliseconds: 3_000 }
 
-    store.claim("worker-a", 1, 60_000)
-    store.retry("worker-a", "a", "first", policy)
+    await store.claim("worker-a", 1, 60_000)
+    await store.retry("worker-a", "a", "first", policy)
     clock.value += 1_000
-    store.claim("worker-a", 1, 60_000)
-    store.retry("worker-a", "a", "second", policy)
+    await store.claim("worker-a", 1, 60_000)
+    await store.retry("worker-a", "a", "second", policy)
     clock.value += 2_000
-    store.claim("worker-a", 1, 60_000)
-    expect(store.complete("worker-a", "a", evaluation)).toBe(true)
+    await store.claim("worker-a", 1, 60_000)
+    expect(await store.complete("worker-a", "a", evaluation)).toBe(true)
 
     clock.value += 7 * 24 * 60 * 60 * 1_000
-    expect(store.markDue()).toBe(1)
-    expect(store.claim("worker-b", 1, 60_000)).toEqual([{ slug: "a", attempts: 1 }])
-    expect(store.retry("worker-b", "a", "refresh failed", policy)).toBe(true)
+    expect(await store.markDue()).toBe(1)
+    expect(await store.claim("worker-b", 1, 60_000)).toEqual([{ slug: "a", attempts: 1 }])
+    expect(await store.retry("worker-b", "a", "refresh failed", policy)).toBe(true)
     expect(row(database, "a")).toMatchObject({ evaluation_state: "retry_wait", evaluation_next_attempt_at: clock.value + 1_000 })
-    database.close()
+    await database.close()
   })
 
   test("recovers expired leases, refreshes completed evaluations after seven days, and reports aggregate progress", async () => {
@@ -161,20 +161,20 @@ describe("SkillHub evaluation store", () => {
     const database = await temporaryDatabase()
     seed(database, clock.value, ["a", "b", "c", "d"])
     const store = createSkillHubEvaluationStore({ database, now: () => clock.value })
-    store.claim("worker-a", 2, 60_000)
-    store.complete("worker-a", "a", evaluation)
-    store.retry("worker-a", "b", "temporary", { maximumAttempts: 4, baseDelayMilliseconds: 120_000, maximumDelayMilliseconds: 120_000 })
-    store.claim("worker-a", 2, 60_000)
+    await store.claim("worker-a", 2, 60_000)
+    await store.complete("worker-a", "a", evaluation)
+    await store.retry("worker-a", "b", "temporary", { maximumAttempts: 4, baseDelayMilliseconds: 120_000, maximumDelayMilliseconds: 120_000 })
+    await store.claim("worker-a", 2, 60_000)
 
-    expect(store.progress()).toMatchObject({ total: 4, waiting: 0, pending: 0, running: 2, retryWait: 1, completed: 1, failed: 0, ratePerMinute: 1, estimatedSecondsRemaining: 180, recentError: "temporary" })
+    expect(await store.progress()).toMatchObject({ total: 4, waiting: 0, pending: 0, running: 2, retryWait: 1, completed: 1, failed: 0, ratePerMinute: 1, estimatedSecondsRemaining: 180, recentError: "temporary" })
     clock.value += 60_001
-    expect(store.claim("worker-b", 2, 60_000).map((item) => item.slug)).toEqual(["c", "d"])
-    expect(store.complete("worker-b", "c", evaluation)).toBe(true)
+    expect((await store.claim("worker-b", 2, 60_000)).map((item) => item.slug)).toEqual(["c", "d"])
+    expect(await store.complete("worker-b", "c", evaluation)).toBe(true)
     clock.value += 7 * 24 * 60 * 60 * 1_000
-    expect(store.markDue()).toBe(2)
+    expect(await store.markDue()).toBe(2)
     expect(row(database, "a")).toMatchObject({ evaluation_state: "pending", evaluation_score: 4.45 })
     expect(row(database, "c")).toMatchObject({ evaluation_state: "pending", evaluation_score: 4.45 })
-    database.close()
+    await database.close()
   })
 })
 
@@ -188,13 +188,13 @@ const evaluation = {
 } as const
 
 function seed(database: Awaited<ReturnType<typeof temporaryDatabase>>, timestamp: number, slugs: readonly string[]) {
-  database.connection.run(
+  ;(database as SqliteDatabase).connection.run(
     "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('generation', 'completed', ?, ?, ?, ?, ?)",
     [slugs.length, timestamp, timestamp, timestamp, timestamp],
   )
   slugs.forEach((slug) => {
     const detail = sampleDetail({ id: slug, name: slug })
-    database.connection.run(
+    ;(database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, summary_json, detail_key, detail_sha256, mirrored_at, last_seen_generation, created_at, updated_at, evaluation_state) VALUES (?, 'generation', '1.0.0', ?, 'mirrored', '{}', ?, ?, ?, ?, 'generation', ?, ?, 'pending')",
       [slug, timestamp, JSON.stringify({ ...detail, readme: undefined, author: undefined, versions: undefined, securityReports: undefined, package: undefined, publicDetailUrl: undefined }), `details/${slug}.json`, "a".repeat(64), timestamp, timestamp, timestamp],
     )
@@ -202,7 +202,7 @@ function seed(database: Awaited<ReturnType<typeof temporaryDatabase>>, timestamp
 }
 
 function row(database: Awaited<ReturnType<typeof temporaryDatabase>>, slug: string) {
-  return database.connection
+  return (database as SqliteDatabase).connection
     .query<{
       readonly evaluation_state: string
       readonly evaluation_score: number | null

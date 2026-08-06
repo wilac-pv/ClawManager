@@ -1,11 +1,10 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
 import { insertSubmissionGroupTargets, requireAudienceTarget, submissionAudience } from "./audience"
-import type { MarketDatabase } from "./database"
 import { requestDelist, withdraw } from "./lifecycle"
 import type { Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
+import type { Connection, MarketDatabase } from "./store"
 
 const ActiveStatusSql =
   "'validating', 'validation_failed', 'pending_review', 'changes_requested', 'publishing', 'publish_failed'"
@@ -174,7 +173,7 @@ export function assertSubmissionTransition(
 export class Submissions {
   constructor(private readonly options: SubmissionsOptions) {}
 
-  listOwn(principal: Principal, query: SkillMarketControl.SubmissionListQuery) {
+  async listOwn(principal: Principal, query: SkillMarketControl.SubmissionListQuery) {
     if (!Schema.is(SkillMarketControl.SubmissionListQuery)(query))
       throw new SkillMarketSecurityError("invalid-request", "submission list query is invalid")
     const filters = ["submissions.owner_employee_id = ?", "submissions.deleted_at IS NULL"]
@@ -188,39 +187,40 @@ export class Submissions {
       parameters.push(query.target)
     }
     const where = ` WHERE ${filters.join(" AND ")}`
-    const total = this.options.database.connection
-      .query<{ count: number }, Array<string | number>>(`SELECT count(*) AS count FROM submissions${where}`)
-      .get(...parameters)!.count
-    const rows = this.options.database.connection
-      .query<SummaryRow, Array<string | number>>(
+    return this.options.database.read(async (connection) => {
+      const total = (await connection.get<{ count: number }>(
+        `SELECT count(*) AS count FROM submissions${where}`,
+        parameters,
+      ))!.count
+      const rows = await connection.all<SummaryRow>(
         `${summarySql()}${where}
          ORDER BY submissions.updated_at DESC, submissions.id DESC LIMIT ? OFFSET ?`,
+        [...parameters, query.limit, (query.page - 1) * query.limit],
       )
-      .all(...parameters, query.limit, (query.page - 1) * query.limit)
-    return Schema.decodeUnknownSync(SkillMarketControl.SubmissionPage)({
-      total,
-      page: query.page,
-      limit: query.limit,
-      items: rows.map(summary),
+      return Schema.decodeUnknownSync(SkillMarketControl.SubmissionPage)({
+        total,
+        page: query.page,
+        limit: query.limit,
+        items: rows.map(summary),
+      })
     })
   }
 
-  getOwn(principal: Principal, submissionID: string) {
-    const row = this.options.database.connection
-      .query<
-        SummaryRow,
-        [string, string]
-      >(`${summarySql()} WHERE submissions.id = ? AND submissions.owner_employee_id = ? AND submissions.deleted_at IS NULL`)
-      .get(submissionID, principal.session.user.employeeID)
-    if (!row) throw new SkillMarketSecurityError("not-found", "submission was not found")
-
-    const revisions = this.options.database.connection
-      .query<RevisionRow, [string]>(
-        `SELECT revision_number, metadata_json, manifest_json, scan_json, validation_errors_json, created_at
-         FROM submission_revisions WHERE submission_id = ? ORDER BY revision_number`,
+  async getOwn(principal: Principal, submissionID: string) {
+    return this.options.database.read(async (connection) => {
+      const row = await connection.get<SummaryRow>(
+        `${summarySql()} WHERE submissions.id = ? AND submissions.owner_employee_id = ? AND submissions.deleted_at IS NULL`,
+        [submissionID, principal.session.user.employeeID],
       )
-      .all(submissionID)
-      .map((revision) => ({
+      if (!row) throw new SkillMarketSecurityError("not-found", "submission was not found")
+
+      const revisions = (
+        await connection.all<RevisionRow>(
+          `SELECT revision_number, metadata_json, manifest_json, scan_json, validation_errors_json, created_at
+         FROM submission_revisions WHERE submission_id = ? ORDER BY revision_number`,
+          [submissionID],
+        )
+      ).map((revision) => ({
         number: revision.revision_number,
         metadata: decodeJson(SkillMarketControl.SubmissionMetadata, revision.metadata_json),
         ...(revision.manifest_json
@@ -232,9 +232,9 @@ export class Submissions {
           : [],
         createdAt: timestamp(revision.created_at),
       }))
-    const reviews = this.options.database.connection
-      .query<ReviewRow, [string]>(
-        `SELECT
+      const reviews = (
+        await connection.all<ReviewRow>(
+          `SELECT
           reviews.revision_number,
           reviews.decision,
           reviews.comment,
@@ -248,9 +248,9 @@ export class Submissions {
          INNER JOIN users ON users.employee_id = reviews.reviewer_employee_id
          WHERE reviews.submission_id = ?
          ORDER BY reviews.created_at, reviews.id`,
-      )
-      .all(submissionID)
-      .map((review) => ({
+          [submissionID],
+        )
+      ).map((review) => ({
         revision: review.revision_number,
         reviewer: user(review),
         decision: review.decision,
@@ -258,9 +258,9 @@ export class Submissions {
         ...(review.accepted_risk_summary ? { acceptedRiskSummary: review.accepted_risk_summary } : {}),
         createdAt: timestamp(review.created_at),
       }))
-    const timeline = this.options.database.connection
-      .query<AuditRow, [string]>(
-        `SELECT
+      const timeline = (
+        await connection.all<AuditRow>(
+          `SELECT
           audit_events.after_json,
           audit_events.created_at,
           audit_events.actor_employee_id,
@@ -271,9 +271,9 @@ export class Submissions {
          LEFT JOIN users ON users.employee_id = audit_events.actor_employee_id
          WHERE audit_events.object_type = 'submission' AND audit_events.object_id = ?
          ORDER BY audit_events.created_at, audit_events.rowid`,
-      )
-      .all(submissionID)
-      .flatMap((event) => {
+          [submissionID],
+        )
+      ).flatMap((event) => {
         if (!event.after_json) return []
         const decoded = decodeJsonOption(AuditAfter, event.after_json)
         if (!decoded) return []
@@ -295,55 +295,53 @@ export class Submissions {
           },
         ]
       })
-    const community =
-      row.target_scope === "company"
-        ? this.options.database.connection
-            .query<
-              {
-                current_version: string | null
-                public_status: SkillMarketControl.PublicStatus | null
-                row_version: number
+      const community =
+        row.target_scope === "company"
+          ? await connection.get<{
+              current_version: string | null
+              public_status: SkillMarketControl.PublicStatus | null
+              row_version: number
+            }>("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?", [
+              row.skill_id,
+            ])
+          : undefined
+      const currentMetadata = revisions.find((revision) => revision.number === row.current_revision)?.metadata
+      if (!currentMetadata) throw new Error("submission current revision is missing")
+      return Schema.decodeUnknownSync(SkillMarketControl.SubmissionDetail)({
+        ...summary(row),
+        metadata: currentMetadata,
+        revisions,
+        reviews,
+        timeline,
+        ...(community?.current_version && community.public_status
+          ? {
+              publicSkill: {
+                source: "community",
+                id: row.skill_id,
+                version: community.current_version,
+                rowVersion: community.row_version,
+                status: community.public_status,
               },
-              [string]
-            >("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?")
-            .get(row.skill_id)
-        : undefined
-    const currentMetadata = revisions.find((revision) => revision.number === row.current_revision)?.metadata
-    if (!currentMetadata) throw new Error("submission current revision is missing")
-    return Schema.decodeUnknownSync(SkillMarketControl.SubmissionDetail)({
-      ...summary(row),
-      metadata: currentMetadata,
-      revisions,
-      reviews,
-      timeline,
-      ...(community?.current_version && community.public_status
-        ? {
-            publicSkill: {
-              source: "community",
-              id: row.skill_id,
-              version: community.current_version,
-              rowVersion: community.row_version,
-              status: community.public_status,
-            },
-          }
-        : {}),
+            }
+          : {}),
+      })
     })
   }
 
-  withdraw(principal: Principal, submissionID: string, input: SkillMarketControl.ExpectedVersionInput) {
+  async withdraw(principal: Principal, submissionID: string, input: SkillMarketControl.ExpectedVersionInput) {
     if (!Schema.is(SkillMarketControl.ExpectedVersionInput)(input))
       throw new SkillMarketSecurityError("invalid-request", "submission version is invalid")
-    this.options.database.transaction((connection) =>
+    await this.options.database.transaction((connection) =>
       withdraw(connection, principal, submissionID, input.expectedVersion, this.options.now?.() ?? Date.now()),
     )
     return this.getOwn(principal, submissionID)
   }
 
-  requestDelist(principal: Principal, submissionID: string, input: SkillMarketControl.ReasonInput) {
+  async requestDelist(principal: Principal, submissionID: string, input: SkillMarketControl.ReasonInput) {
     if (!Schema.is(SkillMarketControl.ReasonInput)(input))
       throw new SkillMarketSecurityError("invalid-request", "delist request is invalid")
     try {
-      return this.options.database.transaction((connection) =>
+      return await this.options.database.transaction((connection) =>
         requestDelist(
           connection,
           principal,
@@ -379,22 +377,22 @@ export class Submissions {
       metadata,
       ...artifactIdentity(packageObject, icon),
     })
-    const state = this.options.database.transaction((connection) => {
-      const replay = readIdempotency(connection, principal, route, key, requestHash, now)
+    const state = await this.options.database.transaction(async (connection) => {
+      const replay = await readIdempotency(connection, principal, route, key, requestHash, now)
       if (replay) return { response: replay, queued: undefined }
-      requireActiveUser(connection, principal)
-      requireUploadAllowance(connection, principal, now)
-      requireActiveAllowance(connection, principal)
-      const audience = requireAudienceTarget(connection, principal, target, input.audience)
-      requireOwnershipAndVersion(connection, principal, target, skillID, metadata.version)
+      await requireActiveUser(connection, principal)
+      await requireUploadAllowance(connection, principal, now)
+      await requireActiveAllowance(connection, principal)
+      const audience = await requireAudienceTarget(connection, principal, target, input.audience)
+      await requireOwnershipAndVersion(connection, principal, target, skillID, metadata.version)
 
       if (
-        connection
-          .query<{ count: number }, [string]>("SELECT count(*) AS count FROM submissions WHERE id = ?")
-          .get(submissionID)!.count > 0
+        (await connection.get<{ count: number }>("SELECT count(*) AS count FROM submissions WHERE id = ?", [
+          submissionID,
+        ]))!.count > 0
       )
         throw new SkillMarketSecurityError("submission-conflict", "submission ID has already been used")
-      connection.run(
+      await connection.run(
         `INSERT INTO submissions
           (id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
            status, current_revision, version, created_at, updated_at)
@@ -410,9 +408,9 @@ export class Submissions {
           now,
         ],
       )
-      insertSubmissionGroupTargets(connection, submissionID, audience)
-      insertRevision(connection, submissionID, 1, metadata, packageObject, icon, now)
-      insertAudit(connection, {
+      await insertSubmissionGroupTargets(connection, submissionID, audience)
+      await insertRevision(connection, submissionID, 1, metadata, packageObject, icon, now)
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "submission-created",
         submissionID,
@@ -425,8 +423,8 @@ export class Submissions {
         },
         now,
       })
-      const response = { submission: requireSummary(connection, submissionID) }
-      writeIdempotency(connection, principal, route, key, requestHash, response, now)
+      const response = { submission: await requireSummary(connection, submissionID) }
+      await writeIdempotency(connection, principal, route, key, requestHash, response, now)
       return { response, queued: { submissionID, revision: 1 } }
     })
     if (state.queued && this.options.onValidationReady)
@@ -449,18 +447,17 @@ export class Submissions {
       metadata,
       ...artifactIdentity(packageObject, icon),
     })
-    const state = this.options.database.transaction((connection) => {
-      const replay = readIdempotency(connection, principal, route, key, requestHash, now)
+    const state = await this.options.database.transaction(async (connection) => {
+      const replay = await readIdempotency(connection, principal, route, key, requestHash, now)
       if (replay) return { response: replay, queued: undefined }
-      requireActiveUser(connection, principal)
-      requireUploadAllowance(connection, principal, now)
-      const submission = connection
-        .query<SubmissionRow, [string, string]>(
-          `SELECT id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
+      await requireActiveUser(connection, principal)
+      await requireUploadAllowance(connection, principal, now)
+      const submission = await connection.get<SubmissionRow>(
+        `SELECT id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
                   source_publication_id, status, current_revision, version
            FROM submissions WHERE id = ? AND owner_employee_id = ?`,
-        )
-        .get(submissionID, principal.session.user.employeeID)
+        [submissionID, principal.session.user.employeeID],
+      )
       if (!submission) throw new SkillMarketSecurityError("not-found", "submission was not found")
       if (!Number.isInteger(input.expectedVersion) || input.expectedVersion !== submission.version)
         throw new SkillMarketSecurityError("submission-conflict", "submission version no longer matches")
@@ -469,14 +466,14 @@ export class Submissions {
       assertSubmissionTransition(submission.status, "validating")
 
       const revision = submission.current_revision + 1
-      connection.run(
+      await connection.run(
         `UPDATE submissions
          SET status = 'validating', current_revision = ?, version = version + 1, user_message = NULL, updated_at = ?
          WHERE id = ?`,
         [revision, now, submissionID],
       )
-      insertRevision(connection, submissionID, revision, metadata, packageObject, icon, now)
-      insertAudit(connection, {
+      await insertRevision(connection, submissionID, revision, metadata, packageObject, icon, now)
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "revision-uploaded",
         submissionID,
@@ -484,8 +481,8 @@ export class Submissions {
         after: { status: "validating", revision },
         now,
       })
-      const response = { submission: requireSummary(connection, submissionID) }
-      writeIdempotency(connection, principal, route, key, requestHash, response, now)
+      const response = { submission: await requireSummary(connection, submissionID) }
+      await writeIdempotency(connection, principal, route, key, requestHash, response, now)
       return { response, queued: { submissionID, revision } }
     })
     if (state.queued && this.options.onValidationReady)
@@ -496,7 +493,7 @@ export class Submissions {
     return state.response
   }
 
-  completeValidation(input: CompleteValidationInput) {
+  async completeValidation(input: CompleteValidationInput) {
     const now = this.options.now?.() ?? Date.now()
     if (
       !Schema.is(SkillMarketControl.Manifest)(input.manifest) ||
@@ -505,10 +502,11 @@ export class Submissions {
       throw new SkillMarketSecurityError("validation-failed", "validation artifacts are invalid")
     if (!Schema.is(Schema.Array(SkillMarketControl.ValidationIssue))(input.validationIssues))
       throw new SkillMarketSecurityError("validation-failed", "validation issues are invalid")
-    return this.options.database.transaction((connection) => {
-      const submission = connection
-        .query<SubmissionRow & { package_sha256: string; package_size: number }, [number, string]>(
-          `SELECT
+    return this.options.database.transaction(async (connection) => {
+      const submission = await connection.get<
+        SubmissionRow & { package_sha256: string; package_size: number }
+      >(
+        `SELECT
             submissions.id,
             submissions.skill_id,
             submissions.owner_employee_id,
@@ -526,8 +524,8 @@ export class Submissions {
              ON submission_revisions.submission_id = submissions.id
             AND submission_revisions.revision_number = ?
            WHERE submissions.id = ?`,
-        )
-        .get(input.revision, input.submissionID)
+        [input.revision, input.submissionID],
+      )
       if (!submission) throw new SkillMarketSecurityError("not-found", "submission revision was not found")
       if (submission.current_revision !== input.revision)
         throw new SkillMarketSecurityError("submission-conflict", "submission revision is no longer current")
@@ -539,12 +537,10 @@ export class Submissions {
 
       const community =
         submission.target_scope === "company"
-          ? connection
-              .query<
-                { owner_employee_id: string },
-                [string]
-              >("SELECT owner_employee_id FROM community_skills WHERE skill_id = ?")
-              .get(submission.skill_id)
+          ? await connection.get<{ owner_employee_id: string }>(
+              "SELECT owner_employee_id FROM community_skills WHERE skill_id = ?",
+              [submission.skill_id],
+            )
           : undefined
       const ownershipIssue =
         community && community.owner_employee_id !== submission.owner_employee_id
@@ -562,7 +558,7 @@ export class Submissions {
           throw new SkillMarketSecurityError("submission-conflict", "personal submission is no longer validating")
       } else assertSubmissionTransition(submission.status, status)
 
-      connection.run(
+      await connection.run(
         `UPDATE submission_revisions
          SET manifest_json = ?, scan_json = ?, validation_errors_json = ?, validation_completed_at = ?,
              validation_lease_owner = NULL, validation_lease_expires_at = NULL
@@ -577,18 +573,18 @@ export class Submissions {
         ],
       )
       if (submission.target_scope === "company" && status === "pending_review" && !community)
-        connection.run(
+        await connection.run(
           `INSERT INTO community_skills
             (skill_id, owner_employee_id, version, created_at, updated_at)
            VALUES (?, ?, 1, ?, ?)`,
           [submission.skill_id, submission.owner_employee_id, now, now],
         )
-      connection.run("UPDATE submissions SET status = ?, version = version + 1, updated_at = ? WHERE id = ?", [
+      await connection.run("UPDATE submissions SET status = ?, version = version + 1, updated_at = ? WHERE id = ?", [
         status,
         now,
         input.submissionID,
       ])
-      insertAudit(connection, {
+      await insertAudit(connection, {
         action: status === "validation_failed" ? "validation-failed" : "validation-succeeded",
         submissionID: input.submissionID,
         before: { status: submission.status, revision: input.revision },
@@ -601,7 +597,7 @@ export class Submissions {
         },
         now,
       })
-      return { submission: requireSummary(connection, input.submissionID) }
+      return { submission: await requireSummary(connection, input.submissionID) }
     })
   }
 
@@ -616,31 +612,31 @@ export class Submissions {
     const route = `submissions:${submissionID}:promotions`
     const key = requireIdempotencyKey(input.idempotencyKey)
     const requestHash = hashJson({ source: submissionID, ...decoded.value })
-    const state = this.options.database.transaction((connection) => {
-      const replay = readIdempotency(connection, principal, route, key, requestHash, now)
+    const state = await this.options.database.transaction(async (connection) => {
+      const replay = await readIdempotency(connection, principal, route, key, requestHash, now)
       if (replay) return { response: replay, queued: undefined }
-      requireActiveUser(connection, principal)
-      requireUploadAllowance(connection, principal, now)
-      requireActiveAllowance(connection, principal)
-      const source = requireSharingSource(connection, principal, submissionID)
+      await requireActiveUser(connection, principal)
+      await requireUploadAllowance(connection, principal, now)
+      await requireActiveAllowance(connection, principal)
+      const source = await requireSharingSource(connection, principal, submissionID)
       if (source.target_scope !== "personal" || source.status !== "published" || source.publication_id)
         throw new SkillMarketSecurityError("submission-conflict", "only a published personal Skill can be promoted")
       if (decoded.value.expectedVersion !== source.version)
         throw new SkillMarketSecurityError("submission-conflict", "submission version no longer matches")
       requireVerifiedSharingSource(source)
-      const audience = requireAudienceTarget(connection, principal, decoded.value.target, decoded.value.audience)
-      requireOwnershipAndVersion(connection, principal, decoded.value.target, source.skill_id, source.target_version)
+      const audience = await requireAudienceTarget(connection, principal, decoded.value.target, decoded.value.audience)
+      await requireOwnershipAndVersion(connection, principal, decoded.value.target, source.skill_id, source.target_version)
 
       const promotedID = `sub_${randomSecret()}` as SkillMarketControl.SubmissionID
-      insertSharingSubmission(connection, {
+      await insertSharingSubmission(connection, {
         id: promotedID,
         source,
         target: decoded.value.target,
         audience,
         now,
       })
-      copySharingRevision(connection, source, promotedID, now, false)
-      insertAudit(connection, {
+      await copySharingRevision(connection, source, promotedID, now, false)
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "submission-created",
         submissionID: promotedID,
@@ -652,8 +648,8 @@ export class Submissions {
         },
         now,
       })
-      const response = { submission: requireSummary(connection, promotedID) }
-      writeIdempotency(connection, principal, route, key, requestHash, response, now)
+      const response = { submission: await requireSummary(connection, promotedID) }
+      await writeIdempotency(connection, principal, route, key, requestHash, response, now)
       return { response, queued: { submissionID: promotedID, revision: 1 } }
     })
     if (state.queued && this.options.onValidationReady)
@@ -676,13 +672,13 @@ export class Submissions {
     const route = `submissions:${submissionID}:audience-changes`
     const key = requireIdempotencyKey(input.idempotencyKey)
     const requestHash = hashJson({ source: submissionID, ...decoded.value })
-    return this.options.database.transaction((connection) => {
-      const replay = readIdempotency(connection, principal, route, key, requestHash, now)
+    return this.options.database.transaction(async (connection) => {
+      const replay = await readIdempotency(connection, principal, route, key, requestHash, now)
       if (replay) return replay
-      requireActiveUser(connection, principal)
-      requireUploadAllowance(connection, principal, now)
-      requireActiveAllowance(connection, principal)
-      const source = requireSharingSource(connection, principal, submissionID)
+      await requireActiveUser(connection, principal)
+      await requireUploadAllowance(connection, principal, now)
+      await requireActiveAllowance(connection, principal)
+      const source = await requireSharingSource(connection, principal, submissionID)
       if (source.status !== "published" || !source.publication_id)
         throw new SkillMarketSecurityError(
           "submission-conflict",
@@ -691,9 +687,9 @@ export class Submissions {
       if (decoded.value.expectedVersion !== source.version)
         throw new SkillMarketSecurityError("submission-conflict", "submission version no longer matches")
       requireVerifiedSharingSource(source)
-      requireAudienceChangeAllowance(connection, source.publication_id)
-      const audience = requireAudienceTarget(connection, principal, decoded.value.target, decoded.value.audience)
-      requireOwnershipAndVersion(
+      await requireAudienceChangeAllowance(connection, source.publication_id)
+      const audience = await requireAudienceTarget(connection, principal, decoded.value.target, decoded.value.audience)
+      await requireOwnershipAndVersion(
         connection,
         principal,
         decoded.value.target,
@@ -702,10 +698,10 @@ export class Submissions {
         source.publication_id,
       )
       if (decoded.value.target === "company")
-        reserveCommunitySkill(connection, source.skill_id, source.owner_employee_id, now)
+        await reserveCommunitySkill(connection, source.skill_id, source.owner_employee_id, now)
 
       const changeID = `sub_${randomSecret()}` as SkillMarketControl.SubmissionID
-      insertSharingSubmission(connection, {
+      await insertSharingSubmission(connection, {
         id: changeID,
         source,
         target: decoded.value.target,
@@ -713,12 +709,12 @@ export class Submissions {
         sourcePublicationID: source.publication_id,
         now,
       })
-      copySharingRevision(connection, source, changeID, now, true)
-      connection.run(
+      await copySharingRevision(connection, source, changeID, now, true)
+      await connection.run(
         "UPDATE submissions SET status = 'pending_review', version = version + 1, updated_at = ? WHERE id = ?",
         [now, changeID],
       )
-      insertAudit(connection, {
+      await insertAudit(connection, {
         actorEmployeeID: principal.session.user.employeeID,
         action: "submission-created",
         submissionID: changeID,
@@ -731,24 +727,21 @@ export class Submissions {
         },
         now,
       })
-      const response = { submission: requireSummary(connection, changeID) }
-      writeIdempotency(connection, principal, route, key, requestHash, response, now)
+      const response = { submission: await requireSummary(connection, changeID) }
+      await writeIdempotency(connection, principal, route, key, requestHash, response, now)
       return response
     })
   }
 
-  personalPackage(principal: Principal, submissionID: string) {
-    const row = this.options.database.connection
-      .query<
-        {
-          skill_id: string
-          target_version: string
-          private_package_key: string
-          package_sha256: string
-          package_size: number
-        },
-        [string, string]
-      >(
+  async personalPackage(principal: Principal, submissionID: string) {
+    const row = await this.options.database.read((connection) =>
+      connection.get<{
+        skill_id: string
+        target_version: string
+        private_package_key: string
+        package_sha256: string
+        package_size: number
+      }>(
         `SELECT
           submissions.skill_id,
           submissions.target_version,
@@ -769,8 +762,9 @@ export class Submissions {
                AND delist_requests.status = 'approved'
            )
            AND submissions.deleted_at IS NULL`,
-      )
-      .get(submissionID, principal.session.user.employeeID)
+        [submissionID, principal.session.user.employeeID],
+      ),
+    )
     if (!row) throw new SkillMarketSecurityError("not-found", "personal Skill package was not found")
     return {
       key: row.private_package_key,
@@ -824,8 +818,8 @@ function summarySql() {
     AND submissions.target_scope = 'company'`
 }
 
-function requireSummary(connection: Database, submissionID: string) {
-  const row = connection.query<SummaryRow, [string]>(`${summarySql()} WHERE submissions.id = ?`).get(submissionID)
+async function requireSummary(connection: Connection, submissionID: string) {
+  const row = await connection.get<SummaryRow>(`${summarySql()} WHERE submissions.id = ?`, [submissionID])
   if (!row) throw new Error("submission summary is missing")
   return summary(row)
 }
@@ -850,10 +844,9 @@ function summary(row: SummaryRow) {
   })
 }
 
-function requireSharingSource(connection: Database, principal: Principal, submissionID: string) {
-  const source = connection
-    .query<SharingSourceRow, [string, string]>(
-      `SELECT
+async function requireSharingSource(connection: Connection, principal: Principal, submissionID: string) {
+  const source = await connection.get<SharingSourceRow>(
+    `SELECT
         submissions.id,
         submissions.skill_id,
         submissions.owner_employee_id,
@@ -881,8 +874,8 @@ function requireSharingSource(connection: Database, principal: Principal, submis
          ON restricted_publications.submission_id = submissions.id
         AND restricted_publications.status = 'published'
        WHERE submissions.id = ? AND submissions.owner_employee_id = ? AND submissions.deleted_at IS NULL`,
-    )
-    .get(submissionID, principal.session.user.employeeID)
+    [submissionID, principal.session.user.employeeID],
+  )
   if (source) return source
   throw new SkillMarketSecurityError("not-found", "submission was not found")
 }
@@ -895,8 +888,8 @@ function requireVerifiedSharingSource(source: SharingSourceRow) {
   throw new SkillMarketSecurityError("submission-conflict", "source submission is not verified")
 }
 
-function insertSharingSubmission(
-  connection: Database,
+async function insertSharingSubmission(
+  connection: Connection,
   input: {
     readonly id: SkillMarketControl.SubmissionID
     readonly source: SharingSourceRow
@@ -906,7 +899,7 @@ function insertSharingSubmission(
     readonly now: number
   },
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO submissions
       (id, skill_id, owner_employee_id, target_version, target_scope, target_department_id,
        source_publication_id, status, current_revision, version, created_at, updated_at)
@@ -923,17 +916,17 @@ function insertSharingSubmission(
       input.now,
     ],
   )
-  insertSubmissionGroupTargets(connection, input.id, input.audience)
+  await insertSubmissionGroupTargets(connection, input.id, input.audience)
 }
 
-function copySharingRevision(
-  connection: Database,
+async function copySharingRevision(
+  connection: Connection,
   source: SharingSourceRow,
   submissionID: string,
   now: number,
   verified: boolean,
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO submission_revisions
       (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
        private_icon_json, manifest_json, scan_json, validation_errors_json, validation_completed_at, created_at)
@@ -1013,40 +1006,43 @@ function requireIdempotencyKey(value: string) {
   throw new SkillMarketSecurityError("invalid-request", "idempotency key is invalid")
 }
 
-function requireActiveUser(connection: Database, principal: Principal) {
-  const row = connection
-    .query<{ disabled_at: number | null }, [string]>("SELECT disabled_at FROM users WHERE employee_id = ?")
-    .get(principal.session.user.employeeID)
+async function requireActiveUser(connection: Connection, principal: Principal) {
+  const row = await connection.get<{ disabled_at: number | null }>(
+    "SELECT disabled_at FROM users WHERE employee_id = ?",
+    [principal.session.user.employeeID],
+  )
   if (row && row.disabled_at === null) return
   throw new SkillMarketSecurityError("forbidden", "employee cannot submit skills")
 }
 
-function requireUploadAllowance(connection: Database, principal: Principal, now: number) {
-  const count = connection
-    .query<{ count: number }, [string, number]>(
+async function requireUploadAllowance(connection: Connection, principal: Principal, now: number) {
+  const count = (
+    await connection.get<{ count: number }>(
       `SELECT count(*) AS count
        FROM submission_revisions
        INNER JOIN submissions ON submissions.id = submission_revisions.submission_id
        WHERE submissions.owner_employee_id = ? AND submission_revisions.created_at >= ?`,
+      [principal.session.user.employeeID, now - DayMilliseconds],
     )
-    .get(principal.session.user.employeeID, now - DayMilliseconds)!.count
+  )!.count
   if (count < 20) return
   throw new SkillMarketSecurityError("upload-rate-limited", "daily upload attempt limit reached")
 }
 
-function requireActiveAllowance(connection: Database, principal: Principal) {
-  const count = connection
-    .query<{ count: number }, [string]>(
+async function requireActiveAllowance(connection: Connection, principal: Principal) {
+  const count = (
+    await connection.get<{ count: number }>(
       `SELECT count(*) AS count FROM submissions
        WHERE owner_employee_id = ? AND status IN (${ActiveStatusSql})`,
+      [principal.session.user.employeeID],
     )
-    .get(principal.session.user.employeeID)!.count
+  )!.count
   if (count < 5) return
   throw new SkillMarketSecurityError("upload-rate-limited", "active submission limit reached")
 }
 
-function requireOwnershipAndVersion(
-  connection: Database,
+async function requireOwnershipAndVersion(
+  connection: Connection,
   principal: Principal,
   target: SkillMarketControl.PublicationTarget,
   skillID: string,
@@ -1054,68 +1050,65 @@ function requireOwnershipAndVersion(
   sourcePublicationID?: string,
 ) {
   if (target === "personal") {
-    const prior = connection
-      .query<{ target_version: string }, [string, string]>(
+    const prior = (
+      await connection.all<{ target_version: string }>(
         `SELECT target_version FROM submissions
          WHERE owner_employee_id = ? AND skill_id = ? AND target_scope = 'personal'
            AND status IN (${ActiveStatusSql}, 'published')`,
+        [principal.session.user.employeeID, skillID],
       )
-      .all(principal.session.user.employeeID, skillID)
-      .map((row) => row.target_version)
+    ).map((row) => row.target_version)
     if (prior.some((version) => compareSemVer(targetVersion, version) <= 0))
       throw new SkillMarketSecurityError("submission-conflict", "personal Skill version must increase")
     return
   }
-  const community = connection
-    .query<
-      { owner_employee_id: string; current_version: string | null },
-      [string]
-    >("SELECT owner_employee_id, current_version FROM community_skills WHERE skill_id = ?")
-    .get(skillID)
+  const community = await connection.get<{ owner_employee_id: string; current_version: string | null }>(
+    "SELECT owner_employee_id, current_version FROM community_skills WHERE skill_id = ?",
+    [skillID],
+  )
   if (community && community.owner_employee_id !== principal.session.user.employeeID)
     throw new SkillMarketSecurityError("skill-owned-by-another-user", "Skill ID belongs to another employee")
   const liveRestricted =
     target === "groups" || target === "department"
-      ? connection
-          .query<
-            { count: number },
-            [string, string, string, string | null, string | null]
-          >(
+      ? (
+          await connection.get<{ count: number }>(
             `SELECT count(*) AS count FROM restricted_publications
              WHERE owner_employee_id = ? AND skill_id = ? AND version = ? AND status = 'published'
                AND (? IS NULL OR id != ?)`,
+            [
+              principal.session.user.employeeID,
+              skillID,
+              targetVersion,
+              sourcePublicationID ?? null,
+              sourcePublicationID ?? null,
+            ],
           )
-          .get(
-            principal.session.user.employeeID,
-            skillID,
-            targetVersion,
-            sourcePublicationID ?? null,
-            sourcePublicationID ?? null,
-          )!.count
+        )!.count
       : 0
   if (liveRestricted > 0)
     throw new SkillMarketSecurityError(
       "submission-conflict",
       "published restricted Skill version must use audience change",
     )
-  const active = connection
-    .query<{ count: number }, [string, string]>(
+  const active = (
+    await connection.get<{ count: number }>(
       `SELECT count(*) AS count FROM submissions
        WHERE skill_id = ? AND target_version = ? AND target_scope != 'personal'
          AND status IN (${ActiveStatusSql})`,
+      [skillID, targetVersion],
     )
-    .get(skillID, targetVersion)!.count
+  )!.count
   if (active > 0)
     throw new SkillMarketSecurityError("submission-conflict", "Skill version already has an active submission")
 
-  const versions = connection
-    .query<{ target_version: string }, [string, string]>(
+  const versions = (
+    await connection.all<{ target_version: string }>(
       `SELECT target_version FROM submissions
        WHERE skill_id = ? AND owner_employee_id = ? AND target_scope != 'personal'
          AND status IN (${ActiveStatusSql})`,
+      [skillID, principal.session.user.employeeID],
     )
-    .all(skillID, principal.session.user.employeeID)
-    .map((row) => row.target_version)
+  ).map((row) => row.target_version)
   const prior = [...versions, ...(community?.current_version ? [community.current_version] : [])]
   if (prior.some((version) => compareSemVer(targetVersion, version) <= 0))
     throw new SkillMarketSecurityError(
@@ -1124,13 +1117,14 @@ function requireOwnershipAndVersion(
     )
 }
 
-function requireAudienceChangeAllowance(connection: Database, publicationID: string) {
-  const active = connection
-    .query<{ count: number }, [string]>(
+async function requireAudienceChangeAllowance(connection: Connection, publicationID: string) {
+  const active = (
+    await connection.get<{ count: number }>(
       `SELECT count(*) AS count FROM submissions
        WHERE source_publication_id = ? AND status IN (${ActiveStatusSql})`,
+      [publicationID],
     )
-    .get(publicationID)!.count
+  )!.count
   if (active > 0) throw new SkillMarketSecurityError("submission-conflict", "audience change is already active")
 }
 
@@ -1160,15 +1154,16 @@ function isDelistWriteConflict(error: unknown) {
   return error.code === "SQLITE_BUSY" || error.code === "SQLITE_CONSTRAINT_UNIQUE"
 }
 
-function reserveCommunitySkill(connection: Database, skillID: string, ownerEmployeeID: string, now: number) {
-  const existing = connection
-    .query<{ owner_employee_id: string }, [string]>("SELECT owner_employee_id FROM community_skills WHERE skill_id = ?")
-    .get(skillID)
+async function reserveCommunitySkill(connection: Connection, skillID: string, ownerEmployeeID: string, now: number) {
+  const existing = await connection.get<{ owner_employee_id: string }>(
+    "SELECT owner_employee_id FROM community_skills WHERE skill_id = ?",
+    [skillID],
+  )
   if (existing) {
     if (existing.owner_employee_id === ownerEmployeeID) return
     throw new SkillMarketSecurityError("skill-owned-by-another-user", "Skill ID belongs to another employee")
   }
-  connection.run(
+  await connection.run(
     `INSERT INTO community_skills (skill_id, owner_employee_id, version, created_at, updated_at)
      VALUES (?, ?, 1, ?, ?)`,
     [skillID, ownerEmployeeID, now, now],
@@ -1184,8 +1179,8 @@ function parseSemVer(value: string) {
   return { core: [BigInt(match[1]), BigInt(match[2]), BigInt(match[3])], pre: match[4]?.split(".") ?? [] }
 }
 
-function insertRevision(
-  connection: Database,
+async function insertRevision(
+  connection: Connection,
   submissionID: string,
   revision: number,
   metadata: SkillMarketControl.SubmissionMetadata,
@@ -1193,7 +1188,7 @@ function insertRevision(
   icon: SubmissionIcon | undefined,
   now: number,
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO submission_revisions
       (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
        private_icon_json, created_at)
@@ -1211,8 +1206,8 @@ function insertRevision(
   )
 }
 
-function insertAudit(
-  connection: Database,
+async function insertAudit(
+  connection: Connection,
   event: {
     readonly actorEmployeeID?: string
     readonly action: string
@@ -1222,7 +1217,7 @@ function insertAudit(
     readonly now: number
   },
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, actor_employee_id, action, object_type, object_id, before_json, after_json, request_id, created_at)
      VALUES (?, ?, ?, 'submission', ?, ?, ?, ?, ?)`,
@@ -1239,32 +1234,31 @@ function insertAudit(
   )
 }
 
-function readIdempotency(
-  connection: Database,
+async function readIdempotency(
+  connection: Connection,
   principal: Principal,
   route: string,
   key: string,
   requestHash: string,
   now: number,
-): SkillMarketControl.AcceptedSubmission | undefined {
-  connection.run(
+): Promise<SkillMarketControl.AcceptedSubmission | undefined> {
+  await connection.run(
     "DELETE FROM idempotency_keys WHERE employee_id = ? AND route = ? AND idempotency_key = ? AND expires_at <= ?",
     [principal.session.user.employeeID, route, key, now],
   )
-  const row = connection
-    .query<{ request_hash: string; response_json: string }, [string, string, string]>(
-      `SELECT request_hash, response_json FROM idempotency_keys
+  const row = await connection.get<{ request_hash: string; response_json: string }>(
+    `SELECT request_hash, response_json FROM idempotency_keys
        WHERE employee_id = ? AND route = ? AND idempotency_key = ?`,
-    )
-    .get(principal.session.user.employeeID, route, key)
+    [principal.session.user.employeeID, route, key],
+  )
   if (!row) return undefined
   if (row.request_hash !== requestHash)
     throw new SkillMarketSecurityError("submission-conflict", "idempotency key was used with another payload")
   return decodeJson(SkillMarketControl.AcceptedSubmission, row.response_json)
 }
 
-function writeIdempotency(
-  connection: Database,
+async function writeIdempotency(
+  connection: Connection,
   principal: Principal,
   route: string,
   key: string,
@@ -1272,7 +1266,7 @@ function writeIdempotency(
   response: SkillMarketControl.AcceptedSubmission,
   now: number,
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO idempotency_keys
       (employee_id, route, idempotency_key, request_hash, response_json, created_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,

@@ -6,7 +6,7 @@ import { createAnnouncements } from "./announcements"
 import { createAuth } from "./auth"
 import { createCatalogReader } from "./catalog-reader"
 import { loadConfig } from "./config"
-import { openDatabase } from "./database"
+import { openMarketDatabase } from "./database"
 import { createMarketRoutes } from "./handlers"
 import { emitMarketMetric } from "./metrics"
 import { createExpertPackages } from "./expert-packages"
@@ -31,16 +31,18 @@ const main = Effect.scoped(
     const database = yield* Effect.acquireRelease(
       Effect.tryPromise({
         try: () =>
-          openDatabase({
+          openMarketDatabase({
             databasePath: config.databasePath,
             migrationBackupDirectory: config.migrationBackupDirectory,
+            postgresUrl: config.postgresUrl,
+            postgresSchema: config.postgresSchema,
             emit: emitMarketMetric,
           }),
         catch: (error) => error,
       }),
-      (database) => Effect.sync(() => database.close()),
+      (database) => Effect.promise(() => database.close().then(() => {})),
     )
-    bootstrapAdmins(database, config.bootstrapAdmins)
+    yield* Effect.promise(() => bootstrapAdmins(database, config.bootstrapAdmins).then(() => {}))
     const store = makeS3ObjectStore({
       endpoint: config.ossEndpoint,
       region: config.ossRegion,
@@ -135,7 +137,7 @@ const main = Effect.scoped(
       sessionIdleMilliseconds: config.sessionIdleMilliseconds,
     })
     state.worker = worker
-    worker.cleanup()
+    yield* Effect.promise(() => worker.cleanup().then(() => {}))
     yield* Effect.promise(() => worker.drain("server-startup"))
     const routes = createMarketRoutes({
       catalog: createCatalogReader({ store, prefix: config.ossPrefix }),

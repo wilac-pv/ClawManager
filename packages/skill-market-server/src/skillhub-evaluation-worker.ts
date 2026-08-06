@@ -1,5 +1,5 @@
 import { loadConfig, type SkillMarketConfig } from "./config"
-import { openDatabase, type MarketDatabase } from "./database"
+import { openMarketDatabase, type MarketDatabase } from "./database"
 import { createSkillHubEvaluationStore, type ClaimedSkillHubEvaluation, type SkillHubEvaluationStore } from "./skillhub-evaluation-store"
 import { loadSkillHubEvaluation, type SkillHubEvaluation } from "./skillhub-evaluation"
 import { createSkillHubImportStore, type SkillHubImportStore } from "./skillhub-import-store"
@@ -9,7 +9,7 @@ import { createPublisher } from "./publisher"
 import { SkillHubRequestError, type Fetcher } from "./skillhub"
 
 interface EvaluationPublication {
-  readonly pending: () => { readonly count: number; readonly oldestCheckedAt?: number }
+  readonly pending: () => Promise<{ readonly count: number; readonly oldestCheckedAt?: number }>
   readonly publish: (request: EvaluationRequest) => Promise<void>
 }
 
@@ -86,7 +86,7 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
     if (!options.publication) return
     if (publicationAttempted) return
     if (now() >= deadline) return
-    const pending = options.publication.pending()
+    const pending = await options.publication.pending()
     const dueByCount = pending.count >= publicationBatch
     const dueByTime = pending.oldestCheckedAt !== undefined && now() - pending.oldestCheckedAt >= publicationMinutes * 60 * 1_000
     if (!dueByCount && !dueByTime) return
@@ -107,9 +107,9 @@ export async function runSkillHubEvaluationWorker(options: EvaluationWorkerOptio
     }
   }
 
-  options.evaluations.markDue(refreshDays * 24 * 60 * 60 * 1_000)
+  await options.evaluations.markDue(refreshDays * 24 * 60 * 60 * 1_000)
   while (now() < deadline) {
-    const claimed = options.evaluations.claim(options.workerID, concurrency, leaseMilliseconds)
+    const claimed = await options.evaluations.claim(options.workerID, concurrency, leaseMilliseconds)
     if (claimed.length === 0) break
     const outcomes = await Promise.all(
       claimed.map((item) =>
@@ -170,16 +170,12 @@ async function evaluateClaim(options: {
   const timedOut = Symbol("skillhub-evaluation-timeout")
   let deadlineReached = false
   const heartbeat = options.setInterval(() => {
-    try {
-      options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds)
-    } catch {
-      // The foreground operation will fence itself before mutating durable state.
-    }
+    void options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds).catch(() => undefined)
   }, Math.max(1, Math.floor(options.leaseMilliseconds / 2)))
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     if (!(await options.schedule())) throw new EvaluationDeadlineError()
-    if (!options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds)) return "stale" as const
+    if (!(await options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds))) return "stale" as const
     if (options.now() >= options.deadline) throw new EvaluationDeadlineError()
     const controller = new AbortController()
     const untilDeadline = new Promise<typeof timedOut>((resolve) => {
@@ -191,12 +187,12 @@ async function evaluateClaim(options: {
     })
     const evaluation = await Promise.race([options.loadEvaluation(options.item.slug, { signal: controller.signal, deadline: options.deadline }), untilDeadline])
     if (evaluation === timedOut) throw new EvaluationDeadlineError()
-    if (!options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds)) return "stale" as const
-    return options.evaluations.complete(options.workerID, options.item.slug, evaluation) ? "completed" as const : "stale" as const
+    if (!(await options.evaluations.renew(options.workerID, options.item.slug, options.leaseMilliseconds))) return "stale" as const
+    return (await options.evaluations.complete(options.workerID, options.item.slug, evaluation)) ? "completed" as const : "stale" as const
   } catch (error) {
     try {
       const permanent = !deadlineReached && error instanceof SkillHubRequestError && error.permanent
-      const retried = options.evaluations.retry(
+      const retried = await options.evaluations.retry(
         options.workerID,
         options.item.slug,
         permanent ? "SkillHub evaluation response is invalid" : "SkillHub evaluation request failed",
@@ -224,9 +220,11 @@ export async function runConfiguredSkillHubEvaluationWorker(
   } = {},
 ) {
   const config = options.config ?? loadConfig()
-  const database = await openDatabase({
+  const database = await openMarketDatabase({
     databasePath: config.databasePath,
     migrationBackupDirectory: config.migrationBackupDirectory,
+    postgresUrl: config.postgresUrl,
+    postgresSchema: config.postgresSchema,
     emit: options.emit,
   })
   try {
@@ -278,8 +276,8 @@ export function evaluationPublication(
   batch: number,
 ): EvaluationPublication {
   return {
-    pending() {
-      const evaluations = imports.completedEvaluations(batch)
+    async pending() {
+      const evaluations = await imports.completedEvaluations(batch)
       return {
         count: evaluations.length,
         ...(evaluations[0] ? { oldestCheckedAt: evaluations[0].evaluation.checkedAt } : {}),

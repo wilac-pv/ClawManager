@@ -5,7 +5,7 @@ import { applyEnterprise, contentAddressDetail, createCatalogIndex, type Catalog
 import { listPublishedCommunity, materializePublishedCommunitySkill } from "./community"
 import { type SkillMarketConfig, loadConfig } from "./config"
 import type { MarketDatabase } from "./database"
-import { openDatabase } from "./database"
+import { openMarketDatabase } from "./database"
 import { decodeEnterpriseIndex } from "./enterprise"
 import { emitMarketMetric } from "./metrics"
 import { type ObjectStore, loadCatalogDetail, loadCatalogIndex, loadCatalogIndexOrMissingPointer, loadCurrentSnapshot, makeS3ObjectStore, publishSnapshot } from "./oss"
@@ -185,10 +185,10 @@ async function synchronizeIndexed(options: SyncOptions, publisher: Publisher) {
         entries: new Map(),
         sourceStatus: { skillhub: "unavailable", enterprise: "unavailable", community: "unavailable" },
       })
-  const imported = imports?.progress()
+  const imported = imports ? await imports.progress() : undefined
   const mirrored = imports
     ? new Map(
-      imports.mirroredEntries().flatMap((entry) =>
+      (await imports.mirroredEntries()).flatMap((entry) =>
         [entry.summary.id, ...(entry.summary.aliases ?? [])].map((id) => [id, {
           ...entry,
           detailKey: normalizeMirrorDetailKey(entry.detailKey, entry.detailSha256, options.config.ossPrefix),
@@ -314,7 +314,7 @@ async function synchronizeUnlocked(options: SyncOptions, publish: (snapshot: Cat
         },
       }),
     )
-  const imported = options.database ? createSkillHubImportStore({ database: options.database }).progress() : undefined
+  const imported = options.database ? await createSkillHubImportStore({ database: options.database }).progress() : undefined
   const skillhub = {
     ok: true,
     value: {
@@ -731,9 +731,11 @@ function emitMetrics(
 export async function runConfiguredSync() {
   const config = loadConfig()
   const store = makeS3ObjectStore({ endpoint: config.ossEndpoint, region: config.ossRegion, bucket: config.ossBucket })
-  const database = await openDatabase({
+  const database = await openMarketDatabase({
     databasePath: config.databasePath,
     migrationBackupDirectory: config.migrationBackupDirectory,
+    postgresUrl: config.postgresUrl,
+    postgresSchema: config.postgresSchema,
     emit: emitMarketMetric,
   })
   const publisher = createPublisher({

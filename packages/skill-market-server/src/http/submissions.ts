@@ -42,7 +42,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
       .handle("skillMarket.submissions.list", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.submissions.listOwn(principal, {
                 status: context.query.status,
@@ -99,7 +99,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
       .handle("skillMarket.submissions.detail", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.submissions.getOwn(principal, context.params.submissionID),
             catch: readProblem,
           })
@@ -116,7 +116,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
           const request = yield* HttpServerRequest.HttpServerRequest
           const principal = principalFromSession(yield* SkillMarketPrincipal)
           const idempotencyKey = yield* readIdempotencyKey(request.headers["idempotency-key"])
-          const detail = yield* Effect.try({
+          const detail = yield* Effect.tryPromise({
             try: () => options.submissions.getOwn(principal, context.params.submissionID),
             catch: reviseProblem,
           })
@@ -196,13 +196,13 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
       .handle("skillMarket.submissions.personalTrash", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({ try: () => options.personalTrash.list(principal), catch: dependencyProblem })
+          return yield* Effect.tryPromise({ try: () => options.personalTrash.list(principal), catch: dependencyProblem })
         }),
       )
       .handle("skillMarket.submissions.personalDelete", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.personalTrash.deletePersonal(
                 principal,
@@ -216,7 +216,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
       .handle("skillMarket.submissions.personalRestore", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.personalTrash.restorePersonal(
                 principal,
@@ -230,7 +230,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
       .handle("skillMarket.submissions.withdraw", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.submissions.withdraw(principal, context.params.submissionID, context.payload),
             catch: reviseProblem,
           })
@@ -239,7 +239,7 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
       .handle("skillMarket.submissions.requestDelist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () => options.submissions.requestDelist(principal, context.params.submissionID, context.payload),
             catch: reviseProblem,
           })
@@ -325,7 +325,7 @@ async function* parts(
 function personalPackage(options: SubmissionsHttpOptions, submissionID: string, head: boolean) {
   return Effect.gen(function* () {
     const principal = principalFromSession(yield* SkillMarketPrincipal)
-    const identity = yield* Effect.try({
+    const identity = yield* Effect.tryPromise({
       try: () => options.submissions.personalPackage(principal, submissionID),
       catch: (error) => error,
     }).pipe(

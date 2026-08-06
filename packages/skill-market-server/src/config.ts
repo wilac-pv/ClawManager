@@ -107,6 +107,8 @@ export function loadConfig(environment: Environment = process.env) {
     databasePath: environment.SKILL_MARKET_DATABASE_PATH ?? "/var/lib/ruying-skill-market/market.db",
     migrationBackupDirectory:
       environment.SKILL_MARKET_MIGRATION_BACKUP_DIRECTORY ?? "/var/backups/ruying-skill-market/migrations",
+    postgresUrl: environment.SKILL_MARKET_POSTGRES_URL ?? undefined,
+    postgresSchema: environment.SKILL_MARKET_POSTGRES_SCHEMA ?? "skill_market_stage",
     skillhubBaseUrl: httpsUrl("SKILLHUB_BASE_URL", environment.SKILLHUB_BASE_URL ?? "https://api.skillhub.cn"),
     skillhubLimit: optionalPositiveInteger("SKILL_MARKET_SKILLHUB_LIMIT", environment.SKILL_MARKET_SKILLHUB_LIMIT),
     skillhubPageConcurrency: positiveInteger(

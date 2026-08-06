@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { loadConfig } from "../src/config"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import type { PrivateObjectStore } from "../src/oss"
 import { publishSnapshot } from "../src/oss"
 import { createPublisher } from "../src/publisher"
@@ -46,7 +46,7 @@ describe("catalog synchronization", () => {
     })
     expect(result.published).toBe(true)
     expect(objects.has("skill-market/current.json")).toBe(true)
-    database.close()
+    await database.close()
   })
 
   test("applies official recommendations by id or alias and clears absent slugs", () => {
@@ -335,14 +335,14 @@ describe("catalog synchronization", () => {
 
     expect(result.snapshot.sourceStatus.community).toBe("fresh")
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<
           { count: number },
           []
         >("SELECT count(*) AS count FROM publish_jobs WHERE status IN ('pending', 'running')")
         .get()?.count,
     ).toBe(0)
-    database.close()
+    await database.close()
   })
 })
 

@@ -1,6 +1,6 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
+import type { Connection } from "./store"
 import { submissionAudience } from "./audience"
 
 export interface SubmissionSummaryRow {
@@ -96,10 +96,11 @@ export function submissionSummarySelect(extra = "") {
    LEFT JOIN community_skills ON community_skills.skill_id = submissions.skill_id`
 }
 
-export function readSubmissionSummary(connection: Database, submissionID: string) {
-  const row = connection
-    .query<SubmissionSummaryRow, [string]>(`${submissionSummarySelect()} WHERE submissions.id = ?`)
-    .get(submissionID)
+export async function readSubmissionSummary(connection: Connection, submissionID: string) {
+  const row = await connection.get<SubmissionSummaryRow>(
+    `${submissionSummarySelect()} WHERE submissions.id = ?`,
+    [submissionID],
+  )
   if (!row) return undefined
   return toSubmissionSummary(row)
 }
@@ -124,29 +125,29 @@ export function toSubmissionSummary(row: SubmissionSummaryRow) {
   })
 }
 
-export function readSubmissionDetail(connection: Database, submissionID: string) {
-  const summary = readSubmissionSummary(connection, submissionID)
+export async function readSubmissionDetail(connection: Connection, submissionID: string) {
+  const summary = await readSubmissionSummary(connection, submissionID)
   if (!summary) return undefined
-  const revisions = connection
-    .query<RevisionRow, [string]>(
+  const revisions = (
+    await connection.all<RevisionRow>(
       `SELECT revision_number, metadata_json, manifest_json, scan_json, validation_errors_json, created_at
        FROM submission_revisions WHERE submission_id = ? ORDER BY revision_number`,
+      [submissionID],
     )
-    .all(submissionID)
-    .map((revision) => ({
-      number: revision.revision_number,
-      metadata: decodeJson(SkillMarketControl.SubmissionMetadata, revision.metadata_json),
-      ...(revision.manifest_json ? { manifest: decodeJson(SkillMarketControl.Manifest, revision.manifest_json) } : {}),
-      ...(revision.scan_json
-        ? { scan: redactScan(decodeJson(SkillMarketControl.ScanReport, revision.scan_json)) }
-        : {}),
-      validationIssues: revision.validation_errors_json
-        ? decodeJson(Schema.Array(SkillMarketControl.ValidationIssue), revision.validation_errors_json)
-        : [],
-      createdAt: timestamp(revision.created_at),
-    }))
-  const reviews = connection
-    .query<ReviewRow, [string]>(
+  ).map((revision) => ({
+    number: revision.revision_number,
+    metadata: decodeJson(SkillMarketControl.SubmissionMetadata, revision.metadata_json),
+    ...(revision.manifest_json ? { manifest: decodeJson(SkillMarketControl.Manifest, revision.manifest_json) } : {}),
+    ...(revision.scan_json
+      ? { scan: redactScan(decodeJson(SkillMarketControl.ScanReport, revision.scan_json)) }
+      : {}),
+    validationIssues: revision.validation_errors_json
+      ? decodeJson(Schema.Array(SkillMarketControl.ValidationIssue), revision.validation_errors_json)
+      : [],
+    createdAt: timestamp(revision.created_at),
+  }))
+  const reviews = (
+    await connection.all<ReviewRow>(
       `SELECT
         reviews.revision_number,
         reviews.decision,
@@ -161,18 +162,18 @@ export function readSubmissionDetail(connection: Database, submissionID: string)
        INNER JOIN users ON users.employee_id = reviews.reviewer_employee_id
        WHERE reviews.submission_id = ?
        ORDER BY reviews.created_at, reviews.id`,
+      [submissionID],
     )
-    .all(submissionID)
-    .map((review) => ({
-      revision: review.revision_number,
-      reviewer: user(review),
-      decision: review.decision,
-      ...(review.comment ? { comment: review.comment } : {}),
-      ...(review.accepted_risk_summary ? { acceptedRiskSummary: review.accepted_risk_summary } : {}),
-      createdAt: timestamp(review.created_at),
-    }))
-  const timeline = connection
-    .query<AuditRow, [string]>(
+  ).map((review) => ({
+    revision: review.revision_number,
+    reviewer: user(review),
+    decision: review.decision,
+    ...(review.comment ? { comment: review.comment } : {}),
+    ...(review.accepted_risk_summary ? { acceptedRiskSummary: review.accepted_risk_summary } : {}),
+    createdAt: timestamp(review.created_at),
+  }))
+  const timeline = (
+    await connection.all<AuditRow>(
       `SELECT
         audit_events.after_json,
         audit_events.created_at,
@@ -183,37 +184,38 @@ export function readSubmissionDetail(connection: Database, submissionID: string)
        FROM audit_events
        LEFT JOIN users ON users.employee_id = audit_events.actor_employee_id
        WHERE audit_events.object_type = 'submission' AND audit_events.object_id = ?
-       ORDER BY audit_events.created_at, audit_events.rowid`,
+       ORDER BY audit_events.created_at, audit_events.id`,
+      [submissionID],
     )
-    .all(submissionID)
-    .flatMap((event) => {
-      if (!event.after_json) return []
-      const decoded = decodeJsonOption(AuditAfter, event.after_json)
-      if (!decoded) return []
-      return [
-        {
-          status: decoded.status,
-          at: timestamp(event.created_at),
-          ...(event.actor_employee_id && event.display_name
-            ? {
-                actor: user({
-                  employee_id: event.actor_employee_id,
-                  display_name: event.display_name,
-                  email: event.email,
-                  disabled_at: event.disabled_at,
-                }),
-              }
-            : {}),
-          ...(decoded.message ? { message: decoded.message } : {}),
-        },
-      ]
-    })
-  const community = connection
-    .query<
-      { current_version: string | null; public_status: SkillMarketControl.PublicStatus | null; row_version: number },
-      [string]
-    >("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?")
-    .get(summary.skillID)
+  ).flatMap((event) => {
+    if (!event.after_json) return []
+    const decoded = decodeJsonOption(AuditAfter, event.after_json)
+    if (!decoded) return []
+    return [
+      {
+        status: decoded.status,
+        at: timestamp(event.created_at),
+        ...(event.actor_employee_id && event.display_name
+          ? {
+              actor: user({
+                employee_id: event.actor_employee_id,
+                display_name: event.display_name,
+                email: event.email,
+                disabled_at: event.disabled_at,
+              }),
+            }
+          : {}),
+        ...(decoded.message ? { message: decoded.message } : {}),
+      },
+    ]
+  })
+  const community = await connection.get<{
+    current_version: string | null
+    public_status: SkillMarketControl.PublicStatus | null
+    row_version: number
+  }>("SELECT current_version, public_status, version AS row_version FROM community_skills WHERE skill_id = ?", [
+    summary.skillID,
+  ])
   const metadata = revisions.find((revision) => revision.number === summary.currentRevision)?.metadata
   if (!metadata) throw new Error("submission current revision is missing")
   return Schema.decodeUnknownSync(SkillMarketControl.SubmissionDetail)({

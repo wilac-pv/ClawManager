@@ -1,6 +1,6 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
+import type { Connection } from "./store"
 import { randomSecret } from "./security"
 
 interface RestrictedSubmissionRow {
@@ -42,10 +42,9 @@ interface AudienceChangeArtifactRow {
   readonly publication_status: string | null
 }
 
-export function requireAudienceChangeArtifact(connection: Database, submissionID: string) {
-  const row = connection
-    .query<AudienceChangeArtifactRow, [string]>(
-      `SELECT
+export async function requireAudienceChangeArtifact(connection: Connection, submissionID: string) {
+  const row = await connection.get<AudienceChangeArtifactRow>(
+    `SELECT
         submissions.skill_id,
         submissions.owner_employee_id,
         submissions.target_version,
@@ -68,8 +67,8 @@ export function requireAudienceChangeArtifact(connection: Database, submissionID
         AND submission_revisions.revision_number = submissions.current_revision
        LEFT JOIN restricted_publications ON restricted_publications.id = submissions.source_publication_id
        WHERE submissions.id = ?`,
-    )
-    .get(submissionID)
+    [submissionID],
+  )
   if (!row) throw new Error("audience change submission is missing")
   if (!row.source_publication_id) return
   if (
@@ -88,10 +87,9 @@ export function requireAudienceChangeArtifact(connection: Database, submissionID
     throw new Error("audience change cannot alter the reviewed artifact")
 }
 
-export function publishRestrictedSubmission(connection: Database, submissionID: string, now: number) {
-  const submission = connection
-    .query<RestrictedSubmissionRow, [string]>(
-      `SELECT
+export async function publishRestrictedSubmission(connection: Connection, submissionID: string, now: number) {
+  const submission = await connection.get<RestrictedSubmissionRow>(
+    `SELECT
         submissions.id,
         submissions.skill_id,
         submissions.owner_employee_id,
@@ -115,8 +113,8 @@ export function publishRestrictedSubmission(connection: Database, submissionID: 
         AND submission_revisions.revision_number = submissions.current_revision
        WHERE submissions.id = ?
          AND submissions.target_scope IN ('groups', 'department')`,
-    )
-    .get(submissionID)
+    [submissionID],
+  )
   if (!submission || submission.status !== "publishing")
     throw new Error("restricted submission is not awaiting publication")
   if (
@@ -126,29 +124,25 @@ export function publishRestrictedSubmission(connection: Database, submissionID: 
     decodeValidationIssues(submission.validation_errors_json).length !== 0
   )
     throw new Error("restricted submission revision is not verified")
-  requireApprovedRevision(connection, submission.id, submission.current_revision)
-  if (!submission.source_publication_id) requireApprovedArtifact(connection, submission)
-  requireAudienceChangeArtifact(connection, submission.id)
+  await requireApprovedRevision(connection, submission.id, submission.current_revision)
+  if (!submission.source_publication_id) await requireApprovedArtifact(connection, submission)
+  await requireAudienceChangeArtifact(connection, submission.id)
   if (submission.private_package_key.includes("://"))
     throw new Error("restricted submission package must remain in private storage")
 
   const publication = submission.source_publication_id
-    ? connection
-        .query<
-          {
-            id: string
-            skill_id: string
-            owner_employee_id: string
-            version: string
-            status: string
-            row_version: number
-          },
-          [string]
-        >(
-          `SELECT id, skill_id, owner_employee_id, version, status, row_version
+    ? await connection.get<{
+        id: string
+        skill_id: string
+        owner_employee_id: string
+        version: string
+        status: string
+        row_version: number
+      }>(
+        `SELECT id, skill_id, owner_employee_id, version, status, row_version
            FROM restricted_publications WHERE id = ?`,
-        )
-        .get(submission.source_publication_id)
+        [submission.source_publication_id],
+      )
     : undefined
   if (
     submission.source_publication_id &&
@@ -163,7 +157,7 @@ export function publishRestrictedSubmission(connection: Database, submissionID: 
   const publicationID = publication?.id ?? `pub_${randomSecret()}`
   const publicationVersion = publication ? publication.row_version + 1 : 1
   if (publication) {
-    connection.run(
+    await connection.run(
       `UPDATE restricted_publications
        SET submission_id = ?, scope = ?, department_id = ?, package_key = ?, package_sha256 = ?,
            package_size = ?, metadata_json = ?, status = 'published', row_version = ?, updated_at = ?
@@ -181,10 +175,10 @@ export function publishRestrictedSubmission(connection: Database, submissionID: 
         publicationID,
       ],
     )
-    connection.run("DELETE FROM restricted_publication_groups WHERE publication_id = ?", [publicationID])
+    await connection.run("DELETE FROM restricted_publication_groups WHERE publication_id = ?", [publicationID])
   }
   if (!publication)
-    connection.run(
+    await connection.run(
       `INSERT INTO restricted_publications
         (id, submission_id, skill_id, owner_employee_id, version, scope, department_id, package_key,
          package_sha256, package_size, metadata_json, status, row_version, created_at, updated_at)
@@ -206,29 +200,29 @@ export function publishRestrictedSubmission(connection: Database, submissionID: 
       ],
     )
   if (submission.target_scope === "groups")
-    connection.run(
+    await connection.run(
       `INSERT INTO restricted_publication_groups (publication_id, group_id)
        SELECT ?, submission_group_targets.group_id
        FROM submission_group_targets
        WHERE submission_group_targets.submission_id = ?`,
       [publicationID, submission.id],
     )
-  const groupCount = connection
-    .query<
-      { count: number },
-      [string]
-    >("SELECT count(*) AS count FROM restricted_publication_groups WHERE publication_id = ?")
-    .get(publicationID)!.count
-  if (submission.target_scope === "groups" && groupCount < 1)
+  const groupCount = (
+    await connection.get<{ count: number }>(
+      "SELECT count(*) AS count FROM restricted_publication_groups WHERE publication_id = ?",
+      [publicationID],
+    )
+  )?.count
+  if (submission.target_scope === "groups" && (groupCount ?? 0) < 1)
     throw new Error("restricted group publication has no reviewed targets")
   if (submission.target_scope === "department" && groupCount !== 0)
     throw new Error("restricted department publication has group targets")
 
-  connection.run(
+  await connection.run(
     "UPDATE submissions SET status = 'published', version = version + 1, user_message = NULL, updated_at = ? WHERE id = ?",
     [now, submission.id],
   )
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, action, object_type, object_id, before_json, after_json, request_id, created_at)
      VALUES (?, 'publish-succeeded', 'submission', ?, ?, ?, ?, ?)`,
@@ -249,25 +243,21 @@ export function publishRestrictedSubmission(connection: Database, submissionID: 
   return { publicationID, publicationVersion }
 }
 
-export function publishPersonalAudienceChange(connection: Database, submissionID: string, now: number) {
-  const submission = connection
-    .query<
-      {
-        id: string
-        skill_id: string
-        owner_employee_id: string
-        target_version: string
-        source_publication_id: string | null
-        status: string
-        current_revision: number
-        row_version: number
-        manifest_json: string | null
-        scan_json: string | null
-        validation_errors_json: string | null
-      },
-      [string]
-    >(
-      `SELECT
+export async function publishPersonalAudienceChange(connection: Connection, submissionID: string, now: number) {
+  const submission = await connection.get<{
+    id: string
+    skill_id: string
+    owner_employee_id: string
+    target_version: string
+    source_publication_id: string | null
+    status: string
+    current_revision: number
+    row_version: number
+    manifest_json: string | null
+    scan_json: string | null
+    validation_errors_json: string | null
+  }>(
+    `SELECT
         submissions.id,
         submissions.skill_id,
         submissions.owner_employee_id,
@@ -284,8 +274,8 @@ export function publishPersonalAudienceChange(connection: Database, submissionID
          ON submission_revisions.submission_id = submissions.id
         AND submission_revisions.revision_number = submissions.current_revision
        WHERE submissions.id = ? AND submissions.target_scope = 'personal'`,
-    )
-    .get(submissionID)
+    [submissionID],
+  )
   if (
     !submission ||
     submission.status !== "publishing" ||
@@ -296,17 +286,19 @@ export function publishPersonalAudienceChange(connection: Database, submissionID
     decodeValidationIssues(submission.validation_errors_json).length !== 0
   )
     throw new Error("personal audience change is not verified for publication")
-  requireApprovedRevision(connection, submission.id, submission.current_revision)
-  requireAudienceChangeArtifact(connection, submission.id)
-  const publication = connection
-    .query<
-      { skill_id: string; owner_employee_id: string; version: string; status: string; row_version: number },
-      [string]
-    >(
-      `SELECT skill_id, owner_employee_id, version, status, row_version
+  await requireApprovedRevision(connection, submission.id, submission.current_revision)
+  await requireAudienceChangeArtifact(connection, submission.id)
+  const publication = await connection.get<{
+    skill_id: string
+    owner_employee_id: string
+    version: string
+    status: string
+    row_version: number
+  }>(
+    `SELECT skill_id, owner_employee_id, version, status, row_version
        FROM restricted_publications WHERE id = ?`,
-    )
-    .get(submission.source_publication_id)
+    [submission.source_publication_id],
+  )
   if (
     !publication ||
     publication.status !== "published" ||
@@ -316,17 +308,17 @@ export function publishPersonalAudienceChange(connection: Database, submissionID
   )
     throw new Error("personal audience change source publication no longer matches")
 
-  connection.run(
+  await connection.run(
     "UPDATE submissions SET status = 'published', version = version + 1, user_message = NULL, updated_at = ? WHERE id = ?",
     [now, submission.id],
   )
-  connection.run(
+  await connection.run(
     `UPDATE restricted_publications
      SET status = 'delisted', row_version = row_version + 1, updated_at = ?
      WHERE id = ?`,
     [now, submission.source_publication_id],
   )
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, action, object_type, object_id, before_json, after_json, request_id, created_at)
      VALUES (?, 'publish-succeeded', 'submission', ?, ?, ?, ?, ?)`,
@@ -356,35 +348,37 @@ function decodeValidationIssues(value: string) {
   )
 }
 
-function requireApprovedRevision(connection: Database, submissionID: string, revision: number) {
-  const approved = connection
-    .query<{ count: number }, [string, number]>(
+async function requireApprovedRevision(connection: Connection, submissionID: string, revision: number) {
+  const approved = (
+    await connection.get<{ count: number }>(
       `SELECT count(*) AS count FROM reviews
        WHERE submission_id = ? AND revision_number = ? AND decision = 'approve'`,
+      [submissionID, revision],
     )
-    .get(submissionID, revision)!.count
-  if (approved < 1) throw new Error("restricted submission is not approved")
+  )?.count
+  if ((approved ?? 0) < 1) throw new Error("restricted submission is not approved")
 }
 
-function requireApprovedArtifact(connection: Database, submission: RestrictedSubmissionRow) {
-  const approved = connection
-    .query<{ count: number }, [string, number, string, string, number, string]>(
+async function requireApprovedArtifact(connection: Connection, submission: RestrictedSubmissionRow) {
+  const approved = (
+    await connection.get<{ count: number }>(
       `SELECT count(*) AS count FROM reviews
        WHERE submission_id = ? AND revision_number = ? AND decision = 'approve'
          AND approved_package_key = ?
          AND approved_package_sha256 = ?
          AND approved_package_size = ?
          AND approved_metadata_json = ?`,
+      [
+        submission.id,
+        submission.current_revision,
+        submission.private_package_key,
+        submission.package_sha256,
+        submission.package_size,
+        submission.metadata_json,
+      ],
     )
-    .get(
-      submission.id,
-      submission.current_revision,
-      submission.private_package_key,
-      submission.package_sha256,
-      submission.package_size,
-      submission.metadata_json,
-    )!.count
-  if (approved < 1) throw new Error("restricted submission approved artifact identity no longer matches")
+  )?.count
+  if ((approved ?? 0) < 1) throw new Error("restricted submission approved artifact identity no longer matches")
 
   const json = submission.manifest_json
     ? Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(submission.manifest_json)

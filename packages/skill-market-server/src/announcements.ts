@@ -1,7 +1,7 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
-import type { MarketDatabase } from "./database"
+import type { MarketDatabase } from "./store"
 import { randomSecret, type Principal } from "./security"
 
 interface AnnouncementRow {
@@ -15,17 +15,15 @@ interface AnnouncementRow {
 export function createAnnouncements(options: { readonly database: MarketDatabase; readonly now?: () => number }) {
   return {
     list(query: { readonly page: number; readonly limit: number }) {
-      return options.database.read((connection) => {
-        const total = connection.query<{ count: number }, []>("SELECT count(*) AS count FROM announcements").get()!
-          .count
-        const rows = connection
-          .query<AnnouncementRow, [number, number]>(
-            `SELECT id, title, summary, content, published_at
+      return options.database.read(async (connection) => {
+        const total = (await connection.get<{ count: number }>("SELECT count(*) AS count FROM announcements"))?.count
+        const rows = await connection.all<AnnouncementRow>(
+          `SELECT id, title, summary, content, published_at
              FROM announcements
              ORDER BY published_at DESC, id DESC
              LIMIT ? OFFSET ?`,
-          )
-          .all(query.limit, (query.page - 1) * query.limit)
+          [query.limit, (query.page - 1) * query.limit],
+        )
         return Schema.decodeUnknownSync(SkillMarket.AnnouncementPage)({
           total,
           page: query.page,
@@ -36,27 +34,26 @@ export function createAnnouncements(options: { readonly database: MarketDatabase
     },
 
     detail(announcementID: string) {
-      const row = options.database.read((connection) =>
-        connection
-          .query<AnnouncementRow, [string]>(
-            "SELECT id, title, summary, content, published_at FROM announcements WHERE id = ?",
-          )
-          .get(announcementID),
+      const row = options.database.read(async (connection) =>
+        connection.get<AnnouncementRow>(
+          "SELECT id, title, summary, content, published_at FROM announcements WHERE id = ?",
+          [announcementID],
+        ),
       )
-      return row ? detail(row) : undefined
+      return row.then((value) => (value ? detail(value) : undefined))
     },
 
     publish(principal: Principal, input: SkillMarketControl.AnnouncementCreateInput) {
       const now = options.now?.() ?? Date.now()
       const announcementID = `ann_${randomSecret()}`
-      options.database.transaction((connection) => {
-        connection.run(
+      options.database.transaction(async (connection) => {
+        await connection.run(
           `INSERT INTO announcements
             (id, title, summary, content, published_by_employee_id, published_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
           [announcementID, input.title, input.summary, input.content, principal.session.user.employeeID, now],
         )
-        connection.run(
+        await connection.run(
           `INSERT INTO audit_events
             (id, actor_employee_id, action, object_type, object_id, after_json, request_id, created_at)
            VALUES (?, ?, 'announcement-published', 'announcement', ?, ?, ?, ?)`,

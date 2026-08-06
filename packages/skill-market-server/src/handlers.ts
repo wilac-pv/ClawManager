@@ -281,7 +281,7 @@ function privatePackageResponse(grants: InstallGrants, store: PrivateObjectStore
     const segments = new URL(request.url, "http://localhost").pathname.split("/").filter(Boolean)
     const token = segments.length === 3 && segments[0] === "v1" && segments[1] === "private-download" ? segments[2] : undefined
     const identity = token
-      ? yield* Effect.try({ try: () => grants.resolve(token), catch: () => undefined }).pipe(
+      ? yield* Effect.tryPromise({ try: () => grants.resolve(token), catch: () => undefined }).pipe(
           Effect.match({ onFailure: () => undefined, onSuccess: (value) => value }),
         )
       : undefined

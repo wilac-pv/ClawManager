@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import type { PrivateObjectStore } from "../src/oss"
 import type { Principal } from "../src/security"
 import { createSubmissions } from "../src/submissions"
@@ -19,7 +19,7 @@ afterEach(async () => {
 describe("durable skill market worker", () => {
   test("resumes validation after restart and lets different workers claim different submissions", async () => {
     const fixture = await workerFixture(["alpha-skill", "beta-skill"])
-    fixture.database.close()
+    await fixture.database.close()
     const database = await openDatabase({
       databasePath: fixture.databasePath,
       migrationBackupDirectory: fixture.backupPath,
@@ -37,13 +37,13 @@ describe("durable skill market worker", () => {
 
     expect(results.map((result) => result?.kind)).toEqual(["validation", "validation"])
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ status: string }, []>("SELECT status FROM submissions ORDER BY id")
         .all()
         .map((row) => row.status),
     ).toEqual(["pending_review", "pending_review"])
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<
           { validation_completed_at: number | null; validation_lease_owner: string | null },
           []
@@ -56,12 +56,12 @@ describe("durable skill market worker", () => {
     expect(JSON.stringify(metrics)).not.toContain("E123456")
     expect(JSON.stringify(metrics)).not.toContain("private/")
     expect(JSON.stringify(metrics)).not.toContain(fixture.hashes[0])
-    database.close()
+    await database.close()
   })
 
   test("reclaims expired work, coalesces wakeups, and records invalid archives without sensitive evidence", async () => {
     const fixture = await workerFixture(["recover-skill", "invalid-skill"], { invalidIndex: 1 })
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       `UPDATE submission_revisions
        SET validation_lease_owner = 'crashed-worker', validation_lease_expires_at = ?
        WHERE submission_id = 'sub_00000000'`,
@@ -79,14 +79,14 @@ describe("durable skill market worker", () => {
     await Promise.all([worker.wake("server"), worker.wake("server")])
 
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<{ id: string; status: string }, []>("SELECT id, status FROM submissions ORDER BY id")
         .all(),
     ).toEqual([
       { id: "sub_00000000", status: "pending_review" },
       { id: "sub_00000001", status: "validation_failed" },
     ])
-    const failure = fixture.database.connection
+    const failure = (fixture.database as SqliteDatabase).connection
       .query<
         { validation_errors_json: string; validation_lease_owner: string | null },
         []
@@ -98,23 +98,23 @@ describe("durable skill market worker", () => {
     expect(metrics.filter((metric) => JSON.stringify(metric).includes("skill_market_validation_result"))).toHaveLength(
       2,
     )
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("releases transient object-store failures for retry and cleans expired ephemeral records", async () => {
     const fixture = await workerFixture(["retry-skill"])
     fixture.failGet.value = true
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO login_attempts (attempt_hash, return_to, created_at, expires_at) VALUES ('expired-attempt', '/skills', ?, ?)",
       [clock.value - 10_000, clock.value - 1],
     )
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       `INSERT INTO sessions
         (session_hash, employee_id, csrf_hash, created_at, last_activity_at, absolute_expires_at)
        VALUES ('expired-session', 'E123456', 'csrf', ?, ?, ?)`,
       [clock.value - 10_000, clock.value - 10_000, clock.value - 1],
     )
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       `INSERT INTO idempotency_keys
         (employee_id, route, idempotency_key, request_hash, response_json, created_at, expires_at)
        VALUES ('E123456', 'test', 'expired-key', 'hash', '{}', ?, ?)`,
@@ -131,19 +131,19 @@ describe("durable skill market worker", () => {
 
     expect(await worker.runOne("worker-a")).toMatchObject({ kind: "validation", result: "retry" })
     expect(
-      fixture.database.connection.query<{ status: string }, []>("SELECT status FROM submissions").get()?.status,
+      (fixture.database as SqliteDatabase).connection.query<{ status: string }, []>("SELECT status FROM submissions").get()?.status,
     ).toBe("validating")
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<{ validation_lease_owner: string | null }, []>("SELECT validation_lease_owner FROM submission_revisions")
         .get()?.validation_lease_owner,
     ).toBeNull()
 
     fixture.failGet.value = false
     expect(await worker.runOne("worker-b")).toMatchObject({ kind: "validation", result: "success" })
-    expect(worker.cleanup()).toEqual({ loginAttempts: 1, sessions: 1, idempotencyKeys: 1 })
+    expect(await worker.cleanup()).toEqual({ loginAttempts: 1, sessions: 1, idempotencyKeys: 1 })
     expect(JSON.stringify(metrics)).not.toContain("object store unavailable")
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("retries when validated artifacts cannot be persisted", async () => {
@@ -159,12 +159,12 @@ describe("durable skill market worker", () => {
 
     expect(await worker.runOne("worker-a")).toMatchObject({ kind: "validation", result: "retry" })
     expect(
-      fixture.database.connection.query<{ status: string }, []>("SELECT status FROM submissions").get()?.status,
+      (fixture.database as SqliteDatabase).connection.query<{ status: string }, []>("SELECT status FROM submissions").get()?.status,
     ).toBe("validating")
 
     fixture.failPutPrivate.value = false
     expect(await worker.runOne("worker-b")).toMatchObject({ kind: "validation", result: "success" })
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("treats a validation completion after withdrawal as a stale no-op", async () => {
@@ -190,12 +190,12 @@ describe("durable skill market worker", () => {
 
     const completion = worker.runOne("stale-worker")
     await claimed.promise
-    submissions.withdraw(contributor(), "sub_00000000", { expectedVersion: 1 })
+    await submissions.withdraw(contributor(), "sub_00000000", { expectedVersion: 1 })
     resume.resolve()
 
     expect(await completion).toEqual({ kind: "validation", result: "stale" })
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { status: string; version: number; validation_completed_at: number | null; scan_json: string | null },
           []
@@ -208,7 +208,7 @@ describe("durable skill market worker", () => {
         .get(),
     ).toEqual({ status: "withdrawn", version: 2, validation_completed_at: null, scan_json: null })
     expect([...fixture.objects.keys()]).toEqual(objectKeys)
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("drains publication work after validation is idle", async () => {
@@ -235,7 +235,7 @@ describe("durable skill market worker", () => {
 
     expect(calls).toEqual(["worker-a", "worker-a"])
     expect(metrics).toEqual([expect.objectContaining({ skill_market_publish_result: { success: 1 } })])
-    fixture.database.close()
+    await fixture.database.close()
   })
 })
 
@@ -245,7 +245,7 @@ async function workerFixture(skillIDs: ReadonlyArray<string>, options: { invalid
   const databasePath = join(directory, "market.db")
   const backupPath = join(directory, "backups")
   const database = await openDatabase({ databasePath, migrationBackupDirectory: backupPath })
-  database.connection.run(
+  ;(database as SqliteDatabase).connection.run(
     "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES ('E123456', 'CONTRIBUTOR', ?, ?)",
     [clock.value, clock.value],
   )

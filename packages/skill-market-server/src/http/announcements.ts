@@ -8,18 +8,22 @@ export function createAnnouncementsHttp(announcements: Announcements) {
   return HttpApiBuilder.group(SkillMarketApi, "skillMarket.announcements", (handlers) =>
     handlers
       .handle("skillMarket.announcements.list", (context) =>
-        Effect.sync(() =>
+        Effect.promise(() =>
           announcements.list({
             page: context.query.page ?? 1,
             limit: context.query.limit ?? 20,
           }),
         ),
       )
-      .handle("skillMarket.announcements.detail", (context) => {
-        const detail = announcements.detail(context.params.announcementID)
-        return detail
-          ? Effect.succeed(detail)
-          : Effect.fail(new SkillMarketAnnouncementNotFound({ announcementID: context.params.announcementID }))
-      }),
+      .handle("skillMarket.announcements.detail", (context) =>
+        Effect.gen(function* () {
+          const detail = yield* Effect.promise(() => announcements.detail(context.params.announcementID))
+          if (!detail)
+            return yield* Effect.fail(
+              new SkillMarketAnnouncementNotFound({ announcementID: context.params.announcementID }),
+            )
+          return detail
+        }),
+      ),
   )
 }

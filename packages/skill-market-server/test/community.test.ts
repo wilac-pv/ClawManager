@@ -9,6 +9,7 @@ import {
   publishCommunityObjects,
 } from "../src/community"
 import { openDatabase } from "../src/database"
+import type { Connection } from "../src/store"
 import type { PrivateObjectStore } from "../src/oss"
 import { validateSubmissionArchive } from "../src/submission-archive"
 import { makeStoredZip } from "./zip"
@@ -45,15 +46,21 @@ describe("community catalog materialization", () => {
     expect(details[0]?.versions.map((version) => version.version)).toEqual(["0.9.0", "1.0.0"])
     expect(JSON.stringify(details[0])).not.toContain("E123456")
 
-    fixture.database.connection.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_current_12345678'")
+    await fixture.database.transaction(async (c) =>
+      c.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_current_12345678'"),
+    )
     expect(await listPublishedCommunity(fixture.database, communityOptions(fixture))).toEqual([])
-    fixture.database.connection.run("UPDATE submissions SET status = 'published' WHERE id = 'sub_current_12345678'")
-    fixture.database.connection.run(
-      "UPDATE community_skills SET public_status = 'delisted', delist_reason = 'Policy review' WHERE skill_id = 'community-review'",
+    await fixture.database.transaction(async (c) =>
+      c.run("UPDATE submissions SET status = 'published' WHERE id = 'sub_current_12345678'"),
+    )
+    await fixture.database.transaction(async (c) =>
+      c.run(
+        "UPDATE community_skills SET public_status = 'delisted', delist_reason = 'Policy review' WHERE skill_id = 'community-review'",
+      ),
     )
     expect(await listPublishedCommunity(fixture.database, communityOptions(fixture))).toEqual([])
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("keeps the private HTTP market base path in community page URLs", async () => {
@@ -71,7 +78,7 @@ describe("community catalog materialization", () => {
       package: { url: expect.stringMatching(/^https:\/\//) },
     })
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("copies verified quarantine objects to immutable community keys", async () => {
@@ -105,7 +112,7 @@ describe("community catalog materialization", () => {
     await expect(listPublishedCommunity(fixture.database, communityOptions(fixture))).rejects.toThrow(
       "community package",
     )
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("rejects a quarantine icon that no longer matches its validated identity", async () => {
@@ -119,7 +126,7 @@ describe("community catalog materialization", () => {
         "sub_current_12345678",
       ),
     ).rejects.toThrow("community icon")
-    fixture.database.close()
+    await fixture.database.close()
   })
 })
 
@@ -168,12 +175,12 @@ async function communityFixture(options: { published?: boolean; icon?: boolean }
   const store = memoryStore(objects, metadataByKey, copies)
   const createdAt = Date.parse("2026-07-15T00:00:00.000Z")
   const reviewedAt = Date.parse("2026-07-15T01:00:00.000Z")
-  database.transaction((connection) => {
-    connection.run(
+  await database.transaction(async (connection) => {
+    await connection.run(
       "INSERT INTO users (employee_id, display_name, email, created_at, last_login_at) VALUES ('E123456', 'CONTRIBUTOR', 'contributor@example.com', ?, ?)",
       [createdAt, createdAt],
     )
-    seedPublishedVersion(connection, {
+    await seedPublishedVersion(connection, {
       submissionID: "sub_previous_12345678",
       version: "0.9.0",
       sha256: "b".repeat(64),
@@ -183,7 +190,7 @@ async function communityFixture(options: { published?: boolean; icon?: boolean }
       scan: validation.scan,
       createdAt: createdAt - 1_000,
     })
-    seedPublishedVersion(connection, {
+    await seedPublishedVersion(connection, {
       submissionID: "sub_current_12345678",
       version: "1.0.0",
       sha256,
@@ -196,25 +203,25 @@ async function communityFixture(options: { published?: boolean; icon?: boolean }
         ? { key: "private/sub_current_12345678/icon.png", sha256: iconSha256, size: icon.byteLength, mime: "image/png" }
         : undefined,
     })
-    connection.run(
+    await connection.run(
       `INSERT INTO reviews
         (id, submission_id, revision_number, reviewer_employee_id, decision, created_at)
        VALUES ('review_current_12345678', 'sub_current_12345678', 1, 'E123456', 'approve', ?)`,
       [reviewedAt],
     )
-    connection.run(
+    await connection.run(
       `INSERT INTO community_skills
         (skill_id, owner_employee_id, current_version, current_submission_id, public_status, version, created_at, updated_at)
        VALUES ('community-review', 'E123456', '1.0.0', 'sub_current_12345678', 'published', 1, ?, ?)`,
       [createdAt, reviewedAt],
     )
-    connection.run(
+    await connection.run(
       `INSERT INTO submissions
         (id, skill_id, owner_employee_id, target_version, status, current_revision, version, created_at, updated_at)
        VALUES ('sub_pending_12345678', 'community-review', 'E123456', '2.0.0', 'pending_review', 1, 2, ?, ?)`,
       [reviewedAt + 1_000, reviewedAt + 1_000],
     )
-    connection.run(
+    await connection.run(
       `INSERT INTO submission_revisions
         (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
          manifest_json, scan_json, validation_errors_json, validation_completed_at, created_at)
@@ -229,7 +236,7 @@ async function communityFixture(options: { published?: boolean; icon?: boolean }
       ],
     )
     if (options.published === false)
-      connection.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_current_12345678'")
+      await connection.run("UPDATE submissions SET status = 'publishing' WHERE id = 'sub_current_12345678'")
   })
   return {
     database,
@@ -243,8 +250,8 @@ async function communityFixture(options: { published?: boolean; icon?: boolean }
   }
 }
 
-function seedPublishedVersion(
-  connection: import("bun:sqlite").Database,
+async function seedPublishedVersion(
+  connection: Connection,
   input: {
     submissionID: string
     version: string
@@ -257,13 +264,13 @@ function seedPublishedVersion(
     icon?: { key: string; sha256: string; size: number; mime: string }
   },
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO submissions
       (id, skill_id, owner_employee_id, target_version, status, current_revision, version, created_at, updated_at)
      VALUES (?, 'community-review', 'E123456', ?, 'published', 1, 3, ?, ?)`,
     [input.submissionID, input.version, input.createdAt, input.createdAt],
   )
-  connection.run(
+  await connection.run(
     `INSERT INTO submission_revisions
       (submission_id, revision_number, private_package_key, package_sha256, package_size, metadata_json,
        private_icon_json, manifest_json, scan_json, validation_errors_json, validation_completed_at, created_at)

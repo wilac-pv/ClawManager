@@ -106,7 +106,7 @@ export function createCatalogHttp(options: CatalogHttpOptions) {
         privateHeaders(
           Effect.gen(function* () {
             const principal = principalFromSession(yield* SkillMarketPrincipal)
-            return yield* Effect.try({
+            return yield* Effect.tryPromise({
               try: () => options.installGrants.issue(principal, context.params.publicationID),
               catch: restrictedProblem,
             })
@@ -235,7 +235,7 @@ function optionalPrincipal(options: Pick<CatalogHttpOptions, "security" | "sessi
   return Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest
     const cookies = readCookies(request.headers.cookie)
-    return yield* Effect.try({
+    return yield* Effect.tryPromise({
       try: () =>
         options.security.requireSession({
           sessionToken: cookies.get(options.sessionCookieName) ?? "",
@@ -248,7 +248,7 @@ function optionalPrincipal(options: Pick<CatalogHttpOptions, "security" | "sessi
 
 function privateCatalogResponse<A>(
   options: Pick<CatalogHttpOptions, "restrictedCatalog" | "security" | "sessionCookieName">,
-  read: (principal: Principal) => A,
+  read: (principal: Principal) => Promise<A>,
 ) {
   return privateHeaders(
     Effect.gen(function* () {
@@ -259,7 +259,7 @@ function privateCatalogResponse<A>(
           message: "受限 Skill 不存在",
           requestId: requestID(),
         })
-      return yield* Effect.try({ try: () => read(principal), catch: restrictedProblem })
+      return yield* Effect.tryPromise({ try: () => read(principal), catch: restrictedProblem })
     }),
   )
 }

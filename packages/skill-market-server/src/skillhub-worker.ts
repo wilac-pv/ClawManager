@@ -1,5 +1,5 @@
 import { loadConfig, type SkillMarketConfig } from "./config"
-import { openDatabase, type MarketDatabase } from "./database"
+import { openMarketDatabase, type MarketDatabase } from "./database"
 import { discoverSkillHub } from "./skillhub-discovery"
 import { createSkillHubImportStore, type SkillHubImportStore } from "./skillhub-import-store"
 import { createSkillHubMirror, type SkillHubMirror } from "./skillhub-mirror"
@@ -58,8 +58,8 @@ export async function runSkillHubWorker(options: {
   readonly recover?: () => Promise<unknown>
   readonly discover: () => Promise<void>
   readonly mirror: Pick<SkillHubMirror, "runBatch">
-  readonly progress: () => { readonly mirrored: number }
-  readonly publicationCheckpoint: () => { readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string }
+  readonly progress: () => Promise<{ readonly mirrored: number }>
+  readonly publicationCheckpoint: () => Promise<{ readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string }>
   readonly shouldPublish: (
     progress: { readonly mirrored: number },
     checkpoint: { readonly lastPublishedCount: number; readonly lastPublishedAt?: string; readonly startedAt?: string },
@@ -84,8 +84,8 @@ export async function runSkillHubWorker(options: {
     }
     if (batch.mirrored === 0 && batch.retryWait === 0 && batch.rejected === 0) break
   }
-  const progress = options.progress()
-  let published = Boolean(options.publish && options.shouldPublish(progress, options.publicationCheckpoint()))
+  const progress = await options.progress()
+  let published = Boolean(options.publish && options.shouldPublish(progress, await options.publicationCheckpoint()))
   if (published) {
     published = (await options.publish!()) !== false
     if (published) options.recordPublication?.(progress.mirrored)
@@ -112,9 +112,11 @@ export async function runConfiguredSkillHubWorker(
   } = {},
 ) {
   const config = options.config ?? loadConfig()
-  const database = await openDatabase({
+  const database = await openMarketDatabase({
     databasePath: config.databasePath,
     migrationBackupDirectory: config.migrationBackupDirectory,
+    postgresUrl: config.postgresUrl,
+    postgresSchema: config.postgresSchema,
     emit: options.emit,
   })
   try {
@@ -146,7 +148,7 @@ async function runWithDatabase(
     metadataConcurrency: config.skillhubMetadataConcurrency,
     packageConcurrency: config.skillhubPackageConcurrency,
   })
-  recoverExpiredClaims(database)
+  await recoverExpiredClaims(database)
   const fetcher = options.fetcher ?? fetch
   const mirror = createSkillHubMirror({
     imports,
@@ -232,8 +234,8 @@ export function shouldPublishSkillHub(
   return progress.sourceStatus === "fresh" && progress.pending === 0 && progress.running === 0 && progress.retryWait === 0
 }
 
-function recoverExpiredClaims(database: MarketDatabase) {
-  database.transaction((connection) =>
+async function recoverExpiredClaims(database: MarketDatabase) {
+  await database.transaction((connection) =>
     connection.run(
       "UPDATE skillhub_import_items SET state = 'pending', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE state = 'running' AND lease_expires_at <= ?",
       [Date.now(), Date.now()],

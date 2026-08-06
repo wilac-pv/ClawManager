@@ -8,7 +8,7 @@ export function createCatalogReader(options: {
   readonly prefix: string
   readonly ttlMilliseconds?: number
   readonly now?: () => number
-  readonly restrictedCatalog?: { readonly list: (principal: Principal) => ReadonlyArray<SkillMarket.Summary> }
+  readonly restrictedCatalog?: { readonly list: (principal: Principal) => Promise<ReadonlyArray<SkillMarket.Summary>> }
 }): CatalogReader {
   const ttlMilliseconds = options.ttlMilliseconds ?? 60_000
   const now = options.now ?? Date.now
@@ -80,19 +80,19 @@ export function createCatalogReader(options: {
 
 export function authorizeCatalogReader(
   catalog: CatalogReader,
-  restrictedCatalog: { readonly list: (principal: Principal) => ReadonlyArray<SkillMarket.Summary> },
+  restrictedCatalog: { readonly list: (principal: Principal) => Promise<ReadonlyArray<SkillMarket.Summary>> },
 ) {
   return {
     ...catalog,
     async list(query: SkillMarket.PageQuery, current?: CatalogIndex, principal?: Principal) {
       const index = current ?? (await catalog.index())
       if (!principal) return catalog.list(query, index)
-      return queryCatalogIndex(combine(index, restrictedCatalog.list(principal)), query)
+      return queryCatalogIndex(combine(index, await restrictedCatalog.list(principal)), query)
     },
     async facets(current?: CatalogIndex, principal?: Principal) {
       const index = current ?? (await catalog.index())
       if (!principal) return catalog.facets(index)
-      return combine(index, restrictedCatalog.list(principal)).facets
+      return combine(index, await restrictedCatalog.list(principal)).facets
     },
   } satisfies CatalogReader
 }

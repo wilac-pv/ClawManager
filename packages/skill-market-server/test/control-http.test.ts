@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import type { Database } from "bun:sqlite"
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
@@ -10,7 +9,7 @@ import { join } from "node:path"
 import { createAnnouncements } from "../src/announcements"
 import { createAuth } from "../src/auth"
 import type { CatalogReader } from "../src/catalog-reader"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { createExpertPackages } from "../src/expert-packages"
 import { createFavorites } from "../src/favorites"
 import { createGroups } from "../src/groups"
@@ -26,6 +25,7 @@ import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { createSkillHubEvaluationStore } from "../src/skillhub-evaluation-store"
 import { createSubmissions } from "../src/submissions"
+import type { Connection } from "../src/store"
 import { sampleCatalogReader, sampleDetail, sampleSnapshot } from "./fixture"
 import { makeStoredZip } from "./zip"
 
@@ -97,11 +97,11 @@ describe("skill market control HTTP", () => {
     expect(conflict.status).toBe(409)
     expect(await conflict.json()).toMatchObject({ code: "submission-conflict", requestId: expect.any(String) })
 
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
       ["future-user", "Future User", now, now],
     )
-    fixture.database.connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", [
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", [
       "future-user",
       "E123456",
     ])
@@ -120,7 +120,7 @@ describe("skill market control HTTP", () => {
     expect(memberUpdate.status).toBe(403)
     expect(await memberUpdate.json()).toMatchObject({ code: "forbidden", requestId: expect.any(String) })
 
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'admin', NULL, ?)",
       ["future-user", now],
     )
@@ -153,11 +153,11 @@ describe("skill market control HTTP", () => {
       joined: [],
     })
 
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
       ["outsider", "Outsider", now, now],
     )
-    fixture.database.connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", [
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE sessions SET employee_id = ? WHERE employee_id = ?", [
       "outsider",
       "future-user",
     ])
@@ -181,7 +181,7 @@ describe("skill market control HTTP", () => {
 
   test("serves announcement history publicly and protects announcement publishing", async () => {
     await using fixture = await marketFixture()
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       `INSERT INTO announcements (id, title, summary, content, published_at)
        VALUES (?, ?, ?, ?, ?)`,
       ["ann_abcdefgh", "市场公告", "公告摘要", "# 公告正文", now],
@@ -232,7 +232,7 @@ describe("skill market control HTTP", () => {
     await using fixture = await marketFixture({ publicCommunityID: "pub_httpgroup01" })
     const body = new TextEncoder().encode("restricted package body")
     const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex")
-    const users = fixture.database.transaction((connection) => {
+    const users = await fixture.database.transaction((connection) => {
       connection.run(
         "INSERT INTO departments (department_id, display_name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
         ["engineering", "Engineering", now, now, "other", "Other", now, now],
@@ -456,7 +456,7 @@ describe("skill market control HTTP", () => {
         ).status,
       ),
     ).toBeTrue()
-    fixture.database.connection.run("UPDATE users SET department_id = 'other' WHERE employee_id = 'restricted-department'")
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE users SET department_id = 'other' WHERE employee_id = 'restricted-department'")
     expect(
       (
         await fetch(`${fixture.url}/v1/restricted-skills/pub_httpdepart1`, {
@@ -485,7 +485,7 @@ describe("skill market control HTTP", () => {
     expect(grantUrl.origin).toBe("https://market.example")
     expect(grant.expiresAt).toBe(new Date(now + 10 * 60_000).toISOString())
     expect(JSON.stringify(grant)).not.toContain("skill-market-private")
-    const grantRow = fixture.database.connection
+    const grantRow = (fixture.database as SqliteDatabase).connection
       .query<{ token_hash: string }, [string]>(
         "SELECT token_hash FROM private_install_grants WHERE publication_id = ? ORDER BY created_at DESC",
       )
@@ -504,7 +504,7 @@ describe("skill market control HTTP", () => {
     expect(await head.text()).toBe("")
     expect(new Uint8Array(await get.arrayBuffer())).toEqual(body)
 
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "DELETE FROM market_group_members WHERE group_id = 'grp_httpactive1' AND employee_id = 'restricted-group'",
     )
     expect((await fetch(`${fixture.url}${downloadPath}`)).status).toBe(404)
@@ -512,11 +512,11 @@ describe("skill market control HTTP", () => {
     expect(Schema.decodeUnknownSync(Schema.Array(SkillMarket.Favorite))(await revokedFavorites.json())).toEqual([])
     expect((await fetch(`${fixture.url}/v1/private-download/malformed`)).status).toBe(404)
 
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at) VALUES (?, ?, ?, ?)",
       ["grp_httpactive1", "restricted-group", "restricted-owner", now],
     )
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "UPDATE private_install_grants SET created_at = ?, expires_at = ? WHERE token_hash = ?",
       [now - 10 * 60_000, now, hashSecret(token)],
     )
@@ -529,11 +529,11 @@ describe("skill market control HTTP", () => {
       },
     )
     const delistedGrant = Schema.decodeUnknownSync(SkillMarket.PrivateInstallGrant)(await delistedGrantResponse.json())
-    fixture.database.connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = 'pub_httpgroup01'")
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = 'pub_httpgroup01'")
     expect((await fetch(`${fixture.url}${new URL(delistedGrant.url).pathname}`)).status).toBe(404)
     expect(JSON.stringify(fixture.metrics)).not.toContain(token)
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<{ count: number }, []>(
           `SELECT count(*) AS count FROM audit_events
            WHERE before_json LIKE '%skill-market-private%' OR after_json LIKE '%skill-market-private%'`,
@@ -1092,7 +1092,7 @@ describe("skill market control HTTP", () => {
       redirect: "manual",
     })
     const session = await loginSession(fixture, login, "/admin/announcements")
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'admin', ?, ?)",
       ["E123456", "E123456", now],
     )
@@ -1116,7 +1116,7 @@ describe("skill market control HTTP", () => {
     const announcement = Schema.decodeUnknownSync(SkillMarket.AnnouncementDetail)(await response.json())
     expect(announcement).toMatchObject({ title: "新功能上线", content: "# 公告正文" })
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { action: string; object_type: string },
           [string]
@@ -1226,7 +1226,7 @@ describe("skill market control HTTP", () => {
     expect(created.status).toBe(202)
     const accepted = Schema.decodeUnknownSync(SkillMarketControl.AcceptedSubmission)(await created.json())
     expect(accepted.submission).toMatchObject({ target: "personal", status: "validating" })
-    fixture.database.connection.run("UPDATE submissions SET status = 'published' WHERE id = ?", [
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE submissions SET status = 'published' WHERE id = ?", [
       accepted.submission.id,
     ])
 
@@ -1369,11 +1369,11 @@ describe("skill market control HTTP", () => {
 
   test("preassigns roles over HTTP and reports duplicate assignments clearly", async () => {
     await using fixture = await marketFixture()
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
       ["E123456", "E123456", now, now],
     )
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
       ["E123456", "admin", null, now],
     )
@@ -1409,11 +1409,11 @@ describe("skill market control HTTP", () => {
 
   test("returns durable SkillHub import progress to an authenticated admin", async () => {
     await using fixture = await marketFixture()
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO users (employee_id, display_name, created_at, last_login_at) VALUES (?, ?, ?, ?)",
       ["E123456", "E123456", now, now],
     )
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
       ["E123456", "admin", null, now],
     )
@@ -1446,7 +1446,7 @@ describe("skill market control HTTP", () => {
     })
     expect(member.status).toBe(403)
 
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, ?, ?, ?)",
       ["E123456", "admin", null, now],
     )
@@ -1467,7 +1467,7 @@ describe("skill market control HTTP", () => {
     await using fixture = await marketFixture()
     const login = await fetch(`${fixture.url}/v1/auth/login?returnTo=%2Fadmin`, { redirect: "manual" })
     const session = await loginSession(fixture, login, "/admin")
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "INSERT INTO role_assignments (employee_id, role, created_by, created_at) VALUES (?, 'reviewer', ?, ?)",
       ["E123456", "E123456", now],
     )
@@ -1780,7 +1780,7 @@ async function marketFixture(
 }
 
 function completeStoredValidation(fixture: Awaited<ReturnType<typeof marketFixture>>, submissionID: string) {
-  const revision = fixture.database.connection
+  const revision = (fixture.database as SqliteDatabase).connection
     .query<
       { package_sha256: string; package_size: number },
       [string]
@@ -1822,7 +1822,7 @@ function seedHttpRestrictedPublication(fixture: Awaited<ReturnType<typeof market
 }
 
 function seedHttpSession(
-  connection: Database,
+  connection: Connection,
   employeeID: string,
   departmentID: string,
   roles: ReadonlyArray<"contributor" | "reviewer" | "admin"> = [],
@@ -1850,7 +1850,7 @@ function seedHttpSession(
 }
 
 function seedCatalogPublication(
-  connection: Database,
+  connection: Connection,
   input: {
     readonly id: string
     readonly submissionID: string

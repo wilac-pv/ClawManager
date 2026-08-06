@@ -1,7 +1,7 @@
 import { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { Option, Schema } from "effect"
 import matter from "gray-matter"
-import type { MarketDatabase } from "./database"
+import type { MarketDatabase } from "./store"
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -43,9 +43,9 @@ export function createExpertPackages(options: {
     async refresh() {
       const packages = await fetchAll(options.fetcher ?? fetch, options.baseUrl)
       const now = options.now?.() ?? Date.now()
-      options.database.transaction((connection) => {
-        packages.forEach((entry) =>
-          connection.run(
+      await options.database.transaction(async (connection) => {
+        for (const entry of packages)
+          await connection.run(
             `INSERT INTO expert_packages
               (slug, display_name, summary, scene, sub_scene, content, skill_slugs_json, skill_count,
                upstream_updated_at, synchronized_at)
@@ -72,11 +72,13 @@ export function createExpertPackages(options: {
               entry.updatedAt,
               now,
             ],
-          ),
-        )
+          )
         if (packages.length === 0) return
         const placeholders = packages.map(() => "?").join(", ")
-        connection.run(`DELETE FROM expert_packages WHERE slug NOT IN (${placeholders})`, packages.map((entry) => entry.slug))
+        await connection.run(
+          `DELETE FROM expert_packages WHERE slug NOT IN (${placeholders})`,
+          packages.map((entry) => entry.slug),
+        )
       })
       return packages.length
     },
@@ -99,22 +101,19 @@ export function createExpertPackages(options: {
         parameters.push(query.scene)
       }
       const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : ""
-      return options.database.read((connection) => {
-        const total = connection
-          .query<{ count: number }, Array<string | number>>(`SELECT count(*) AS count FROM expert_packages${where}`)
-          .get(...parameters)!.count
-        const rows = connection
-          .query<PackageRow, Array<string | number>>(
-            `SELECT slug, display_name, summary, scene, content, skill_slugs_json, skill_count, upstream_updated_at
+      return options.database.read(async (connection) => {
+        const total = (
+          await connection.get<{ count: number }>(`SELECT count(*) AS count FROM expert_packages${where}`, parameters)
+        )?.count
+        const rows = await connection.all<PackageRow>(
+          `SELECT slug, display_name, summary, scene, content, skill_slugs_json, skill_count, upstream_updated_at
              FROM expert_packages${where}
              ORDER BY upstream_updated_at DESC, slug LIMIT ? OFFSET ?`,
-          )
-          .all(...parameters, query.limit, (query.page - 1) * query.limit)
-        const scenes = connection
-          .query<{ scene: SkillMarket.ExpertPackageScene; count: number }, []>(
-            "SELECT scene, count(*) AS count FROM expert_packages GROUP BY scene ORDER BY scene",
-          )
-          .all()
+          [...parameters, query.limit, (query.page - 1) * query.limit],
+        )
+        const scenes = await connection.all<{ scene: SkillMarket.ExpertPackageScene; count: number }>(
+          "SELECT scene, count(*) AS count FROM expert_packages GROUP BY scene ORDER BY scene",
+        )
         return Schema.decodeUnknownSync(SkillMarket.ExpertPackagePage)({
           total,
           page: query.page,
@@ -126,22 +125,24 @@ export function createExpertPackages(options: {
     },
 
     detail(slug: string) {
-      const row = options.database.read((connection) =>
-        connection
-          .query<PackageRow, [string]>(
+      return options.database
+        .read(async (connection) =>
+          connection.get<PackageRow>(
             `SELECT slug, display_name, summary, scene, content, skill_slugs_json, skill_count, upstream_updated_at
              FROM expert_packages WHERE slug = ?`,
-          )
-          .get(slug),
-      )
-      if (!row) return undefined
-      return Schema.decodeUnknownSync(SkillMarket.ExpertPackageDetail)({
-        ...summary(row),
-        content: matter(row.content).content,
-        skillSlugs: Schema.decodeUnknownSync(Schema.Array(Schema.String))(
-          Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(row.skill_slugs_json),
-        ),
-      })
+            [slug],
+          ),
+        )
+        .then((row) => {
+          if (!row) return undefined
+          return Schema.decodeUnknownSync(SkillMarket.ExpertPackageDetail)({
+            ...summary(row),
+            content: matter(row.content).content,
+            skillSlugs: Schema.decodeUnknownSync(Schema.Array(Schema.String))(
+              Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(row.skill_slugs_json),
+            ),
+          })
+        })
     },
   }
 }

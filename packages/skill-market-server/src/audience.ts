@@ -1,8 +1,8 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Schema } from "effect"
-import type { Principal } from "./security"
+import type { Connection } from "./store"
 import { SkillMarketSecurityError } from "./security"
+import type { Principal } from "./security"
 
 export interface SubmissionAudienceRow {
   readonly target_scope: SkillMarketControl.PublicationTarget
@@ -11,12 +11,12 @@ export interface SubmissionAudienceRow {
   readonly target_group_ids_json: string
 }
 
-export function requireAudienceTarget(
-  connection: Database,
+export async function requireAudienceTarget(
+  connection: Connection,
   principal: Principal,
   target: SkillMarketControl.PublicationTarget,
   audience?: SkillMarketControl.AudienceInput,
-): SkillMarketControl.AudienceTarget {
+): Promise<SkillMarketControl.AudienceTarget> {
   if (!Schema.is(SkillMarketControl.PublicationTarget)(target)) throw invalid("submission target is invalid")
   if (target === "personal" || target === "company") {
     if (audience !== undefined) throw invalid("unscoped submission target cannot include an audience")
@@ -25,14 +25,13 @@ export function requireAudienceTarget(
   if (!Schema.is(SkillMarketControl.AudienceInput)(audience) || audience.scope !== target)
     throw invalid("submission audience does not match its target")
   if (target === "department") {
-    const department = connection
-      .query<{ department_id: string | null; display_name: string | null }, [string]>(
-        `SELECT users.department_id, departments.display_name
-         FROM users
-         LEFT JOIN departments ON departments.department_id = users.department_id
-         WHERE users.employee_id = ?`,
-      )
-      .get(principal.session.user.employeeID)
+    const department = await connection.get<{ department_id: string | null; display_name: string | null }>(
+      `SELECT users.department_id, departments.display_name
+       FROM users
+       LEFT JOIN departments ON departments.department_id = users.department_id
+       WHERE users.employee_id = ?`,
+      [principal.session.user.employeeID],
+    )
     if (!department?.department_id || !department.display_name)
       throw new SkillMarketSecurityError("forbidden", "employee has no trusted department")
     return {
@@ -48,21 +47,20 @@ export function requireAudienceTarget(
     groupIDs.some((groupID) => !Schema.is(SkillMarketControl.GroupID)(groupID))
   )
     throw invalid("group audience must contain between one and fifty groups")
-  const rows = connection
-    .query<{ id: string; owner_employee_id: string; status: "active" | "disabled" }, string[]>(
-      `SELECT id, owner_employee_id, status
-       FROM market_groups WHERE id IN (${groupIDs.map(() => "?").join(", ")})`,
-    )
-    .all(...groupIDs)
+  const rows = await connection.all<{ id: string; owner_employee_id: string; status: "active" | "disabled" }>(
+    `SELECT id, owner_employee_id, status
+     FROM market_groups WHERE id IN (${groupIDs.map(() => "?").join(", ")})`,
+    groupIDs,
+  )
   const groups = new Map(rows.map((row) => [row.id, row]))
   const memberships = new Set(
-    connection
-      .query<{ group_id: string }, string[]>(
+    (
+      await connection.all<{ group_id: string }>(
         `SELECT group_id FROM market_group_members
          WHERE employee_id = ? AND group_id IN (${groupIDs.map(() => "?").join(", ")})`,
+        [principal.session.user.employeeID, ...groupIDs],
       )
-      .all(principal.session.user.employeeID, ...groupIDs)
-      .map((row) => row.group_id),
+    ).map((row) => row.group_id),
   )
   if (
     groupIDs.some((groupID) => {
@@ -80,18 +78,18 @@ export function requireAudienceTarget(
   return { scope: "groups", groupIDs }
 }
 
-export function insertSubmissionGroupTargets(
-  connection: Database,
+export async function insertSubmissionGroupTargets(
+  connection: Connection,
   submissionID: string,
   audience: SkillMarketControl.AudienceTarget,
-) {
+): Promise<void> {
   if (audience.scope !== "groups") return
-  audience.groupIDs.forEach((groupID) =>
-    connection.run("INSERT INTO submission_group_targets (submission_id, group_id) VALUES (?, ?)", [
+  for (const groupID of audience.groupIDs) {
+    await connection.run("INSERT INTO submission_group_targets (submission_id, group_id) VALUES (?, ?)", [
       submissionID,
       groupID,
-    ]),
-  )
+    ])
+  }
 }
 
 export function submissionAudience(row: SubmissionAudienceRow): SkillMarketControl.AudienceTarget | undefined {
@@ -143,43 +141,44 @@ export function restrictedReadParameters(principal: Principal) {
   ] as const
 }
 
-export function canReadRestricted(connection: Database, principal: Principal, publicationID: string) {
+export async function canReadRestricted(connection: Connection, principal: Principal, publicationID: string) {
   return canReadRestrictedWithParameters(connection, publicationID, restrictedReadParameters(principal))
 }
 
-export function canEmployeeReadRestricted(connection: Database, employeeID: string, publicationID: string) {
-  const user = connection
-    .query<{ disabled_at: number | null; admin: number }, [string]>(
-      `SELECT users.disabled_at,
-        EXISTS (
-          SELECT 1 FROM role_assignments
-          WHERE role_assignments.employee_id = users.employee_id AND role_assignments.role = 'admin'
-        ) AS admin
-       FROM users WHERE users.employee_id = ?`,
-    )
-    .get(employeeID)
+export async function canEmployeeReadRestricted(
+  connection: Connection,
+  employeeID: string,
+  publicationID: string,
+) {
+  const user = await connection.get<{ disabled_at: number | null; admin: number }>(
+    `SELECT users.disabled_at,
+      EXISTS (
+        SELECT 1 FROM role_assignments
+        WHERE role_assignments.employee_id = users.employee_id AND role_assignments.role = 'admin'
+      ) AS admin
+     FROM users WHERE users.employee_id = ?`,
+    [employeeID],
+  )
   if (!user || user.disabled_at !== null) return false
   return canReadRestrictedWithParameters(connection, publicationID, [user.admin, employeeID, employeeID, employeeID])
 }
 
-function canReadRestrictedWithParameters(
-  connection: Database,
+async function canReadRestrictedWithParameters(
+  connection: Connection,
   publicationID: string,
   parameters: readonly [number, string, string, string],
 ) {
   if (!Schema.is(SkillMarketControl.PublicationID)(publicationID)) return false
-  return Boolean(
-    connection
-      .query<{ allowed: number }, [string, number, string, string, string]>(
-        `SELECT 1 AS allowed
-         FROM restricted_publications
-         WHERE restricted_publications.id = ?
-           AND restricted_publications.status = 'published'
-           AND ${RestrictedReadConditionSql}
-         LIMIT 1`,
-      )
-      .get(publicationID, ...parameters)?.allowed,
+  const row = await connection.get<{ allowed: number }>(
+    `SELECT 1 AS allowed
+     FROM restricted_publications
+     WHERE restricted_publications.id = ?
+       AND restricted_publications.status = 'published'
+       AND ${RestrictedReadConditionSql}
+     LIMIT 1`,
+    [publicationID, ...parameters],
   )
+  return Boolean(row?.allowed)
 }
 
 function invalid(message: string) {

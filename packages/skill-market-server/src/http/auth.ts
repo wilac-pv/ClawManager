@@ -27,8 +27,8 @@ export function createAuthHttp(options: AuthHttpOptions) {
   return HttpApiBuilder.group(SkillMarketApi, "skillMarket.auth", (handlers) =>
     handlers
       .handle("skillMarket.auth.login", (context) =>
-        Effect.try({
-          try: () => HttpServerResponse.redirect(options.auth.begin(context.query.returnTo).authorizationUrl),
+        Effect.tryPromise({
+          try: async () => HttpServerResponse.redirect((await options.auth.begin(context.query.returnTo)).authorizationUrl),
           catch: authProblem,
         }),
       )
@@ -94,7 +94,7 @@ export function createAuthHttp(options: AuthHttpOptions) {
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest
           const cookies = readCookies(request.headers.cookie)
-          return yield* Effect.try({
+          return yield* Effect.tryPromise({
             try: () =>
               options.auth.session(cookies.get(options.sessionCookieName) ?? "", cookies.get(csrfCookieName) ?? ""),
             catch: () => undefined,
@@ -110,7 +110,7 @@ export function createAuthHttp(options: AuthHttpOptions) {
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest
           const cookies = readCookies(request.headers.cookie)
-          options.auth.logout(cookies.get(options.sessionCookieName) ?? "")
+          yield* Effect.promise(() => options.auth.logout(cookies.get(options.sessionCookieName) ?? ""))
           return HttpServerResponse.setCookiesUnsafe(HttpServerResponse.empty(), [
             [
               options.sessionCookieName,

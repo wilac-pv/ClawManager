@@ -55,31 +55,31 @@ export function createSkillHubMirror(options: {
   return {
     async runBatch(workerID) {
       if (rssBytes() > memoryLimit) return { mirrored: 0, retryWait: 0, rejected: 0 }
-      const claimed = options.imports.claim(workerID, packages.concurrency(), options.leaseMilliseconds ?? 5 * 60 * 1_000)
+      const claimed = await options.imports.claim(workerID, packages.concurrency(), options.leaseMilliseconds ?? 5 * 60 * 1_000)
       const outcomes = await packages.map(claimed, async (item) => {
         const leaseMilliseconds = options.leaseMilliseconds ?? 5 * 60 * 1_000
-        const heartbeat = setInterval(() => options.imports.renew(workerID, item.slug, leaseMilliseconds), Math.max(1, leaseMilliseconds / 2))
+        const heartbeat = setInterval(() => void options.imports.renew(workerID, item.slug, leaseMilliseconds).catch(() => undefined), Math.max(1, leaseMilliseconds / 2))
         const result = await mirrorClaim(item, options, metadata, packages, prefix, now, wait).finally(() => clearInterval(heartbeat))
         if ("detail" in result) return result
         if (result.kind === "reject") {
-          return options.imports.reject(workerID, item.slug, result.code, result.code) ? result : { kind: "fenced" as const }
+          return (await options.imports.reject(workerID, item.slug, result.code, result.code)) ? result : { kind: "fenced" as const }
         }
-        return options.imports.retry(workerID, item.slug, result.code, result.code, result.retryAt)
+        return (await options.imports.retry(workerID, item.slug, result.code, result.code, result.retryAt))
           ? result
           : { kind: "fenced" as const }
       })
       let mirrored = 0
       let retryWait = 0
       let rejected = 0
-      outcomes.forEach((outcome) => {
+      for (const outcome of outcomes) {
         if ("detail" in outcome) {
-          if (options.imports.complete(workerID, outcome.item.slug, outcome.detail)) mirrored += 1
-          return
+          if (await options.imports.complete(workerID, outcome.item.slug, outcome.detail)) mirrored += 1
+          continue
         }
-        if (outcome.kind === "fenced") return
+        if (outcome.kind === "fenced") continue
         if (outcome.kind === "retry") retryWait += 1
         if (outcome.kind === "reject") rejected += 1
-      })
+      }
       return { mirrored, retryWait, rejected }
     },
   }

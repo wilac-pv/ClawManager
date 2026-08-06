@@ -4,7 +4,7 @@ import { Schema } from "effect"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { canReadRestricted } from "../src/audience"
 import type { Principal } from "../src/security"
 import { SkillMarketSecurityError } from "../src/security"
@@ -62,22 +62,22 @@ describe("submission lifecycle", () => {
     for (const [index, status] of allowed.entries()) {
       const input = upload(`withdraw-${status}`, `1.0.${index}`)
       const created = await submissions.create(fixture.alice, { idempotencyKey: `withdraw-${status}`, ...input })
-      fixture.database.connection.run(
+      ;(fixture.database as SqliteDatabase).connection.run(
         "UPDATE submissions SET status = ?, version = 7, user_message = 'pending detail' WHERE id = ?",
         [status, created.submission.id],
       )
-      fixture.database.connection.run(
+      ;(fixture.database as SqliteDatabase).connection.run(
         `UPDATE submission_revisions
          SET validation_lease_owner = 'stale-worker', validation_lease_expires_at = ?
          WHERE submission_id = ? AND revision_number = 1`,
         [fixture.clock.value + 60_000, created.submission.id],
       )
 
-      const withdrawn = submissions.withdraw(fixture.alice, created.submission.id, { expectedVersion: 7 })
+      const withdrawn = await submissions.withdraw(fixture.alice, created.submission.id, { expectedVersion: 7 })
 
       expect(withdrawn).toMatchObject({ id: created.submission.id, status: "withdrawn", version: 8 })
       expect(
-        fixture.database.connection
+        (fixture.database as SqliteDatabase).connection
           .query<
             { status: string; version: number; user_message: string | null; validation_lease_owner: string | null },
             [string]
@@ -97,7 +97,7 @@ describe("submission lifecycle", () => {
     for (const [index, status] of (["publishing", "published"] as const).entries()) {
       const input = upload(`cannot-withdraw-${status}`, `2.0.${index}`)
       const created = await submissions.create(fixture.alice, { idempotencyKey: `cannot-withdraw-${status}`, ...input })
-      fixture.database.connection.run("UPDATE submissions SET status = ?, version = 4 WHERE id = ?", [
+      ;(fixture.database as SqliteDatabase).connection.run("UPDATE submissions SET status = ?, version = 4 WHERE id = ?", [
         status,
         created.submission.id,
       ])
@@ -115,7 +115,7 @@ describe("submission lifecycle", () => {
     const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
     const input = upload("owner-delist", "1.0.0")
     const created = await submissions.create(fixture.alice, { idempotencyKey: "owner-delist", ...input })
-    submissions.completeValidation(validation(input, created.submission.id, 1))
+    await submissions.completeValidation(validation(input, created.submission.id, 1))
     fixture.database.transaction((connection) => {
       connection.run("UPDATE submissions SET status = 'published', version = 3 WHERE id = ?", [created.submission.id])
       connection.run(
@@ -126,7 +126,7 @@ describe("submission lifecycle", () => {
       )
     })
 
-    const request = submissions.requestDelist(fixture.alice, created.submission.id, {
+    const request = await submissions.requestDelist(fixture.alice, created.submission.id, {
       expectedVersion: 3,
       reason: "Owner requested retirement",
     })
@@ -163,7 +163,7 @@ describe("submission lifecycle", () => {
     const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
     const input = upload("concurrent-delist", "1.0.0")
     const created = await submissions.create(fixture.alice, { idempotencyKey: "concurrent-delist", ...input })
-    submissions.completeValidation(validation(input, created.submission.id, 1))
+    await submissions.completeValidation(validation(input, created.submission.id, 1))
     fixture.database.transaction((connection) => {
       connection.run("UPDATE submissions SET status = 'published', version = 3 WHERE id = ?", [created.submission.id])
       connection.run(
@@ -177,8 +177,8 @@ describe("submission lifecycle", () => {
       databasePath: fixture.databasePath,
       migrationBackupDirectory: join(fixture.directory, "competing-backups"),
     })
-    fixture.database.connection.run("PRAGMA busy_timeout = 1")
-    competing.connection.run("BEGIN IMMEDIATE")
+    ;(fixture.database as SqliteDatabase).connection.run("PRAGMA busy_timeout = 1")
+    ;(competing as SqliteDatabase).connection.run("BEGIN IMMEDIATE")
 
     await expectCode(
       () =>
@@ -188,13 +188,13 @@ describe("submission lifecycle", () => {
         }),
       "submission-conflict",
     )
-    competing.connection.run("ROLLBACK")
-    submissions.requestDelist(fixture.alice, created.submission.id, {
+    ;(competing as SqliteDatabase).connection.run("ROLLBACK")
+    await submissions.requestDelist(fixture.alice, created.submission.id, {
       expectedVersion: 3,
       reason: "Winning request",
     })
     expect(() =>
-      competing.connection.run(
+      (competing as SqliteDatabase).connection.run(
         `INSERT INTO delist_requests
           (id, submission_id, requested_by_employee_id, reason, status, version, created_at)
          VALUES ('dlr_competing1', ?, 'alice', 'Second pending request', 'pending', 1, ?)`,
@@ -202,7 +202,7 @@ describe("submission lifecycle", () => {
       ),
     ).toThrow()
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<{ count: number }, [string]>(
           "SELECT count(*) AS count FROM delist_requests WHERE submission_id = ? AND status = 'pending'",
         )
@@ -237,7 +237,7 @@ describe("submission lifecycle", () => {
     })
     expect(queued).toEqual([{ submissionID: created.submission.id, revision: 1 }])
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { private_icon_json: string | null },
           [string]
@@ -245,7 +245,7 @@ describe("submission lifecycle", () => {
         .get(created.submission.id)?.private_icon_json,
     ).toBe(JSON.stringify(first.icon))
 
-    const failed = submissions.completeValidation(
+    const failed = await submissions.completeValidation(
       validation(first, created.submission.id, 1, [
         { code: "likely-credential", message: "Archive appears to contain a credential" },
       ]),
@@ -266,10 +266,10 @@ describe("submission lifecycle", () => {
       { submissionID: created.submission.id, revision: 2 },
     ])
 
-    const completed = submissions.completeValidation(validation(second, created.submission.id, 2))
+    const completed = await submissions.completeValidation(validation(second, created.submission.id, 2))
     expect(completed.submission).toMatchObject({ status: "pending_review", currentRevision: 2, version: 4 })
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { revision_number: number; validation_completed_at: number | null },
           []
@@ -279,7 +279,7 @@ describe("submission lifecycle", () => {
       { revision_number: 1, validation_completed_at: Date.parse("2026-07-15T00:00:00.000Z") },
       { revision_number: 2, validation_completed_at: fixture.clock.value },
     ])
-    const audits = fixture.database.connection
+    const audits = (fixture.database as SqliteDatabase).connection
       .query<
         { action: string; before_json: string | null },
         []
@@ -410,7 +410,7 @@ describe("submission lifecycle", () => {
       "submission-conflict",
     )
 
-    submissions.completeValidation(
+    await submissions.completeValidation(
       validation(input, first.submission.id, 1, [{ code: "invalid", message: "Please upload a new archive" }]),
     )
     const revision = await submissions.addRevision(fixture.alice, first.submission.id, {
@@ -420,7 +420,7 @@ describe("submission lifecycle", () => {
       package: upload("idempotent", "1.0.0", "revision").package,
     })
     expect(revision.submission.currentRevision).toBe(2)
-    const idempotency = fixture.database.connection
+    const idempotency = (fixture.database as SqliteDatabase).connection
       .query<
         { created_at: number; expires_at: number },
         [string]
@@ -439,7 +439,7 @@ describe("submission lifecycle", () => {
 
   test("rolls back partial writes and hides every other employee's private submissions", async () => {
     const fixture = await submissionFixture()
-    fixture.database.connection.exec(
+    ;(fixture.database as SqliteDatabase).connection.exec(
       `CREATE TRIGGER fail_revision_insert BEFORE INSERT ON submission_revisions
        BEGIN SELECT RAISE(ABORT, 'injected revision failure'); END;`,
     )
@@ -455,7 +455,7 @@ describe("submission lifecycle", () => {
     expect(rowCount(fixture, "submission_revisions")).toBe(0)
     expect(rowCount(fixture, "audit_events")).toBe(0)
     expect(rowCount(fixture, "idempotency_keys")).toBe(0)
-    fixture.database.connection.exec("DROP TRIGGER fail_revision_insert")
+    ;(fixture.database as SqliteDatabase).connection.exec("DROP TRIGGER fail_revision_insert")
 
     const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
     const alice = await submissions.create(fixture.alice, {
@@ -466,7 +466,7 @@ describe("submission lifecycle", () => {
       idempotencyKey: "bob-private",
       ...upload("bob-private", "1.0.0"),
     })
-    fixture.database.connection.exec(
+    ;(fixture.database as SqliteDatabase).connection.exec(
       `CREATE TRIGGER fail_validation_status BEFORE UPDATE OF status ON submissions
        BEGIN SELECT RAISE(ABORT, 'injected validation failure'); END;`,
     )
@@ -475,19 +475,19 @@ describe("submission lifecycle", () => {
       "injected validation failure",
     )
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { manifest_json: string | null },
           [string]
         >("SELECT manifest_json FROM submission_revisions WHERE submission_id = ? AND revision_number = 1")
         .get(alice.submission.id)?.manifest_json,
     ).toBeNull()
-    expect(submissions.getOwn(fixture.alice, alice.submission.id).status).toBe("validating")
+    expect((await submissions.getOwn(fixture.alice, alice.submission.id)).status).toBe("validating")
 
-    const page = submissions.listOwn(fixture.alice, { page: 1, limit: 50 })
+    const page = await submissions.listOwn(fixture.alice, { page: 1, limit: 50 })
     expect(page.total).toBe(1)
     expect(page.items.map((submission) => submission.id)).toEqual([alice.submission.id])
-    expect(() => submissions.getOwn(fixture.alice, bob.submission.id)).toThrow("submission was not found")
+    await expect(submissions.getOwn(fixture.alice, bob.submission.id)).rejects.toThrow("submission was not found")
 
     fixture.database.close()
   })
@@ -497,7 +497,7 @@ describe("submission lifecycle", () => {
     const submissions = createSubmissions({ database: fixture.database, now: () => fixture.clock.value })
     const firstUpload = upload("versioned", "1.0.0")
     const first = await submissions.create(fixture.alice, { idempotencyKey: "version-1", ...firstUpload })
-    submissions.completeValidation(validation(firstUpload, first.submission.id, 1))
+    await submissions.completeValidation(validation(firstUpload, first.submission.id, 1))
     fixture.database.transaction((connection) => {
       connection.run("UPDATE submissions SET status = 'published', version = version + 1 WHERE id = ?", [
         first.submission.id,
@@ -525,7 +525,7 @@ describe("submission lifecycle", () => {
     expect(second.submission.id).not.toBe(first.submission.id)
     expect(second.submission).toMatchObject({ skillID: "versioned", targetVersion: "1.1.0", status: "validating" })
 
-    fixture.database.connection.run("UPDATE submissions SET status = 'rejected' WHERE id = ?", [second.submission.id])
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE submissions SET status = 'rejected' WHERE id = ?", [second.submission.id])
     const replacement = await submissions.create(fixture.alice, {
       idempotencyKey: "version-2-replacement",
       ...upload("versioned", "1.1.0", "replacement"),
@@ -551,22 +551,22 @@ describe("submission lifecycle", () => {
       idempotencyKey: "personal-bob",
       ...bobUpload,
     })
-    const ready = submissions.completeValidation(validation(aliceUpload, alice.submission.id, 1))
+    const ready = await submissions.completeValidation(validation(aliceUpload, alice.submission.id, 1))
 
     expect(ready.submission).toMatchObject({ target: "personal", status: "published", risk: "safe" })
     expect(
-      fixture.database.connection.query<{ count: number }, []>("SELECT count(*) AS count FROM community_skills").get()
+      (fixture.database as SqliteDatabase).connection.query<{ count: number }, []>("SELECT count(*) AS count FROM community_skills").get()
         ?.count,
     ).toBe(0)
-    expect(submissions.listOwn(fixture.alice, { target: "personal", page: 1, limit: 30 }).items).toHaveLength(1)
-    expect(submissions.listOwn(fixture.alice, { target: "company", page: 1, limit: 30 }).items).toHaveLength(0)
-    expect(submissions.personalPackage(fixture.alice, alice.submission.id)).toEqual({
+    expect((await submissions.listOwn(fixture.alice, { target: "personal", page: 1, limit: 30 })).items).toHaveLength(1)
+    expect((await submissions.listOwn(fixture.alice, { target: "company", page: 1, limit: 30 })).items).toHaveLength(0)
+    expect(await submissions.personalPackage(fixture.alice, alice.submission.id)).toEqual({
       key: aliceUpload.package.key,
       sha256: aliceUpload.package.sha256,
       size: aliceUpload.package.size,
       filename: "private-helper-1.0.0.zip",
     })
-    expect(() => submissions.personalPackage(fixture.bob, alice.submission.id)).toThrow("not found")
+    await expect(submissions.personalPackage(fixture.bob, alice.submission.id)).rejects.toThrow("not found")
     expect(bob.submission.status).toBe("validating")
 
     fixture.database.close()
@@ -590,7 +590,7 @@ describe("submission lifecycle", () => {
       target: "groups",
       audience: { scope: "groups", groupIDs: ["grp_atlas1234", "grp_aurora123"] },
     })
-    expect(submissions.completeValidation(validation(teamUpload, team.submission.id, 1)).submission.status).toBe(
+    expect((await submissions.completeValidation(validation(teamUpload, team.submission.id, 1))).submission.status).toBe(
       "pending_review",
     )
 
@@ -606,7 +606,7 @@ describe("submission lifecycle", () => {
       audience: { scope: "department", department: { id: "engineering", name: "Engineering" } },
     })
     expect(
-      submissions.completeValidation(validation(departmentUpload, department.submission.id, 1)).submission.status,
+      (await submissions.completeValidation(validation(departmentUpload, department.submission.id, 1))).submission.status,
     ).toBe("pending_review")
 
     const member = await submissions.create(fixture.bob, {
@@ -659,7 +659,7 @@ describe("submission lifecycle", () => {
       idempotencyKey: "personal-source",
       target: "personal",
     })
-    const ready = submissions.completeValidation(validation(uploaded, personal.submission.id, 1))
+    const ready = await submissions.completeValidation(validation(uploaded, personal.submission.id, 1))
     queued.splice(0)
 
     const promoted = await submissions.promote(fixture.alice, personal.submission.id, {
@@ -677,14 +677,14 @@ describe("submission lifecycle", () => {
       currentRevision: 1,
     })
     expect(promoted.submission.id).not.toBe(personal.submission.id)
-    expect(submissions.getOwn(fixture.alice, personal.submission.id)).toMatchObject({
+    expect(await submissions.getOwn(fixture.alice, personal.submission.id)).toMatchObject({
       id: personal.submission.id,
       target: "personal",
       status: "published",
     })
     expect(queued).toEqual([{ submissionID: promoted.submission.id, revision: 1 }])
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           {
             private_package_key: string
@@ -719,7 +719,7 @@ describe("submission lifecycle", () => {
       target: "groups",
       audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
     })
-    submissions.completeValidation(validation(uploaded, source.submission.id, 1))
+    await submissions.completeValidation(validation(uploaded, source.submission.id, 1))
     seedRestrictedPublication(fixture, source.submission.id, "pub_liveupload1")
     const duplicate = {
       ...upload("live-restricted-upload", "1.0.0", "duplicate"),
@@ -733,7 +733,7 @@ describe("submission lifecycle", () => {
       "submission-conflict",
       "published restricted Skill version must use audience change",
     )
-    fixture.database.connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = ?", [
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE restricted_publications SET status = 'delisted' WHERE id = ?", [
       "pub_liveupload1",
     ])
     expect((await submissions.create(fixture.alice, duplicate)).submission).toMatchObject({
@@ -755,7 +755,7 @@ describe("submission lifecycle", () => {
       target: "department",
       audience: { scope: "department" },
     })
-    submissions.completeValidation(validation(restrictedUpload, restricted.submission.id, 1))
+    await submissions.completeValidation(validation(restrictedUpload, restricted.submission.id, 1))
     seedRestrictedPublication(fixture, restricted.submission.id, "pub_livepromote1")
     const personalUpload = upload("live-restricted-promotion", "1.0.0", "personal")
     const personal = await submissions.create(fixture.alice, {
@@ -763,7 +763,7 @@ describe("submission lifecycle", () => {
       idempotencyKey: "live-restricted-personal-source",
       target: "personal",
     })
-    const ready = submissions.completeValidation(validation(personalUpload, personal.submission.id, 1))
+    const ready = await submissions.completeValidation(validation(personalUpload, personal.submission.id, 1))
 
     await expectCode(
       () =>
@@ -792,7 +792,7 @@ describe("submission lifecycle", () => {
       target: "groups",
       audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
     })
-    submissions.completeValidation(validation(uploaded, source.submission.id, 1))
+    await submissions.completeValidation(validation(uploaded, source.submission.id, 1))
     const publicationID = seedRestrictedPublication(fixture, source.submission.id)
 
     const changed = await submissions.changeAudience(fixture.alice, source.submission.id, {
@@ -808,7 +808,7 @@ describe("submission lifecycle", () => {
     })
     expect(changed.submission.id).not.toBe(source.submission.id)
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { group_id: string },
           [string]
@@ -816,7 +816,7 @@ describe("submission lifecycle", () => {
         .all(source.submission.id),
     ).toEqual([{ group_id: "grp_aurora123" }])
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { group_id: string },
           [string]
@@ -831,7 +831,7 @@ describe("submission lifecycle", () => {
       target: "groups",
       audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
     })
-    submissions.completeValidation(validation(racedUpload, racedSource.submission.id, 1))
+    await submissions.completeValidation(validation(racedUpload, racedSource.submission.id, 1))
     seedRestrictedPublication(fixture, racedSource.submission.id, "pub_audiencerace")
     const barrier = join(fixture.directory, "audience-change-barrier")
     const worker = join(import.meta.dir, "audience-change-race-worker.ts")
@@ -873,7 +873,7 @@ describe("submission lifecycle", () => {
     expect([personalResult, departmentResult].filter((result) => result.status === "fulfilled")).toHaveLength(1)
     expect([personalResult, departmentResult].filter((result) => result.code === "submission-conflict")).toHaveLength(1)
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { count: number },
           [string]
@@ -899,22 +899,18 @@ describe("submission lifecycle", () => {
       target: "groups",
       audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
     })
-    submissions.completeValidation(validation(groupUpload, group.submission.id, 1))
+    await submissions.completeValidation(validation(groupUpload, group.submission.id, 1))
     const groupPublication = seedRestrictedPublication(fixture, group.submission.id, "pub_readgroup1")
 
-    expect(canReadRestricted(fixture.database.connection, fixture.alice, groupPublication)).toBe(true)
-    expect(canReadRestricted(fixture.database.connection, fixture.bob, groupPublication)).toBe(true)
-    expect(canReadRestricted(fixture.database.connection, fixture.noDepartment, groupPublication)).toBe(false)
+    expect(await restrictedRead(fixture, fixture.alice, groupPublication)).toBe(true)
+    expect(await restrictedRead(fixture, fixture.bob, groupPublication)).toBe(true)
+    expect(await restrictedRead(fixture, fixture.noDepartment, groupPublication)).toBe(false)
     expect(
-      canReadRestricted(
-        fixture.database.connection,
-        principal("no-department", undefined, ["admin"]),
-        groupPublication,
-      ),
+      await restrictedRead(fixture, principal("no-department", undefined, ["admin"]), groupPublication),
     ).toBe(true)
-    fixture.database.connection.run("UPDATE market_groups SET status = 'disabled' WHERE id = 'grp_aurora123'")
-    expect(canReadRestricted(fixture.database.connection, fixture.bob, groupPublication)).toBe(false)
-    expect(canReadRestricted(fixture.database.connection, fixture.alice, groupPublication)).toBe(true)
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE market_groups SET status = 'disabled' WHERE id = 'grp_aurora123'")
+    expect(await restrictedRead(fixture, fixture.bob, groupPublication)).toBe(false)
+    expect(await restrictedRead(fixture, fixture.alice, groupPublication)).toBe(true)
 
     const departmentUpload = upload("read-department", "1.0.0")
     const department = await submissions.create(fixture.alice, {
@@ -923,16 +919,16 @@ describe("submission lifecycle", () => {
       target: "department",
       audience: { scope: "department" },
     })
-    submissions.completeValidation(validation(departmentUpload, department.submission.id, 1))
+    await submissions.completeValidation(validation(departmentUpload, department.submission.id, 1))
     const departmentPublication = seedRestrictedPublication(fixture, department.submission.id, "pub_readdepart1")
-    fixture.database.connection.run(
+    ;(fixture.database as SqliteDatabase).connection.run(
       "UPDATE users SET department_id = 'engineering' WHERE employee_id = 'no-department'",
     )
-    expect(canReadRestricted(fixture.database.connection, fixture.noDepartment, departmentPublication)).toBe(true)
-    fixture.database.connection.run("UPDATE users SET department_id = 'design' WHERE employee_id = 'no-department'")
-    expect(canReadRestricted(fixture.database.connection, fixture.noDepartment, departmentPublication)).toBe(false)
+    expect(await restrictedRead(fixture, fixture.noDepartment, departmentPublication)).toBe(true)
+    ;(fixture.database as SqliteDatabase).connection.run("UPDATE users SET department_id = 'design' WHERE employee_id = 'no-department'")
+    expect(await restrictedRead(fixture, fixture.noDepartment, departmentPublication)).toBe(false)
 
-    fixture.database.close()
+    await fixture.database.close()
   })
 
   test("reserves the existing public publisher for an approved company audience change", async () => {
@@ -946,7 +942,7 @@ describe("submission lifecycle", () => {
       target: "groups",
       audience: { scope: "groups", groupIDs: ["grp_aurora123"] },
     })
-    submissions.completeValidation(validation(uploaded, source.submission.id, 1))
+    await submissions.completeValidation(validation(uploaded, source.submission.id, 1))
     seedRestrictedPublication(fixture, source.submission.id, "pub_company1234")
 
     const changed = await submissions.changeAudience(fixture.alice, source.submission.id, {
@@ -956,7 +952,7 @@ describe("submission lifecycle", () => {
     })
     expect(changed.submission).toMatchObject({ target: "company", status: "pending_review" })
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<
           { owner_employee_id: string; current_version: string | null },
           [string]
@@ -1156,7 +1152,7 @@ function seedPublishedSkill(
   version: string,
   employeeID: string,
 ) {
-  fixture.database.connection.run(
+  (fixture.database as SqliteDatabase).connection.run(
     `INSERT INTO community_skills
       (skill_id, owner_employee_id, current_version, public_status, version, created_at, updated_at)
      VALUES (?, ?, ?, 'published', 1, ?, ?)`,
@@ -1187,7 +1183,15 @@ function seedUploadAttempts(fixture: Awaited<ReturnType<typeof submissionFixture
 function rowCount(fixture: Awaited<ReturnType<typeof submissionFixture>>, table: string) {
   if (!new Set(["submissions", "submission_revisions", "audit_events", "idempotency_keys"]).has(table))
     throw new Error("unsupported table")
-  return fixture.database.connection.query<{ count: number }, []>(`SELECT count(*) AS count FROM ${table}`).get()!.count
+  return (fixture.database as SqliteDatabase).connection.query<{ count: number }, []>(`SELECT count(*) AS count FROM ${table}`).get()!.count
+}
+
+async function restrictedRead(
+  fixture: Awaited<ReturnType<typeof submissionFixture>>,
+  principal: Principal,
+  publicationID: string,
+) {
+  return fixture.database.read(async (connection) => canReadRestricted(connection, principal, publicationID))
 }
 
 async function expectCode(operation: () => unknown, code: SkillMarketControl.ProblemCode, message?: string) {

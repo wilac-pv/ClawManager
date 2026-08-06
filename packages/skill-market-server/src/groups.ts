@@ -1,7 +1,6 @@
-import type { Database } from "bun:sqlite"
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
-import type { MarketDatabase } from "./database"
+import type { Connection, MarketDatabase } from "./store"
 import { randomSecret, type Principal, SkillMarketSecurityError } from "./security"
 
 interface GroupRow {
@@ -34,19 +33,19 @@ export function createGroups(options: GroupsOptions) {
       if (Option.isNone(decoded)) throw invalid("group creation is invalid")
       const id = `grp_${randomSecret()}`
       const now = options.now?.() ?? Date.now()
-      return options.database.transaction((connection) => {
-        connection.run(
+      return options.database.transaction(async (connection) => {
+        await connection.run(
           `INSERT INTO market_groups
             (id, name, description, owner_employee_id, status, version, created_at, updated_at)
            VALUES (?, ?, ?, ?, 'active', 1, ?, ?)`,
           [id, decoded.value.name, decoded.value.description ?? null, principal.session.user.employeeID, now, now],
         )
-        connection.run(
+        await connection.run(
           `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
            VALUES (?, ?, ?, ?)`,
           [id, principal.session.user.employeeID, principal.session.user.employeeID, now],
         )
-        insertAudit(connection, {
+        await insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: "group-created",
           objectID: id,
@@ -59,41 +58,41 @@ export function createGroups(options: GroupsOptions) {
           },
           now,
         })
-        return group(requireGroup(connection, id))
+        return group(await requireGroup(connection, id))
       })
     },
 
     listMine(principal: Principal) {
-      return options.database.read((connection) => {
+      return options.database.read(async (connection) => {
         const employeeID = principal.session.user.employeeID
         const admin = principal.session.roles.includes("admin")
-        const managed = connection
-          .query<GroupRow, [number, string]>(
+        const managed = (
+          await connection.all<GroupRow>(
             `${groupSelect()}
              WHERE ? = 1 OR market_groups.owner_employee_id = ?
              ORDER BY market_groups.updated_at DESC, market_groups.id`,
+            [admin ? 1 : 0, employeeID],
           )
-          .all(admin ? 1 : 0, employeeID)
-          .map(group)
+        ).map(group)
         const joined = admin
           ? []
-          : connection
-              .query<GroupRow, [string]>(
+          : (
+              await connection.all<GroupRow>(
                 `${groupSelect()}
                  INNER JOIN market_group_members ON market_group_members.group_id = market_groups.id
                  WHERE market_group_members.employee_id = ?
                    AND market_groups.owner_employee_id != market_group_members.employee_id
                  ORDER BY market_groups.updated_at DESC, market_groups.id`,
+                [employeeID],
               )
-              .all(employeeID)
-              .map(group)
+            ).map(group)
         return Schema.decodeUnknownSync(SkillMarketControl.GroupPage)({ managed, joined })
       })
     },
 
     get(principal: Principal, groupID: string) {
       requireGroupID(groupID)
-      return options.database.read((connection) => group(requireVisibleGroup(connection, principal, groupID)))
+      return options.database.read(async (connection) => group(await requireVisibleGroup(connection, principal, groupID)))
     },
 
     update(principal: Principal, groupID: string, input: SkillMarketControl.GroupUpdateInput) {
@@ -101,18 +100,18 @@ export function createGroups(options: GroupsOptions) {
       const decoded = Schema.decodeUnknownOption(SkillMarketControl.GroupUpdateInput)(input)
       if (Option.isNone(decoded)) throw invalid("group update is invalid")
       const now = options.now?.() ?? Date.now()
-      return options.database.transaction((connection) => {
-        const current = requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
+      return options.database.transaction(async (connection) => {
+        const current = await requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
         const nextName = decoded.value.name ?? current.name
         const nextDescription =
           decoded.value.description === undefined ? current.description : decoded.value.description
-        connection.run(
+        await connection.run(
           `UPDATE market_groups
            SET name = ?, description = ?, version = version + 1, updated_at = ?
            WHERE id = ?`,
           [nextName, nextDescription, now, groupID],
         )
-        insertAudit(connection, {
+        await insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: "group-updated",
           objectID: groupID,
@@ -120,7 +119,7 @@ export function createGroups(options: GroupsOptions) {
           after: { name: nextName, description: nextDescription, version: current.version + 1 },
           now,
         })
-        return group(requireGroup(connection, groupID))
+        return group(await requireGroup(connection, groupID))
       })
     },
 
@@ -129,29 +128,29 @@ export function createGroups(options: GroupsOptions) {
       const decoded = Schema.decodeUnknownOption(SkillMarketControl.GroupOwnerInput)(input)
       if (Option.isNone(decoded)) throw invalid("group ownership transfer is invalid")
       const now = options.now?.() ?? Date.now()
-      return options.database.transaction((connection) => {
-        const current = requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
+      return options.database.transaction(async (connection) => {
+        const current = await requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
         if (current.owner_employee_id === decoded.value.ownerEmployeeID)
           throw invalid("group owner is already assigned")
-        const existing = connection
-          .query<
-            { count: number },
-            [string, string]
-          >("SELECT count(*) AS count FROM market_group_members WHERE group_id = ? AND employee_id = ?")
-          .get(groupID, decoded.value.ownerEmployeeID)!.count
+        const existing = (
+          await connection.get<{ count: number }>(
+            "SELECT count(*) AS count FROM market_group_members WHERE group_id = ? AND employee_id = ?",
+            [groupID, decoded.value.ownerEmployeeID],
+          )
+        )?.count ?? 0
         if (existing === 0)
-          connection.run(
+          await connection.run(
             `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
              VALUES (?, ?, ?, ?)`,
             [groupID, decoded.value.ownerEmployeeID, principal.session.user.employeeID, now],
           )
-        connection.run(
+        await connection.run(
           `UPDATE market_groups
            SET owner_employee_id = ?, version = version + 1, updated_at = ?
            WHERE id = ?`,
           [decoded.value.ownerEmployeeID, now, groupID],
         )
-        insertAudit(connection, {
+        await insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: "group-ownership-transferred",
           objectID: groupID,
@@ -163,7 +162,7 @@ export function createGroups(options: GroupsOptions) {
           },
           now,
         })
-        return group(requireGroup(connection, groupID))
+        return group(await requireGroup(connection, groupID))
       })
     },
 
@@ -172,16 +171,16 @@ export function createGroups(options: GroupsOptions) {
       const decoded = Schema.decodeUnknownOption(SkillMarketControl.GroupStatusInput)(input)
       if (Option.isNone(decoded)) throw invalid("group status update is invalid")
       const now = options.now?.() ?? Date.now()
-      return options.database.transaction((connection) => {
-        const current = requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
+      return options.database.transaction(async (connection) => {
+        const current = await requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
         if (current.status === decoded.value.status) throw invalid("group already has the requested status")
-        connection.run(
+        await connection.run(
           `UPDATE market_groups
            SET status = ?, version = version + 1, updated_at = ?
            WHERE id = ?`,
           [decoded.value.status, now, groupID],
         )
-        insertAudit(connection, {
+        await insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: decoded.value.status === "disabled" ? "group-disabled" : "group-restored",
           objectID: groupID,
@@ -189,23 +188,23 @@ export function createGroups(options: GroupsOptions) {
           after: { status: decoded.value.status, version: current.version + 1 },
           now,
         })
-        return group(requireGroup(connection, groupID))
+        return group(await requireGroup(connection, groupID))
       })
     },
 
     members(principal: Principal, groupID: string) {
       requireGroupID(groupID)
-      return options.database.read((connection) => {
-        requireVisibleGroup(connection, principal, groupID)
-        return connection
-          .query<MemberRow, [string]>(
+      return options.database.read(async (connection) => {
+        await requireVisibleGroup(connection, principal, groupID)
+        return (
+          await connection.all<MemberRow>(
             `SELECT group_id, employee_id, added_by_employee_id, created_at
              FROM market_group_members
              WHERE group_id = ?
              ORDER BY employee_id`,
+            [groupID],
           )
-          .all(groupID)
-          .map(member)
+        ).map(member)
       })
     },
 
@@ -214,22 +213,22 @@ export function createGroups(options: GroupsOptions) {
       const decoded = Schema.decodeUnknownOption(SkillMarketControl.GroupMemberInput)(input)
       if (Option.isNone(decoded)) throw invalid("group member is invalid")
       const now = options.now?.() ?? Date.now()
-      return options.database.transaction((connection) => {
-        const current = requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
-        const existing = connection
-          .query<
-            { count: number },
-            [string, string]
-          >("SELECT count(*) AS count FROM market_group_members WHERE group_id = ? AND employee_id = ?")
-          .get(groupID, decoded.value.employeeID)!.count
+      return options.database.transaction(async (connection) => {
+        const current = await requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
+        const existing = (
+          await connection.get<{ count: number }>(
+            "SELECT count(*) AS count FROM market_group_members WHERE group_id = ? AND employee_id = ?",
+            [groupID, decoded.value.employeeID],
+          )
+        )?.count ?? 0
         if (existing > 0) throw invalid("group member already exists")
-        connection.run(
+        await connection.run(
           `INSERT INTO market_group_members (group_id, employee_id, added_by_employee_id, created_at)
            VALUES (?, ?, ?, ?)`,
           [groupID, decoded.value.employeeID, principal.session.user.employeeID, now],
         )
-        connection.run("UPDATE market_groups SET version = version + 1, updated_at = ? WHERE id = ?", [now, groupID])
-        insertAudit(connection, {
+        await connection.run("UPDATE market_groups SET version = version + 1, updated_at = ? WHERE id = ?", [now, groupID])
+        await insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: "group-member-added",
           objectID: groupID,
@@ -237,14 +236,13 @@ export function createGroups(options: GroupsOptions) {
           after: { employeeID: decoded.value.employeeID, version: current.version + 1 },
           now,
         })
-        return member(
-          connection
-            .query<MemberRow, [string, string]>(
-              `SELECT group_id, employee_id, added_by_employee_id, created_at
+        const row = await connection.get<MemberRow>(
+          `SELECT group_id, employee_id, added_by_employee_id, created_at
                FROM market_group_members WHERE group_id = ? AND employee_id = ?`,
-            )
-            .get(groupID, decoded.value.employeeID)!,
+          [groupID, decoded.value.employeeID],
         )
+        if (!row) throw new SkillMarketSecurityError("not-found", "group member was not found")
+        return member(row)
       })
     },
 
@@ -259,19 +257,18 @@ export function createGroups(options: GroupsOptions) {
       const decoded = Schema.decodeUnknownOption(SkillMarketControl.GroupMemberRemoveInput)(input)
       if (Option.isNone(decoded)) throw invalid("group member removal is invalid")
       const now = options.now?.() ?? Date.now()
-      return options.database.transaction((connection) => {
-        const current = requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
+      return options.database.transaction(async (connection) => {
+        const current = await requireMutableGroup(connection, principal, groupID, decoded.value.expectedVersion)
         if (current.owner_employee_id === employeeID) throw invalid("cannot remove the current owner")
-        const existing = connection
-          .query<MemberRow, [string, string]>(
-            `SELECT group_id, employee_id, added_by_employee_id, created_at
+        const existing = await connection.get<MemberRow>(
+          `SELECT group_id, employee_id, added_by_employee_id, created_at
              FROM market_group_members WHERE group_id = ? AND employee_id = ?`,
-          )
-          .get(groupID, employeeID)
+          [groupID, employeeID],
+        )
         if (!existing) throw new SkillMarketSecurityError("not-found", "group member was not found")
-        connection.run("DELETE FROM market_group_members WHERE group_id = ? AND employee_id = ?", [groupID, employeeID])
-        connection.run("UPDATE market_groups SET version = version + 1, updated_at = ? WHERE id = ?", [now, groupID])
-        insertAudit(connection, {
+        await connection.run("DELETE FROM market_group_members WHERE group_id = ? AND employee_id = ?", [groupID, employeeID])
+        await connection.run("UPDATE market_groups SET version = version + 1, updated_at = ? WHERE id = ?", [now, groupID])
+        await insertAudit(connection, {
           actorEmployeeID: principal.session.user.employeeID,
           action: "group-member-removed",
           objectID: groupID,
@@ -279,7 +276,7 @@ export function createGroups(options: GroupsOptions) {
           after: { version: current.version + 1 },
           now,
         })
-        return group(requireGroup(connection, groupID))
+        return group(await requireGroup(connection, groupID))
       })
     },
   }
@@ -300,27 +297,32 @@ function groupSelect() {
    FROM market_groups`
 }
 
-function requireGroup(connection: Database, groupID: string) {
-  const row = connection.query<GroupRow, [string]>(`${groupSelect()} WHERE market_groups.id = ?`).get(groupID)
+async function requireGroup(connection: Connection, groupID: string) {
+  const row = await connection.get<GroupRow>(`${groupSelect()} WHERE market_groups.id = ?`, [groupID])
   if (row) return row
   throw new SkillMarketSecurityError("not-found", "group was not found")
 }
 
-function requireVisibleGroup(connection: Database, principal: Principal, groupID: string) {
-  const row = requireGroup(connection, groupID)
+async function requireVisibleGroup(connection: Connection, principal: Principal, groupID: string) {
+  const row = await requireGroup(connection, groupID)
   if (principal.session.roles.includes("admin")) return row
-  const membership = connection
-    .query<
-      { count: number },
-      [string, string]
-    >("SELECT count(*) AS count FROM market_group_members WHERE group_id = ? AND employee_id = ?")
-    .get(groupID, principal.session.user.employeeID)!.count
+  const membership = (
+    await connection.get<{ count: number }>(
+      "SELECT count(*) AS count FROM market_group_members WHERE group_id = ? AND employee_id = ?",
+      [groupID, principal.session.user.employeeID],
+    )
+  )?.count ?? 0
   if (membership > 0) return row
   throw new SkillMarketSecurityError("not-found", "group was not found")
 }
 
-function requireMutableGroup(connection: Database, principal: Principal, groupID: string, expectedVersion: number) {
-  const row = requireGroup(connection, groupID)
+async function requireMutableGroup(
+  connection: Connection,
+  principal: Principal,
+  groupID: string,
+  expectedVersion: number,
+) {
+  const row = await requireGroup(connection, groupID)
   if (row.owner_employee_id !== principal.session.user.employeeID && !principal.session.roles.includes("admin"))
     throw new SkillMarketSecurityError("forbidden", "group management is forbidden")
   if (row.version !== expectedVersion)
@@ -358,8 +360,8 @@ function member(row: MemberRow) {
   })
 }
 
-function insertAudit(
-  connection: Database,
+async function insertAudit(
+  connection: Connection,
   event: {
     readonly actorEmployeeID: string
     readonly action: SkillMarketControl.AuditAction
@@ -369,7 +371,7 @@ function insertAudit(
     readonly now: number
   },
 ) {
-  connection.run(
+  await connection.run(
     `INSERT INTO audit_events
       (id, actor_employee_id, action, object_type, object_id, before_json, after_json, request_id, created_at)
      VALUES (?, ?, ?, 'group', ?, ?, ?, ?, ?)`,

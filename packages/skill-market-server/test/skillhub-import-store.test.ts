@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openDatabase } from "../src/database"
+import { openDatabase, SqliteDatabase } from "../src/database"
 import { createPublisher } from "../src/publisher"
 import type { PrivateObjectStore } from "../src/oss"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
@@ -20,11 +20,11 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(78_253)
+    const generation = await store.beginGeneration(78_253)
 
-    expect(store.beginGeneration(10)).toEqual(generation)
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
-    expect(store.activeGeneration()).toEqual({
+    expect(await store.beginGeneration(10)).toEqual(generation)
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    expect(await store.activeGeneration()).toEqual({
       id: generation.id,
       state: "running",
       upstreamTotal: 10,
@@ -32,14 +32,14 @@ describe("SkillHub import store", () => {
       sweep: 0,
       newInSweep: 1,
     })
-    expect(store.command({ command: "pause" }).state).toBe("paused")
-    expect(store.claim("worker-a", 6, 60_000)).toEqual([])
-    expect(store.command({ command: "resume" }).state).toBe("running")
-    expect(store.claim("worker-a", 6, 60_000).map((item) => item.slug)).toEqual(["alpha"])
-    expect(store.claim("worker-b", 6, 60_000)).toEqual([])
+    expect((await store.command({ command: "pause" })).state).toBe("paused")
+    expect(await store.claim("worker-a", 6, 60_000)).toEqual([])
+    expect((await store.command({ command: "resume" })).state).toBe("running")
+    expect((await store.claim("worker-a", 6, 60_000)).map((item) => item.slug)).toEqual(["alpha"])
+    expect(await store.claim("worker-b", 6, 60_000)).toEqual([])
 
     clock.value += 60_001
-    expect(store.claim("worker-b", 6, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    expect((await store.claim("worker-b", 6, 60_000)).map((item) => item.slug)).toEqual(["alpha"])
     database.close()
   })
 
@@ -47,15 +47,15 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
+    const generation = await store.beginGeneration(1)
     const list = listRecord("alpha", "1.0.0")
-    store.recordPage(generation.id, 1, [list])
-    store.claim("worker-a", 1, 60_000)
+    await store.recordPage(generation.id, 1, [list])
+    await store.claim("worker-a", 1, 60_000)
 
-    expect(store.complete("worker-a", "alpha", completed("alpha"))).toBe(true)
-    expect(store.mirroredEntries()).toEqual([completed("alpha").entry])
-    store.recordPage(generation.id, 2, [list])
-    expect(store.mirroredEntries()).toEqual([completed("alpha").entry])
+    expect(await store.complete("worker-a", "alpha", completed("alpha"))).toBe(true)
+    expect(await store.mirroredEntries()).toEqual([completed("alpha").entry])
+    await store.recordPage(generation.id, 2, [list])
+    expect(await store.mirroredEntries()).toEqual([completed("alpha").entry])
 
     database.close()
   })
@@ -64,40 +64,40 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(2)
-    store.recordPage(generation.id, 1, [listRecord("retry", "1.0.0"), listRecord("reject", "1.0.0")])
-    store.claim("worker-a", 2, 60_000)
+    const generation = await store.beginGeneration(2)
+    await store.recordPage(generation.id, 1, [listRecord("retry", "1.0.0"), listRecord("reject", "1.0.0")])
+    await store.claim("worker-a", 2, 60_000)
 
-    expect(store.retry("worker-b", "retry", "download", "wrong worker", clock.value + 60_000)).toBe(false)
-    expect(store.retry("worker-a", "retry", "download", "temporary failure", clock.value + 60_000)).toBe(true)
+    expect(await store.retry("worker-b", "retry", "download", "wrong worker", clock.value + 60_000)).toBe(false)
+    expect(await store.retry("worker-a", "retry", "download", "temporary failure", clock.value + 60_000)).toBe(true)
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ next_attempt_at: number; error_summary: string }, [string]>(
           "SELECT next_attempt_at, error_summary FROM skillhub_import_items WHERE slug = ?",
         )
         .get("retry"),
     ).toEqual({ next_attempt_at: clock.value + 60_000, error_summary: "temporary failure" })
-    expect(store.reject("worker-a", "reject", "validation", "x".repeat(600))).toBe(true)
+    expect(await store.reject("worker-a", "reject", "validation", "x".repeat(600))).toBe(true)
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ error_summary: string }, [string]>("SELECT error_summary FROM skillhub_import_items WHERE slug = ?")
         .get("reject")?.error_summary,
     ).toHaveLength(500)
 
-    store.command({ command: "pause" })
-    expect(store.progress().state).toBe("paused")
-    expect(store.command({ command: "resume" }).state).toBe("running")
-    const transition = store.commandTransition({ command: "retry-rejected", slugs: ["reject"] })
+    await store.command({ command: "pause" })
+    expect((await store.progress()).state).toBe("paused")
+    expect((await store.command({ command: "resume" })).state).toBe("running")
+    const transition = await store.commandTransition({ command: "retry-rejected", slugs: ["reject"] })
     expect(transition.retriedRejected).toEqual([{ slug: "reject", code: "validation", summary: "x".repeat(500) }])
     expect(transition.progress.rejected).toBe(0)
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ error_code: string | null; error_summary: string | null }, [string]>(
           "SELECT error_code, error_summary FROM skillhub_import_items WHERE slug = ?",
         )
         .get("reject"),
     ).toEqual({ error_code: null, error_summary: null })
-    expect(store.progress().recentError).toEqual({
+    expect((await store.progress()).recentError).toEqual({
       code: "validation",
       summary: "x".repeat(500),
       occurredAt: new Date(clock.value).toISOString(),
@@ -110,29 +110,29 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
-    store.claim("worker-a", 1, 60_000)
-    store.complete("worker-a", "alpha", completed("alpha"))
+    const generation = await store.beginGeneration(1)
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    await store.claim("worker-a", 1, 60_000)
+    await store.complete("worker-a", "alpha", completed("alpha"))
 
-    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
-    expect(store.activeGeneration()).toMatchObject({ discoveryPage: 0, sweep: 1, newInSweep: 0 })
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.1", 1_752_537_601_000)])
-    expect(store.claim("worker-b", 1, 60_000).map((item) => item.upstreamVersion)).toEqual(["1.0.1"])
-    expect(store.completeSweep(generation.id)).toEqual({ stable: true })
-    expect(store.activeGeneration()).toBeUndefined()
-    expect(store.progress()).toMatchObject({ state: "running", sourceStatus: "stale", discoveryPage: 1, sweep: 1 })
-    expect(store.command({ command: "pause" }).state).toBe("paused")
-    expect(store.command({ command: "resume" }).state).toBe("running")
-    expect(store.complete("worker-b", "alpha", completed("alpha"))).toBe(true)
-    expect(store.recordPublication(1)).toBe(true)
-    expect(store.progress()).toMatchObject({
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: false })
+    expect(await store.activeGeneration()).toMatchObject({ discoveryPage: 0, sweep: 1, newInSweep: 0 })
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.1", 1_752_537_601_000)])
+    expect((await store.claim("worker-b", 1, 60_000)).map((item) => item.upstreamVersion)).toEqual(["1.0.1"])
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: true })
+    expect(await store.activeGeneration()).toBeUndefined()
+    expect(await store.progress()).toMatchObject({ state: "running", sourceStatus: "stale", discoveryPage: 1, sweep: 1 })
+    expect((await store.command({ command: "pause" })).state).toBe("paused")
+    expect((await store.command({ command: "resume" })).state).toBe("running")
+    expect(await store.complete("worker-b", "alpha", completed("alpha"))).toBe(true)
+    expect(await store.recordPublication(1)).toBe(true)
+    expect(await store.progress()).toMatchObject({
       state: "completed",
       sourceStatus: "fresh",
       lastPublishedAt: new Date(clock.value).toISOString(),
     })
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ state: string }, [string]>("SELECT state FROM skillhub_generations WHERE id = ?")
         .get(generation.id)?.state,
     ).toBe("completed")
@@ -144,11 +144,11 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
-    store.claim("worker-a", 1, 60_000)
-    expect(store.complete("worker-a", "alpha", completed("alpha"))).toBe(true)
-    database.connection.run(
+    const generation = await store.beginGeneration(1)
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    await store.claim("worker-a", 1, 60_000)
+    expect(await store.complete("worker-a", "alpha", completed("alpha"))).toBe(true)
+    ;(database as SqliteDatabase).connection.run(
       `UPDATE skillhub_import_items
        SET evaluation_state = 'completed', evaluation_attempts = 2, evaluation_next_attempt_at = ?,
            evaluation_lease_owner = 'stale-worker', evaluation_lease_expires_at = ?, evaluation_trust = 5,
@@ -159,10 +159,10 @@ describe("SkillHub import store", () => {
       [clock.value + 1, clock.value + 2, clock.value],
     )
 
-    store.recordPage(generation.id, 2, [listRecord("alpha", "1.0.1", clock.value + 3)])
+    await store.recordPage(generation.id, 2, [listRecord("alpha", "1.0.1", clock.value + 3)])
 
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{
           readonly state: string
           readonly evaluation_state: string
@@ -195,18 +195,18 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(2)
+    const generation = await store.beginGeneration(2)
 
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
-    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
-    store.recordPage(
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: false })
+    await store.recordPage(
       generation.id,
       1,
       [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0"), listRecord("gamma", "1.0.0")],
       3,
     )
-    expect(store.completeSweep(generation.id)).toEqual({ stable: true })
-    expect(store.progress()).toMatchObject({ discovered: 3, discoveryPage: 1, sweep: 1 })
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: true })
+    expect(await store.progress()).toMatchObject({ discovered: 3, discoveryPage: 1, sweep: 1 })
 
     database.close()
   })
@@ -215,14 +215,14 @@ describe("SkillHub import store", () => {
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database })
     const legacy = completed("legacy").entry
-    store.seedLegacy([{ slug: "legacy", ...legacy }])
-    const generation = store.beginGeneration(1)
+    await store.seedLegacy([{ slug: "legacy", ...legacy }])
+    const generation = await store.beginGeneration(1)
     const list = listRecord("legacy", "1.0.0", Date.parse(legacy.summary.updatedAt))
 
-    store.recordPage(generation.id, 1, [list])
-    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
-    store.recordPage(generation.id, 1, [list])
-    expect(store.completeSweep(generation.id)).toEqual({ stable: true })
+    await store.recordPage(generation.id, 1, [list])
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: false })
+    await store.recordPage(generation.id, 1, [list])
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: true })
     database.close()
   })
 
@@ -230,23 +230,23 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(2)
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
-    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
-    database.connection.run(
+    const generation = await store.beginGeneration(2)
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: false })
+    ;(database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('old', 'completed', 1, ?, ?, ?, ?)",
       [clock.value, clock.value, clock.value, clock.value],
     )
-    database.connection.run(
+    ;(database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, error_code, error_summary, last_seen_generation, last_seen_sweep, created_at, updated_at) VALUES ('beta', 'old', '1.0.0', 1, 'rejected', '{}', 'validation', 'old error', 'old', 1, ?, ?)",
       [clock.value, clock.value],
     )
-    store.commandTransition({ command: "retry-rejected", slugs: ["beta"] })
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    await store.commandTransition({ command: "retry-rejected", slugs: ["beta"] })
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
 
-    expect(store.completeSweep(generation.id)).toEqual({ stable: false })
+    expect(await store.completeSweep(generation.id)).toEqual({ stable: false })
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ state: string; last_seen_generation: string }, [string]>(
           "SELECT state, last_seen_generation FROM skillhub_import_items WHERE slug = ?",
         )
@@ -260,37 +260,37 @@ describe("SkillHub import store", () => {
     const fixture = await temporaryDatabaseFixture()
     const legacy = { slug: "legacy", ...completed("legacy").entry }
     const store = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
-    expect(store.seedLegacy([legacy])).toBe(1)
-    expect(store.recordPublication(1)).toBe(true)
+    expect(await store.seedLegacy([legacy])).toBe(1)
+    expect(await store.recordPublication(1)).toBe(true)
     fixture.database.close()
 
     const reopened = await reopenDatabase(fixture)
     const resumed = createSkillHubImportStore({ database: reopened, now: () => clock.value })
-    expect(resumed.seedLegacy([legacy])).toBe(0)
+    expect(await resumed.seedLegacy([legacy])).toBe(0)
     expect(
-      reopened.connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_generations").get()?.count,
+      (reopened as SqliteDatabase).connection.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_generations").get()?.count,
     ).toBe(1)
-    expect(resumed.publicationCheckpoint()).toEqual({
+    expect(await resumed.publicationCheckpoint()).toEqual({
       lastPublishedCount: 1,
       lastPublishedAt: new Date(clock.value).toISOString(),
     })
-    expect(resumed.seedLegacy([legacy, { slug: "new-legacy", ...completed("new-legacy").entry }])).toBe(1)
+    expect(await resumed.seedLegacy([legacy, { slug: "new-legacy", ...completed("new-legacy").entry }])).toBe(1)
     expect(
-      reopened.connection.query<{ count: number }, []>(
+      (reopened as SqliteDatabase).connection.query<{ count: number }, []>(
         "SELECT COUNT(*) AS count FROM skillhub_generations",
       ).get()?.count,
     ).toBe(1)
     expect(
-      reopened.connection.query<{ upstream_total: number }, []>(
+      (reopened as SqliteDatabase).connection.query<{ upstream_total: number }, []>(
         "SELECT upstream_total FROM skillhub_generations",
       ).get()?.upstream_total,
     ).toBe(2)
-    expect(resumed.publicationCheckpoint()).toEqual({
+    expect(await resumed.publicationCheckpoint()).toEqual({
       lastPublishedCount: 1,
       lastPublishedAt: new Date(clock.value).toISOString(),
     })
-    resumed.beginGeneration(2)
-    expect(resumed.publicationCheckpoint()).toEqual({
+    await resumed.beginGeneration(2)
+    expect(await resumed.publicationCheckpoint()).toEqual({
       lastPublishedCount: 1,
       lastPublishedAt: new Date(clock.value).toISOString(),
     })
@@ -299,21 +299,21 @@ describe("SkillHub import store", () => {
 
   test("carries the strongest historical publication checkpoint into a new generation", async () => {
     const database = await temporaryDatabase()
-    database.connection.run(
+    ;(database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_generations (id, state, upstream_total, last_published_count, last_published_at, started_at, updated_at, discovery_completed_at, completed_at) VALUES ('older-strong', 'completed', 9, 9, 9, 1, 10, 10, 10), ('newer-weak', 'completed', 4, 4, 4, 2, 11, 11, 11)",
     )
     const store = createSkillHubImportStore({ database, now: () => 20 })
 
-    const generation = store.beginGeneration(12)
+    const generation = await store.beginGeneration(12)
 
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ last_published_count: number; last_published_at: number }, [string]>(
           "SELECT last_published_count, last_published_at FROM skillhub_generations WHERE id = ?",
         )
         .get(generation.id),
     ).toEqual({ last_published_count: 9, last_published_at: 9 })
-    expect(store.publicationCheckpoint()).toEqual({
+    expect(await store.publicationCheckpoint()).toEqual({
       lastPublishedCount: 9,
       lastPublishedAt: new Date(9).toISOString(),
     })
@@ -323,8 +323,8 @@ describe("SkillHub import store", () => {
   test("validates claim bounds before mutating queue rows", async () => {
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database })
-    const generation = store.beginGeneration(6)
-    store.recordPage(
+    const generation = await store.beginGeneration(6)
+    await store.recordPage(
       generation.id,
       1,
       Array.from({ length: 6 }, (_, index) => listRecord(`skill-${index}`, "1.0.0")),
@@ -341,8 +341,8 @@ describe("SkillHub import store", () => {
       ["worker", 1, 86_400_001],
     ] as const)
       expect(() => store.claim(input[0], input[1], input[2])).toThrow()
-    expect(store.progress()).toMatchObject({ pending: 6, running: 0 })
-    expect(store.claim("worker", 6, 86_400_000)).toHaveLength(6)
+    expect(await store.progress()).toMatchObject({ pending: 6, running: 0 })
+    expect(await store.claim("worker", 6, 86_400_000)).toHaveLength(6)
     database.close()
   })
 
@@ -350,24 +350,24 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
-    store.recordPage(generation.id, 1, [listRecord("lease", "1.0.0")])
-    expect(store.claim("worker-a", 1, 10).map((item) => item.attempts)).toEqual([1])
+    const generation = await store.beginGeneration(1)
+    await store.recordPage(generation.id, 1, [listRecord("lease", "1.0.0")])
+    expect((await store.claim("worker-a", 1, 10)).map((item) => item.attempts)).toEqual([1])
     clock.value += 9
-    expect(store.renew("worker-a", "lease", 10)).toBe(true)
+    expect(await store.renew("worker-a", "lease", 10)).toBe(true)
     clock.value += 2
-    expect(store.claim("worker-b", 1, 10)).toEqual([])
+    expect(await store.claim("worker-b", 1, 10)).toEqual([])
     clock.value += 9
-    expect(store.claim("worker-b", 1, 10).map((item) => item.slug)).toEqual(["lease"])
-    expect(store.renew("worker-a", "lease", 10)).toBe(false)
+    expect((await store.claim("worker-b", 1, 10)).map((item) => item.slug)).toEqual(["lease"])
+    expect(await store.renew("worker-a", "lease", 10)).toBe(false)
     database.close()
   })
 
   test("claims disjoint bounded rows from overlapping processes", async () => {
     const fixture = await temporaryDatabaseFixture()
     const store = createSkillHubImportStore({ database: fixture.database })
-    const generation = store.beginGeneration(6)
-    store.recordPage(
+    const generation = await store.beginGeneration(6)
+    await store.recordPage(
       generation.id,
       1,
       Array.from({ length: 6 }, (_, index) => listRecord(`race-${index}`, "1.0.0")),
@@ -394,19 +394,19 @@ describe("SkillHub import store", () => {
   test("adopts and refreshes one persisted unsettled generation after reopen", async () => {
     const clock = { value: 1_752_537_600_000 }
     const fixture = await temporaryDatabaseFixture()
-    const generation = createSkillHubImportStore({ database: fixture.database, now: () => clock.value }).beginGeneration(2)
+    const generation = await createSkillHubImportStore({ database: fixture.database, now: () => clock.value }).beginGeneration(2)
     fixture.database.close()
 
     clock.value += 1_000
     const reopened = await reopenDatabase(fixture)
     const store = createSkillHubImportStore({ database: reopened, now: () => clock.value })
-    expect(store.beginGeneration(3)).toEqual(generation)
-    expect(store.generationCheckpoint()).toMatchObject({
+    expect(await store.beginGeneration(3)).toEqual(generation)
+    expect(await store.generationCheckpoint()).toMatchObject({
       id: generation.id,
       upstreamTotal: 3,
       discoveryCompleted: false,
     })
-    expect(() => reopened.connection.run(
+    expect(() => (reopened as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_generations (id, state, upstream_total, started_at, updated_at) VALUES ('overlap', 'running', 0, ?, ?)",
       [clock.value, clock.value],
     )).toThrow()
@@ -417,27 +417,27 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const fixture = await temporaryDatabaseFixture()
     const store = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
-    store.recordPage(generation.id, 1, [listRecord("fenced", "1.0.0")])
-    store.claim("worker", 1, 60_000)
-    store.complete("worker", "fenced", completed("fenced"))
-    fixture.database.connection.run(
+    const generation = await store.beginGeneration(1)
+    await store.recordPage(generation.id, 1, [listRecord("fenced", "1.0.0")])
+    await store.claim("worker", 1, 60_000)
+    await store.complete("worker", "fenced", completed("fenced"))
+    ;(fixture.database as SqliteDatabase).connection.run(
       `INSERT INTO publish_jobs
         (id, kind, status, lease_owner, lease_expires_at, attempts, created_at, updated_at)
        VALUES ('catalog-fence', 'catalog_rebuild', 'running', 'publisher', ?, 1, ?, ?)`,
       [clock.value + 60_000, clock.value, clock.value],
     )
 
-    store.recordPage(generation.id, 2, [listRecord("fenced", "1.0.1", clock.value + 1)])
+    await store.recordPage(generation.id, 2, [listRecord("fenced", "1.0.1", clock.value + 1)])
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<{ readonly upstream_version: string; readonly state: string }, [string]>(
           "SELECT upstream_version, state FROM skillhub_import_items WHERE slug = ?",
         )
         .get("fenced"),
     ).toEqual({ upstream_version: "1.0.0", state: "mirrored" })
     expect(
-      fixture.database.connection
+      (fixture.database as SqliteDatabase).connection
         .query<{ readonly upstream_version: string }, [string]>(
           "SELECT upstream_version FROM skillhub_deferred_import_items WHERE slug = ?",
         )
@@ -446,7 +446,7 @@ describe("SkillHub import store", () => {
     fixture.database.close()
 
     const reopened = await reopenDatabase(fixture)
-    reopened.connection.run("UPDATE publish_jobs SET lease_expires_at = ? WHERE id = 'catalog-fence'", [clock.value - 1])
+    ;(reopened as SqliteDatabase).connection.run("UPDATE publish_jobs SET lease_expires_at = ? WHERE id = 'catalog-fence'", [clock.value - 1])
     const publisher = createPublisher({
       database: reopened,
       store: missingPointerStore,
@@ -457,46 +457,46 @@ describe("SkillHub import store", () => {
     })
     expect(await publisher.recover()).toBe(1)
     expect(
-      reopened.connection.query<{ readonly status: string }, [string]>("SELECT status FROM publish_jobs WHERE id = ?").get("catalog-fence"),
+      (reopened as SqliteDatabase).connection.query<{ readonly status: string }, [string]>("SELECT status FROM publish_jobs WHERE id = ?").get("catalog-fence"),
     ).toEqual({ status: "pending" })
     const resumed = createSkillHubImportStore({ database: reopened, now: () => clock.value })
-    resumed.recordPage(generation.id, 2, [listRecord("fenced", "1.0.1", clock.value + 1)])
+    await resumed.recordPage(generation.id, 2, [listRecord("fenced", "1.0.1", clock.value + 1)])
     expect(
-      reopened.connection
+      (reopened as SqliteDatabase).connection
         .query<{ readonly upstream_version: string; readonly state: string }, [string]>(
           "SELECT upstream_version, state FROM skillhub_import_items WHERE slug = ?",
         )
         .get("fenced"),
     ).toEqual({ upstream_version: "1.0.1", state: "pending" })
     expect(
-      reopened.connection.query<{ readonly count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_deferred_import_items").get()?.count,
+      (reopened as SqliteDatabase).connection.query<{ readonly count: number }, []>("SELECT COUNT(*) AS count FROM skillhub_deferred_import_items").get()?.count,
     ).toBe(0)
-    expect(resumed.completeSweep(generation.id)).toEqual({ stable: false })
-    resumed.claim("worker", 1, 60_000)
-    resumed.complete("worker", "fenced", completed("fenced"))
-    resumed.recordPage(generation.id, 1, [listRecord("fenced", "1.0.1", clock.value + 1)])
-    expect(resumed.completeSweep(generation.id)).toEqual({ stable: true })
+    expect(await resumed.completeSweep(generation.id)).toEqual({ stable: false })
+    await resumed.claim("worker", 1, 60_000)
+    await resumed.complete("worker", "fenced", completed("fenced"))
+    await resumed.recordPage(generation.id, 1, [listRecord("fenced", "1.0.1", clock.value + 1)])
+    expect(await resumed.completeSweep(generation.id)).toEqual({ stable: true })
     reopened.close()
   })
 
   test("persists a contiguous discovery cursor across reopen", async () => {
     const fixture = await temporaryDatabaseFixture()
     const store = createSkillHubImportStore({ database: fixture.database })
-    const generation = store.beginGeneration(5)
-    store.recordPage(generation.id, 1, [listRecord("one", "1.0.0")])
-    store.recordPage(generation.id, 2, [listRecord("two", "1.0.0")])
-    store.recordPage(generation.id, 3, [listRecord("three", "1.0.0")])
-    store.recordPage(generation.id, 5, [listRecord("five", "1.0.0")])
-    expect(store.activeGeneration()?.discoveryPage).toBe(3)
+    const generation = await store.beginGeneration(5)
+    await store.recordPage(generation.id, 1, [listRecord("one", "1.0.0")])
+    await store.recordPage(generation.id, 2, [listRecord("two", "1.0.0")])
+    await store.recordPage(generation.id, 3, [listRecord("three", "1.0.0")])
+    await store.recordPage(generation.id, 5, [listRecord("five", "1.0.0")])
+    expect((await store.activeGeneration())?.discoveryPage).toBe(3)
     fixture.database.close()
 
     const reopened = await reopenDatabase(fixture)
     const resumed = createSkillHubImportStore({ database: reopened })
-    expect(resumed.activeGeneration()?.discoveryPage).toBe(3)
-    resumed.recordPage(generation.id, 4, [listRecord("four", "1.0.0")])
-    expect(resumed.activeGeneration()?.discoveryPage).toBe(4)
-    resumed.recordPage(generation.id, 5, [listRecord("five", "1.0.0")])
-    expect(resumed.activeGeneration()?.discoveryPage).toBe(5)
+    expect((await resumed.activeGeneration())?.discoveryPage).toBe(3)
+    await resumed.recordPage(generation.id, 4, [listRecord("four", "1.0.0")])
+    expect((await resumed.activeGeneration())?.discoveryPage).toBe(4)
+    await resumed.recordPage(generation.id, 5, [listRecord("five", "1.0.0")])
+    expect((await resumed.activeGeneration())?.discoveryPage).toBe(5)
     reopened.close()
   })
 
@@ -504,21 +504,21 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
-    store.recordPage(generation.id, 1, [listRecord("reject", "1.0.0")])
-    store.completeSweep(generation.id)
-    store.recordPage(generation.id, 1, [listRecord("reject", "1.0.0")])
-    store.completeSweep(generation.id)
-    store.claim("worker-a", 1, 60_000)
-    store.reject("worker-a", "reject", "validation", "unsafe")
-    expect(store.progress().state).toBe("completed")
+    const generation = await store.beginGeneration(1)
+    await store.recordPage(generation.id, 1, [listRecord("reject", "1.0.0")])
+    await store.completeSweep(generation.id)
+    await store.recordPage(generation.id, 1, [listRecord("reject", "1.0.0")])
+    await store.completeSweep(generation.id)
+    await store.claim("worker-a", 1, 60_000)
+    await store.reject("worker-a", "reject", "validation", "unsafe")
+    expect((await store.progress()).state).toBe("completed")
 
-    const transition = store.commandTransition({ command: "retry-rejected", slugs: ["reject"] })
+    const transition = await store.commandTransition({ command: "retry-rejected", slugs: ["reject"] })
     expect(transition.retriedRejected).toEqual([{ slug: "reject", code: "validation", summary: "unsafe" }])
-    expect(store.generationCheckpoint()).toMatchObject({ state: "running", discoveryCompleted: true })
-    expect(store.claim("worker-b", 1, 60_000).map((item) => item.slug)).toEqual(["reject"])
-    expect(store.reject("worker-b", "reject", "validation", "still unsafe")).toBe(true)
-    expect(store.progress().state).toBe("completed")
+    expect(await store.generationCheckpoint()).toMatchObject({ state: "running", discoveryCompleted: true })
+    expect((await store.claim("worker-b", 1, 60_000)).map((item) => item.slug)).toEqual(["reject"])
+    expect(await store.reject("worker-b", "reject", "validation", "still unsafe")).toBe(true)
+    expect((await store.progress()).state).toBe("completed")
     database.close()
   })
 
@@ -526,18 +526,18 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const fixture = await temporaryDatabaseFixture()
     const first = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
-    const generation = first.beginGeneration(2)
-    first.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
+    const generation = await first.beginGeneration(2)
+    await first.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0"), listRecord("beta", "1.0.0")])
     const secondDatabase = await reopenDatabase(fixture)
     const second = createSkillHubImportStore({ database: secondDatabase, now: () => clock.value })
 
-    expect(first.claim("worker-a", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
-    expect(second.claim("worker-b", 1, 60_000).map((item) => item.slug)).toEqual(["beta"])
+    expect((await first.claim("worker-a", 1, 60_000)).map((item) => item.slug)).toEqual(["alpha"])
+    expect((await second.claim("worker-b", 1, 60_000)).map((item) => item.slug)).toEqual(["beta"])
     clock.value += 60_001
-    expect(second.claim("worker-c", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
-    expect(first.complete("worker-a", "alpha", completed("alpha"))).toBe(false)
-    expect(first.retry("worker-a", "alpha", "download", "late", clock.value + 1)).toBe(false)
-    expect(first.reject("worker-a", "alpha", "validation", "late")).toBe(false)
+    expect((await second.claim("worker-c", 1, 60_000)).map((item) => item.slug)).toEqual(["alpha"])
+    expect(await first.complete("worker-a", "alpha", completed("alpha"))).toBe(false)
+    expect(await first.retry("worker-a", "alpha", "download", "late", clock.value + 1)).toBe(false)
+    expect(await first.reject("worker-a", "alpha", "validation", "late")).toBe(false)
     secondDatabase.close()
     fixture.database.close()
   })
@@ -546,34 +546,34 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const fixture = await temporaryDatabaseFixture()
     const store = createSkillHubImportStore({ database: fixture.database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
-    store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
-    store.claim("worker-a", 1, 60_000)
-    store.retry("worker-a", "alpha", "download", "wait", clock.value + 10_000)
-    expect(store.recordPublication(1)).toBe(true)
-    expect(store.recordPublication(0)).toBe(false)
-    expect(store.recordPublication(1.5)).toBe(false)
+    const generation = await store.beginGeneration(1)
+    await store.recordPage(generation.id, 1, [listRecord("alpha", "1.0.0")])
+    await store.claim("worker-a", 1, 60_000)
+    await store.retry("worker-a", "alpha", "download", "wait", clock.value + 10_000)
+    expect(await store.recordPublication(1)).toBe(true)
+    expect(await store.recordPublication(0)).toBe(false)
+    expect(await store.recordPublication(1.5)).toBe(false)
     fixture.database.close()
 
     const reopened = await reopenDatabase(fixture)
     const resumed = createSkillHubImportStore({ database: reopened, now: () => clock.value })
-    expect(resumed.publicationCheckpoint()).toEqual({
+    expect(await resumed.publicationCheckpoint()).toEqual({
       lastPublishedCount: 1,
       lastPublishedAt: new Date(clock.value).toISOString(),
     })
-    expect(resumed.claim("early", 1, 60_000)).toEqual([])
+    expect(await resumed.claim("early", 1, 60_000)).toEqual([])
     clock.value += 10_000
-    expect(resumed.claim("boundary", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
-    resumed.retry("boundary", "alpha", "download", "again", clock.value + 10_000)
-    expect(resumed.command({ command: "retry-wait" }).pending).toBe(1)
-    expect(resumed.claim("command", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    expect((await resumed.claim("boundary", 1, 60_000)).map((item) => item.slug)).toEqual(["alpha"])
+    await resumed.retry("boundary", "alpha", "download", "again", clock.value + 10_000)
+    expect((await resumed.command({ command: "retry-wait" })).pending).toBe(1)
+    expect((await resumed.claim("command", 1, 60_000)).map((item) => item.slug)).toEqual(["alpha"])
     reopened.close()
 
     const leaseReopened = await reopenDatabase(fixture)
     const leased = createSkillHubImportStore({ database: leaseReopened, now: () => clock.value })
-    expect(leased.claim("before-expiry", 1, 60_000)).toEqual([])
+    expect(await leased.claim("before-expiry", 1, 60_000)).toEqual([])
     clock.value += 60_001
-    expect(leased.claim("after-expiry", 1, 60_000).map((item) => item.slug)).toEqual(["alpha"])
+    expect((await leased.claim("after-expiry", 1, 60_000)).map((item) => item.slug)).toEqual(["alpha"])
     leaseReopened.close()
   })
 
@@ -581,21 +581,21 @@ describe("SkillHub import store", () => {
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database })
     const legacy = completed("public-id").entry
-    expect(store.seedLegacy([{ slug: "owner/raw-skill", ...legacy }])).toBe(1)
-    const generation = store.beginGeneration(1)
+    expect(await store.seedLegacy([{ slug: "owner/raw-skill", ...legacy }])).toBe(1)
+    const generation = await store.beginGeneration(1)
     expect(
-      store.recordPage(generation.id, 1, [
+      (await store.recordPage(generation.id, 1, [
         listRecord("owner/raw-skill", "1.0.0", Date.parse(legacy.summary.updatedAt)),
-      ]).inserted,
+      ])).inserted,
     ).toBe(0)
-    expect(store.claim("worker", 1, 60_000)).toEqual([])
-    expect(database.connection.query<{ count: number }, []>(
+    expect(await store.claim("worker", 1, 60_000)).toEqual([])
+    expect((database as SqliteDatabase).connection.query<{ count: number }, []>(
       "SELECT COUNT(*) AS count FROM skillhub_import_items",
     ).get()?.count).toBe(1)
-    database.connection.run("UPDATE skillhub_import_items SET summary_json = '{}' WHERE slug = ?", ["owner/raw-skill"])
+    ;(database as SqliteDatabase).connection.run("UPDATE skillhub_import_items SET summary_json = '{}' WHERE slug = ?", ["owner/raw-skill"])
     expect(() => store.mirroredEntries()).toThrow()
 
-    database.connection.run(
+    ;(database as SqliteDatabase).connection.run(
       "UPDATE skillhub_import_items SET state = 'pending', summary_json = NULL, detail_key = NULL, detail_sha256 = NULL, mirrored_at = NULL, list_json = '{}' WHERE slug = ?",
       ["owner/raw-skill"],
     )
@@ -607,17 +607,17 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(1)
-    database.connection.run("PRAGMA ignore_check_constraints = ON")
-    database.connection.run(
+    const generation = await store.beginGeneration(1)
+    ;(database as SqliteDatabase).connection.run("PRAGMA ignore_check_constraints = ON")
+    ;(database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('malformed', ?, '1', 1, 'rejected', '{}', ?, ?, ?)",
       [generation.id, generation.id, clock.value, clock.value],
     )
-    database.connection.run("PRAGMA ignore_check_constraints = OFF")
+    ;(database as SqliteDatabase).connection.run("PRAGMA ignore_check_constraints = OFF")
 
-    expect(store.commandTransition({ command: "retry-rejected", slugs: ["malformed"] }).retriedRejected).toEqual([])
+    expect((await store.commandTransition({ command: "retry-rejected", slugs: ["malformed"] })).retriedRejected).toEqual([])
     expect(
-      database.connection
+      (database as SqliteDatabase).connection
         .query<{ state: string }, [string]>("SELECT state FROM skillhub_import_items WHERE slug = ?")
         .get("malformed")?.state,
     ).toBe("rejected")
@@ -628,32 +628,32 @@ describe("SkillHub import store", () => {
     const clock = { value: 1_752_537_600_000 }
     const database = await temporaryDatabase()
     const store = createSkillHubImportStore({ database, now: () => clock.value })
-    const generation = store.beginGeneration(3)
-    expect(() => database.connection.run(
+    const generation = await store.beginGeneration(3)
+    expect(() => (database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('bad-running', ?, '1', 1, 'running', '{}', ?, ?, ?)",
       [generation.id, generation.id, clock.value, clock.value],
     )).toThrow()
-    expect(() => database.connection.run(
+    expect(() => (database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('bad-retry', ?, '1', 1, 'retry_wait', '{}', ?, ?, ?)",
       [generation.id, generation.id, clock.value, clock.value],
     )).toThrow()
-    expect(() => database.connection.run(
+    expect(() => (database as SqliteDatabase).connection.run(
       "INSERT INTO skillhub_import_items (slug, generation_id, upstream_version, upstream_updated_at, state, list_json, last_seen_generation, created_at, updated_at) VALUES ('bad-mirror', ?, '1', 1, 'mirrored', '{}', ?, ?, ?)",
       [generation.id, generation.id, clock.value, clock.value],
     )).toThrow()
 
-    store.recordPage(generation.id, 1, [
+    await store.recordPage(generation.id, 1, [
       listRecord("alpha", "1.0.0"),
       listRecord("beta", "1.0.0"),
       listRecord("gamma", "1.0.0"),
     ])
-    store.claim("worker", 2, 60_000)
-    store.complete("worker", "alpha", completed("alpha"))
+    await store.claim("worker", 2, 60_000)
+    await store.complete("worker", "alpha", completed("alpha"))
     clock.value += 30_000
-    store.complete("worker", "beta", completed("beta"))
-    expect(store.progress()).toMatchObject({ ratePerMinute: 2, estimatedSecondsRemaining: 30 })
+    await store.complete("worker", "beta", completed("beta"))
+    expect(await store.progress()).toMatchObject({ ratePerMinute: 2, estimatedSecondsRemaining: 30 })
     clock.value += 30_001
-    expect(store.progress()).toMatchObject({ ratePerMinute: 1, estimatedSecondsRemaining: 60 })
+    expect(await store.progress()).toMatchObject({ ratePerMinute: 1, estimatedSecondsRemaining: 60 })
     database.close()
   })
 })
