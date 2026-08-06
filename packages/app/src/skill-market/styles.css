@@ -320,9 +320,9 @@
 .ruying-skill-market__card[data-view="card"] {
   align-items: flex-start;
   flex-direction: column;
-  min-height: 248px;
+  height: 240px;
   padding: 22px;
-  gap: 18px;
+  gap: 14px;
 }
 
 .ruying-skill-market__card[data-view="list"] {
@@ -461,7 +461,7 @@
 
 .ruying-skill-market__card[data-view="card"] .ruying-skill-market__card-body p {
   margin-bottom: 18px;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 .ruying-skill-market__card[data-view="list"] .ruying-skill-market__card-body p {
