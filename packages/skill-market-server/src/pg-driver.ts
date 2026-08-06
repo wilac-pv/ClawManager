@@ -135,15 +135,15 @@ export async function openPostgres(options: OpenPostgresOptions): Promise<PgData
     connection: {
       statement_timeout: options.statementTimeoutMs ?? 30_000,
     },
-    // 显式类型转换: bigint 默认作为字符串返回,避免精度问题;
-    // 应用层用 Number() 或直接接收字符串(epoch 毫秒/行号)
-    types: {
-      // 让 bigint 走默认 json 路径(数字)
-    },
     onnotice: () => {
       // 忽略 NOTICE(IF NOT EXISTS 跳过等),避免噪音
     },
   })
+
+  // bigint 列(epoch 毫秒时间戳、行号等)默认返回 string,会导致 new Date("123")
+  // 报 Invalid Date。注册 OID 20(int8)解析器返回 number。
+  // 我们的值都在 Number.MAX_SAFE_INTEGER 内,精度安全。
+  sql.options.parsers[20] = (value: string) => Number(value)
 
   if (options.schema) {
     await sql.unsafe(`SET search_path TO ${options.schema}, public`)
