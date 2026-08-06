@@ -58,9 +58,6 @@ export function MarketShell(props: ParentProps) {
           </For>
         </nav>
         <div class="market-shell__account">
-          <A class="market-shell__submit" href="/submissions/new">
-            <span aria-hidden="true">+</span> 发布 Skill
-          </A>
           <Show
             when={!current.loading() && current.session()}
             fallback={

@@ -425,7 +425,6 @@ function SkillListRoute(props: {
       <AnnouncementCarousel source={props.announcements} />
       <SkillMarketList
         onOpen={(key) => navigate(`/skills/${key.source}/${encodeURIComponent(key.id)}`)}
-        submitHref={`${import.meta.env.BASE_URL}submissions/new`}
         favorite={favorite}
       />
     </>
