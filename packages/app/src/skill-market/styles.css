@@ -462,7 +462,7 @@
   display: -webkit-box;
   margin: 8px 0 14px;
   overflow: hidden;
-  color: var(--market-muted);
+  color: rgba(0, 0, 0, 0.55);
   font-size: 13px;
   line-height: 1.55;
   -webkit-box-orient: vertical;
