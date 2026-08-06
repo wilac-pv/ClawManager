@@ -9,11 +9,20 @@
   --market-accent-soft: var(--skillhub-brand-soft, #efedff);
   --market-focus-ring: var(--skillhub-focus-ring, rgba(109, 93, 252, 0.18));
   --market-content-width: var(--skillhub-content-width, 1120px);
+  --market-danger: #b42318;
+  --market-danger-soft: #fef3f2;
+  --market-success: #027a48;
+  --market-success-soft: #ecfdf3;
+  --market-warning: #b54708;
+  --market-warning-soft: #fffaeb;
+  --market-warning-border: #fedf89;
+  --market-neutral-soft: #f2f4f7;
+  --market-neutral-text: #475467;
   box-sizing: border-box;
   min-height: 100%;
   padding: 48px clamp(20px, 5vw, 72px) 64px;
   overflow: hidden;
-  background: radial-gradient(circle at 82% 0%, rgba(18, 104, 229, 0.08), transparent 28%), var(--market-bg);
+  background: radial-gradient(circle at 82% 0%, rgba(109, 93, 252, 0.08), transparent 28%), var(--market-bg);
   color: var(--market-text);
   font-family: var(--skillhub-font-sans, Inter, "PingFang SC", "Microsoft YaHei", sans-serif);
 }
@@ -103,7 +112,7 @@
   border: 0;
   border-radius: 12px;
   background: var(--market-accent);
-  box-shadow: 0 8px 24px rgba(18, 104, 229, 0.2);
+  box-shadow: 0 8px 24px rgba(109, 93, 252, 0.2);
   color: #fff;
   font-weight: 700;
   text-decoration: none;
@@ -237,10 +246,10 @@
   max-width: var(--market-content-width);
   padding: 12px 14px;
   margin: 0 auto 14px;
-  border: 1px solid #fedf89;
+  border: 1px solid var(--market-warning-border);
   border-radius: 10px;
-  background: #fffaeb;
-  color: #93370d;
+  background: var(--market-warning-soft);
+  color: var(--market-warning);
   font-size: 13px;
 }
 
@@ -474,25 +483,25 @@
   display: inline-flex;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #f2f4f7;
-  color: #475467;
+  background: var(--market-neutral-soft);
+  color: var(--market-neutral-text);
   font-size: 10px;
   font-weight: 700;
 }
 
 .ruying-skill-market__risk--safe {
-  background: #ecfdf3;
-  color: #027a48;
+  background: var(--market-success-soft);
+  color: var(--market-success);
 }
 
 .ruying-skill-market__risk--warning {
-  background: #fffaeb;
-  color: #b54708;
+  background: var(--market-warning-soft);
+  color: var(--market-warning);
 }
 
 .ruying-skill-market__risk--danger {
-  background: #fef3f2;
-  color: #b42318;
+  background: var(--market-danger-soft);
+  color: var(--market-danger);
 }
 
 .ruying-skill-market__state,
@@ -517,9 +526,9 @@
 }
 
 .ruying-skill-market__state--error {
-  border-color: #fecdca;
-  background: #fef3f2;
-  color: #b42318;
+  border-color: var(--market-danger-soft);
+  background: var(--market-danger-soft);
+  color: var(--market-danger);
 }
 
 .ruying-skill-market__pagination {
@@ -585,15 +594,15 @@
 }
 
 .ruying-skill-market__load-failed {
-  color: #b54708;
+  color: var(--market-warning);
   font-size: 12px;
 }
 
 .ruying-skill-market__installed-state {
   padding: 3px 8px;
   border-radius: 999px;
-  background: #ecfdf3;
-  color: #027a48;
+  background: var(--market-success-soft);
+  color: var(--market-success);
   font-size: 11px;
   font-weight: 700;
 }
@@ -606,7 +615,7 @@
 }
 
 .ruying-skill-market__danger-action {
-  color: #b42318 !important;
+  color: var(--market-danger) !important;
 }
 
 @media (max-width: 760px) {
@@ -704,10 +713,10 @@
 .ruying-skill-market__delisted {
   padding: 12px 14px;
   margin-bottom: 18px;
-  border: 1px solid #fedf89;
+  border: 1px solid var(--market-warning-border);
   border-radius: 10px;
-  background: #fffaeb;
-  color: #93370d;
+  background: var(--market-warning-soft);
+  color: var(--market-warning);
   font-size: 13px;
 }
 
@@ -774,8 +783,8 @@
 .ruying-skill-market__detail-chips span {
   padding: 4px 8px;
   border-radius: 7px;
-  background: #f2f4f7;
-  color: #475467;
+  background: var(--market-neutral-soft);
+  color: var(--market-neutral-text);
   font-size: 11px;
 }
 
@@ -829,7 +838,7 @@
 }
 
 .ruying-skill-market__copy-feedback--error {
-  color: #b42318;
+  color: var(--market-danger);
 }
 
 .ruying-skill-market__copy-manual {
@@ -847,7 +856,7 @@
 
 .ruying-skill-market__copy-manual:focus {
   border-color: var(--market-accent);
-  outline: 3px solid rgba(18, 104, 229, 0.16);
+  outline: 3px solid rgba(109, 93, 252, 0.16);
 }
 
 .ruying-skill-market__risk-confirm {
@@ -858,7 +867,7 @@
   display: grid;
   width: 320px;
   padding: 18px;
-  border: 1px solid #fedf89;
+  border: 1px solid var(--market-warning-border);
   border-radius: 12px;
   background: #ffffff;
   box-shadow: 0 16px 44px rgba(17, 24, 39, 0.16);
@@ -874,7 +883,7 @@
   display: grid;
   width: min(360px, calc(100vw - 48px));
   padding: 18px;
-  border: 1px solid #fedf89;
+  border: 1px solid var(--market-warning-border);
   border-radius: 12px;
   background: #ffffff;
   box-shadow: 0 16px 44px rgba(17, 24, 39, 0.16);
@@ -927,7 +936,7 @@
 
 .ruying-skill-market__action-error {
   width: 100%;
-  color: #b42318;
+  color: var(--market-danger);
   font-size: 12px;
   text-align: right;
 }
@@ -1048,7 +1057,7 @@
 .ruying-skill-market__markdown pre,
 .ruying-skill-market__markdown code {
   border-radius: 7px;
-  background: #f2f4f7;
+  background: var(--market-neutral-soft);
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
 }
@@ -1103,7 +1112,7 @@
 }
 
 .ruying-skill-market__versions code {
-  color: #475467;
+  color: var(--market-neutral-text);
   font-size: 11px;
   overflow-wrap: anywhere;
   word-break: break-word;
