@@ -2235,6 +2235,17 @@ a {
   cursor: pointer;
 }
 
+.delist-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.delist-row-error {
+  color: var(--skillhub-danger);
+  font-size: var(--text-small);
+}
+
 .admin-operation-confirmation {
   display: grid;
   gap: var(--skillhub-space-3);

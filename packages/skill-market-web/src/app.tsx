@@ -16,6 +16,7 @@ import { AuditLog } from "./admin/audit"
 import { AdminLayout } from "./admin/layout"
 import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
+import { DelistQueue } from "./admin/delist-queue"
 import { RoleAdministration } from "./admin/roles"
 import { SkillHubImport } from "./admin/skillhub"
 import { AnnouncementCarousel } from "./announcements/carousel"
@@ -159,6 +160,7 @@ export function App() {
       <Route path="/groups/:id" component={() => <GroupDetailRoute source={control} />} />
       <Route path="/admin" component={() => <ReviewQueueRoute source={control} />} />
       <Route path="/admin/submissions/:id" component={() => <ReviewDetailRoute source={control} />} />
+      <Route path="/admin/delist-review" component={() => <DelistReviewRoute source={control} />} />
       <Route path="/admin/roles" component={() => <RoleAdministrationRoute source={control} />} />
       <Route path="/admin/audit" component={() => <AuditRoute source={control} />} />
       <Route path="/admin/skillhub" component={() => <SkillHubImportRoute source={control} />} />
@@ -348,6 +350,16 @@ function RoleAdministrationRoute(props: { source: SkillMarketControlDataSource }
     <RequireAdmin>
       <AdminLayout>
         <RoleAdministration source={props.source.roles} />
+      </AdminLayout>
+    </RequireAdmin>
+  )
+}
+
+function DelistReviewRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireAdmin>
+      <AdminLayout>
+        <DelistQueue source={props.source.moderation} />
       </AdminLayout>
     </RequireAdmin>
   )

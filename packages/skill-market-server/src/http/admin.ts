@@ -205,6 +205,15 @@ export function createAdminHttp(options: AdminHttpOptions) {
           })
         }),
       )
+      .handle("skillMarket.admin.listDelist", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.tryPromise({
+            try: () => options.moderation.listDelistQueue(principal, context.query),
+            catch: reviewProblem,
+          })
+        }),
+      )
       .handle("skillMarket.admin.approveDelist", (context) =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)

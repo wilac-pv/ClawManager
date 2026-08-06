@@ -1,6 +1,6 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
-import { decideDelist, pendingDelist } from "./lifecycle"
+import { decideDelist, listPendingDelist, pendingDelist } from "./lifecycle"
 import type { MarketSecurity, Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
 import type { Connection, MarketDatabase } from "./store"
@@ -481,6 +481,24 @@ export class Moderation {
     if (!Schema.is(SkillMarketControl.SubmissionID)(submissionID))
       throw new SkillMarketSecurityError("invalid-request", "submission ID is invalid")
     return this.options.database.transaction((connection) => pendingDelist(connection, submissionID))
+  }
+
+  async listDelistQueue(principal: Principal, query: { page?: number; limit?: number }) {
+    this.options.security.requireAdmin(principal)
+    const decoded = Schema.decodeUnknownOption(SkillMarketControl.DelistListQuery)({
+      page: query.page ?? 1,
+      limit: query.limit ?? 30,
+    })
+    if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "delist list query is invalid")
+    const { total, items } = await this.options.database.read((connection) =>
+      listPendingDelist(connection, decoded.value.page, decoded.value.limit),
+    )
+    return Schema.decodeUnknownSync(SkillMarketControl.DelistRequestPage)({
+      total,
+      page: decoded.value.page,
+      limit: decoded.value.limit,
+      items,
+    })
   }
 
   async restore(principal: Principal, skillID: string, input: SkillMarketControl.ReasonInput) {

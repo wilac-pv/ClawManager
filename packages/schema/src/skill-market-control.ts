@@ -395,6 +395,12 @@ export const SubmissionPage = Schema.Struct({
   items: Schema.Array(SubmissionSummary),
 }).annotate({ identifier: "SkillMarketControl.SubmissionPage" })
 
+export interface DelistListQuery extends Schema.Schema.Type<typeof DelistListQuery> {}
+export const DelistListQuery = Schema.Struct({
+  page: PageNumber,
+  limit: PageLimit,
+}).annotate({ identifier: "SkillMarketControl.DelistListQuery" })
+
 export interface PersonalTrashItem extends Schema.Schema.Type<typeof PersonalTrashItem> {}
 export const PersonalTrashItem = Schema.Struct({
   ...SubmissionSummary.fields,
@@ -431,6 +437,14 @@ export const DelistRequest = Schema.Union([PendingDelistRequest, DecidedDelistRe
   identifier: "SkillMarketControl.DelistRequest",
 })
 export type DelistRequest = typeof DelistRequest.Type
+
+export interface DelistRequestPage extends Schema.Schema.Type<typeof DelistRequestPage> {}
+export const DelistRequestPage = Schema.Struct({
+  total: NonNegative,
+  page: PageNumber,
+  limit: PageLimit,
+  items: Schema.Array(DelistRequest),
+}).annotate({ identifier: "SkillMarketControl.DelistRequestPage" })
 
 export interface AcceptedSubmission extends Schema.Schema.Type<typeof AcceptedSubmission> {}
 export const AcceptedSubmission = Schema.Struct({

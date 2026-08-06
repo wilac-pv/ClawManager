@@ -7,6 +7,7 @@ export function AdminLayout(props: ParentProps) {
   const location = useLocation()
   const links = () => [
     { href: "/admin", label: "投稿审核", visible: current.reviewer() },
+    { href: "/admin/delist-review", label: "下架审核", visible: current.admin() },
     { href: "/admin/roles", label: "角色管理", visible: current.admin() },
     { href: "/admin/audit", label: "审计日志", visible: current.admin() },
     { href: "/admin/skillhub", label: "SkillHub 同步", visible: current.admin() },

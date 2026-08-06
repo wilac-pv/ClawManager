@@ -192,6 +192,41 @@ export async function pendingDelist(connection: Connection, submissionID: string
   ]
 }
 
+export async function listPendingDelist(
+  connection: Connection,
+  page: number,
+  limit: number,
+): Promise<{ total: number; items: SkillMarketControl.DelistRequest[] }> {
+  const total = (await connection.get<{ count: number }>(
+    "SELECT count(*) AS count FROM delist_requests WHERE status = 'pending'",
+  ))!.count
+  const rows = await connection.all<{
+    id: string
+    submission_id: string
+    requested_by_employee_id: string
+    reason: string
+    version: number
+    created_at: number
+  }>(
+    `SELECT id, submission_id, requested_by_employee_id, reason, version, created_at
+       FROM delist_requests WHERE status = 'pending'
+       ORDER BY created_at LIMIT ? OFFSET ?`,
+    [limit, (page - 1) * limit],
+  )
+  const items = rows.map((row) =>
+    Schema.decodeUnknownSync(SkillMarketControl.DelistRequest)({
+      id: row.id,
+      submissionID: row.submission_id,
+      requestedByEmployeeID: row.requested_by_employee_id,
+      reason: row.reason,
+      status: "pending",
+      version: row.version,
+      createdAt: new Date(row.created_at).toISOString(),
+    }),
+  )
+  return { total, items }
+}
+
 export async function decideDelist(
   connection: Connection,
   principal: Principal,

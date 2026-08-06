@@ -372,6 +372,15 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
           Schema.Array(SkillMarketControl.DelistRequest),
           signal,
         ),
+      listDelist: (query: { page?: number; limit?: number }, signal?: AbortSignal) =>
+        read(
+          withQuery("/v1/admin/delist-requests", [
+            ["page", query.page],
+            ["limit", query.limit],
+          ]),
+          SkillMarketControl.DelistRequestPage,
+          signal,
+        ),
       decide: (submissionID: string, input: SkillMarketControl.DecisionInput, signal?: AbortSignal) =>
         write(
           `/v1/admin/submissions/${encodeURIComponent(submissionID)}/decision`,
