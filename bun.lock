@@ -861,6 +861,7 @@
         "effect": "catalog:",
         "esprima": "4.0.1",
         "gray-matter": "4.0.3",
+        "postgres": "3.4.7",
       },
       "devDependencies": {
         "@tsconfig/node22": "catalog:",
