@@ -35,6 +35,8 @@ import type {
   SkillMarketSubmissionLifecycleWithdrawOutput,
   SkillMarketSubmissionLifecycleRequestDelistInput,
   SkillMarketSubmissionLifecycleRequestDelistOutput,
+  SkillMarketSubmissionLifecyclePendingDelistInput,
+  SkillMarketSubmissionLifecyclePendingDelistOutput,
   SkillMarketAdminLifecyclePendingDelistInput,
   SkillMarketAdminLifecyclePendingDelistOutput,
   SkillMarketAdminLifecycleApproveDelistInput,
@@ -388,6 +390,17 @@ export function make(options: ClientOptions) {
             body: { expectedVersion: input["expectedVersion"], reason: input["reason"] },
             successStatus: 200,
             declaredStatuses: [404, 400, 409, 413, 422, 429, 503, 403, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      pendingDelist: (input: SkillMarketSubmissionLifecyclePendingDelistInput, requestOptions?: RequestOptions) =>
+        request<SkillMarketSubmissionLifecyclePendingDelistOutput>(
+          {
+            method: "GET",
+            path: `/v1/submissions/${encodeURIComponent(input.submissionID)}/delist-requests`,
+            successStatus: 200,
+            declaredStatuses: [404, 503, 401],
             empty: false,
           },
           requestOptions,

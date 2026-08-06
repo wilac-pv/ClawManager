@@ -8,7 +8,7 @@ import { SubmissionStatusTimeline, submissionPollInterval } from "./status"
 
 export type SubmissionDetailSource = Pick<
   SkillMarketControlDataSource["submissions"],
-  "detail" | "create" | "packageUrl" | "revise" | "promote" | "withdraw" | "requestDelist"
+  "detail" | "create" | "packageUrl" | "revise" | "promote" | "withdraw" | "requestDelist" | "pendingDelist"
 >
 
 interface SubmissionDetailProps {
@@ -202,6 +202,12 @@ function SubmissionActions(props: {
   const [pending, setPending] = createSignal(false)
   const [error, setError] = createSignal<string>()
   const [delistRequest, setDelistRequest] = createSignal<SkillMarketControl.DelistRequest>()
+  const existingDelist = createQuery(() => ({
+    queryKey: ["skill-market", "submission", props.detail.id, "pending-delist"] as const,
+    queryFn: ({ signal }) => props.source.pendingDelist(props.detail.id, signal),
+    enabled: props.detail.status === "published" && props.detail.target !== "personal",
+  }))
+  const activeDelist = () => delistRequest() ?? existingDelist.data?.[0]
   let actionTrigger: HTMLButtonElement | undefined
   const closeAction = () => {
     if (pending()) return
@@ -294,7 +300,7 @@ function SubmissionActions(props: {
           撤回投稿
         </button>
       </Show>
-      <Show when={props.detail.status === "published" && props.detail.target !== "personal" && !delistRequest()}>
+      <Show when={props.detail.status === "published" && props.detail.target !== "personal" && !activeDelist()}>
         <button
           type="button"
           disabled={pending()}
@@ -310,8 +316,8 @@ function SubmissionActions(props: {
           申请下架
         </button>
       </Show>
-      <Show when={delistRequest()}>
-        {(request) => <span>下架申请{request().status === "pending" ? "待处理" : request().status === "approved" ? "已批准" : "已拒绝"}</span>}
+      <Show when={activeDelist()}>
+        {(request) => <span class="submission-detail__delist-status">下架申请{request().status === "pending" ? "待处理" : request().status === "approved" ? "已批准" : "已拒绝"}</span>}
       </Show>
       <Show when={sharing()}>
         <PromotionForm

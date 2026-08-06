@@ -268,6 +268,12 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
           input,
           { idempotencyKey, signal },
         ),
+      pendingDelist: (submissionID: string, signal?: AbortSignal) =>
+        read(
+          `/v1/submissions/${encodeURIComponent(submissionID)}/delist-requests`,
+          Schema.Array(SkillMarketControl.DelistRequest),
+          signal,
+        ),
     },
     groups: {
       list: (signal?: AbortSignal) => read("/v1/groups", SkillMarketControl.GroupPage, signal),

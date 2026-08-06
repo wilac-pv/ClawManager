@@ -229,12 +229,22 @@ const Endpoint3_4 = (raw: RawClient["skillMarket.submissionLifecycle"]) => (inpu
     payload: { expectedVersion: input["expectedVersion"], reason: input["reason"] },
   }).pipe(Effect.mapError(mapClientError))
 
+type Endpoint3_5Request = Parameters<
+  RawClient["skillMarket.submissionLifecycle"]["skillMarket.submissions.pendingDelist"]
+>[0]
+type Endpoint3_5Input = { readonly submissionID: Endpoint3_5Request["params"]["submissionID"] }
+const Endpoint3_5 = (raw: RawClient["skillMarket.submissionLifecycle"]) => (input: Endpoint3_5Input) =>
+  raw["skillMarket.submissions.pendingDelist"]({ params: { submissionID: input["submissionID"] } }).pipe(
+    Effect.mapError(mapClientError),
+  )
+
 const adaptGroup3 = (raw: RawClient["skillMarket.submissionLifecycle"]) => ({
   personalTrash: Endpoint3_0(raw),
   personalDelete: Endpoint3_1(raw),
   personalRestore: Endpoint3_2(raw),
   withdraw: Endpoint3_3(raw),
   requestDelist: Endpoint3_4(raw),
+  pendingDelist: Endpoint3_5(raw),
 })
 
 type Endpoint4_0Request = Parameters<RawClient["skillMarket.adminLifecycle"]["skillMarket.admin.pendingDelist"]>[0]

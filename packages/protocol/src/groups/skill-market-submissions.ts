@@ -152,6 +152,13 @@ export const SkillMarketSubmissionLifecycleGroup = HttpApiGroup.make("skillMarke
       error: [SkillMarketControlNotFound, ...WriteErrors],
     }).middleware(SkillMarketWriteMiddleware).annotateMerge(SkillMarketWriteOpenApi),
   )
+  .add(
+    HttpApiEndpoint.get("skillMarket.submissions.pendingDelist", "/v1/submissions/:submissionID/delist-requests", {
+      params: { submissionID: SkillMarketControl.SubmissionID },
+      success: Schema.Array(SkillMarketControl.DelistRequest),
+      error: [SkillMarketControlNotFound, SkillMarketDependencyUnavailable],
+    }),
+  )
   .middleware(SkillMarketSessionMiddleware)
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Skill Submission Lifecycle", description: "Personal recovery and withdrawal." }),

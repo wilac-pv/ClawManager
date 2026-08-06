@@ -1,7 +1,7 @@
 import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import { Option, Schema } from "effect"
 import { insertSubmissionGroupTargets, requireAudienceTarget, submissionAudience } from "./audience"
-import { requestDelist, withdraw } from "./lifecycle"
+import { pendingDelist, requestDelist, withdraw } from "./lifecycle"
 import type { Principal } from "./security"
 import { randomSecret, SkillMarketSecurityError } from "./security"
 import type { Connection, MarketDatabase } from "./store"
@@ -356,6 +356,19 @@ export class Submissions {
         throw new SkillMarketSecurityError("submission-conflict", "a delist request is already pending")
       throw error
     }
+  }
+
+  async pendingDelist(principal: Principal, submissionID: string) {
+    if (!Schema.is(SkillMarketControl.SubmissionID)(submissionID))
+      throw new SkillMarketSecurityError("invalid-request", "submission ID is invalid")
+    return this.options.database.read(async (connection) => {
+      const owned = await connection.get<{ count: number }>(
+        "SELECT count(*) AS count FROM submissions WHERE id = ? AND owner_employee_id = ? AND deleted_at IS NULL",
+        [submissionID, principal.session.user.employeeID],
+      )
+      if (!owned || owned.count === 0) throw new SkillMarketSecurityError("not-found", "submission was not found")
+      return pendingDelist(connection, submissionID)
+    })
   }
 
   async create(principal: Principal, input: CreateSubmissionInput) {

@@ -190,6 +190,7 @@ function renderDetail(
     promote: () => Promise.resolve({ submission: value }),
     withdraw: () => Promise.resolve(value),
     requestDelist: () => Promise.reject(new Error("not configured")),
+    pendingDelist: () => Promise.resolve([]),
     ...overrides,
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })

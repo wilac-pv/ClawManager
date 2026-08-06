@@ -244,6 +244,15 @@ export function createSubmissionsHttp(options: SubmissionsHttpOptions) {
             catch: reviseProblem,
           })
         }),
+      )
+      .handle("skillMarket.submissions.pendingDelist", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.tryPromise({
+            try: () => options.submissions.pendingDelist(principal, context.params.submissionID),
+            catch: readProblem,
+          })
+        }),
       ),
   )
   return Layer.mergeAll(submissions, sharing, lifecycle)
