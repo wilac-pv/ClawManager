@@ -18,6 +18,7 @@ import { ModerationQueue } from "./admin/queue"
 import { ModerationReview } from "./admin/review"
 import { DelistQueue } from "./admin/delist-queue"
 import { RoleAdministration } from "./admin/roles"
+import { AdminSkills } from "./admin/skills"
 import { SkillHubImport } from "./admin/skillhub"
 import { AnnouncementCarousel } from "./announcements/carousel"
 import { AnnouncementDetail } from "./announcements/detail"
@@ -166,6 +167,7 @@ export function App() {
       <Route path="/admin/skillhub" component={() => <SkillHubImportRoute source={control} />} />
       <Route path="/admin/announcements" component={() => <AnnouncementAdministrationRoute source={control} />} />
       <Route path="/admin/groups" component={() => <GroupAdministrationRoute source={control} />} />
+      <Route path="/admin/skills" component={() => <AdminSkillsRoute source={control} />} />
       <Route path="*" component={() => <Navigate href="/skills" />} />
     </Router>
   )
@@ -400,6 +402,16 @@ function GroupAdministrationRoute(props: { source: SkillMarketControlDataSource 
     <RequireAdmin>
       <AdminLayout>
         <GroupAdministration source={props.source.groups} />
+      </AdminLayout>
+    </RequireAdmin>
+  )
+}
+
+function AdminSkillsRoute(props: { source: SkillMarketControlDataSource }) {
+  return (
+    <RequireAdmin>
+      <AdminLayout>
+        <AdminSkills source={props.source.admin.skills} />
       </AdminLayout>
     </RequireAdmin>
   )

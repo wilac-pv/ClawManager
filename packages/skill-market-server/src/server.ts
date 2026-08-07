@@ -19,6 +19,7 @@ import { makeS3ObjectStore } from "./oss"
 import { createPublisher } from "./publisher"
 import { createRestrictedCatalog } from "./restricted-catalog"
 import { bootstrapAdmins, createSecurity } from "./security"
+import { createSkillAdmin } from "./skill-admin"
 import { createSkillHubImportAdmin } from "./skillhub-import-admin"
 import { createSkillHubImportStore } from "./skillhub-import-store"
 import { createSkillHubEvaluationStore } from "./skillhub-evaluation-store"
@@ -73,9 +74,34 @@ const main = Effect.scoped(
     const wake = () => {
       void state.worker?.wake("server").catch(() => undefined)
     }
+    const adminStateLoader = () => ({
+      load: async () => {
+        const rows = await database.read(async (connection) => {
+          const overrides = await connection.all<{
+            skill_id: string
+            source: string
+            featured: boolean | null
+            hidden: boolean
+            category_override: string | null
+          }>("SELECT skill_id, source, featured, hidden, category_override FROM skill_overrides")
+          const categories = await connection.all<{ category: string }>("SELECT category FROM hidden_categories")
+          return { overrides, categories }
+        })
+        return {
+          overrides: new Map(
+            rows.overrides.map((row) => [
+              `${row.source}:${row.skill_id}`,
+              { hidden: row.hidden, featured: row.featured, category: row.category_override },
+            ] as const),
+          ),
+          hiddenCategories: new Set(rows.categories.map((row) => row.category)),
+        }
+      },
+    })
     const submissions = createSubmissions({ database, onValidationReady: wake })
     const personalTrash = createPersonalTrash({ database, store })
     const moderation = createModeration({ database, security })
+    const skillAdmin = createSkillAdmin({ database, security, catalog: createCatalogReader({ store, prefix: config.ossPrefix }) })
     const announcements = createAnnouncements({ database })
     const imports = createSkillHubImportStore({
       database,
@@ -140,7 +166,7 @@ const main = Effect.scoped(
     yield* Effect.promise(() => worker.cleanup().then(() => {}))
     yield* Effect.promise(() => worker.drain("server-startup"))
     const routes = createMarketRoutes({
-      catalog: createCatalogReader({ store, prefix: config.ossPrefix }),
+      catalog: createCatalogReader({ store, prefix: config.ossPrefix, adminState: adminStateLoader() }),
       restrictedCatalog,
       installGrants,
       announcements,
@@ -149,6 +175,7 @@ const main = Effect.scoped(
       submissions,
       personalTrash,
       moderation,
+      skillAdmin,
       expertPackages,
       favorites,
       groups,

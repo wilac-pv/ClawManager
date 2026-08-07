@@ -340,13 +340,16 @@ export class Submissions {
   async requestDelist(principal: Principal, submissionID: string, input: SkillMarketControl.ReasonInput) {
     if (!Schema.is(SkillMarketControl.ReasonInput)(input))
       throw new SkillMarketSecurityError("invalid-request", "delist request is invalid")
+    const expectedVersion = input.expectedVersion
+    if (expectedVersion === undefined)
+      throw new SkillMarketSecurityError("invalid-request", "delist request version is required")
     try {
       return await this.options.database.transaction((connection) =>
         requestDelist(
           connection,
           principal,
           submissionID,
-          input.expectedVersion,
+          expectedVersion,
           input.reason,
           this.options.now?.() ?? Date.now(),
         ),

@@ -54,6 +54,14 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
   }
   const read = async <S extends Schema.Decoder<unknown>>(path: string, schema: S, signal?: AbortSignal) =>
     Schema.decodeUnknownPromise(schema)(await (await send(path, { signal })).json())
+  const writeVoid = async (path: string, input: unknown, signal?: AbortSignal) => {
+    await send(path, {
+      method: "POST",
+      signal,
+      headers: { "content-type": "application/json", "x-csrf-token": requireCsrf(options.csrfToken) },
+      body: JSON.stringify(input),
+    })
+  }
   const write = async <S extends Schema.Decoder<unknown>>(
     path: string,
     schema: S,
@@ -473,6 +481,71 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         write("/v1/admin/skillhub-import/command", SkillMarketControl.SkillHubImportProgress, input, signal),
       evaluation: (signal?: AbortSignal) =>
         read("/v1/admin/skillhub-evaluation", SkillMarketControl.SkillHubEvaluationProgress, signal),
+    },
+    admin: {
+      skills: {
+        list: (query: SkillMarketControl.SkillAdminListQuery, signal?: AbortSignal) =>
+          read(
+            withQuery("/v1/admin/skills", [
+              ["page", query.page],
+              ["limit", query.limit],
+              ["query", query.query],
+              ["source", query.source],
+              ["category", query.category],
+              ["hidden", query.hidden === undefined ? undefined : String(query.hidden)],
+              ["featured", query.featured === undefined ? undefined : String(query.featured)],
+            ]),
+            SkillMarketControl.SkillAdminPage,
+            signal,
+          ),
+        hiddenCategories: (signal?: AbortSignal) =>
+          read("/v1/admin/skills/hidden-categories", SkillMarketControl.HiddenCategoryList, signal),
+        update: (
+          source: SkillMarket.Source,
+          skillID: string,
+          input: SkillMarketControl.SkillAdminEditInput,
+          signal?: AbortSignal,
+        ) =>
+          mutate(
+            "PATCH",
+            `/v1/admin/skills/${encodeURIComponent(source)}/${encodeURIComponent(skillID)}`,
+            SkillMarketControl.SkillAdminItem,
+            input,
+            { signal },
+          ),
+        delist: (
+          source: SkillMarket.Source,
+          skillID: string,
+          input: SkillMarketControl.ReasonInput,
+          idempotencyKey: string,
+          signal?: AbortSignal,
+        ) =>
+          mutate(
+            "POST",
+            `/v1/admin/skills/${encodeURIComponent(source)}/${encodeURIComponent(skillID)}/delist`,
+            SkillMarketControl.SkillAdminItem,
+            input,
+            { idempotencyKey, signal },
+          ),
+        restore: (
+          source: SkillMarket.Source,
+          skillID: string,
+          input: SkillMarketControl.ReasonInput,
+          idempotencyKey: string,
+          signal?: AbortSignal,
+        ) =>
+          mutate(
+            "POST",
+            `/v1/admin/skills/${encodeURIComponent(source)}/${encodeURIComponent(skillID)}/restore`,
+            SkillMarketControl.SkillAdminItem,
+            input,
+            { idempotencyKey, signal },
+          ),
+        delistByCategory: (input: SkillMarketControl.SkillAdminCategoryActionInput, signal?: AbortSignal) =>
+          writeVoid("/v1/admin/skills/delist-by-category", input, signal),
+        restoreByCategory: (input: SkillMarketControl.SkillAdminCategoryActionInput, signal?: AbortSignal) =>
+          writeVoid("/v1/admin/skills/restore-by-category", input, signal),
+      },
     },
   }
 }

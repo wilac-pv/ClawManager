@@ -2479,7 +2479,7 @@ a {
   margin: 28px auto -18px;
   padding: 10px 14px;
   border: 1px solid rgba(109, 93, 252, 0.12);
-  border-radius: 999px;
+  border-radius: 16px;
   background: rgba(109, 93, 252, 0.06);
   box-shadow: none;
 }
@@ -2508,10 +2508,13 @@ a {
 }
 
 .announcement-carousel__text {
+  display: -webkit-box;
   overflow: hidden;
   font-size: 14px;
+  line-height: 1.5;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .announcement-carousel__content:hover .announcement-carousel__text {

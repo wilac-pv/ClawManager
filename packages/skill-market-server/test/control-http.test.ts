@@ -21,6 +21,7 @@ import type { PrivateObjectStore } from "../src/oss"
 import { MAX_CATALOG_PACKAGE_SIZE } from "../src/package-reader"
 import { createRestrictedCatalog } from "../src/restricted-catalog"
 import { createSecurity, hashSecret } from "../src/security"
+import { createSkillAdmin } from "../src/skill-admin"
 import { createSkillHubImportAdmin } from "../src/skillhub-import-admin"
 import { createSkillHubImportStore } from "../src/skillhub-import-store"
 import { createSkillHubEvaluationStore } from "../src/skillhub-evaluation-store"
@@ -1735,6 +1736,7 @@ async function marketFixture(
     submissions,
     personalTrash: createPersonalTrash({ database, store, now: () => now }),
     moderation,
+    skillAdmin: createSkillAdmin({ database, security, catalog: sampleCatalogReader(snapshot) }),
     expertPackages: createExpertPackages({ database, baseUrl: "https://api.skillhub.cn" }),
     favorites: createFavorites({ database, now: () => now }),
     groups,

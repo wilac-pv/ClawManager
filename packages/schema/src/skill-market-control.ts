@@ -499,7 +499,7 @@ export const ExpectedVersionInput = Schema.Struct({
 
 export interface ReasonInput extends Schema.Schema.Type<typeof ReasonInput> {}
 export const ReasonInput = Schema.Struct({
-  expectedVersion: Positive,
+  expectedVersion: Positive.pipe(optional),
   reason: bounded(1, 2_000),
 }).annotate({ identifier: "SkillMarketControl.ReasonInput" })
 
@@ -604,6 +604,66 @@ export const AnnouncementCreateInput = Schema.Struct({
 }).annotate({ identifier: "SkillMarketControl.AnnouncementCreateInput" })
 export type AnnouncementCreateInput = typeof AnnouncementCreateInput.Type
 
+export const SkillAdminListQuery = Schema.Struct({
+  page: PageNumber.pipe(optional),
+  limit: PageLimit.pipe(optional),
+  query: bounded(1, 120).pipe(optional),
+  source: SkillMarket.Source.pipe(optional),
+  category: bounded(1, 120).pipe(optional),
+  hidden: Schema.Boolean.pipe(optional),
+  featured: Schema.Boolean.pipe(optional),
+}).annotate({ identifier: "SkillMarketControl.SkillAdminListQuery" })
+export type SkillAdminListQuery = typeof SkillAdminListQuery.Type
+
+export const SkillAdminEditInput = Schema.Struct({
+  expectedVersion: Positive.pipe(optional),
+  featured: Schema.Boolean.pipe(optional),
+  hidden: Schema.Boolean.pipe(optional),
+  hiddenReason: bounded(1, 2_000).pipe(optional),
+  category: bounded(1, 120).pipe(optional),
+}).annotate({ identifier: "SkillMarketControl.SkillAdminEditInput" })
+export type SkillAdminEditInput = typeof SkillAdminEditInput.Type
+
+export const SkillAdminCategoryActionInput = Schema.Struct({
+  category: bounded(1, 120),
+  reason: bounded(1, 2_000).pipe(optional),
+}).annotate({ identifier: "SkillMarketControl.SkillAdminCategoryActionInput" })
+export type SkillAdminCategoryActionInput = typeof SkillAdminCategoryActionInput.Type
+
+export const SkillAdminItem = Schema.Struct({
+  skill: SkillMarket.Summary,
+  override: Schema.Struct({
+    featured: Schema.Boolean,
+    hidden: Schema.Boolean,
+    hiddenReason: bounded(1, 2_000).pipe(optional),
+    category: bounded(1, 120).pipe(optional),
+    updatedBy: EmployeeID,
+    updatedAt: SkillMarket.Timestamp,
+  }).pipe(optional),
+}).annotate({ identifier: "SkillMarketControl.SkillAdminItem" })
+export type SkillAdminItem = typeof SkillAdminItem.Type
+
+export const SkillAdminPage = Schema.Struct({
+  total: NonNegative,
+  page: PageNumber,
+  limit: PageLimit,
+  items: Schema.Array(SkillAdminItem),
+}).annotate({ identifier: "SkillMarketControl.SkillAdminPage" })
+export type SkillAdminPage = typeof SkillAdminPage.Type
+
+export const HiddenCategory = Schema.Struct({
+  category: bounded(1, 120),
+  hiddenReason: bounded(1, 2_000).pipe(optional),
+  updatedBy: EmployeeID,
+  updatedAt: SkillMarket.Timestamp,
+}).annotate({ identifier: "SkillMarketControl.HiddenCategory" })
+export type HiddenCategory = typeof HiddenCategory.Type
+
+export const HiddenCategoryList = Schema.Struct({
+  items: Schema.Array(HiddenCategory),
+}).annotate({ identifier: "SkillMarketControl.HiddenCategoryList" })
+export type HiddenCategoryList = typeof HiddenCategoryList.Type
+
 export const AuditAction = Schema.Literals([
   "bootstrap-admin",
   "role-assigned",
@@ -640,6 +700,11 @@ export const AuditAction = Schema.Literals([
   "group-restored",
   "group-member-added",
   "group-member-removed",
+  "skill-updated",
+  "skill-hidden",
+  "skill-shown",
+  "category-hidden",
+  "category-shown",
 ])
 export type AuditAction = typeof AuditAction.Type
 

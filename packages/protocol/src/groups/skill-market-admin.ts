@@ -161,6 +161,75 @@ export const SkillMarketAdminGroup = ReviewerEndpoints.add(
       .middleware(SkillMarketWriteMiddleware)
       .middleware(SkillMarketAdminMiddleware),
   )
+  .add(
+    HttpApiEndpoint.get("skillMarket.admin.skills.list", "/v1/admin/skills", {
+      query: Schema.Struct({
+        page: PageNumber.pipe(Schema.optional),
+        limit: PageLimit.pipe(Schema.optional),
+        query: SkillMarketControl.SkillAdminListQuery.fields.query.pipe(Schema.optional),
+        source: SkillMarketControl.SkillAdminListQuery.fields.source.pipe(Schema.optional),
+        category: SkillMarketControl.SkillAdminListQuery.fields.category.pipe(Schema.optional),
+        hidden: Schema.Literals(["true", "false"]).pipe(Schema.optional),
+        featured: Schema.Literals(["true", "false"]).pipe(Schema.optional),
+      }),
+      success: SkillMarketControl.SkillAdminPage,
+      error: SkillMarketDependencyUnavailable,
+    }).middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.get("skillMarket.admin.skills.hiddenCategories", "/v1/admin/skills/hidden-categories", {
+      success: SkillMarketControl.HiddenCategoryList,
+      error: SkillMarketDependencyUnavailable,
+    }).middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.skills.delistByCategory", "/v1/admin/skills/delist-by-category", {
+      payload: SkillMarketControl.SkillAdminCategoryActionInput,
+      success: Schema.Void,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.skills.restoreByCategory", "/v1/admin/skills/restore-by-category", {
+      payload: SkillMarketControl.SkillAdminCategoryActionInput,
+      success: Schema.Void,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.patch("skillMarket.admin.skills.update", "/v1/admin/skills/:source/:skillID", {
+      params: { source: SkillMarket.Source, skillID: SkillMarketControl.SubmissionSummary.fields.skillID },
+      payload: SkillMarketControl.SkillAdminEditInput,
+      success: SkillMarketControl.SkillAdminItem,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.skills.delist", "/v1/admin/skills/:source/:skillID/delist", {
+      params: { source: SkillMarket.Source, skillID: SkillMarketControl.SubmissionSummary.fields.skillID },
+      payload: SkillMarketControl.ReasonInput,
+      success: SkillMarketControl.SkillAdminItem,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.skills.restore", "/v1/admin/skills/:source/:skillID/restore", {
+      params: { source: SkillMarket.Source, skillID: SkillMarketControl.SubmissionSummary.fields.skillID },
+      payload: SkillMarketControl.ReasonInput,
+      success: SkillMarketControl.SkillAdminItem,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
   .middleware(SkillMarketSessionMiddleware)
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Skill Market Administration", description: "Review and administration." }),

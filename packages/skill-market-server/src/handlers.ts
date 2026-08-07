@@ -24,6 +24,7 @@ import type { Groups } from "./groups"
 import type { PrivateObjectStore } from "./oss"
 import type { RestrictedCatalog } from "./restricted-catalog"
 import type { MarketSecurity } from "./security"
+import type { SkillAdmin } from "./skill-admin"
 import type { SkillHubImportAdmin } from "./skillhub-import-admin"
 import { randomSecret } from "./security"
 import type { Submissions } from "./submissions"
@@ -49,6 +50,7 @@ export interface MarketHttpOptions {
   readonly security: MarketSecurity
   readonly submissions: Submissions
   readonly moderation: Moderation
+  readonly skillAdmin: SkillAdmin
   readonly personalTrash: PersonalTrash
   readonly expertPackages: ExpertPackages
   readonly favorites: Favorites

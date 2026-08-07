@@ -13,6 +13,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import type { Announcements } from "../announcements"
 import type { MarketMetricEmitter } from "../metrics"
 import type { Moderation } from "../moderation"
+import type { SkillAdmin } from "../skill-admin"
 import { SkillMarketSecurityError } from "../security"
 import type { SkillHubImportAdmin } from "../skillhub-import-admin"
 import { principalFromSession, requestID } from "./middleware"
@@ -20,6 +21,7 @@ import { principalFromSession, requestID } from "./middleware"
 interface AdminHttpOptions {
   readonly announcements: Announcements
   readonly moderation: Moderation
+  readonly skillAdmin: SkillAdmin
   readonly skillhubImportAdmin: SkillHubImportAdmin
   readonly onWorkReady?: () => void
   readonly onSkillHubWorkReady?: () => void
@@ -158,6 +160,88 @@ export function createAdminHttp(options: AdminHttpOptions) {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
           const result = yield* Effect.tryPromise({
             try: () => options.moderation.restore(principal, context.params.skillID, context.payload),
+            catch: reviewProblem,
+          })
+          options.onWorkReady?.()
+          return result
+        }),
+      )
+      .handle("skillMarket.admin.skills.list", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.tryPromise({
+            try: () =>
+              options.skillAdmin.list(principal, {
+                query: context.query.query,
+                source: context.query.source,
+                category: context.query.category,
+                hidden: context.query.hidden === undefined ? undefined : context.query.hidden === "true",
+                featured: context.query.featured === undefined ? undefined : context.query.featured === "true",
+                page: context.query.page ?? 1,
+                limit: context.query.limit ?? 30,
+              }),
+            catch: dependencyProblem,
+          })
+        }),
+      )
+      .handle("skillMarket.admin.skills.hiddenCategories", () =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          return yield* Effect.tryPromise({
+            try: () => options.skillAdmin.hiddenCategories(principal),
+            catch: dependencyProblem,
+          })
+        }),
+      )
+      .handle("skillMarket.admin.skills.delistByCategory", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.tryPromise({
+            try: () => options.skillAdmin.delistByCategory(principal, context.payload),
+            catch: reviewProblem,
+          })
+          options.onWorkReady?.()
+          return result
+        }),
+      )
+      .handle("skillMarket.admin.skills.restoreByCategory", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.tryPromise({
+            try: () => options.skillAdmin.restoreByCategory(principal, context.payload),
+            catch: reviewProblem,
+          })
+          options.onWorkReady?.()
+          return result
+        }),
+      )
+      .handle("skillMarket.admin.skills.update", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.tryPromise({
+            try: () => options.skillAdmin.update(principal, context.params.source, context.params.skillID, context.payload),
+            catch: reviewProblem,
+          })
+          options.onWorkReady?.()
+          return result
+        }),
+      )
+      .handle("skillMarket.admin.skills.delist", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.tryPromise({
+            try: () => options.skillAdmin.delist(principal, context.params.source, context.params.skillID, context.payload),
+            catch: reviewProblem,
+          })
+          options.onWorkReady?.()
+          return result
+        }),
+      )
+      .handle("skillMarket.admin.skills.restore", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.tryPromise({
+            try: () => options.skillAdmin.restore(principal, context.params.source, context.params.skillID, context.payload),
             catch: reviewProblem,
           })
           options.onWorkReady?.()
