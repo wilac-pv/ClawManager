@@ -114,105 +114,106 @@ export function SkillMarketList(props: {
         </p>
       </header>
 
-      <nav class="ruying-skill-market__tabs" aria-label="市场排序">
-        <For each={sortTabs}>
-          {(tab) => (
-            <button
-              type="button"
-              classList={{
-                "ruying-skill-market__tab": true,
-                "ruying-skill-market__tab--active": state.scope === tab.scope && state.sort === tab.sort,
-              }}
-              aria-pressed={state.scope === tab.scope && state.sort === tab.sort}
-              onClick={() => selectSort(tab.sort, tab.scope)}
-            >
-              {tab.label}
-            </button>
-          )}
-        </For>
-        <Show when={market.source.installed}>
-          <button
-            type="button"
-            classList={{
-              "ruying-skill-market__tab": true,
-              "ruying-skill-market__tab--active": state.scope === "installed",
-            }}
-            aria-pressed={state.scope === "installed"}
-            onClick={() => setState({ scope: "installed", page: 1 })}
-          >
-            已安装
-          </button>
-        </Show>
-        <Show when={market.source.updates}>
-          <button
-            type="button"
-            classList={{
-              "ruying-skill-market__tab": true,
-              "ruying-skill-market__tab--active": state.scope === "updates",
-            }}
-            aria-pressed={state.scope === "updates"}
-            onClick={() => setState({ scope: "updates", page: 1 })}
-          >
-            可更新
-          </button>
-        </Show>
-      </nav>
-
       <Show when={catalogEnabled()}>
-        <section class="ruying-skill-market__toolbar" aria-label="市场筛选">
-          <label class="ruying-skill-market__search">
-            <span class="ruying-skill-market__sr-only">搜索 Skill</span>
-            <span aria-hidden="true">⌕</span>
-            <input
-              type="search"
-              value={state.search}
-              onInput={(event) => setState("search", event.currentTarget.value)}
-              placeholder="搜索"
-            />
-          </label>
-          <label class="ruying-skill-market__filter">
-            <span class="ruying-skill-market__sr-only">来源</span>
-            <select
-              value={state.source}
-              onChange={(event) => {
-                const source = parseSource(event.currentTarget.value)
-                setState({
-                  source,
-                  scope: source === "community" ? "community" : state.scope === "community" ? "all" : state.scope,
-                  page: 1,
-                })
-              }}
-            >
-              <option value="">全部来源</option>
-              <option value="enterprise">企业精选</option>
-              <option value="skillhub">SkillHub</option>
-              <option value="community">用户投稿</option>
-            </select>
-          </label>
-          <label class="ruying-skill-market__filter">
-            <span class="ruying-skill-market__sr-only">场景分类</span>
-            <select
-              value={state.category}
-              onChange={(event) => setState({ category: event.currentTarget.value, page: 1 })}
-            >
-              <option value="">全部分类</option>
-              <For each={facets.data?.categories}>
-                {(category) => <option value={category.value}>{category.value}</option>}
-              </For>
-            </select>
-          </label>
-          <label class="ruying-skill-market__filter">
-            <span class="ruying-skill-market__sr-only">API Key</span>
-            <select
-              value={state.apiKey}
-              onChange={(event) => setState({ apiKey: parseApiKey(event.currentTarget.value), page: 1 })}
-            >
-              <option value="all">不限 API Key</option>
-              <option value="no">无需 API Key</option>
-              <option value="yes">需要 API Key</option>
-            </select>
-          </label>
-          <div class="ruying-skill-market__view-switch" aria-label="展示方式">
+        <div class="ruying-skill-market__controls">
+          <nav class="ruying-skill-market__tabs" aria-label="市场排序">
+            <For each={sortTabs}>
+              {(tab) => (
+                <button
+                  type="button"
+                  classList={{
+                    "ruying-skill-market__tab": true,
+                    "ruying-skill-market__tab--active": state.scope === tab.scope && state.sort === tab.sort,
+                  }}
+                  aria-pressed={state.scope === tab.scope && state.sort === tab.sort}
+                  onClick={() => selectSort(tab.sort, tab.scope)}
+                >
+                  {tab.label}
+                </button>
+              )}
+            </For>
+            <Show when={market.source.installed}>
+              <button
+                type="button"
+                classList={{
+                  "ruying-skill-market__tab": true,
+                  "ruying-skill-market__tab--active": state.scope === "installed",
+                }}
+                aria-pressed={state.scope === "installed"}
+                onClick={() => setState({ scope: "installed", page: 1 })}
+              >
+                已安装
+              </button>
+            </Show>
+            <Show when={market.source.updates}>
+              <button
+                type="button"
+                classList={{
+                  "ruying-skill-market__tab": true,
+                  "ruying-skill-market__tab--active": state.scope === "updates",
+                }}
+                aria-pressed={state.scope === "updates"}
+                onClick={() => setState({ scope: "updates", page: 1 })}
+              >
+                可更新
+              </button>
+            </Show>
+          </nav>
+
+          <section class="ruying-skill-market__toolbar" aria-label="市场筛选">
+            <label class="ruying-skill-market__filter">
+              <span class="ruying-skill-market__sr-only">来源</span>
+              <select
+                value={state.source}
+                onChange={(event) => {
+                  const source = parseSource(event.currentTarget.value)
+                  setState({
+                    source,
+                    scope: source === "community" ? "community" : state.scope === "community" ? "all" : state.scope,
+                    page: 1,
+                  })
+                }}
+              >
+                <option value="">全部来源</option>
+                <option value="enterprise">企业精选</option>
+                <option value="skillhub">SkillHub</option>
+                <option value="community">用户投稿</option>
+              </select>
+            </label>
+            <label class="ruying-skill-market__filter">
+              <span class="ruying-skill-market__sr-only">场景分类</span>
+              <select
+                value={state.category}
+                onChange={(event) => setState({ category: event.currentTarget.value, page: 1 })}
+              >
+                <option value="">全部分类</option>
+                <For each={facets.data?.categories}>
+                  {(category) => <option value={category.value}>{category.value}</option>}
+                </For>
+              </select>
+            </label>
+            <label class="ruying-skill-market__filter">
+              <span class="ruying-skill-market__sr-only">API Key</span>
+              <select
+                value={state.apiKey}
+                onChange={(event) => setState({ apiKey: parseApiKey(event.currentTarget.value), page: 1 })}
+              >
+                <option value="all">不限 API Key</option>
+                <option value="no">无需 API Key</option>
+                <option value="yes">需要 API Key</option>
+              </select>
+            </label>
+            <label class="ruying-skill-market__search">
+              <span class="ruying-skill-market__sr-only">搜索 Skill</span>
+              <span aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                value={state.search}
+                onInput={(event) => setState("search", event.currentTarget.value)}
+                placeholder="搜索"
+              />
+            </label>
+            <div class="ruying-skill-market__view-switch" aria-label="展示方式">
             <button
               type="button"
               aria-label="卡片视图"
@@ -237,6 +238,7 @@ export function SkillMarketList(props: {
             </button>
           </div>
         </section>
+        </div>
 
         <Show when={result.isPending}>
           <div class="ruying-skill-market__state" role="status">
