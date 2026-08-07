@@ -107,25 +107,11 @@ export function SkillMarketList(props: {
   return (
     <main class="ruying-skill-market">
       <header class="ruying-skill-market__hero">
-        <div>
-          <h1>全部技能</h1>
-          <p>
-            快速发现专家技能，让 AI 从通用走向专用
-            <Show when={result.data?.total}>{(total) => ` · 共 ${formatTotal(total())} 个技能`}</Show>
-          </p>
-        </div>
-        <div class="ruying-skill-market__hero-actions">
-          <label class="ruying-skill-market__search">
-            <span class="ruying-skill-market__sr-only">搜索 Skill</span>
-            <span aria-hidden="true">⌕</span>
-            <input
-              type="search"
-              value={state.search}
-              onInput={(event) => setState("search", event.currentTarget.value)}
-              placeholder="搜索 Skill、场景或标签"
-            />
-          </label>
-        </div>
+        <h1>全部技能</h1>
+        <p>
+          快速发现专家技能，让 AI 从通用走向专用
+          <Show when={result.data?.total}>{(total) => ` · 共 ${formatTotal(total())} 个技能`}</Show>
+        </p>
       </header>
 
       <nav class="ruying-skill-market__tabs" aria-label="市场排序">
@@ -174,8 +160,18 @@ export function SkillMarketList(props: {
 
       <Show when={catalogEnabled()}>
         <section class="ruying-skill-market__toolbar" aria-label="市场筛选">
-          <label>
-            <span>来源</span>
+          <label class="ruying-skill-market__search">
+            <span class="ruying-skill-market__sr-only">搜索 Skill</span>
+            <span aria-hidden="true">⌕</span>
+            <input
+              type="search"
+              value={state.search}
+              onInput={(event) => setState("search", event.currentTarget.value)}
+              placeholder="搜索"
+            />
+          </label>
+          <label class="ruying-skill-market__filter">
+            <span class="ruying-skill-market__sr-only">来源</span>
             <select
               value={state.source}
               onChange={(event) => {
@@ -193,8 +189,8 @@ export function SkillMarketList(props: {
               <option value="community">用户投稿</option>
             </select>
           </label>
-          <label>
-            <span>场景分类</span>
+          <label class="ruying-skill-market__filter">
+            <span class="ruying-skill-market__sr-only">场景分类</span>
             <select
               value={state.category}
               onChange={(event) => setState({ category: event.currentTarget.value, page: 1 })}
@@ -205,13 +201,13 @@ export function SkillMarketList(props: {
               </For>
             </select>
           </label>
-          <label>
-            <span>API Key</span>
+          <label class="ruying-skill-market__filter">
+            <span class="ruying-skill-market__sr-only">API Key</span>
             <select
               value={state.apiKey}
               onChange={(event) => setState({ apiKey: parseApiKey(event.currentTarget.value), page: 1 })}
             >
-              <option value="all">不限</option>
+              <option value="all">不限 API Key</option>
               <option value="no">无需 API Key</option>
               <option value="yes">需要 API Key</option>
             </select>
