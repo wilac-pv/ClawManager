@@ -2472,102 +2472,73 @@ a {
   }
 }
 .announcement-carousel {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   width: min(var(--skillhub-content-width), calc(100% - 48px));
   margin: 28px auto -18px;
-  padding: 15px 18px;
-  overflow: hidden;
-  border: 1px solid rgba(109, 93, 252, 0.16);
-  border-radius: var(--skillhub-radius-lg);
-  background:
-    radial-gradient(circle at 10% 20%, rgba(109, 93, 252, 0.1), transparent 30%),
-    linear-gradient(110deg, var(--skillhub-brand-soft) 0%, #fff 58%, var(--skillhub-brand-soft) 100%);
-  box-shadow: var(--skillhub-shadow-card);
-}
-
-.announcement-carousel::after {
-  position: absolute;
-  right: -36px;
-  width: 120px;
-  height: 120px;
-  border: 22px solid rgba(109, 93, 252, 0.055);
-  border-radius: 50%;
-  content: "";
+  padding: 10px 14px;
+  border: 1px solid rgba(109, 93, 252, 0.12);
+  border-radius: 999px;
+  background: rgba(109, 93, 252, 0.06);
+  box-shadow: none;
 }
 
 .announcement-carousel__badge {
-  position: relative;
-  z-index: 1;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 52px;
-  height: 30px;
+  height: 26px;
+  padding: 0 12px;
   border-radius: 999px;
   background: var(--skillhub-brand);
   color: var(--skillhub-on-brand);
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.02em;
 }
 
 .announcement-carousel__content {
-  position: relative;
-  z-index: 1;
-  display: grid;
+  display: flex;
+  align-items: center;
   min-width: 0;
   color: var(--skillhub-text);
   text-decoration: none;
 }
 
-.announcement-carousel__content strong {
+.announcement-carousel__text {
   overflow: hidden;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.announcement-carousel__content span {
-  overflow: hidden;
-  margin-top: 3px;
-  color: #697087;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.announcement-carousel__content:hover strong {
+.announcement-carousel__content:hover .announcement-carousel__text {
   color: var(--skillhub-brand);
 }
 
 .announcement-carousel__controls {
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
-  gap: var(--skillhub-space-4);
-  white-space: nowrap;
-}
-
-.announcement-carousel__controls > a {
-  color: var(--skillhub-brand);
-  font-size: 13px;
-  font-weight: var(--weight-bold);
-  text-decoration: none;
+  flex: none;
+  margin-left: auto;
+  gap: var(--skillhub-space-3);
 }
 
 .announcement-carousel__dots {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
 .announcement-carousel__dots button {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: #c8cce0;
+  background: rgba(109, 93, 252, 0.3);
   cursor: pointer;
   transition:
     width 160ms ease,
@@ -2575,8 +2546,32 @@ a {
 }
 
 .announcement-carousel__dots button[aria-current="true"] {
-  width: 22px;
+  width: 18px;
   background: var(--skillhub-brand);
+}
+
+.announcement-carousel__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.announcement-carousel__close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.75);
 }
 
 .announcement-page {

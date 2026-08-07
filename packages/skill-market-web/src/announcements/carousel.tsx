@@ -3,6 +3,26 @@ import { createQuery } from "@tanstack/solid-query"
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js"
 import type { AnnouncementSource } from "../data-source"
 
+const DISMISS_KEY = "skillhub:announcement:dismissed"
+
+function readDismissed(): string[] {
+  try {
+    const raw = localStorage.getItem(DISMISS_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []
+  } catch {
+    return []
+  }
+}
+
+function saveDismissed(ids: string[]) {
+  try {
+    localStorage.setItem(DISMISS_KEY, JSON.stringify(ids))
+  } catch {
+    // ignore
+  }
+}
+
 export function AnnouncementCarousel(props: { readonly source: AnnouncementSource }) {
   const announcements = createQuery(() => ({
     queryKey: ["skill-market", "announcements", "carousel"] as const,
@@ -10,7 +30,10 @@ export function AnnouncementCarousel(props: { readonly source: AnnouncementSourc
     staleTime: 60_000,
   }))
   const [index, setIndex] = createSignal(0)
-  const items = () => announcements.data?.items ?? []
+  const [dismissed, setDismissed] = createSignal<string[]>([])
+  onMount(() => setDismissed(readDismissed()))
+
+  const items = () => announcements.data?.items.filter((item) => !dismissed().includes(item.id)) ?? []
   const current = () => items()[index()]
 
   createEffect(() => {
@@ -24,14 +47,19 @@ export function AnnouncementCarousel(props: { readonly source: AnnouncementSourc
     onCleanup(() => window.clearInterval(timer))
   })
 
+  const dismiss = (id: string) => {
+    const next = [...dismissed(), id]
+    setDismissed(next)
+    saveDismissed(next)
+  }
+
   return (
     <Show when={current()}>
       {(announcement) => (
         <section class="announcement-carousel" aria-label="最新公告" aria-roledescription="走马灯">
-          <span class="announcement-carousel__badge type-badge">公告</span>
+          <span class="announcement-carousel__badge type-badge">最新通知</span>
           <A class="announcement-carousel__content" href={`/announcements/${announcement().id}`}>
-            <strong class="type-card-title">{announcement().title}</strong>
-            <span class="type-secondary">{announcement().summary}</span>
+            <span class="announcement-carousel__text">{announcement().title}</span>
           </A>
           <div class="announcement-carousel__controls">
             <div class="announcement-carousel__dots" aria-label="公告切换">
@@ -46,7 +74,14 @@ export function AnnouncementCarousel(props: { readonly source: AnnouncementSourc
                 )}
               </For>
             </div>
-            <A href="/announcements">历史公告</A>
+            <button
+              type="button"
+              class="announcement-carousel__close"
+              aria-label="关闭此公告"
+              onClick={() => dismiss(announcement().id)}
+            >
+              ×
+            </button>
           </div>
         </section>
       )}
