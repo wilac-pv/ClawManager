@@ -116,22 +116,28 @@
 
 .ruying-skill-market__tabs {
   display: flex;
-  max-width: var(--market-content-width);
-  margin: 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
   overflow-x: auto;
   gap: 8px;
-  padding: 4px 0 12px;
+  padding: 0;
 }
 
 .ruying-skill-market__tab {
   flex: none;
-  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 14px;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
+  border-radius: 999px;
   background: #fff;
   color: rgba(0, 0, 0, 0.6);
   font-size: 14px;
   font-weight: 400;
+  line-height: 1;
   cursor: pointer;
   letter-spacing: -0.01em;
   transition: all 0.2s;
