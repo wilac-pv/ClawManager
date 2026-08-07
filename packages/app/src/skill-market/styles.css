@@ -183,24 +183,54 @@
   gap: 6px;
 }
 
-.ruying-skill-market__search {
+.ruying-skill-market__search-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  background: #fff;
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 18px;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.ruying-skill-market__search-trigger:hover {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.ruying-skill-market__search-row {
   display: flex;
   align-items: center;
-  width: 140px;
-  height: 36px;
-  padding: 0 12px;
+  gap: 8px;
+  max-width: var(--market-content-width);
+  margin: -8px auto 16px;
+  padding: 0;
+}
+
+.ruying-skill-market__search-row .ruying-skill-market__search {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  height: 44px;
+  padding: 0 16px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 999px;
   background: #fff;
   color: rgba(0, 0, 0, 0.45);
   transition:
     border-color 160ms ease,
-    box-shadow 160ms ease,
-    width 200ms ease;
+    box-shadow 160ms ease;
 }
 
-.ruying-skill-market__search:focus-within {
-  width: 180px;
+.ruying-skill-market__search-row .ruying-skill-market__search:focus-within {
   border-color: rgba(0, 0, 0, 0.18);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
@@ -208,7 +238,7 @@
 .ruying-skill-market__search input {
   width: 100%;
   height: 100%;
-  padding: 0 6px;
+  padding: 0 10px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -225,6 +255,29 @@
   border-color: transparent;
   outline: 0;
   box-shadow: none;
+}
+
+.ruying-skill-market__search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 20px;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.ruying-skill-market__search-clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.75);
 }
 
 .ruying-skill-market__filter {
@@ -772,18 +825,17 @@
 
   .ruying-skill-market__toolbar {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr auto;
     width: 100%;
   }
 
-  .ruying-skill-market__search {
-    grid-column: 1 / -1;
-    width: 100%;
-    min-width: 0;
+  .ruying-skill-market__search-trigger {
+    grid-column: 3;
+    justify-self: end;
   }
 
-  .ruying-skill-market__search:focus-within {
-    width: 100%;
+  .ruying-skill-market__search-row {
+    margin-top: -4px;
   }
 
   .ruying-skill-market__filter select {

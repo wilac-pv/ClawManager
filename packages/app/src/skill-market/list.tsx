@@ -1,6 +1,6 @@
 import type { SkillMarket } from "@opencode-ai/schema/skill-market"
 import { createQuery } from "@tanstack/solid-query"
-import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DesktopInstalledActions } from "./desktop-actions"
 import { useSkillMarket } from "./provider"
@@ -47,6 +47,7 @@ export function SkillMarketList(props: {
     page: parsePage(initial.get("page")),
     view: (localStorage.getItem("ruying-skill-market-view") === "list" ? "list" : "card") as MarketView,
   })
+  const [searchExpanded, setSearchExpanded] = createSignal(Boolean(state.search))
 
   createEffect(() => {
     const value = state.search
@@ -203,16 +204,15 @@ export function SkillMarketList(props: {
                 <option value="yes">需要 API Key</option>
               </select>
             </label>
-            <label class="ruying-skill-market__search">
-              <span class="ruying-skill-market__sr-only">搜索 Skill</span>
+            <button
+              type="button"
+              class="ruying-skill-market__search-trigger"
+              aria-label="展开搜索"
+              aria-expanded={searchExpanded()}
+              onClick={() => setSearchExpanded(true)}
+            >
               <span aria-hidden="true">⌕</span>
-              <input
-                type="search"
-                value={state.search}
-                onInput={(event) => setState("search", event.currentTarget.value)}
-                placeholder="搜索"
-              />
-            </label>
+            </button>
             <div class="ruying-skill-market__view-switch" aria-label="展示方式">
             <button
               type="button"
@@ -239,6 +239,48 @@ export function SkillMarketList(props: {
           </div>
         </section>
         </div>
+
+        <Show when={searchExpanded()}>
+          <div class="ruying-skill-market__search-row">
+            <label class="ruying-skill-market__search">
+              <span class="ruying-skill-market__sr-only">搜索 Skill</span>
+              <span aria-hidden="true">⌕</span>
+              <input
+                ref={(element) => {
+                  if (element && searchExpanded()) {
+                    queueMicrotask(() => element.focus())
+                  }
+                }}
+                type="search"
+                value={state.search}
+                onInput={(event) => setState("search", event.currentTarget.value)}
+                onBlur={() => {
+                  if (!state.search.trim()) setSearchExpanded(false)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setState("search", "")
+                    setSearchExpanded(false)
+                  }
+                }}
+                placeholder="搜索 Skill、场景或标签"
+              />
+            </label>
+            <Show when={state.search}>
+              <button
+                type="button"
+                class="ruying-skill-market__search-clear"
+                aria-label="清空搜索"
+                onClick={() => {
+                  setState("search", "")
+                  setSearchExpanded(false)
+                }}
+              >
+                ×
+              </button>
+            </Show>
+          </div>
+        </Show>
 
         <Show when={result.isPending}>
           <div class="ruying-skill-market__state" role="status">
