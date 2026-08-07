@@ -23,9 +23,9 @@
   min-height: 100%;
   padding: 48px clamp(20px, 5vw, 72px) 64px;
   overflow: hidden;
-  background: radial-gradient(circle at 82% 0%, rgba(109, 93, 252, 0.08), transparent 28%), var(--market-bg);
+  background: var(--market-bg);
   color: var(--market-text);
-  font-family: var(--skillhub-font-sans, Inter, "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 .ruying-skill-market *,
@@ -296,16 +296,12 @@
   text-align: left;
   cursor: pointer;
   gap: 16px;
-  transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+  transition: all 200ms;
 }
 
 .ruying-skill-market__card:hover {
-  border-color: rgba(0, 0, 0, 0.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
 }
 
 .ruying-skill-market__card[data-view="card"] {
@@ -319,12 +315,6 @@
 .ruying-skill-market__card[data-view="list"] {
   min-height: 80px;
   padding: 12px 16px;
-}
-
-.ruying-skill-market__card:hover {
-  border-color: #c7c2ff;
-  box-shadow: 0 12px 32px rgba(38, 33, 86, 0.08);
-  transform: translateY(-1px);
 }
 
 .ruying-skill-market__card-hitbox {
@@ -391,7 +381,7 @@
   height: 48px;
   overflow: hidden;
   border-radius: 12px;
-  background: linear-gradient(145deg, #edeaff, #f8f7ff);
+  background: #f2f4f7;
   color: var(--market-accent);
   font-size: 20px;
   font-weight: 800;

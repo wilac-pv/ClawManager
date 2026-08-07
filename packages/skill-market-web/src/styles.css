@@ -223,7 +223,6 @@ a {
   display: block;
   width: 38px;
   height: 38px;
-  filter: drop-shadow(0 5px 10px rgba(109, 93, 252, 0.18));
 }
 
 .market-shell__wordmark {
@@ -240,7 +239,7 @@ a {
 }
 
 .market-shell__wordmark strong {
-  color: var(--skillhub-brand);
+  color: rgba(0, 0, 0, 0.9);
   font-size: 17px;
   font-weight: var(--weight-black);
   letter-spacing: -0.03em;
