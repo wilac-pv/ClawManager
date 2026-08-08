@@ -40,7 +40,6 @@ export class SkillAdmin {
     const decoded = Schema.decodeUnknownOption(SkillMarketControl.SkillAdminListQuery)(query)
     if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "skill admin list query is invalid")
     const index = await this.options.catalog.index()
-    const now = this.options.now?.() ?? Date.now()
     const { overrides, hiddenCategories } = await this.options.database.read(async (connection) => ({
       overrides: await loadOverrides(connection),
       hiddenCategories: await loadHiddenCategories(connection),
@@ -48,27 +47,38 @@ export class SkillAdmin {
     const keyword = decoded.value.query?.trim().toLocaleLowerCase()
     const hiddenCategorySet = new Set(hiddenCategories.map((row) => row.category))
     const items = index.items
-      .map((summary) => applyOverride(summary, overrides.get(key(summary.source, summary.id))))
-      .filter((item) => !hiddenCategorySet.has(item.categories[0] ?? ""))
-      .filter((item) => !decoded.value.source || item.source === decoded.value.source)
-      .filter((item) => !decoded.value.category || item.categories.includes(decoded.value.category!))
-      .filter((item) => decoded.value.featured === undefined || item.featured === decoded.value.featured)
-      .filter((item) => decoded.value.hidden === undefined || item.hidden === decoded.value.hidden)
+      .map((summary) => {
+        const override = overrides.get(key(summary.source, summary.id))
+        const hidden = override?.hidden ?? false
+        const featured = override?.featured ?? summary.featured
+        const categories = override?.category_override ? [override.category_override] : summary.categories
+        return {
+          summary: { ...summary, featured, categories, delisted: hidden || summary.delisted },
+          override,
+        }
+      })
+      .filter((entry) => !hiddenCategorySet.has(entry.summary.categories[0] ?? ""))
+      .filter((entry) => !decoded.value.source || entry.summary.source === decoded.value.source)
+      .filter((entry) => !decoded.value.category || entry.summary.categories.includes(decoded.value.category!))
+      .filter((entry) => decoded.value.featured === undefined || entry.summary.featured === decoded.value.featured)
+      .filter((entry) => decoded.value.hidden === undefined || (entry.override?.hidden ?? false) === decoded.value.hidden)
       .filter(
-        (item) =>
+        (entry) =>
           !keyword ||
-          `${item.name}\n${item.description}\n${item.categories.join(" ")}\n${item.tags.join(" ")}\n${item.aliases?.join(" ") ?? ""}`
+          `${entry.summary.name}\n${entry.summary.description}\n${entry.summary.categories.join(" ")}\n${entry.summary.tags.join(" ")}\n${entry.summary.aliases?.join(" ") ?? ""}`
             .toLocaleLowerCase()
             .includes(keyword),
       )
       .toSorted((left, right) => {
-        const nameCompare = left.name.localeCompare(right.name)
-        return nameCompare !== 0 ? nameCompare : key(left.source, left.id).localeCompare(key(right.source, right.id))
+        const nameCompare = left.summary.name.localeCompare(right.summary.name)
+        return nameCompare !== 0
+          ? nameCompare
+          : key(left.summary.source, left.summary.id).localeCompare(key(right.summary.source, right.summary.id))
       })
     const page = decoded.value.page ?? 1
     const limit = decoded.value.limit ?? 30
     const start = (page - 1) * limit
-    const pageItems = items.slice(start, start + limit).map((summary) => toSkillAdminItem(summary, overrides))
+    const pageItems = items.slice(start, start + limit).map((entry) => toSkillAdminItem(entry.summary, entry.override))
     return Schema.decodeUnknownSync(SkillMarketControl.SkillAdminPage)({
       total: items.length,
       page,
@@ -367,40 +377,19 @@ export function createSkillAdmin(options: SkillAdminOptions) {
   return new SkillAdmin(options)
 }
 
-function applyOverride(summary: SkillMarket.Summary, override: SkillOverrideRow | undefined) {
-  const hidden = override?.hidden ?? false
-  const featured = override?.featured ?? summary.featured
-  const categories = override?.category_override ? [override.category_override] : summary.categories
-  return {
-    ...summary,
-    featured,
-    delisted: hidden || summary.delisted,
-    categories,
-    hidden,
-    hiddenReason: override?.hidden_reason ?? undefined,
+function toSkillAdminItem(summary: SkillMarket.Summary, override: SkillOverrideRow | undefined) {
+  const base: Record<string, unknown> = { skill: summary }
+  if (!override) return base
+  const overrideValue: Record<string, unknown> = {
+    featured: override.featured ?? false,
+    hidden: override.hidden,
+    updatedBy: override.updated_by,
+    updatedAt: new Date(override.updated_at).toISOString(),
   }
-}
-
-function toSkillAdminItem(summary: ReturnType<typeof applyOverride>, overrides: Map<string, SkillOverrideRow>) {
-  const override = overrides.get(key(summary.source, summary.id))
-  return {
-    skill: {
-      ...summary,
-      delisted: summary.delisted,
-      featured: summary.featured,
-      categories: summary.categories,
-    },
-    override: override
-      ? {
-          featured: override.featured ?? false,
-          hidden: override.hidden,
-          hiddenReason: override.hidden_reason ?? undefined,
-          category: override.category_override ?? undefined,
-          updatedBy: override.updated_by,
-          updatedAt: new Date(override.updated_at).toISOString(),
-        }
-      : undefined,
-  }
+  if (override.hidden_reason !== null) overrideValue.hiddenReason = override.hidden_reason
+  if (override.category_override !== null) overrideValue.category = override.category_override
+  base.override = overrideValue
+  return base
 }
 
 async function loadOverrides(connection: Connection) {

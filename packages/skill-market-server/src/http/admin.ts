@@ -1,4 +1,5 @@
 import { SkillMarketApi } from "@opencode-ai/protocol/skill-market-api"
+import { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
 import {
   SkillMarketControlNotFound,
   SkillMarketDependencyUnavailable,
@@ -170,16 +171,18 @@ export function createAdminHttp(options: AdminHttpOptions) {
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)
           return yield* Effect.tryPromise({
-            try: () =>
-              options.skillAdmin.list(principal, {
-                query: context.query.query,
-                source: context.query.source,
-                category: context.query.category,
-                hidden: context.query.hidden === undefined ? undefined : context.query.hidden === "true",
-                featured: context.query.featured === undefined ? undefined : context.query.featured === "true",
+            try: () => {
+              const query: Record<string, unknown> = {
                 page: context.query.page ?? 1,
                 limit: context.query.limit ?? 30,
-              }),
+              }
+              if (context.query.query !== undefined) query.query = context.query.query
+              if (context.query.source !== undefined) query.source = context.query.source
+              if (context.query.category !== undefined) query.category = context.query.category
+              if (context.query.hidden !== undefined) query.hidden = context.query.hidden === "true"
+              if (context.query.featured !== undefined) query.featured = context.query.featured === "true"
+              return options.skillAdmin.list(principal, query as SkillMarketControl.SkillAdminListQuery)
+            },
             catch: dependencyProblem,
           })
         }),
