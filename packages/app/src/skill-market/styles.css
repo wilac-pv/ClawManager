@@ -103,7 +103,7 @@
   border: 0;
   border-radius: 12px;
   background: var(--market-accent);
-  box-shadow: 0 8px 24px rgba(109, 93, 252, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 122, 255, 0.2);
   color: #fff;
   font-weight: 700;
   text-decoration: none;
@@ -1044,7 +1044,7 @@
 
 .ruying-skill-market__copy-manual:focus {
   border-color: var(--market-accent);
-  outline: 3px solid rgba(109, 93, 252, 0.16);
+  outline: 3px solid rgba(0, 122, 255, 0.16);
 }
 
 .ruying-skill-market__risk-confirm {

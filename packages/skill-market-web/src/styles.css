@@ -8,12 +8,12 @@
   --skillhub-border-strong: #cfd5de;
   --skillhub-text: #20242c;
   --skillhub-muted: #626b78;
-  --skillhub-brand: #6d5dfc;
-  --skillhub-brand-hover: #5b49f0;
-  --skillhub-brand-soft: #efedff;
+  --skillhub-brand: #007aff;
+  --skillhub-brand-hover: #0066d6;
+  --skillhub-brand-soft: rgba(0, 122, 255, 0.08);
   --skillhub-on-brand: #ffffff;
-  --skillhub-brand-border: #c7c2ff;
-  --skillhub-focus-ring: rgba(109, 93, 252, 0.18);
+  --skillhub-brand-border: rgba(0, 122, 255, 0.2);
+  --skillhub-focus-ring: rgba(0, 122, 255, 0.18);
   --skillhub-danger: #a32b2b;
   --skillhub-danger-soft: #ffebeb;
   --skillhub-danger-border: #c84343;
@@ -22,9 +22,9 @@
   --skillhub-warning: #71500c;
   --skillhub-warning-soft: #fff8e7;
   --skillhub-warning-border: #e8ca83;
-  --skillhub-neutral-soft: #eef1f5;
-  --skillhub-neutral-text: #56606d;
-  --skillhub-content-width: 1120px;
+  --skillhub-neutral-soft: #f2f4f7;
+  --skillhub-neutral-text: #475467;
+  --skillhub-content-width: 1280px;
   --skillhub-space-1: 4px;
   --skillhub-space-2: 8px;
   --skillhub-space-3: 12px;
@@ -37,7 +37,7 @@
   --skillhub-radius-md: 12px;
   --skillhub-radius-lg: 16px;
   --skillhub-shadow-card: 0 10px 30px rgba(32, 43, 56, 0.06);
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-ui: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --text-page: 2rem;
   --text-section: 1.25rem;
@@ -65,12 +65,12 @@
     --skillhub-border-strong: #3a4150;
     --skillhub-text: #e6e8ec;
     --skillhub-muted: #98a0ad;
-    --skillhub-brand: #8b7cff;
-    --skillhub-brand-hover: #9d8fff;
-    --skillhub-brand-soft: #221f3a;
-    --skillhub-brand-border: #3d3666;
+    --skillhub-brand: #4d9fff;
+    --skillhub-brand-hover: #6db0ff;
+    --skillhub-brand-soft: rgba(0, 122, 255, 0.15);
+    --skillhub-brand-border: rgba(0, 122, 255, 0.3);
     --skillhub-on-brand: #ffffff;
-    --skillhub-focus-ring: rgba(139, 124, 255, 0.32);
+    --skillhub-focus-ring: rgba(0, 122, 255, 0.32);
     --skillhub-danger: #f97066;
     --skillhub-danger-soft: #2a1a1a;
     --skillhub-danger-border: #5a2a2a;
@@ -335,27 +335,31 @@ a {
 .market-primary-action,
 .market-shell__logout {
   min-height: 38px;
-  padding: 0 14px;
+  padding: 0 18px;
   border: 1px solid #d5dbe3;
-  border-radius: var(--skillhub-radius-sm);
+  border-radius: 980px;
   background: var(--skillhub-surface);
   color: var(--skillhub-text);
   cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
 }
 
 .market-primary-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-color: var(--skillhub-brand);
+  border: none;
   background: var(--skillhub-brand);
   color: var(--skillhub-on-brand);
   text-decoration: none;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
 }
 
 .market-primary-action:hover {
-  border-color: var(--skillhub-brand-hover);
   background: var(--skillhub-brand-hover);
+  box-shadow: 0 4px 16px rgba(0, 122, 255, 0.35);
 }
 
 /* 导航栏登录按钮(官网风格白底圆角) */
@@ -368,6 +372,7 @@ a {
   color: rgba(0, 0, 0, 0.9);
   font-size: 14px;
   font-weight: 500;
+  box-shadow: none;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -457,6 +462,7 @@ a {
 }
 
 .submission-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--skillhub-space-5);
@@ -474,7 +480,23 @@ a {
 .submission-toolbar > strong {
   margin-left: auto;
   font-size: 13px;
+  font-weight: 500;
   color: var(--skillhub-muted);
+}
+
+.submission-toolbar label {
+  position: relative;
+}
+
+.submission-toolbar label::after {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 9px;
+  content: "▼";
 }
 
 .submission-toolbar label,
@@ -529,7 +551,7 @@ a {
   min-height: calc(100vh - 72px);
   padding: 48px clamp(18px, 5vw, 72px) 72px;
   background:
-    radial-gradient(circle at 20% 0%, rgba(109, 93, 252, 0.08), transparent 28%),
+    radial-gradient(circle at 20% 0%, rgba(0, 122, 255, 0.08), transparent 28%),
     var(--skillhub-bg);
 }
 
@@ -624,7 +646,7 @@ a {
 
 .expert-package-card:hover {
   border-color: var(--skillhub-brand-border);
-  box-shadow: 0 16px 36px rgba(109, 93, 252, 0.1);
+  box-shadow: 0 16px 36px rgba(0, 122, 255, 0.1);
   transform: translateY(-2px);
 }
 
@@ -963,25 +985,34 @@ a {
 .submission-state,
 .space-page__state {
   padding: 56px 28px;
-  border: 1px dashed #ced4dc;
-  border-radius: var(--skillhub-radius-md);
-  background: #fafbfc;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  background: var(--skillhub-surface);
   text-align: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .submission-state h2,
 .space-page__state h2 {
   margin-top: 0;
+  font-size: 18px;
 }
 
 .space-page__state button {
   min-height: 38px;
-  padding: 0 14px;
-  border: 1px solid #d5dbe3;
-  border-radius: var(--skillhub-radius-sm);
+  padding: 0 18px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
   background: var(--skillhub-surface);
   color: var(--skillhub-text);
+  font-size: 14px;
   cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.space-page__state button:hover {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 .submission-list {
@@ -1199,7 +1230,7 @@ a {
   overflow: hidden;
   border-color: var(--skillhub-brand-border);
   background:
-    radial-gradient(circle at 0 0, rgba(109, 93, 252, 0.07), transparent 230px),
+    radial-gradient(circle at 0 0, rgba(0, 122, 255, 0.07), transparent 230px),
     white;
 }
 
@@ -1253,12 +1284,12 @@ a {
 
 .submission-target-card:hover {
   border-color: var(--skillhub-brand-border);
-  box-shadow: 0 10px 24px rgba(109, 93, 252, 0.09);
+  box-shadow: 0 10px 24px rgba(0, 122, 255, 0.09);
   transform: translateY(-1px);
 }
 
 .submission-target-card:focus-within {
-  outline: 3px solid rgba(109, 93, 252, 0.2);
+  outline: 3px solid rgba(0, 122, 255, 0.2);
   outline-offset: 2px;
 }
 
@@ -1267,7 +1298,7 @@ a {
   background: linear-gradient(145deg, var(--skillhub-brand-soft), var(--skillhub-brand-soft));
   box-shadow:
     0 0 0 1px var(--skillhub-brand),
-    0 12px 28px rgba(109, 93, 252, 0.12);
+    0 12px 28px rgba(0, 122, 255, 0.12);
 }
 
 .submission-target-card__icon {
@@ -1431,7 +1462,7 @@ a {
 .group-card:focus-visible,
 .group-card:hover {
   border-color: var(--skillhub-brand);
-  box-shadow: 0 8px 22px rgba(109, 93, 252, 0.1);
+  box-shadow: 0 8px 22px rgba(0, 122, 255, 0.1);
 }
 
 .group-card > span,
@@ -2109,24 +2140,27 @@ a {
 
 .admin-workspace__nav a,
 .my-space__nav a {
-  padding: 9px 14px;
-  border-radius: var(--skillhub-radius-sm);
+  padding: 8px 16px;
+  border-radius: 999px;
   color: var(--skillhub-muted);
   font-size: 14px;
-  font-weight: var(--weight-semibold);
+  font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
+  transition: color 160ms ease, background 160ms ease;
 }
 
 .admin-workspace__nav a:hover,
 .my-space__nav a:hover {
-  color: var(--skillhub-brand);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.85);
 }
 
 .admin-workspace__nav a.is-active,
 .my-space__nav a.is-active {
   background: var(--skillhub-brand);
   color: var(--skillhub-on-brand);
+  font-weight: 600;
 }
 
 .admin-workspace__content > .submission-page,
@@ -2822,9 +2856,9 @@ a {
   width: min(var(--skillhub-content-width), calc(100% - 48px));
   margin: 28px auto -18px;
   padding: 10px 14px;
-  border: 1px solid rgba(109, 93, 252, 0.12);
+  border: 1px solid rgba(0, 122, 255, 0.12);
   border-radius: 16px;
-  background: rgba(109, 93, 252, 0.06);
+  background: rgba(0, 122, 255, 0.06);
   box-shadow: none;
 }
 
@@ -2885,7 +2919,7 @@ a {
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: rgba(109, 93, 252, 0.3);
+  background: rgba(0, 122, 255, 0.3);
   cursor: pointer;
   transition:
     width 160ms ease,
