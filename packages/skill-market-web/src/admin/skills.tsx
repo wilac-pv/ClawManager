@@ -7,13 +7,12 @@ import { MarketControlError, type SkillMarketControlDataSource } from "../contro
 
 export type AdminSkillsSource = Pick<
   SkillMarketControlDataSource["admin"]["skills"],
-  "list" | "hiddenCategories" | "update" | "delist" | "restore" | "delistByCategory" | "restoreByCategory"
+  "list" | "hiddenCategories" | "update" | "delist" | "restore" | "delete" | "delistByCategory" | "restoreByCategory"
 >
 
 export function AdminSkills(props: { source: AdminSkillsSource }) {
   const client = useQueryClient()
   const [params, setParams] = useSearchParams()
-  const [editing, setEditing] = createSignal<string | undefined>()
   const [categoryAction, setCategoryAction] = createSignal<"hide" | "show" | undefined>()
   const [categoryValue, setCategoryValue] = createSignal("")
   const [categoryReason, setCategoryReason] = createSignal("")
@@ -233,32 +232,16 @@ export function AdminSkills(props: { source: AdminSkillsSource }) {
                 </section>
               }
             >
-              <div class="moderation-table-wrapper">
-                <table class="moderation-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">技能</th>
-                      <th scope="col">分类</th>
-                      <th scope="col">精选</th>
-                      <th scope="col">状态</th>
-                      <th scope="col">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={result().items}>
-                      {(item) => (
-                        <AdminSkillRow
-                          item={item}
-                          source={props.source}
-                          editing={editing() === `${item.skill.source}:${item.skill.id}`}
-                          onEditStart={() => setEditing(`${item.skill.source}:${item.skill.id}`)}
-                          onEditEnd={() => setEditing(undefined)}
-                          onChanged={invalidate}
-                        />
-                      )}
-                    </For>
-                  </tbody>
-                </table>
+              <div class="admin-skill-grid">
+                <For each={result().items}>
+                  {(item) => (
+                    <AdminSkillCard
+                      item={item}
+                      source={props.source}
+                      onChanged={invalidate}
+                    />
+                  )}
+                </For>
               </div>
               <AdminSkillsPagination current={result().page} total={result().total} limit={result().limit} />
             </Show>
@@ -269,21 +252,19 @@ export function AdminSkills(props: { source: AdminSkillsSource }) {
   )
 }
 
-function AdminSkillRow(props: {
+function AdminSkillCard(props: {
   item: SkillMarketControl.SkillAdminItem
   source: AdminSkillsSource
-  editing: boolean
-  onEditStart: () => void
-  onEditEnd: () => void
   onChanged: () => void
 }) {
   const [pending, setPending] = createSignal(false)
   const [error, setError] = createSignal<string>()
+  const [editing, setEditing] = createSignal(false)
   const [featured, setFeatured] = createSignal(props.item.skill.featured)
   const [category, setCategory] = createSignal(props.item.skill.categories[0] ?? "")
   const [hiddenReason, setHiddenReason] = createSignal(props.item.override?.hiddenReason ?? "")
+  const [deleteReason, setDeleteReason] = createSignal("")
 
-  const skillKey = () => `${props.item.skill.source}:${props.item.skill.id}`
   const isHidden = () => props.item.skill.delisted || props.item.override?.hidden
   const isCommunity = () => props.item.skill.source === "community"
 
@@ -291,14 +272,14 @@ function AdminSkillRow(props: {
     setPending(true)
     setError(undefined)
     const input: SkillMarketControl.SkillAdminEditInput = {
-      ...(isCommunity() ? { featured: featured(), category: category().trim() || undefined } : {}),
-      ...(!isCommunity() ? { featured: featured(), category: category().trim() || undefined } : {}),
+      featured: featured(),
+      category: category().trim() || undefined,
     }
     void props.source
       .update(props.item.skill.source, props.item.skill.id, input)
       .then(() => {
         props.onChanged()
-        props.onEditEnd()
+        setEditing(false)
       })
       .catch((cause: unknown) =>
         setError(cause instanceof MarketControlError ? `${cause.message}（请求编号：${cause.requestId}）` : "保存失败"),
@@ -321,92 +302,113 @@ function AdminSkillRow(props: {
       .finally(() => setPending(false))
   }
 
+  const deleteSkill = () => {
+    if (!window.confirm(`确定要永久删除技能「${props.item.skill.name}」吗？此操作不可恢复。`)) return
+    setPending(true)
+    setError(undefined)
+    void props.source
+      .delete(props.item.skill.source, props.item.skill.id, { reason: deleteReason().trim() || "管理员删除" }, crypto.randomUUID())
+      .then(() => props.onChanged())
+      .catch((cause: unknown) =>
+        setError(cause instanceof MarketControlError ? `${cause.message}（请求编号：${cause.requestId}）` : "删除失败"),
+      )
+      .finally(() => setPending(false))
+  }
+
   return (
-    <tr>
-      <td>
-        <div style="min-width: 200px;">
-          <A href={`/skills/${props.item.skill.source}/${props.item.skill.id}`}>
-            <strong>{props.item.skill.name}</strong>
-          </A>
-          <small style="display: block; margin-top: 2px; color: var(--skillhub-muted);">
-            {props.item.skill.source} · {props.item.skill.id}
-          </small>
-          <Show when={props.item.override}>
-            {(override) => (
-              <small style="display: block; margin-top: 2px; color: var(--skillhub-warning);">
-                有本地覆盖 · {override().updatedBy} · {new Date(override().updatedAt).toLocaleString()}
-              </small>
-            )}
+    <article class="admin-skill-card">
+      <div class="admin-skill-card__top">
+        <div class="admin-skill-card__icon">
+          <Show
+            when={props.item.skill.iconUrl}
+            fallback={<span>{props.item.skill.name.trim().charAt(0).toUpperCase() || "S"}</span>}
+          >
+            {(url) => <img src={url()} alt="" loading="lazy" />}
           </Show>
         </div>
-      </td>
-      <td>
-        <Show when={!props.editing} fallback={
-          <input
-            type="text"
-            value={category()}
-            onInput={(event) => setCategory(event.currentTarget.value)}
-            style="width: 100px; padding: 4px 6px;"
-          />
-        }>
-          <span class="type-body">{props.item.skill.categories[0] ?? "-"}</span>
+        <div class="admin-skill-card__heading">
+          <div class="admin-skill-card__title">
+            <A href={`/skills/${props.item.skill.source}/${props.item.skill.id}`}>
+              <strong>{props.item.skill.name}</strong>
+            </A>
+            <Show when={props.item.skill.featured}>
+              <span class="admin-skill-card__verified" aria-label="精选">✓</span>
+            </Show>
+          </div>
+          <div class="admin-skill-card__tags">
+            <span class="admin-skill-card__tag admin-skill-card__tag--category">
+              {props.item.skill.categories[0] ?? "未分类"}
+            </span>
+            <Show when={props.item.skill.requiresApiKey}>
+              <span class="admin-skill-card__tag admin-skill-card__tag--apikey">需配置 API Key</span>
+            </Show>
+          </div>
+        </div>
+      </div>
+      <p class="admin-skill-card__description">{props.item.skill.description}</p>
+      <div class="admin-skill-card__meta">
+        <span>⭐ {props.item.skill.favorites}</span>
+        <span>↓ {props.item.skill.downloads}</span>
+        <span>{sourceLabel(props.item.skill.source)}</span>
+        <Show when={isHidden()}>
+          <span class="admin-skill-card__hidden-badge">已隐藏</span>
         </Show>
-      </td>
-      <td>
-        <Show when={!props.editing} fallback={
-          <label style="display: flex; align-items: center; gap: 4px;">
-            <input type="checkbox" checked={featured()} onChange={(event) => setFeatured(event.currentTarget.checked)} />
-            精选
-          </label>
-        }>
-          <span class={`submission-status ${props.item.skill.featured ? "submission-status--published" : ""}`}>
-            {props.item.skill.featured ? "精选" : "-"}
-          </span>
-        </Show>
-      </td>
-      <td>
-        <span class={`submission-status ${isHidden() ? "submission-status--rejected" : "submission-status--published"}`}>
-          {isHidden() ? "已隐藏" : "正常"}
-        </span>
-      </td>
-      <td>
-        <Show
-          when={!props.editing}
-          fallback={
-            <div class="delist-row-actions">
+      </div>
+      <Show when={props.item.override}>
+        {(override) => (
+          <div class="admin-skill-card__override-note">
+            本地覆盖 · {override().updatedBy} · {new Date(override().updatedAt).toLocaleString()}
+          </div>
+        )}
+      </Show>
+      <Show
+        when={!editing()}
+        fallback={
+          <div class="admin-skill-card__edit-form">
+            <label>
+              <input type="checkbox" checked={featured()} onChange={(event) => setFeatured(event.currentTarget.checked)} />
+              精选
+            </label>
+            <input
+              type="text"
+              value={category()}
+              onInput={(event) => setCategory(event.currentTarget.value)}
+              placeholder="分类"
+            />
+            <div class="admin-skill-card__actions">
               <button type="button" class="market-primary-action" disabled={pending()} onClick={saveEdit}>
                 保存
               </button>
-              <button type="button" onClick={() => props.onEditEnd()}>取消</button>
-              <Show when={error()}>
-                {(message) => <span class="delist-row-error" role="alert">{message()}</span>}
-              </Show>
+              <button type="button" onClick={() => setEditing(false)}>取消</button>
             </div>
-          }
-        >
-          <div class="delist-row-actions">
-            <button type="button" onClick={() => props.onEditStart()} disabled={pending()}>
-              编辑
-            </button>
-            <Show
-              when={!isHidden()}
-              fallback={
-                <button type="button" class="market-primary-action" disabled={pending()} onClick={() => setHidden(false)}>
-                  恢复
-                </button>
-              }
-            >
-              <button type="button" class="admin-danger-action" disabled={pending()} onClick={() => setHidden(true)}>
-                下架
-              </button>
-            </Show>
-            <Show when={error()}>
-              {(message) => <span class="delist-row-error" role="alert">{message()}</span>}
-            </Show>
           </div>
-        </Show>
-      </td>
-    </tr>
+        }
+      >
+        <div class="admin-skill-card__actions">
+          <button type="button" onClick={() => setEditing(true)} disabled={pending()}>
+            编辑
+          </button>
+          <Show
+            when={!isHidden()}
+            fallback={
+              <button type="button" class="market-primary-action" disabled={pending()} onClick={() => setHidden(false)}>
+                恢复
+              </button>
+            }
+          >
+            <button type="button" class="admin-danger-action" disabled={pending()} onClick={() => setHidden(true)}>
+              下架
+            </button>
+          </Show>
+          <button type="button" class="admin-danger-action" disabled={pending()} onClick={deleteSkill}>
+            删除
+          </button>
+        </div>
+      </Show>
+      <Show when={error()}>
+        {(message) => <div class="delist-row-error" role="alert">{message()}</div>}
+      </Show>
+    </article>
   )
 }
 
@@ -426,4 +428,11 @@ function AdminSkillsPagination(props: { current: number; total: number; limit: n
       </Show>
     </nav>
   )
+}
+
+function sourceLabel(source: SkillMarket.Source) {
+  if (source === "enterprise") return "企业精选"
+  if (source === "community") return "用户投稿"
+  if (source === "restricted") return "受限"
+  return "SkillHub"
 }

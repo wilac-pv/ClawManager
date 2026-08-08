@@ -251,6 +251,17 @@ export function createAdminHttp(options: AdminHttpOptions) {
           return result
         }),
       )
+      .handle("skillMarket.admin.skills.delete", (context) =>
+        Effect.gen(function* () {
+          const principal = principalFromSession(yield* SkillMarketPrincipal)
+          const result = yield* Effect.tryPromise({
+            try: () => options.skillAdmin.delete(principal, context.params.source, context.params.skillID, context.payload),
+            catch: reviewProblem,
+          })
+          options.onWorkReady?.()
+          return result
+        }),
+      )
       .handle("skillMarket.admin.skillhub.status", () =>
         Effect.gen(function* () {
           const principal = principalFromSession(yield* SkillMarketPrincipal)

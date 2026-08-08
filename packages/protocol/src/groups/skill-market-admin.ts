@@ -230,6 +230,16 @@ export const SkillMarketAdminGroup = ReviewerEndpoints.add(
       .middleware(SkillMarketWriteMiddleware)
       .middleware(SkillMarketAdminMiddleware),
   )
+  .add(
+    HttpApiEndpoint.post("skillMarket.admin.skills.delete", "/v1/admin/skills/:source/:skillID/delete", {
+      params: { source: SkillMarket.Source, skillID: SkillMarketControl.SubmissionSummary.fields.skillID },
+      payload: SkillMarketControl.ReasonInput,
+      success: Schema.Void,
+      error: ReviewErrors,
+    })
+      .middleware(SkillMarketWriteMiddleware)
+      .middleware(SkillMarketAdminMiddleware),
+  )
   .middleware(SkillMarketSessionMiddleware)
   .annotateMerge(
     OpenApi.annotations({ title: "Ruying Skill Market Administration", description: "Review and administration." }),

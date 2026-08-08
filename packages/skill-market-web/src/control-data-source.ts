@@ -136,6 +136,24 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
         })
       ).json(),
     )
+  const mutateVoid = async (
+    method: "POST" | "PATCH" | "DELETE",
+    path: string,
+    input: unknown,
+    request: { readonly idempotencyKey?: string; readonly signal?: AbortSignal } = {},
+  ) =>
+    void (await send(path, {
+      method,
+      signal: request.signal,
+      headers: {
+        "content-type": "application/json",
+        "x-csrf-token": requireCsrf(options.csrfToken),
+        ...(request.idempotencyKey
+          ? { "idempotency-key": requireIdempotencyKey(request.idempotencyKey) }
+          : {}),
+      },
+      body: JSON.stringify(input),
+    }))
 
   return {
     auth: {
@@ -538,6 +556,19 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
             "POST",
             `/v1/admin/skills/${encodeURIComponent(source)}/${encodeURIComponent(skillID)}/restore`,
             SkillMarketControl.SkillAdminItem,
+            input,
+            { idempotencyKey, signal },
+          ),
+        delete: (
+          source: SkillMarket.Source,
+          skillID: string,
+          input: SkillMarketControl.ReasonInput,
+          idempotencyKey: string,
+          signal?: AbortSignal,
+        ) =>
+          mutateVoid(
+            "POST",
+            `/v1/admin/skills/${encodeURIComponent(source)}/${encodeURIComponent(skillID)}/delete`,
             input,
             { idempotencyKey, signal },
           ),

@@ -2304,6 +2304,212 @@ a {
   font-size: var(--text-small);
 }
 
+.admin-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.admin-skill-card:hover {
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.admin-skill-card__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.admin-skill-card__icon {
+  display: grid;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #f2f4f7;
+  color: var(--skillhub-brand);
+  font-size: 20px;
+  font-weight: 800;
+  place-items: center;
+}
+
+.admin-skill-card__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-skill-card__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.admin-skill-card__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-skill-card__title strong {
+  overflow: hidden;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-skill-card__title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-skill-card__verified {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-skill-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-skill-card__tag {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.admin-skill-card__tag--category {
+  background: var(--skillhub-neutral-soft);
+  color: var(--skillhub-neutral-text);
+}
+
+.admin-skill-card__tag--apikey {
+  background: var(--skillhub-warning-soft);
+  color: var(--skillhub-warning);
+}
+
+.admin-skill-card__description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.admin-skill-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  color: var(--skillhub-muted);
+  font-size: 11px;
+  gap: 8px 16px;
+}
+
+.admin-skill-card__hidden-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--skillhub-danger-soft);
+  color: var(--skillhub-danger);
+  font-weight: 600;
+}
+
+.admin-skill-card__override-note {
+  font-size: 11px;
+  color: var(--skillhub-warning);
+}
+
+.admin-skill-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.admin-skill-card__actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 8px;
+  background: var(--skillhub-surface);
+  color: var(--skillhub-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.admin-skill-card__actions .market-primary-action {
+  border-color: var(--skillhub-brand);
+  background: var(--skillhub-brand);
+  color: var(--skillhub-on-brand);
+}
+
+.admin-skill-card__actions .admin-danger-action {
+  border-color: var(--skillhub-danger-border);
+  color: var(--skillhub-danger);
+}
+
+.admin-skill-card__edit-form {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.admin-skill-card__edit-form label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.admin-skill-card__edit-form input[type="text"] {
+  padding: 6px 10px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .admin-skill-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-skill-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .admin-operation-confirmation {
   display: grid;
   gap: var(--skillhub-space-3);

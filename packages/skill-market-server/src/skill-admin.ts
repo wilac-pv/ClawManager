@@ -121,6 +121,20 @@ export class SkillAdmin {
     return this.setHidden(principal, source, skillID, input, false)
   }
 
+  async delete(principal: Principal, source: SkillMarket.Source, skillID: string, input: SkillMarketControl.ReasonInput) {
+    this.options.security.requireAdmin(principal)
+    if (!Schema.is(SkillMarket.Source)(source) || !Schema.is(SkillMarketControl.SubmissionSummary.fields.skillID)(skillID))
+      throw new SkillMarketSecurityError("invalid-request", "skill admin delete target is invalid")
+    const decoded = Schema.decodeUnknownOption(SkillMarketControl.ReasonInput)(input)
+    if (Option.isNone(decoded)) throw new SkillMarketSecurityError("invalid-request", "skill admin delete payload is invalid")
+    const now = this.options.now?.() ?? Date.now()
+    if (source === "community") {
+      await this.deleteCommunity(principal, skillID, decoded.value, now)
+      return
+    }
+    await this.deleteExternal(principal, source, skillID, decoded.value, now)
+  }
+
   async delistByCategory(principal: Principal, input: SkillMarketControl.SkillAdminCategoryActionInput) {
     this.options.security.requireAdmin(principal)
     const decoded = Schema.decodeUnknownOption(SkillMarketControl.SkillAdminCategoryActionInput)(input)
@@ -363,6 +377,59 @@ export class SkillAdmin {
       })
     })
     return this.getItem(principal, source, skillID)
+  }
+
+  private async deleteCommunity(
+    principal: Principal,
+    skillID: string,
+    input: SkillMarketControl.ReasonInput,
+    now: number,
+  ) {
+    await this.options.database.transaction(async (connection) => {
+      const skill = await connection.get<{ public_status: string | null }>(
+        "SELECT public_status FROM community_skills WHERE skill_id = ?",
+        [skillID],
+      )
+      if (!skill) throw new SkillMarketSecurityError("not-found", "community skill was not found")
+      await connection.run("DELETE FROM community_skills WHERE skill_id = ?", [skillID])
+      await connection.run("DELETE FROM submissions WHERE skill_id = ? AND target_scope = 'company'", [skillID])
+      await enqueueCatalogRebuild(connection, now)
+      await insertAudit(connection, {
+        actorEmployeeID: principal.session.user.employeeID,
+        action: "skill-hidden",
+        objectType: "community_skill",
+        objectID: skillID,
+        before: { status: skill.public_status },
+        after: { deleted: true, reason: input.reason },
+        now,
+      })
+    })
+  }
+
+  private async deleteExternal(
+    principal: Principal,
+    source: Exclude<SkillMarket.Source, "community">,
+    skillID: string,
+    input: SkillMarketControl.ReasonInput,
+    now: number,
+  ) {
+    await this.options.database.transaction(async (connection) => {
+      await connection.run(
+        `INSERT INTO skill_overrides (skill_id, source, featured, hidden, hidden_reason, category_override, updated_by, updated_at)
+         VALUES (?, ?, NULL, true, ?, NULL, ?, ?)
+         ON CONFLICT(source, skill_id) DO UPDATE SET hidden = true, hidden_reason = excluded.hidden_reason, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+        [skillID, source, input.reason, principal.session.user.employeeID, now],
+      )
+      await enqueueCatalogRebuild(connection, now)
+      await insertAudit(connection, {
+        actorEmployeeID: principal.session.user.employeeID,
+        action: "skill-hidden",
+        objectType: "community_skill",
+        objectID: `${source}:${skillID}`,
+        after: { hidden: true, deleted: true, reason: input.reason },
+        now,
+      })
+    })
   }
 
   private async getItem(principal: Principal, source: SkillMarket.Source, skillID: string) {
