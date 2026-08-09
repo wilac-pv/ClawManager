@@ -53,7 +53,7 @@ export function AnnouncementAdministration(props: { readonly source: Announcemen
           <h1 class="type-page-title">公告发布</h1>
           <p class="type-secondary">发布后立即展示在 Skill 市场首页和公告历史中。公告为永久记录，发布后不可修改或删除。</p>
         </div>
-        <A class="submission-page__primary" href="/announcements">
+        <A class="market-primary-action" href="/announcements">
           查看公告历史
         </A>
       </header>

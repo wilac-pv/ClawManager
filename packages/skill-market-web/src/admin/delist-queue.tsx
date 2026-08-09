@@ -49,7 +49,7 @@ export function DelistQueue(props: { source: DelistQueueSource }) {
                 </section>
               }
             >
-              <div class="moderation-table-wrapper">
+              <div class="moderation-table-wrap">
                 <table class="moderation-table">
                   <thead>
                     <tr>
