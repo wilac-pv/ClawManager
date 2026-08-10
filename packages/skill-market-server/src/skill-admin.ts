@@ -433,10 +433,18 @@ export class SkillAdmin {
   }
 
   private async getItem(principal: Principal, source: SkillMarket.Source, skillID: string) {
-    const page = await this.list(principal, { query: skillID, page: 1, limit: 1 })
-    const item = page.items[0]
-    if (!item) throw new SkillMarketSecurityError("not-found", "skill was not found after update")
-    return item
+    this.options.security.requireAdmin(principal)
+    const index = await this.options.catalog.index()
+    const { overrides } = await this.options.database.read(async (connection) => ({
+      overrides: await loadOverrides(connection),
+    }))
+    const summary = index.items.find((item) => item.source === source && item.id === skillID)
+    if (!summary) throw new SkillMarketSecurityError("not-found", "skill was not found after update")
+    const override = overrides.get(key(source, skillID))
+    const hidden = override?.hidden ?? false
+    const featured = override?.featured ?? summary.featured
+    const categories = override?.category_override ? [override.category_override] : summary.categories
+    return toSkillAdminItem({ ...summary, featured, categories, delisted: hidden || summary.delisted }, override)
   }
 }
 
@@ -444,9 +452,9 @@ export function createSkillAdmin(options: SkillAdminOptions) {
   return new SkillAdmin(options)
 }
 
-function toSkillAdminItem(summary: SkillMarket.Summary, override: SkillOverrideRow | undefined) {
+function toSkillAdminItem(summary: SkillMarket.Summary, override: SkillOverrideRow | undefined): SkillMarketControl.SkillAdminItem {
   const base: Record<string, unknown> = { skill: summary }
-  if (!override) return base
+  if (!override) return Schema.decodeUnknownSync(SkillMarketControl.SkillAdminItem)(base)
   const overrideValue: Record<string, unknown> = {
     featured: override.featured ?? false,
     hidden: override.hidden,
@@ -456,7 +464,7 @@ function toSkillAdminItem(summary: SkillMarket.Summary, override: SkillOverrideR
   if (override.hidden_reason !== null) overrideValue.hiddenReason = override.hidden_reason
   if (override.category_override !== null) overrideValue.category = override.category_override
   base.override = overrideValue
-  return base
+  return Schema.decodeUnknownSync(SkillMarketControl.SkillAdminItem)(base)
 }
 
 async function loadOverrides(connection: Connection) {
