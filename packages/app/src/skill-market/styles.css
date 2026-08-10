@@ -738,6 +738,12 @@
   background: var(--market-surface);
   color: var(--market-text);
   cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.ruying-skill-market__pagination button:hover:not(:disabled) {
+  border-color: var(--market-accent-border);
+  background: var(--market-accent-soft);
 }
 
 .ruying-skill-market__pagination button:disabled {
@@ -991,7 +997,7 @@
 .ruying-skill-market__confirm button,
 .ruying-skill-market__installed-actions > button,
 .ruying-skill-market__state button {
-  min-height: 40px;
+  min-height: 38px;
   padding: 0 15px;
   border: 1px solid var(--market-border);
   border-radius: 10px;
@@ -999,6 +1005,16 @@
   color: var(--market-text);
   font-weight: 600;
   cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.ruying-skill-market__detail-actions > button:hover:not(:disabled),
+.ruying-skill-market__risk-confirm button:hover:not(:disabled),
+.ruying-skill-market__confirm button:hover:not(:disabled),
+.ruying-skill-market__installed-actions > button:hover:not(:disabled),
+.ruying-skill-market__state button:hover:not(:disabled) {
+  border-color: var(--market-accent-border);
+  background: var(--market-accent-soft);
 }
 
 .ruying-skill-market__detail-actions button:disabled,
@@ -1158,6 +1174,11 @@
   background: transparent;
   color: var(--market-muted);
   cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.ruying-skill-market__detail-tabs button:hover {
+  color: var(--market-text);
 }
 
 .ruying-skill-market__detail-tabs button[aria-selected="true"] {

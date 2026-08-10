@@ -1960,12 +1960,18 @@ a {
 }
 
 .moderation-file-pagination button {
-  min-height: 34px;
-  padding: 0 11px;
+  min-height: 38px;
+  padding: 0 14px;
   border: 1px solid var(--skillhub-border);
-  border-radius: var(--skillhub-radius-sm);
+  border-radius: 999px;
   background: var(--skillhub-surface);
   cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.moderation-file-pagination button:hover:not(:disabled) {
+  border-color: var(--skillhub-brand-border);
+  background: var(--skillhub-brand-soft);
 }
 
 .moderation-file-pagination button:disabled {
@@ -2082,6 +2088,11 @@ a {
   background: transparent;
   color: var(--skillhub-muted);
   cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.admin-role-confirmation button:not(.market-primary-action):hover {
+  color: var(--skillhub-text);
 }
 
 .admin-link-button {
@@ -2090,6 +2101,11 @@ a {
   background: transparent;
   color: var(--skillhub-danger);
   cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.admin-link-button:hover {
+  color: var(--skillhub-danger-border);
 }
 
 .admin-disabled-user {
@@ -2732,6 +2748,11 @@ a {
   background: transparent;
   color: var(--skillhub-muted);
   cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.admin-operation-confirmation > div button:not(.market-primary-action):hover {
+  color: var(--skillhub-text);
 }
 
 @media (max-width: 760px) {
