@@ -515,7 +515,13 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
             ]),
             SkillMarketControl.SkillAdminPage,
             signal,
-          ),
+          ).then((page) => ({
+            ...page,
+            items: page.items.map((item) => ({
+              ...item,
+              skill: proxyAdminIcon(item.skill, base),
+            })),
+          })),
         hiddenCategories: (signal?: AbortSignal) =>
           read("/v1/admin/skills/hidden-categories", SkillMarketControl.HiddenCategoryList, signal),
         update: (
@@ -579,6 +585,13 @@ export function createSkillMarketControlDataSource(baseUrl: string, options: Con
       },
     },
   }
+}
+
+function proxyAdminIcon<T extends { readonly iconUrl?: string }>(value: T, base: URL): T {
+  if (!value.iconUrl) return value
+  const url = new URL("/v1/catalog/icon", base)
+  url.searchParams.set("url", value.iconUrl)
+  return { ...value, iconUrl: url.href }
 }
 
 export type SkillMarketControlDataSource = ReturnType<typeof createSkillMarketControlDataSource>
