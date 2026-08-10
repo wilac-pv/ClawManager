@@ -43,6 +43,12 @@ export function AdminSkills(props: { source: AdminSkillsSource }) {
     queryFn: ({ signal }) => props.source.hiddenCategories(signal),
   }))
 
+  const allCategories = () => {
+    const fromSkills = skills.data?.items?.flatMap((item) => item.skill.categories) ?? []
+    const fromHidden = hiddenCategories.data?.items?.map((item) => item.category) ?? []
+    return Array.from(new Set([...fromSkills, ...fromHidden])).sort()
+  }
+
   const invalidate = () => {
     void client.invalidateQueries({ queryKey: ["skill-market", "admin", "skills"] })
     void client.invalidateQueries({ queryKey: ["skill-market", "admin", "skills", "hidden-categories"] })
@@ -163,13 +169,16 @@ export function AdminSkills(props: { source: AdminSkillsSource }) {
         </div>
         <Show when={categoryAction()}>
           <div class="admin-operation-confirmation">
-            <p>{categoryAction() === "hide" ? "输入要隐藏的分类，该分类下所有技能将从市场消失：" : "输入要恢复显示的分类："}</p>
-            <input
-              type="text"
+            <p>{categoryAction() === "hide" ? "选择要隐藏的分类，该分类下所有技能将从市场消失：" : "选择要恢复显示的分类："}</p>
+            <select
               value={categoryValue()}
-              onInput={(event) => setCategoryValue(event.currentTarget.value)}
-              placeholder="分类名称，如：办公效率"
-            />
+              onChange={(event) => setCategoryValue(event.currentTarget.value)}
+            >
+              <option value="">请选择分类</option>
+              <For each={allCategories()}>
+                {(category) => <option value={category}>{category}</option>}
+              </For>
+            </select>
             <Show when={categoryAction() === "hide"}>
               <input
                 type="text"
@@ -180,7 +189,7 @@ export function AdminSkills(props: { source: AdminSkillsSource }) {
             </Show>
             <div>
               <button type="button" onClick={() => setCategoryAction(undefined)}>取消</button>
-              <button type="button" class="market-primary-action" onClick={categoryActionSubmit}>
+              <button type="button" class="market-primary-action" onClick={categoryActionSubmit} disabled={!categoryValue()}>
                 确认{categoryAction() === "hide" ? "隐藏" : "显示"}
               </button>
             </div>
