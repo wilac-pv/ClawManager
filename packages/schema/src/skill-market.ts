@@ -206,7 +206,7 @@ export const Summary = Schema.Struct({
   sourceUrl: MarketPageUrl,
   name: Schema.String,
   description: Schema.String,
-  iconUrl: HttpsUrl.pipe(optional),
+  iconUrl: Schema.String.pipe(optional),
   categories: Schema.Array(Schema.String),
   tags: Schema.Array(Schema.String),
   aliases: Schema.Array(Schema.String).pipe(optional),
