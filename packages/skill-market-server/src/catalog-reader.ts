@@ -74,6 +74,9 @@ export function createCatalogReader(options: {
 
   const detail = async (source: SkillMarket.Source, id: string, current?: CatalogIndex) => {
     const catalog = current ?? (await index())
+    const state = await adminState()
+    const override = state.overrides.get(key(source, id))
+    if (override?.hidden) return undefined
     const entryKey = `${catalog.revision}:${key(source, id)}`
     const existing = details.get(entryKey)
     if (existing) {
@@ -85,6 +88,12 @@ export function createCatalogReader(options: {
     if (pending) return pending
     const request = loadCatalogDetail(options.store, { prefix: options.prefix }, catalog, source, id).then((value) => {
       if (!value) return undefined
+      if (override) {
+        const hidden = override.hidden
+        const featured = override.featured ?? value.featured
+        const categories = override.category ? [override.category] : value.categories
+        return { ...value, featured, categories, delisted: hidden || value.delisted }
+      }
       details.set(entryKey, value)
       if (details.size > 512) details.delete(details.keys().next().value!)
       return value
