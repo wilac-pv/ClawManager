@@ -6,6 +6,7 @@ import type { Principal } from "./security"
 export interface AdminCatalogState {
   readonly overrides: Map<string, { readonly hidden: boolean; readonly featured?: boolean | null; readonly category?: string | null }>
   readonly hiddenCategories: ReadonlySet<string>
+  readonly version?: string
 }
 
 export function createCatalogReader(options: {

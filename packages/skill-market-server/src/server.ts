@@ -74,30 +74,38 @@ const main = Effect.scoped(
     const wake = () => {
       void state.worker?.wake("server").catch(() => undefined)
     }
-    const adminStateLoader = () => ({
-      load: async () => {
-        const rows = await database.read(async (connection) => {
-          const overrides = await connection.all<{
-            skill_id: string
-            source: string
-            featured: boolean | null
-            hidden: boolean
-            category_override: string | null
-          }>("SELECT skill_id, source, featured, hidden, category_override FROM skill_overrides")
-          const categories = await connection.all<{ category: string }>("SELECT category FROM hidden_categories")
-          return { overrides, categories }
-        })
-        return {
-          overrides: new Map(
-            rows.overrides.map((row) => [
-              `${row.source}:${row.skill_id}`,
-              { hidden: row.hidden, featured: row.featured, category: row.category_override },
-            ] as const),
-          ),
-          hiddenCategories: new Set(rows.categories.map((row) => row.category)),
-        }
-      },
-    })
+    const adminStateLoader = () => {
+      let cachedVersion: number | undefined
+      return {
+        load: async () => {
+          const rows = await database.read(async (connection) => {
+            const overrides = await connection.all<{
+              skill_id: string
+              source: string
+              featured: boolean | null
+              hidden: boolean
+              category_override: string | null
+            }>("SELECT skill_id, source, featured, hidden, category_override FROM skill_overrides")
+            const categories = await connection.all<{ category: string }>("SELECT category FROM hidden_categories")
+            const versionRow = await connection.get<{ max_updated: number | null }>(
+              "SELECT MAX(updated_at) AS max_updated FROM (SELECT updated_at FROM skill_overrides UNION ALL SELECT updated_at FROM hidden_categories)",
+            )
+            return { overrides, categories, version: versionRow?.max_updated ?? 0 }
+          })
+          cachedVersion = rows.version
+          return {
+            overrides: new Map(
+              rows.overrides.map((row) => [
+                `${row.source}:${row.skill_id}`,
+                { hidden: row.hidden, featured: row.featured, category: row.category_override },
+              ] as const),
+            ),
+            hiddenCategories: new Set(rows.categories.map((row) => row.category)),
+            version: String(rows.version),
+          }
+        },
+      }
+    }
     const submissions = createSubmissions({ database, onValidationReady: wake })
     const personalTrash = createPersonalTrash({ database, store })
     const moderation = createModeration({ database, security })
