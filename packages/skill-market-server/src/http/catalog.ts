@@ -218,7 +218,7 @@ function withCatalog<A>(
         HttpEffect.appendPreResponseHandler((_request, response) =>
           Effect.succeed(
             HttpServerResponse.setHeaders(response, {
-              "cache-control": privateResponse ? "private, no-store" : "public, max-age=60",
+              "cache-control": privateResponse ? "private, no-store" : "public, max-age=5",
               etag: `"${responseRevision(snapshot.revision, value)}"`,
               "x-skill-market-revision": responseRevision(snapshot.revision, value),
               "x-skill-market-source-skillhub": snapshot.sourceStatus.skillhub,
