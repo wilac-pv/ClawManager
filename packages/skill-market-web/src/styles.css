@@ -1622,11 +1622,11 @@ a {
 .group-detail__actions {
   display: flex;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .group-detail__actions button {
-  min-height: 34px;
+  min-height: 32px;
   padding: 0 14px;
   border: 1px solid var(--skillhub-border);
   border-radius: 999px;
@@ -1646,13 +1646,12 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
 .group-inline-edit input {
   flex: 1;
-  min-width: 150px;
-  height: 38px;
+  min-width: 120px;
+  height: 36px;
   padding: 0 14px;
   border: 1px solid var(--skillhub-border);
   border-radius: 999px;
@@ -1660,14 +1659,18 @@ a {
   box-sizing: border-box;
 }
 
+.group-inline-edit input:first-child {
+  max-width: 240px;
+}
+
 .group-inline-edit button {
-  min-height: 38px;
+  min-height: 36px;
   padding: 0 16px;
   border: 1px solid var(--skillhub-border);
   border-radius: 999px;
   background: var(--skillhub-surface);
   color: var(--skillhub-text);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -1773,9 +1776,8 @@ a {
 
 .group-detail__danger-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .group-transfer-form {
@@ -1785,7 +1787,7 @@ a {
 }
 
 .group-transfer-form input {
-  width: 180px;
+  width: 200px;
   height: 36px;
   padding: 0 14px;
   border: 1px solid var(--skillhub-border);

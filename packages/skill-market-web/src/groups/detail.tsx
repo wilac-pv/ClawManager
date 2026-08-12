@@ -114,13 +114,13 @@ export function GroupDetail(props: {
                   <span classList={{ "group-status": true, "group-status--disabled": record().status !== "active" }}>
                     {record().status === "active" ? "启用" : "已停用"}
                   </span>
+                  <Show when={canManage()}>
+                    <div class="group-detail__actions">
+                      <button type="button" onClick={startEdit}>编辑</button>
+                    </div>
+                  </Show>
                 </div>
                 <p class="type-secondary">{record().description ?? "暂无说明"}</p>
-                <Show when={canManage()}>
-                  <div class="group-detail__actions">
-                    <button type="button" onClick={startEdit}>编辑</button>
-                  </div>
-                </Show>
               </Show>
             </header>
 
