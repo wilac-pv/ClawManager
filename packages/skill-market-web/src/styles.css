@@ -1556,6 +1556,244 @@ a {
   font-weight: 600;
 }
 
+.group-status--disabled {
+  background: var(--skillhub-neutral-soft);
+  color: var(--skillhub-neutral-text);
+}
+
+.group-quota-hint {
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--skillhub-muted);
+}
+
+.group-quota-hint strong {
+  color: var(--skillhub-text);
+}
+
+.group-quota-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--skillhub-neutral-soft);
+  color: var(--skillhub-neutral-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.group-section__empty {
+  color: var(--skillhub-muted);
+  font-size: 14px;
+}
+
+.group-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.group-detail__breadcrumb {
+  margin-bottom: 16px;
+}
+
+.group-detail__breadcrumb a {
+  color: var(--skillhub-brand);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.group-detail__header {
+  margin-bottom: 24px;
+}
+
+.group-detail__title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.group-detail__title-row h1 {
+  margin: 0;
+}
+
+.group-detail__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.group-detail__actions button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 999px;
+  background: var(--skillhub-surface);
+  color: var(--skillhub-text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.group-detail__actions button:hover {
+  border-color: var(--skillhub-brand-border);
+  background: var(--skillhub-brand-soft);
+}
+
+.group-inline-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.group-inline-edit input {
+  flex: 1;
+  min-width: 150px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 999px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.group-inline-edit button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 999px;
+  background: var(--skillhub-surface);
+  color: var(--skillhub-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.group-add-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-add-member input {
+  width: 200px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 999px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.group-add-member button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 999px;
+  background: var(--skillhub-surface);
+  color: var(--skillhub-text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 160ms ease;
+}
+
+.group-add-member button:hover:not(:disabled) {
+  border-color: var(--skillhub-brand-border);
+  background: var(--skillhub-brand-soft);
+}
+
+.group-member {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--skillhub-border-soft);
+}
+
+.group-member__avatar {
+  display: grid;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--skillhub-neutral-soft);
+  color: var(--skillhub-neutral-text);
+  font-size: 14px;
+  font-weight: 700;
+  place-items: center;
+}
+
+.group-member__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.group-member__info strong {
+  font-size: 14px;
+}
+
+.group-member__role {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--skillhub-neutral-soft);
+  color: var(--skillhub-neutral-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.group-member__role--owner {
+  background: var(--skillhub-brand-soft);
+  color: var(--skillhub-brand);
+}
+
+.group-member__remove {
+  flex: none;
+  padding: 4px 12px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--skillhub-danger);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.group-member__remove:hover:not(:disabled) {
+  background: var(--skillhub-danger-soft);
+}
+
+.group-detail__danger-zone {
+  max-width: 100%;
+}
+
+.group-detail__danger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.group-transfer-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-transfer-form input {
+  width: 180px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--skillhub-border);
+  border-radius: 999px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
 .group-member-list {
   display: grid;
   gap: 10px;

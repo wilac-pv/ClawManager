@@ -1,4 +1,5 @@
 import type { SkillMarketControl } from "@opencode-ai/schema/skill-market-control"
+import { A } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { For, Match, Show, Switch, createSignal } from "solid-js"
 import type { SkillMarketControlDataSource } from "../control-data-source"
@@ -14,23 +15,76 @@ export function GroupDetail(props: {
   readonly actor: string
   readonly admin: boolean
 }) {
-  const [name, setName] = createSignal("")
-  const [description, setDescription] = createSignal("")
-  const [employeeID, setEmployeeID] = createSignal("")
-  const [ownerEmployeeID, setOwnerEmployeeID] = createSignal("")
-  const [pending, setPending] = createSignal(false)
+  const [editMode, setEditMode] = createSignal(false)
+  const [editName, setEditName] = createSignal("")
+  const [editDesc, setEditDesc] = createSignal("")
+  const [memberInput, setMemberInput] = createSignal("")
+  const [transferInput, setTransferInput] = createSignal("")
+  const [pendingAction, setPendingAction] = createSignal<string>()
   const [error, setError] = createSignal<string>()
   const group = createQuery(() => ({ queryKey: ["skill-market", "group", props.groupID] as const, queryFn: ({ signal }) => props.source.detail(props.groupID, signal) }))
   const members = createQuery(() => ({ queryKey: ["skill-market", "group", props.groupID, "members"] as const, queryFn: ({ signal }) => props.source.members(props.groupID, signal) }))
   const canManage = () => props.admin || group.data?.ownerEmployeeID === props.actor
-  const run = (request: Promise<unknown>, refreshMembers = false) => {
-    if (pending()) return
-    setPending(true)
+
+  const run = (action: string, request: Promise<unknown>, refreshMembers = false, onSuccess?: () => void) => {
+    if (pendingAction()) return
+    setPendingAction(action)
     setError(undefined)
     void request
-      .then(() => Promise.all([group.refetch(), ...(refreshMembers ? [members.refetch()] : [])]))
-      .catch(() => setError("小组操作失败，状态可能已更新，请刷新后重试。"))
-      .finally(() => setPending(false))
+      .then(() => {
+        void group.refetch()
+        if (refreshMembers) void members.refetch()
+        onSuccess?.()
+      })
+      .catch(() => setError("操作失败，状态可能已更新，请刷新后重试。"))
+      .finally(() => setPendingAction(undefined))
+  }
+
+  const startEdit = () => {
+    setEditName(group.data?.name ?? "")
+    setEditDesc(group.data?.description ?? "")
+    setEditMode(true)
+  }
+
+  const saveEdit = (event: SubmitEvent) => {
+    event.preventDefault()
+    const record = group.data
+    if (!record) return
+    run("edit", props.source.update(record.id, {
+      expectedVersion: record.version,
+      ...(editName().trim() ? { name: editName().trim() } : {}),
+      ...(editDesc().trim() ? { description: editDesc().trim() } : {}),
+    }), false, () => setEditMode(false))
+  }
+
+  const addMember = (event: SubmitEvent) => {
+    event.preventDefault()
+    const record = group.data
+    if (!record || !memberInput().trim()) return
+    run("add", props.source.addMember(record.id, { expectedVersion: record.version, employeeID: memberInput().trim() }), true, () => setMemberInput(""))
+  }
+
+  const removeMember = (employeeID: string) => {
+    const record = group.data
+    if (!record) return
+    if (!window.confirm(`确定移除成员 ${employeeID}？`)) return
+    run("remove", props.source.removeMember(record.id, employeeID, { expectedVersion: record.version }), true)
+  }
+
+  const transfer = (event: SubmitEvent) => {
+    event.preventDefault()
+    const record = group.data
+    if (!record || !transferInput().trim()) return
+    if (!window.confirm(`确定将小组转让给 ${transferInput().trim()}？此操作不可撤销。`)) return
+    run("transfer", props.source.transfer(record.id, { expectedVersion: record.version, ownerEmployeeID: transferInput().trim() }), true, () => setTransferInput(""))
+  }
+
+  const toggleStatus = () => {
+    const record = group.data
+    if (!record) return
+    const next = record.status === "active" ? "停用" : "恢复"
+    if (!window.confirm(`确定${next}小组「${record.name}」？`)) return
+    run("status", props.source.setStatus(record.id, { expectedVersion: record.version, status: record.status === "active" ? "disabled" : "active" }))
   }
 
   return (
@@ -40,20 +94,69 @@ export function GroupDetail(props: {
       <Match when={group.data}>
         {(record) => (
           <main class="submission-page group-detail">
-            <header class="submission-page__heading">
-              <div><p class="submission-page__eyebrow">Sharing group</p><h1>{record().name}</h1><p>{record().description ?? "暂无说明"}</p></div>
-              <span class="group-status">{record().status === "active" ? "启用" : "已停用"}</span>
+            <div class="group-detail__breadcrumb">
+              <A href="/groups">← 我的小组</A>
+            </div>
+            <header class="group-detail__header">
+              <Show
+                when={!editMode()}
+                fallback={
+                  <form class="group-inline-edit" onSubmit={saveEdit}>
+                    <input value={editName()} onInput={(e) => setEditName(e.currentTarget.value)} placeholder="小组名称" />
+                    <input value={editDesc()} onInput={(e) => setEditDesc(e.currentTarget.value)} placeholder="小组说明" />
+                    <button type="submit" class="market-primary-action" disabled={pendingAction() === "edit"}>保存</button>
+                    <button type="button" onClick={() => setEditMode(false)}>取消</button>
+                  </form>
+                }
+              >
+                <div class="group-detail__title-row">
+                  <h1 class="type-page-title">{record().name}</h1>
+                  <span classList={{ "group-status": true, "group-status--disabled": record().status !== "active" }}>
+                    {record().status === "active" ? "启用" : "已停用"}
+                  </span>
+                </div>
+                <p class="type-secondary">{record().description ?? "暂无说明"}</p>
+                <Show when={canManage()}>
+                  <div class="group-detail__actions">
+                    <button type="button" onClick={startEdit}>编辑</button>
+                  </div>
+                </Show>
+              </Show>
             </header>
+
             <Show when={error()}>{(message) => <p class="submission-form__errors" role="alert">{message()}</p>}</Show>
+
             <section class="submission-detail__section">
-              <h2>成员</h2>
+              <div class="submission-detail__section-heading">
+                <h2>成员</h2>
+                <Show when={canManage()}>
+                  <form class="group-add-member" onSubmit={addMember}>
+                    <input value={memberInput()} onInput={(e) => setMemberInput(e.currentTarget.value)} placeholder="输入员工工号" />
+                    <button type="submit" disabled={pendingAction() === "add" || !memberInput().trim()}>添加</button>
+                  </form>
+                </Show>
+              </div>
               <Show when={members.data} fallback={<p role="status">正在加载成员…</p>}>
                 <ul class="group-member-list">
                   <For each={members.data}>
                     {(member) => (
-                      <li><span><strong>{member.employeeID}</strong><small>{member.employeeID === record().ownerEmployeeID ? "负责人" : "成员"}</small></span>
+                      <li class="group-member">
+                        <span class="group-member__avatar">{member.employeeID.charAt(0).toUpperCase()}</span>
+                        <div class="group-member__info">
+                          <strong>{member.employeeID}</strong>
+                          <span classList={{ "group-member__role": true, "group-member__role--owner": member.employeeID === record().ownerEmployeeID }}>
+                            {member.employeeID === record().ownerEmployeeID ? "负责人" : "成员"}
+                          </span>
+                        </div>
                         <Show when={canManage() && member.employeeID !== record().ownerEmployeeID}>
-                          <button type="button" disabled={pending()} onClick={() => run(props.source.removeMember(record().id, member.employeeID, { expectedVersion: record().version }), true)}>移除 {member.employeeID}</button>
+                          <button
+                            type="button"
+                            class="group-member__remove"
+                            disabled={pendingAction() === "remove"}
+                            onClick={() => removeMember(member.employeeID)}
+                          >
+                            移除
+                          </button>
                         </Show>
                       </li>
                     )}
@@ -61,24 +164,26 @@ export function GroupDetail(props: {
                 </ul>
               </Show>
             </section>
+
             <Show when={canManage()}>
-              <section class="group-management" aria-label="小组管理操作">
-                <form onSubmit={(event) => { event.preventDefault(); if (employeeID().trim()) run(props.source.addMember(record().id, { expectedVersion: record().version, employeeID: employeeID().trim() }), true) }}>
-                  <label><span>待添加员工工号</span><input aria-label="待添加员工工号" value={employeeID()} onInput={(event) => setEmployeeID(event.currentTarget.value)} /></label>
-                  <button type="submit" class="market-primary-action" disabled={pending() || !employeeID().trim()}>添加成员</button>
-                </form>
-                <form onSubmit={(event) => { event.preventDefault(); run(props.source.update(record().id, { expectedVersion: record().version, ...(name().trim() ? { name: name().trim() } : {}), ...(description().trim() ? { description: description().trim() } : {}) })) }}>
-                  <label><span>新名称</span><input aria-label="新名称" value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
-                  <label><span>新说明</span><input aria-label="新说明" value={description()} onInput={(event) => setDescription(event.currentTarget.value)} /></label>
-                  <button type="submit" disabled={pending() || (!name().trim() && !description().trim())}>保存资料</button>
-                </form>
-                <form onSubmit={(event) => { event.preventDefault(); if (ownerEmployeeID().trim()) run(props.source.transfer(record().id, { expectedVersion: record().version, ownerEmployeeID: ownerEmployeeID().trim() }), true) }}>
-                  <label><span>新负责人工号</span><input aria-label="新负责人工号" value={ownerEmployeeID()} onInput={(event) => setOwnerEmployeeID(event.currentTarget.value)} /></label>
-                  <button type="submit" disabled={pending() || !ownerEmployeeID().trim()}>转让负责人</button>
-                </form>
-                <button type="button" class="group-danger-action" disabled={pending()} onClick={() => run(props.source.setStatus(record().id, { expectedVersion: record().version, status: record().status === "active" ? "disabled" : "active" }))}>
-                  {record().status === "active" ? "停用小组" : "恢复小组"}
-                </button>
+              <section class="submission-detail__section group-detail__danger-zone">
+                <h2>管理操作</h2>
+                <div class="group-detail__danger-actions">
+                  <form class="group-transfer-form" onSubmit={transfer}>
+                    <input value={transferInput()} onInput={(e) => setTransferInput(e.currentTarget.value)} placeholder="新负责人工号" />
+                    <button type="submit" class="admin-danger-action" disabled={pendingAction() === "transfer" || !transferInput().trim()}>
+                      {pendingAction() === "transfer" ? "转让中…" : "转让负责人"}
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    class="group-danger-action"
+                    disabled={pendingAction() === "status"}
+                    onClick={toggleStatus}
+                  >
+                    {pendingAction() === "status" ? "处理中…" : record().status === "active" ? "停用小组" : "恢复小组"}
+                  </button>
+                </div>
               </section>
             </Show>
           </main>

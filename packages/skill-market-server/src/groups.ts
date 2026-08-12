@@ -34,6 +34,12 @@ export function createGroups(options: GroupsOptions) {
       const id = `grp_${randomSecret()}`
       const now = options.now?.() ?? Date.now()
       return options.database.transaction(async (connection) => {
+        const owned = await connection.get<{ count: number }>(
+          "SELECT count(*) AS count FROM market_groups WHERE owner_employee_id = ? AND status = 'active'",
+          [principal.session.user.employeeID],
+        )
+        if (owned && owned.count >= 5)
+          throw new SkillMarketSecurityError("invalid-request", "每人最多创建 5 个活跃小组")
         await connection.run(
           `INSERT INTO market_groups
             (id, name, description, owner_employee_id, status, version, created_at, updated_at)
