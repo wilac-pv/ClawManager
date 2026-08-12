@@ -1458,6 +1458,25 @@ a {
   gap: 18px;
 }
 
+.group-management {
+  max-width: 640px;
+}
+
+.group-management form {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.group-management form label {
+  grid-column: 1 / -1;
+}
+
+.group-management form label + label {
+  grid-column: 1 / -1;
+}
+
 .group-section h2 {
   margin: 0;
   font-size: 18px;
